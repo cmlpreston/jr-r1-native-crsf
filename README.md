@@ -4,9 +4,11 @@ This is the first, deliberately small firmware scaffold for replacing the JR R1
 computer with an ESP32-S3 DevKitC-1. It reads the original 5 kΩ throttle pot and
 sends a standard 16-channel CRSF channels frame to a RadioMaster Ranger Nano.
 
-Only CRSF channel 2 changes. Channel 1 (future steering) and channels 3–16 remain
-centred. The BIGTREETECH TFT35 SPI V2.1 provides the first channel-configuration
-page with persistent brake endpoint, throttle endpoint, trim and direction.
+The throttle role defaults to CRSF channel 2 but can be moved to any of the 16
+channels from the TFT. Channel 1 is reserved for future steering input by
+default; all inputs not yet implemented remain centred. The BIGTREETECH TFT35
+SPI V2.1 provides persistent role, endpoint, trim, direction, rate and
+exponential configuration.
 
 The consolidated wiring and GPIO allocation is maintained in
 [`docs/hardware-pinout.md`](docs/hardware-pinout.md). The original R1 control
@@ -16,8 +18,9 @@ inventory and future assignment plan is in
 ## Safety
 
 For the first test, disconnect the buggy motor from the ESC or place the buggy on
-a secure stand. The firmware holds channel 2 at neutral until the trigger remains
-near its configured centre for one second.
+a secure stand. The firmware holds the selected throttle channel at neutral
+until the trigger remains near its configured centre for one second. Changing a
+channel role also disarms throttle and requires this neutral re-arm sequence.
 
 Always fit the Ranger antenna before powering the module. Begin at the lowest RF
 power setting.
@@ -89,8 +92,9 @@ unwired ADC input cannot create false readings or alarms during USB testing.
 
 ## Calibration
 
-Tap `CAL` on the TFT35 CH2 page. While calibration is active, CH2 is held at
-neutral. Move the trigger to full brake, then full throttle, then release it and
+Tap `CAL` on the selected throttle-channel page. While calibration is active,
+the selected output is held at neutral. Move the trigger to full brake/reverse,
+then full forward, then release it and
 leave it centred for approximately 1.5 seconds. The measured minimum, centre and
 maximum are validated and saved in ESP32 NVS, and are restored at the next boot.
 
@@ -128,8 +132,24 @@ should be checked again after changing sub-trim. Touch raw and mapped coordinate
 are printed over USB; use those readings to refine the four
 `TOUCH_RAW_*` calibration constants in `include/config.h` if required.
 
-The transmitter boots into a scalable main menu. `CHANNELS` and `SETUP` are
-active; the remaining roadmap sections are shown dimmed and disabled:
+`CHANNELS > ROLES` selects the steering and throttle CRSF channel numbers; the
+same channel cannot hold both roles. `RESPONSE`, available from the main menu or
+the throttle page, provides independent forward and brake/reverse rate and expo.
+Rate is 0–100%. Expo is -100% to +100%; positive expo softens response around
+neutral, while negative expo makes it more aggressive. Processing order is:
+
+```text
+physical trigger side -> expo -> rate -> endpoint -> direction reverse -> sub-trim
+```
+
+This ordering is deliberate: `FORWARD` and `BRAKE/REV` always describe the
+physical trigger actions. Reversing the output changes which CRSF end those
+actions drive, without accidentally exchanging their endpoint or response
+settings. `BRAKE/REV` is used because a car ESC commonly brakes on the first
+reverse-trigger command and supplies reverse drive only after stopping.
+
+The transmitter boots into a scalable main menu. `CHANNELS`, `RESPONSE`, and
+`SETUP` are active; the remaining roadmap sections are shown dimmed and disabled:
 
 - `MODELS`: select/name/copy/reset models and later transfer/import/export;
 - `CHANNELS`: names, reverse, calibration, sub-trim and endpoints per channel;
@@ -142,8 +162,9 @@ active; the remaining roadmap sections are shown dimmed and disabled:
 
 This reorganises the original R1 System/Function menus without duplicating
 their historical navigation constraints. The channel browser exposes all 16
-CRSF channels in two banks. CH2 opens the implemented throttle configuration
-page; the other channel entries are stable placeholders for future pages.
+CRSF channels in two banks. Whichever channel has the throttle role opens the
+implemented throttle configuration page; other channel entries remain stable
+placeholders until their input and configuration pages are implemented.
 
 ## Original R1 passive piezo buzzer
 

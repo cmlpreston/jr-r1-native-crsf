@@ -37,6 +37,7 @@ Channel2Ui channel2Ui;
 CrsfTelemetryParser telemetryParser;
 volatile uint32_t crsfBusEdges = 0;
 volatile uint16_t sharedTransmittedThrottle = CRSF_CHANNEL_MID;
+volatile uint8_t sharedThrottleChannel = 2;
 CrsfTelemetryState telemetrySnapshot;
 portMUX_TYPE telemetryMux = portMUX_INITIALIZER_UNLOCKED;
 TaskHandle_t crsfTaskHandle = nullptr;
@@ -116,15 +117,16 @@ void packChannels(const uint16_t channels[CRSF_CHANNEL_COUNT], uint8_t payload[C
     }
 }
 
-void buildChannelsFrame(uint16_t throttle, uint8_t frame[CRSF_FRAME_BYTES])
+void buildChannelsFrame(uint16_t throttle, uint8_t throttleChannel,
+                        uint8_t frame[CRSF_FRAME_BYTES])
 {
     uint16_t channels[CRSF_CHANNEL_COUNT];
     for (uint16_t &channel : channels) {
         channel = CRSF_CHANNEL_MID;
     }
 
-    // Conventional surface-radio allocation: CH1 steering, CH2 throttle.
-    channels[1] = throttle;
+    throttleChannel = constrain(throttleChannel, 1, 16);
+    channels[throttleChannel - 1] = throttle;
 
     frame[0] = CRSF_SYNC_BYTE;
     frame[1] = 24; // type + 22-byte channel payload + CRC
@@ -168,10 +170,10 @@ void transmitCrsfFrame(const uint8_t *frame, size_t length)
     setCrsfBusReceive();
 }
 
-void sendChannelsFrame(uint16_t throttle)
+void sendChannelsFrame(uint16_t throttle, uint8_t throttleChannel)
 {
     uint8_t frame[CRSF_FRAME_BYTES];
-    buildChannelsFrame(throttle, frame);
+    buildChannelsFrame(throttle, throttleChannel, frame);
     transmitCrsfFrame(frame, sizeof(frame));
 }
 
@@ -214,7 +216,9 @@ void crsfTask(void *)
             // Do not send a burst after a scheduling hiccup; resume at the
             // current 250 Hz phase with the latest requested channel value.
             nextFrameUs = nowUs + CRSF_FRAME_PERIOD_US;
-            sendChannelsFrame(sharedTransmittedThrottle);
+            const uint16_t throttle = sharedTransmittedThrottle;
+            const uint8_t channel = sharedThrottleChannel;
+            sendChannelsFrame(throttle, channel);
         }
         readReturnedTelemetry();
         const uint32_t nowMs = millis();
@@ -303,17 +307,31 @@ void loop()
                       throttleArmed ? configuredThrottle : 0,
                       transmittedThrottle, throttleArmed,
                       telemetry, txVoltageDecivolts, txVoltageValid);
+    if (channel2Ui.consumeChannelRolesChanged()) {
+        // Publish neutral before changing the channel number. If the CRSF task
+        // runs between these writes it can only send the previous channel at
+        // neutral, never the previous live value on the newly selected output.
+        sharedTransmittedThrottle = CRSF_CHANNEL_MID;
+        sharedThrottleChannel = channel2Ui.throttleChannel();
+        throttleArmed = false;
+        neutralSinceMs = 0;
+        Serial.printf("SAFE: throttle role changed to CH%u; release trigger to re-arm\n",
+                      channel2Ui.throttleChannel());
+    } else {
+        sharedThrottleChannel = channel2Ui.throttleChannel();
+    }
 
     if (static_cast<int32_t>(nowMs - nextLogMs) >= 0) {
         nextLogMs += USB_LOG_PERIOD_MS;
         const int neutralDelta = static_cast<int>(filteredAdc) -
                                  static_cast<int>(channel2Ui.throttleCentreAdc());
-        Serial.printf("adc=%4u ctr=%4u delta=%+4d cal=%s neutralFor=%lums requested=%4u sent=%4u armed=%s link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV edges=%lu bytes=%lu frames=%lu crc=%lu\n",
+        Serial.printf("adc=%4u ctr=%4u delta=%+4d cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV edges=%lu bytes=%lu frames=%lu crc=%lu\n",
                       filteredAdc,
                       channel2Ui.throttleCentreAdc(),
                       neutralDelta,
                       channel2Ui.calibrationActive() ? "yes" : "no",
                       static_cast<unsigned long>(neutralSinceMs == 0 ? 0 : nowMs - neutralSinceMs),
+                      channel2Ui.throttleChannel(),
                       requestedThrottle,
                       transmittedThrottle,
                       throttleArmed ? "yes" : "NO",

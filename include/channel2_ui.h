@@ -6,9 +6,18 @@
 
 struct Channel2Settings {
     uint8_t brakeEndpointPercent = 100;
-    uint8_t throttleEndpointPercent = 100;
+    uint8_t forwardEndpointPercent = 100;
+    uint8_t brakeRatePercent = 100;
+    uint8_t forwardRatePercent = 100;
+    int8_t brakeExpoPercent = 0;
+    int8_t forwardExpoPercent = 0;
     int8_t subtrimPercent = 0;
     bool reversed = false;
+};
+
+struct ChannelRoleSettings {
+    uint8_t steeringChannel = 1;
+    uint8_t throttleChannel = 2;
 };
 
 struct ThrottleCalibration {
@@ -41,7 +50,9 @@ enum class UiPage : uint8_t {
     Dashboard,
     MainMenu,
     Channels,
+    ChannelRoles,
     Channel2,
+    ThrottleResponse,
     ChannelPlaceholder,
     Setup,
     TxBatterySetup,
@@ -62,11 +73,16 @@ public:
     const Channel2Settings &settings() const { return settings_; }
     const ThrottleCalibration &calibration() const { return calibration_; }
     bool txVoltageSenseEnabled() const { return txBatterySettings_.voltageSenseEnabled; }
+    uint8_t steeringChannel() const { return channelRoleSettings_.steeringChannel; }
+    uint8_t throttleChannel() const { return channelRoleSettings_.throttleChannel; }
+    bool consumeChannelRolesChanged();
 
 private:
     void loadSettings();
     void saveSettings();
     void saveCalibration();
+    void loadChannelRoleSettings();
+    void saveChannelRoleSettings();
     void loadSystemSettings();
     void saveSystemSettings();
     void loadTxBatterySettings();
@@ -78,8 +94,12 @@ private:
                            uint16_t txVoltageDecivolts,
                            bool txVoltageValid);
     void drawChannelsPage();
+    void drawChannelRolesPage();
+    void drawChannelRoleRow(int row);
     void drawChannelPlaceholder();
     void drawPage();
+    void drawThrottleResponsePage();
+    void drawThrottleResponseRow(int row);
     void drawSetupPage();
     void drawSetupRow(int row);
     void drawTxBatteryPage();
@@ -92,6 +112,8 @@ private:
     void handleMainMenuTouch(int16_t x, int16_t y);
     void handleDashboardTouch(int16_t x, int16_t y);
     void handleChannelsTouch(int16_t x, int16_t y);
+    void handleChannelRolesTouch(int16_t x, int16_t y);
+    void handleThrottleResponseTouch(int16_t x, int16_t y);
     void handleSetupTouch(int16_t x, int16_t y);
     void handleTxBatteryTouch(int16_t x, int16_t y);
     void startCalibration(uint16_t adc);
@@ -106,6 +128,7 @@ private:
     void resetLvglObjects();
 
     Channel2Settings settings_;
+    ChannelRoleSettings channelRoleSettings_;
     ThrottleCalibration calibration_;
     SystemSettings systemSettings_;
     TxBatterySettings txBatterySettings_;
@@ -114,6 +137,7 @@ private:
     uint8_t channelsBank_ = 0;
     uint8_t selectedChannel_ = 2;
     bool calibrationActive_ = false;
+    bool channelRolesChanged_ = false;
     bool calibrationSawMinimum_ = false;
     bool calibrationSawMaximum_ = false;
     uint16_t calibrationMinimum_ = UINT16_MAX;

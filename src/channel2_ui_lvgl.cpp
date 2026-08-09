@@ -31,6 +31,8 @@ constexpr uint16_t kBuzzerDurationStepMs = 10;
 constexpr uint16_t kTxBatteryMinimumAlarmDecivolts = 30;
 constexpr uint16_t kTxBatteryMaximumAlarmDecivolts = 168;
 constexpr uint32_t kLowBatteryRepeatMs = 10000;
+constexpr uint8_t kResponseRateStepPercent = 5;
+constexpr int8_t kResponseExpoStepPercent = 5;
 
 constexpr uint32_t cBlack = 0x05080d;
 constexpr uint32_t cHeader = 0x06182c;
@@ -168,6 +170,28 @@ int16_t clampExtendedTravel(int32_t value)
                                           kExtendedTravelPermille));
 }
 
+int16_t applyExpo(int16_t value, int8_t expoPercent)
+{
+    const int32_t sign = value < 0 ? -1 : 1;
+    const int32_t magnitude = abs(static_cast<int32_t>(value));
+    const int32_t cubic = magnitude * magnitude * magnitude / 1000000L;
+    const int32_t shaped = magnitude +
+        static_cast<int32_t>(expoPercent) * (cubic - magnitude) / 100;
+    return static_cast<int16_t>(sign * constrain(shaped, 0L, 1000L));
+}
+
+uint8_t adjacentChannel(uint8_t current, int8_t direction, uint8_t unavailable)
+{
+    for (uint8_t tries = 0; tries < 16; ++tries) {
+        int16_t candidate = static_cast<int16_t>(current) + direction;
+        if (candidate < 1) candidate = 16;
+        if (candidate > 16) candidate = 1;
+        current = static_cast<uint8_t>(candidate);
+        if (current != unavailable) return current;
+    }
+    return current;
+}
+
 const char *batteryChemistryName(BatteryChemistry chemistry)
 {
     switch (chemistry) {
@@ -197,6 +221,7 @@ uint16_t defaultLowAlarmDecivolts(BatteryChemistry chemistry,
 bool Channel2Ui::begin()
 {
     loadSettings();
+    loadChannelRoleSettings();
     loadSystemSettings();
     loadTxBatterySettings();
     setToneChannel(BUZZER_LEDC_CHANNEL);
@@ -251,7 +276,11 @@ void Channel2Ui::loadSettings()
     Preferences preferences;
     preferences.begin("jr-r1-ch2", true);
     settings_.brakeEndpointPercent = preferences.getUChar("brake_ep", 100);
-    settings_.throttleEndpointPercent = preferences.getUChar("throt_ep", 100);
+    settings_.forwardEndpointPercent = preferences.getUChar("throt_ep", 100);
+    settings_.brakeRatePercent = preferences.getUChar("brk_rate", 100);
+    settings_.forwardRatePercent = preferences.getUChar("fwd_rate", 100);
+    settings_.brakeExpoPercent = preferences.getChar("brk_expo", 0);
+    settings_.forwardExpoPercent = preferences.getChar("fwd_expo", 0);
     settings_.subtrimPercent = preferences.getChar("trim", 0);
     settings_.reversed = preferences.getBool("reverse", false);
     calibration_.minimum = preferences.getUShort("adc_min", THROTTLE_ADC_MIN);
@@ -260,7 +289,11 @@ void Channel2Ui::loadSettings()
     preferences.end();
 
     settings_.brakeEndpointPercent = constrain(settings_.brakeEndpointPercent, 50, 100);
-    settings_.throttleEndpointPercent = constrain(settings_.throttleEndpointPercent, 50, 100);
+    settings_.forwardEndpointPercent = constrain(settings_.forwardEndpointPercent, 50, 100);
+    settings_.brakeRatePercent = constrain(settings_.brakeRatePercent, 0, 100);
+    settings_.forwardRatePercent = constrain(settings_.forwardRatePercent, 0, 100);
+    settings_.brakeExpoPercent = constrain(settings_.brakeExpoPercent, -100, 100);
+    settings_.forwardExpoPercent = constrain(settings_.forwardExpoPercent, -100, 100);
     settings_.subtrimPercent = constrain(settings_.subtrimPercent, -20, 20);
     if (calibration_.minimum + 100 >= calibration_.centre ||
         calibration_.centre + 100 >= calibration_.maximum) {
@@ -275,10 +308,45 @@ void Channel2Ui::saveSettings()
     Preferences preferences;
     preferences.begin("jr-r1-ch2", false);
     preferences.putUChar("brake_ep", settings_.brakeEndpointPercent);
-    preferences.putUChar("throt_ep", settings_.throttleEndpointPercent);
+    preferences.putUChar("throt_ep", settings_.forwardEndpointPercent);
+    preferences.putUChar("brk_rate", settings_.brakeRatePercent);
+    preferences.putUChar("fwd_rate", settings_.forwardRatePercent);
+    preferences.putChar("brk_expo", settings_.brakeExpoPercent);
+    preferences.putChar("fwd_expo", settings_.forwardExpoPercent);
     preferences.putChar("trim", settings_.subtrimPercent);
     preferences.putBool("reverse", settings_.reversed);
     preferences.end();
+}
+
+void Channel2Ui::loadChannelRoleSettings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-model1", true);
+    channelRoleSettings_.steeringChannel = preferences.getUChar("steer_ch", 1);
+    channelRoleSettings_.throttleChannel = preferences.getUChar("throt_ch", 2);
+    preferences.end();
+    channelRoleSettings_.steeringChannel = constrain(channelRoleSettings_.steeringChannel, 1, 16);
+    channelRoleSettings_.throttleChannel = constrain(channelRoleSettings_.throttleChannel, 1, 16);
+    if (channelRoleSettings_.steeringChannel == channelRoleSettings_.throttleChannel) {
+        channelRoleSettings_.steeringChannel = 1;
+        channelRoleSettings_.throttleChannel = 2;
+    }
+}
+
+void Channel2Ui::saveChannelRoleSettings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-model1", false);
+    preferences.putUChar("steer_ch", channelRoleSettings_.steeringChannel);
+    preferences.putUChar("throt_ch", channelRoleSettings_.throttleChannel);
+    preferences.end();
+}
+
+bool Channel2Ui::consumeChannelRolesChanged()
+{
+    const bool changed = channelRolesChanged_;
+    channelRolesChanged_ = false;
+    return changed;
 }
 
 void Channel2Ui::saveCalibration()
@@ -379,9 +447,19 @@ int16_t Channel2Ui::mapAdcToPermille(uint16_t adc) const
 
 int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const
 {
-    int32_t value = settings_.reversed ? -rawInputPermille : rawInputPermille;
-    value = value * (value < 0 ? settings_.brakeEndpointPercent
-                               : settings_.throttleEndpointPercent) / 100;
+    // Keep physical trigger semantics independent of output direction:
+    // negative input is always brake/reverse; positive is always forward.
+    const bool braking = rawInputPermille < 0;
+    const int8_t expo = braking ? settings_.brakeExpoPercent
+                                : settings_.forwardExpoPercent;
+    const uint8_t rate = braking ? settings_.brakeRatePercent
+                                 : settings_.forwardRatePercent;
+    const uint8_t endpoint = braking ? settings_.brakeEndpointPercent
+                                     : settings_.forwardEndpointPercent;
+    int32_t value = applyExpo(rawInputPermille, expo);
+    value = value * rate / 100;
+    value = value * endpoint / 100;
+    if (settings_.reversed) value = -value;
     value += static_cast<int32_t>(settings_.subtrimPercent) * 10;
     return clampExtendedTravel(value);
 }
@@ -424,12 +502,15 @@ void Channel2Ui::drawDashboard()
         const int16_t x = 9 + channel * 28;
         char number[4];
         snprintf(number, sizeof(number), "%u", channel + 1);
+        const bool assignedRole = channel + 1 == channelRoleSettings_.steeringChannel ||
+                                  channel + 1 == channelRoleSettings_.throttleChannel;
         makeLabel(monitor, number, x + (channel < 9 ? 5 : 1), 21, 12,
-                  channel < 2 ? cWhite : cDim);
+                  assignedRole ? cWhite : cDim);
         lv_obj_t *bar = makeBar(monitor, x + 3, 37, 16, 44, 0, kCrsfMaximum,
-                                channel < 2 ? cCyan : cDim);
+                                assignedRole ? cCyan : cDim);
         lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
-        if (channel == 1) dashboardThrottleBar_ = bar;
+        if (channel + 1 == channelRoleSettings_.throttleChannel)
+            dashboardThrottleBar_ = bar;
     }
 
     makeButton(8, 249, 108, 62, "MENU", 18);
@@ -531,7 +612,7 @@ void Channel2Ui::drawMainMenu()
     static const char *labels[] = {"MODELS", "CHANNELS", "RESPONSE", "MIXES",
         "DRIVE AIDS", "TIMERS", "LINK / TELEM", "SETUP"};
     for (uint8_t index = 0; index < 8; ++index) {
-        const bool enabled = index == 1 || index == 7;
+        const bool enabled = index == 1 || index == 2 || index == 7;
         makeButton(10 + (index % 2) * 235, 52 + (index / 2) * 54, 225, 46,
                    labels[index], 16,
                    enabled ? cPanel2 : cBlack,
@@ -548,16 +629,20 @@ void Channel2Ui::drawChannelsPage()
     startScreen();
     resetLvglObjects();
     makeHeader("CHANNELS", "BACK");
+    makeButton(282, 5, 88, 34, "ROLES", 12, cPanel2, cCyan);
     const uint8_t first = channelsBank_ * 8 + 1;
     for (uint8_t index = 0; index < 8; ++index) {
         const uint8_t channel = first + index;
         char label[24];
-        if (channel == 1) snprintf(label, sizeof(label), "CH1  STEERING");
-        else if (channel == 2) snprintf(label, sizeof(label), "CH2  THROTTLE");
+        if (channel == channelRoleSettings_.steeringChannel)
+            snprintf(label, sizeof(label), "CH%u  STEERING", channel);
+        else if (channel == channelRoleSettings_.throttleChannel)
+            snprintf(label, sizeof(label), "CH%u  THROTTLE", channel);
         else snprintf(label, sizeof(label), "CH%u  AUX", channel);
         makeButton(10 + (index % 2) * 235, 52 + (index / 2) * 52, 225, 44,
-                   label, 16, channel == 2 ? cPanel2 : cPanel,
-                   channel == 2 ? cCyan : cWhite);
+                   label, 16,
+                   channel == channelRoleSettings_.throttleChannel ? cPanel2 : cPanel,
+                   channel == channelRoleSettings_.throttleChannel ? cCyan : cWhite);
     }
     makeButton(12, 270, 58, 40, "<", 24,
                channelsBank_ == 0 ? cBlack : cPanel,
@@ -569,6 +654,36 @@ void Channel2Ui::drawChannelsPage()
     snprintf(page, sizeof(page), "%u / 2", channelsBank_ + 1);
     lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 280, 16, cDim);
     lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 280);
+}
+
+void Channel2Ui::drawChannelRoleRow(int row)
+{
+    const int16_t y = 72 + row * 68;
+    lv_obj_t *panel = makePanel(18, y, 444, 56);
+    makeLabel(panel, row == 0 ? "STEERING" : "THROTTLE", 14, 16, 18, cCyan);
+    const uint8_t channel = row == 0 ? channelRoleSettings_.steeringChannel
+                                     : channelRoleSettings_.throttleChannel;
+    char value[12];
+    snprintf(value, sizeof(value), "CH%u", channel);
+    makeLabel(panel, value, 242, 16, 18, cWhite);
+    makeButton(350, y + 8, 44, 40, "-", 22);
+    makeButton(404, y + 8, 44, 40, "+", 22);
+}
+
+void Channel2Ui::drawChannelRolesPage()
+{
+    activePage_ = UiPage::ChannelRoles;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("CHANNEL ROLES", "BACK");
+    drawChannelRoleRow(0);
+    drawChannelRoleRow(1);
+    lv_obj_t *note = makeLabel(lv_scr_act(),
+        "Changing roles disarms throttle output.\n"
+        "Steering stays centred until its pot is connected.",
+        0, 222, 14, cAmber);
+    lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 222);
 }
 
 void Channel2Ui::drawChannelPlaceholder()
@@ -590,14 +705,14 @@ void Channel2Ui::drawChannelPlaceholder()
 
 void Channel2Ui::drawSettingRow(int row)
 {
-    static const char *labels[] = {"BRAKE END", "SUB-TRIM", "THROTTLE END", "DIRECTION"};
+    static const char *labels[] = {"BRAKE/REV END", "SUB-TRIM", "FORWARD END", "DIRECTION"};
     const int16_t y = 56 + row * 50;
     lv_obj_t *panel = makePanel(10, y, 460, 44);
     makeLabel(panel, labels[row], 12, 12, 16, cCyan);
     char value[20];
     if (row == 0) snprintf(value, sizeof(value), "%u%%", settings_.brakeEndpointPercent);
     else if (row == 1) snprintf(value, sizeof(value), "%+d%%", settings_.subtrimPercent);
-    else if (row == 2) snprintf(value, sizeof(value), "%u%%", settings_.throttleEndpointPercent);
+    else if (row == 2) snprintf(value, sizeof(value), "%u%%", settings_.forwardEndpointPercent);
     else snprintf(value, sizeof(value), "%s", settings_.reversed ? "REVERSE" : "NORMAL");
     makeLabel(panel, value, 212, 12, 16, row == 3 && settings_.reversed ? cAmber : cWhite);
     if (row < 3) {
@@ -636,17 +751,65 @@ void Channel2Ui::drawPage()
     activePage_ = UiPage::Channel2;
     startScreen();
     resetLvglObjects();
-    makeHeader("CH2  THROTTLE");
-    makeButton(264, 5, 72, 34, "BACK", 12);
-    makeButton(344, 5, 58, 34, "CAL", 12);
-    channel2ValueLabel_ = makeLabel(lv_scr_act(), " 992", 414, 12, 16, cGreen);
+    char title[24];
+    snprintf(title, sizeof(title), "CH%u THROTTLE", channelRoleSettings_.throttleChannel);
+    makeHeader(title);
+    makeButton(214, 5, 76, 34, "RESP", 12, cPanel2, cCyan);
+    makeButton(298, 5, 72, 34, "BACK", 12);
+    makeButton(378, 5, 72, 34, "CAL", 12);
     for (int row = 0; row < 4; ++row) drawSettingRow(row);
-    makeLabel(lv_scr_act(), "CH2", 12, 283, 16, cCyan);
-    channel2LiveBar_ = makeBar(lv_scr_act(), 60, 287, 402, 14, 0, kCrsfMaximum, cGreen);
+    char channelLabel[16];
+    snprintf(channelLabel, sizeof(channelLabel), "CH%u", channelRoleSettings_.throttleChannel);
+    makeLabel(lv_scr_act(), channelLabel, 12, 283, 16, cCyan);
+    channel2ValueLabel_ = makeLabel(lv_scr_act(), "992", 422, 283, 14, cGreen);
+    channel2LiveBar_ = makeBar(lv_scr_act(), 60, 287, 350, 14, 0, kCrsfMaximum, cGreen);
     lv_bar_set_value(channel2LiveBar_, kCrsfMid, LV_ANIM_OFF);
-    makeLabel(lv_scr_act(), "BRAKE", 60, 304, 12, cDim);
-    makeLabel(lv_scr_act(), "THROTTLE", 400, 304, 12, cDim);
+    makeLabel(lv_scr_act(), settings_.reversed ? "FORWARD" : "BRAKE/REV", 60, 304, 12, cDim);
+    makeLabel(lv_scr_act(), settings_.reversed ? "BRAKE/REV" : "FORWARD", 338, 304, 12, cDim);
     lastDisplayedCrsf_ = UINT16_MAX;
+}
+
+void Channel2Ui::drawThrottleResponseRow(int row)
+{
+    static const char *labels[] = {
+        "FORWARD RATE", "FORWARD EXPO", "BRAKE/REV RATE", "BRAKE/REV EXPO"
+    };
+    const int16_t y = 56 + row * 50;
+    lv_obj_t *panel = makePanel(10, y, 460, 44);
+    makeLabel(panel, labels[row], 12, 12, 16, cCyan);
+    char value[20];
+    if (row == 0) snprintf(value, sizeof(value), "%u%%", settings_.forwardRatePercent);
+    else if (row == 1) snprintf(value, sizeof(value), "%+d%%", settings_.forwardExpoPercent);
+    else if (row == 2) snprintf(value, sizeof(value), "%u%%", settings_.brakeRatePercent);
+    else snprintf(value, sizeof(value), "%+d%%", settings_.brakeExpoPercent);
+    makeLabel(panel, value, 222, 12, 16, cWhite);
+
+    lv_obj_t *minus = lv_obj_create(panel); position(minus, 343, 3, 48, 36);
+    lv_obj_set_style_bg_color(minus, colour(cPanel2), 0);
+    lv_obj_set_style_border_color(minus, colour(cLine), 0);
+    lv_obj_set_style_border_width(minus, 1, 0);
+    lv_obj_set_style_radius(minus, 5, 0);
+    lv_obj_set_style_pad_all(minus, 0, 0);
+    lv_obj_t *ml = makeLabel(minus, "-", 0, 0, 24); lv_obj_center(ml);
+    lv_obj_t *plus = lv_obj_create(panel); position(plus, 401, 3, 48, 36);
+    lv_obj_set_style_bg_color(plus, colour(cPanel2), 0);
+    lv_obj_set_style_border_color(plus, colour(cLine), 0);
+    lv_obj_set_style_border_width(plus, 1, 0);
+    lv_obj_set_style_radius(plus, 5, 0);
+    lv_obj_set_style_pad_all(plus, 0, 0);
+    lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 24); lv_obj_center(pl);
+}
+
+void Channel2Ui::drawThrottleResponsePage()
+{
+    activePage_ = UiPage::ThrottleResponse;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("THROTTLE RESPONSE", "BACK");
+    for (int row = 0; row < 4; ++row) drawThrottleResponseRow(row);
+    lv_obj_t *note = makeLabel(lv_scr_act(),
+        "+EXPO = SOFTER AROUND NEUTRAL", 0, 280, 12, cDim);
+    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
 }
 
 void Channel2Ui::drawLiveIndicator(int16_t, uint16_t crsfValue)
@@ -772,9 +935,12 @@ void Channel2Ui::drawCalibrationPage()
     resetLvglObjects();
     makeHeader("THROTTLE CALIBRATION", "CANCEL");
     makeLabel(lv_scr_act(), "1. MOVE TO FULL BRAKE", 20, 62, 16, cCyan);
-    makeLabel(lv_scr_act(), "2. MOVE TO FULL THROTTLE", 20, 92, 16, cCyan);
+    makeLabel(lv_scr_act(), "2. MOVE TO FULL FORWARD", 20, 92, 16, cCyan);
     makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 20, 122, 16, cCyan);
-    makeLabel(lv_scr_act(), "CH2 OUTPUT HELD AT NEUTRAL", 20, 160, 16, cAmber);
+    char held[44];
+    snprintf(held, sizeof(held), "CH%u OUTPUT HELD AT NEUTRAL",
+             channelRoleSettings_.throttleChannel);
+    makeLabel(lv_scr_act(), held, 20, 160, 16, cAmber);
     lv_obj_t *panel = makePanel(18, 202, 444, 92);
     makeLabel(panel, "MIN", 16, 10, 14, cDim);
     makeLabel(panel, "LIVE", 180, 10, 14, cDim);
@@ -885,12 +1051,16 @@ void Channel2Ui::handleMainMenuTouch(int16_t x, int16_t y)
     const int item = ((y - 52) / 54) * 2 + (x >= 240 ? 1 : 0);
     playKeyClick();
     if (item == 1) drawChannelsPage();
+    else if (item == 2) drawThrottleResponsePage();
     else if (item == 7) drawSetupPage();
 }
 
 void Channel2Ui::handleChannelsTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
+    if (y < 48 && x >= 275 && x < 375) {
+        playKeyClick(); drawChannelRolesPage(); return;
+    }
+    if (y < 48 && x >= 375) { playKeyClick(); drawMainMenu(); return; }
     if (y >= 270) {
         if (x < 90 && channelsBank_ > 0) { --channelsBank_; playKeyClick(); drawChannelsPage(); }
         else if (x >= 390 && channelsBank_ < 1) { ++channelsBank_; playKeyClick(); drawChannelsPage(); }
@@ -899,7 +1069,52 @@ void Channel2Ui::handleChannelsTouch(int16_t x, int16_t y)
     if (y < 52 || y >= 264) return;
     selectedChannel_ = channelsBank_ * 8 + ((y - 52) / 52) * 2 + (x >= 240 ? 1 : 0) + 1;
     playKeyClick();
-    if (selectedChannel_ == 2) drawPage(); else drawChannelPlaceholder();
+    if (selectedChannel_ == channelRoleSettings_.throttleChannel) drawPage();
+    else drawChannelPlaceholder();
+}
+
+void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
+{
+    if (y < 48 && x >= 360) { playKeyClick(); drawChannelsPage(); return; }
+    if (y < 72 || y >= 196 || x < 340) return;
+    const int row = y < 140 ? 0 : 1;
+    const int8_t direction = x < 400 ? -1 : 1;
+    if (row == 0) {
+        channelRoleSettings_.steeringChannel = adjacentChannel(
+            channelRoleSettings_.steeringChannel, direction,
+            channelRoleSettings_.throttleChannel);
+    } else {
+        channelRoleSettings_.throttleChannel = adjacentChannel(
+            channelRoleSettings_.throttleChannel, direction,
+            channelRoleSettings_.steeringChannel);
+    }
+    channelRolesChanged_ = true;
+    saveChannelRoleSettings();
+    playKeyClick();
+    drawChannelRolesPage();
+}
+
+void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
+{
+    if (y < 48 && x >= 360) { playKeyClick(); drawPage(); return; }
+    if (y < 56 || y >= 256 || x < 340) return;
+    const int row = (y - 56) / 50;
+    const int8_t direction = x < 400 ? -1 : 1;
+    bool changed = false;
+    if (row == 0) {
+        const int value = settings_.forwardRatePercent + direction * kResponseRateStepPercent;
+        settings_.forwardRatePercent = constrain(value, 0, 100); changed = true;
+    } else if (row == 1) {
+        const int value = settings_.forwardExpoPercent + direction * kResponseExpoStepPercent;
+        settings_.forwardExpoPercent = constrain(value, -100, 100); changed = true;
+    } else if (row == 2) {
+        const int value = settings_.brakeRatePercent + direction * kResponseRateStepPercent;
+        settings_.brakeRatePercent = constrain(value, 0, 100); changed = true;
+    } else if (row == 3) {
+        const int value = settings_.brakeExpoPercent + direction * kResponseExpoStepPercent;
+        settings_.brakeExpoPercent = constrain(value, -100, 100); changed = true;
+    }
+    if (changed) { saveSettings(); playKeyClick(); drawThrottleResponsePage(); }
 }
 
 void Channel2Ui::handleSetupTouch(int16_t x, int16_t y)
@@ -979,23 +1194,26 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::Dashboard) { handleDashboardTouch(x, y); return; }
     if (activePage_ == UiPage::MainMenu) { handleMainMenuTouch(x, y); return; }
     if (activePage_ == UiPage::Channels) { handleChannelsTouch(x, y); return; }
+    if (activePage_ == UiPage::ChannelRoles) { handleChannelRolesTouch(x, y); return; }
+    if (activePage_ == UiPage::ThrottleResponse) { handleThrottleResponseTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelPlaceholder) { if (y < 48 && x >= 360) { playKeyClick(); drawChannelsPage(); } return; }
     if (activePage_ == UiPage::Setup) { handleSetupTouch(x, y); return; }
     if (activePage_ == UiPage::TxBatterySetup) { handleTxBatteryTouch(x, y); return; }
-    if (y < 48 && x >= 250 && x < 340) { playKeyClick(); drawChannelsPage(); return; }
-    if (y < 48 && x >= 340) { playKeyClick(); startCalibration(latestRawAdc_); return; }
+    if (y < 48 && x >= 210 && x < 294) { playKeyClick(); drawThrottleResponsePage(); return; }
+    if (y < 48 && x >= 294 && x < 374) { playKeyClick(); drawChannelsPage(); return; }
+    if (y < 48 && x >= 374) { playKeyClick(); startCalibration(latestRawAdc_); return; }
     if (y < 56 || y >= 256) return;
     const int row = (y - 56) / 50;
     bool changed = false;
     if (row < 3 && x >= 354 && x < 404) {
         if (row == 0 && settings_.brakeEndpointPercent > 50) --settings_.brakeEndpointPercent;
         if (row == 1 && settings_.subtrimPercent > -20) --settings_.subtrimPercent;
-        if (row == 2 && settings_.throttleEndpointPercent > 50) --settings_.throttleEndpointPercent;
+        if (row == 2 && settings_.forwardEndpointPercent > 50) --settings_.forwardEndpointPercent;
         changed = true;
     } else if (row < 3 && x >= 408 && x < 470) {
         if (row == 0 && settings_.brakeEndpointPercent < 100) ++settings_.brakeEndpointPercent;
         if (row == 1 && settings_.subtrimPercent < 20) ++settings_.subtrimPercent;
-        if (row == 2 && settings_.throttleEndpointPercent < 100) ++settings_.throttleEndpointPercent;
+        if (row == 2 && settings_.forwardEndpointPercent < 100) ++settings_.forwardEndpointPercent;
         changed = true;
     } else if (row == 3 && x >= 340) { settings_.reversed = !settings_.reversed; changed = true; }
     if (changed) { playKeyClick(); saveSettings(); drawPage(); }

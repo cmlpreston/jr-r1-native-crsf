@@ -90,6 +90,12 @@ count, low alarm and voltage-sense enable under `SETUP > TX BATTERY`. Defaults
 are 3S LiFe and a 9.0 V low alarm. Voltage sensing is disabled by default so an
 unwired ADC input cannot create false readings or alarms during USB testing.
 
+Receiver-pack voltage arrives through ER6G CRSF telemetry. Configure its pack
+chemistry, cell count, low-voltage alarm and alarm enable independently under
+`SETUP > RX BATTERY`. The RX defaults are 2S LiFe and 6.0 V. LiFe, LiPo,
+Li-ion and NiMH profiles are available; changing chemistry or cell count proposes
+a suitable threshold, which can then be adjusted manually.
+
 ## Calibration
 
 Tap `CAL` on the selected throttle-channel page. While calibration is active,

@@ -37,6 +37,7 @@ enum class BatteryChemistry : uint8_t {
     LiFe,
     LiPo,
     NiMH,
+    LiIon,
 };
 
 struct TxBatterySettings {
@@ -44,6 +45,13 @@ struct TxBatterySettings {
     uint8_t cellCount = 3;
     uint16_t lowAlarmDecivolts = 90;
     bool voltageSenseEnabled = false;
+};
+
+struct RxBatterySettings {
+    BatteryChemistry chemistry = BatteryChemistry::LiFe;
+    uint8_t cellCount = 2;
+    uint16_t lowAlarmDecivolts = 60;
+    bool alarmEnabled = true;
 };
 
 enum class UiPage : uint8_t {
@@ -56,6 +64,7 @@ enum class UiPage : uint8_t {
     ChannelPlaceholder,
     Setup,
     TxBatterySetup,
+    RxBatterySetup,
     Calibration,
 };
 
@@ -87,6 +96,8 @@ private:
     void saveSystemSettings();
     void loadTxBatterySettings();
     void saveTxBatterySettings();
+    void loadRxBatterySettings();
+    void saveRxBatterySettings();
     void drawMainMenu();
     void drawDashboard();
     void drawDashboardLive(uint16_t crsfValue, bool throttleArmed,
@@ -104,6 +115,8 @@ private:
     void drawSetupRow(int row);
     void drawTxBatteryPage();
     void drawTxBatteryRow(int row);
+    void drawRxBatteryPage();
+    void drawRxBatteryRow(int row);
     void drawCalibrationPage();
     void drawCalibrationValues(uint16_t adc);
     void drawSettingRow(int row);
@@ -116,6 +129,7 @@ private:
     void handleThrottleResponseTouch(int16_t x, int16_t y);
     void handleSetupTouch(int16_t x, int16_t y);
     void handleTxBatteryTouch(int16_t x, int16_t y);
+    void handleRxBatteryTouch(int16_t x, int16_t y);
     void startCalibration(uint16_t adc);
     void updateCalibration(uint16_t adc);
     void cancelCalibration();
@@ -132,6 +146,7 @@ private:
     ThrottleCalibration calibration_;
     SystemSettings systemSettings_;
     TxBatterySettings txBatterySettings_;
+    RxBatterySettings rxBatterySettings_;
     bool displayReady_ = false;
     UiPage activePage_ = UiPage::Dashboard;
     uint8_t channelsBank_ = 0;
@@ -158,7 +173,8 @@ private:
     uint8_t lastRssiDbm_ = UINT8_MAX;
     uint16_t lastReceiverVoltageDecivolts_ = UINT16_MAX;
     uint16_t lastTxVoltageDecivolts_ = UINT16_MAX;
-    uint32_t nextLowBatteryAlarmMs_ = 0;
+    uint32_t nextTxLowBatteryAlarmMs_ = 0;
+    uint32_t nextRxLowBatteryAlarmMs_ = 0;
     uint32_t nextDisplayUpdateMs_ = 0;
     lv_obj_t *dashboardThrottleBar_ = nullptr;
     lv_obj_t *dashboardSafetyLabel_ = nullptr;

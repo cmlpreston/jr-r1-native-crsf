@@ -28,8 +28,8 @@ constexpr uint16_t kBuzzerPitchStepHz = 100;
 constexpr uint16_t kBuzzerMinimumDurationMs = 10;
 constexpr uint16_t kBuzzerMaximumDurationMs = 200;
 constexpr uint16_t kBuzzerDurationStepMs = 10;
-constexpr uint16_t kTxBatteryMinimumAlarmDecivolts = 30;
-constexpr uint16_t kTxBatteryMaximumAlarmDecivolts = 168;
+constexpr uint16_t kBatteryMinimumAlarmDecivolts = 10;
+constexpr uint16_t kBatteryMaximumAlarmDecivolts = 168;
 constexpr uint32_t kLowBatteryRepeatMs = 10000;
 constexpr uint8_t kResponseRateStepPercent = 5;
 constexpr int8_t kResponseExpoStepPercent = 5;
@@ -198,13 +198,14 @@ const char *batteryChemistryName(BatteryChemistry chemistry)
         case BatteryChemistry::LiFe: return "LiFe";
         case BatteryChemistry::LiPo: return "LiPo";
         case BatteryChemistry::NiMH: return "NiMH";
+        case BatteryChemistry::LiIon: return "Li-ion";
     }
     return "?";
 }
 
 uint8_t maximumCellsFor(BatteryChemistry chemistry)
 {
-    return chemistry == BatteryChemistry::NiMH ? 10 : 4;
+    return chemistry == BatteryChemistry::NiMH ? 12 : 4;
 }
 
 uint16_t defaultLowAlarmDecivolts(BatteryChemistry chemistry,
@@ -213,6 +214,7 @@ uint16_t defaultLowAlarmDecivolts(BatteryChemistry chemistry,
     uint8_t perCellDecivolts = 30; // 3.0 V/cell for LiFe
     if (chemistry == BatteryChemistry::LiPo) perCellDecivolts = 35;
     else if (chemistry == BatteryChemistry::NiMH) perCellDecivolts = 10;
+    else if (chemistry == BatteryChemistry::LiIon) perCellDecivolts = 33;
     return static_cast<uint16_t>(perCellDecivolts) * cells;
 }
 
@@ -224,6 +226,7 @@ bool Channel2Ui::begin()
     loadChannelRoleSettings();
     loadSystemSettings();
     loadTxBatterySettings();
+    loadRxBatterySettings();
     setToneChannel(BUZZER_LEDC_CHANNEL);
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
@@ -399,13 +402,13 @@ void Channel2Ui::loadTxBatterySettings()
     preferences.end();
 
     if (static_cast<uint8_t>(txBatterySettings_.chemistry) >
-        static_cast<uint8_t>(BatteryChemistry::NiMH)) {
+        static_cast<uint8_t>(BatteryChemistry::LiIon)) {
         txBatterySettings_.chemistry = BatteryChemistry::LiFe;
     }
     txBatterySettings_.cellCount = constrain(txBatterySettings_.cellCount, 1, 12);
     txBatterySettings_.lowAlarmDecivolts = constrain(
         txBatterySettings_.lowAlarmDecivolts,
-        kTxBatteryMinimumAlarmDecivolts, kTxBatteryMaximumAlarmDecivolts);
+        kBatteryMinimumAlarmDecivolts, kBatteryMaximumAlarmDecivolts);
 }
 
 void Channel2Ui::saveTxBatterySettings()
@@ -416,6 +419,38 @@ void Channel2Ui::saveTxBatterySettings()
     preferences.putUChar("cells", txBatterySettings_.cellCount);
     preferences.putUShort("low_dv", txBatterySettings_.lowAlarmDecivolts);
     preferences.putBool("sense_en", txBatterySettings_.voltageSenseEnabled);
+    preferences.end();
+}
+
+void Channel2Ui::loadRxBatterySettings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-rxbat", true);
+    rxBatterySettings_.chemistry = static_cast<BatteryChemistry>(
+        preferences.getUChar("chem", static_cast<uint8_t>(BatteryChemistry::LiFe)));
+    rxBatterySettings_.cellCount = preferences.getUChar("cells", 2);
+    rxBatterySettings_.lowAlarmDecivolts = preferences.getUShort("low_dv", 60);
+    rxBatterySettings_.alarmEnabled = preferences.getBool("alarm_en", true);
+    preferences.end();
+
+    if (static_cast<uint8_t>(rxBatterySettings_.chemistry) >
+        static_cast<uint8_t>(BatteryChemistry::LiIon)) {
+        rxBatterySettings_.chemistry = BatteryChemistry::LiFe;
+    }
+    rxBatterySettings_.cellCount = constrain(rxBatterySettings_.cellCount, 1, 12);
+    rxBatterySettings_.lowAlarmDecivolts = constrain(
+        rxBatterySettings_.lowAlarmDecivolts,
+        kBatteryMinimumAlarmDecivolts, kBatteryMaximumAlarmDecivolts);
+}
+
+void Channel2Ui::saveRxBatterySettings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-rxbat", false);
+    preferences.putUChar("chem", static_cast<uint8_t>(rxBatterySettings_.chemistry));
+    preferences.putUChar("cells", rxBatterySettings_.cellCount);
+    preferences.putUShort("low_dv", rxBatterySettings_.lowAlarmDecivolts);
+    preferences.putBool("alarm_en", rxBatterySettings_.alarmEnabled);
     preferences.end();
 }
 
@@ -563,10 +598,13 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue, bool throttleArmed,
         (telemetry.receiverVoltageValid != lastReceiverVoltageValid_ ||
          telemetry.receiverVoltageDecivolts != lastReceiverVoltageDecivolts_)) {
         if (telemetry.receiverVoltageValid) {
+            const bool low = rxBatterySettings_.alarmEnabled &&
+                telemetry.receiverVoltageDecivolts <= rxBatterySettings_.lowAlarmDecivolts;
             lv_label_set_text_fmt(dashboardRxVoltageLabel_, "RX  %u.%uV",
                 telemetry.receiverVoltageDecivolts / 10,
                 telemetry.receiverVoltageDecivolts % 10);
-            lv_obj_set_style_text_color(dashboardRxVoltageLabel_, colour(cGreen), 0);
+            lv_obj_set_style_text_color(dashboardRxVoltageLabel_,
+                                        colour(low ? cRed : cGreen), 0);
         } else {
             lv_label_set_text(dashboardRxVoltageLabel_, "RX  --.-V");
             lv_obj_set_style_text_color(dashboardRxVoltageLabel_, colour(cDim), 0);
@@ -594,12 +632,21 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue, bool throttleArmed,
     const uint32_t now = millis();
     if (txVoltageValid &&
         txVoltageDecivolts <= txBatterySettings_.lowAlarmDecivolts) {
-        if (static_cast<int32_t>(now - nextLowBatteryAlarmMs_) >= 0) {
+        if (static_cast<int32_t>(now - nextTxLowBatteryAlarmMs_) >= 0) {
             playBuzzer(300);
-            nextLowBatteryAlarmMs_ = now + kLowBatteryRepeatMs;
+            nextTxLowBatteryAlarmMs_ = now + kLowBatteryRepeatMs;
         }
     } else {
-        nextLowBatteryAlarmMs_ = now;
+        nextTxLowBatteryAlarmMs_ = now;
+    }
+    if (rxBatterySettings_.alarmEnabled && telemetry.receiverVoltageValid &&
+        telemetry.receiverVoltageDecivolts <= rxBatterySettings_.lowAlarmDecivolts) {
+        if (static_cast<int32_t>(now - nextRxLowBatteryAlarmMs_) >= 0) {
+            playBuzzer(300);
+            nextRxLowBatteryAlarmMs_ = now + kLowBatteryRepeatMs;
+        }
+    } else {
+        nextRxLowBatteryAlarmMs_ = now;
     }
 }
 
@@ -861,8 +908,9 @@ void Channel2Ui::drawSetupPage()
     resetLvglObjects();
     makeHeader("SYSTEM SETUP", "BACK");
     for (int row = 0; row < 4; ++row) drawSetupRow(row);
-    makeButton(70, 265, 130, 44, "TEST", 16, cPanel2, cAmber);
-    makeButton(210, 265, 200, 44, "TX BATTERY", 16, cPanel2, cCyan);
+    makeButton(10, 265, 100, 44, "TEST", 16, cPanel2, cAmber);
+    makeButton(120, 265, 165, 44, "TX BATTERY", 14, cPanel2, cCyan);
+    makeButton(295, 265, 175, 44, "RX BATTERY", 14, cPanel2, cCyan);
 }
 
 void Channel2Ui::drawTxBatteryRow(int row)
@@ -926,6 +974,51 @@ void Channel2Ui::drawTxBatteryPage()
     for (int row = 0; row < 4; ++row) drawTxBatteryRow(row);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "GPIO5 via 47k/10k divider", 0, 280, 12, cDim);
+    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
+}
+
+void Channel2Ui::drawRxBatteryRow(int row)
+{
+    static const char *labels[] = {"CHEMISTRY", "CELL COUNT", "LOW ALARM", "ALARM"};
+    const int16_t y = 56 + row * 50;
+    lv_obj_t *panel = makePanel(10, y, 460, 44);
+    makeLabel(panel, labels[row], 12, 12, 16, cCyan);
+    char value[24];
+    if (row == 0) snprintf(value, sizeof(value), "%s", batteryChemistryName(rxBatterySettings_.chemistry));
+    else if (row == 1) snprintf(value, sizeof(value), "%uS", rxBatterySettings_.cellCount);
+    else if (row == 2) snprintf(value, sizeof(value), "%u.%u V",
+        rxBatterySettings_.lowAlarmDecivolts / 10, rxBatterySettings_.lowAlarmDecivolts % 10);
+    else snprintf(value, sizeof(value), "%s", rxBatterySettings_.alarmEnabled ? "ON" : "OFF");
+    makeLabel(panel, value, 212, 12, 16,
+              row == 3 && rxBatterySettings_.alarmEnabled ? cGreen : cWhite);
+
+    if (row == 0 || row == 3) {
+        const bool enabled = row == 3 && rxBatterySettings_.alarmEnabled;
+        lv_obj_t *toggle = lv_obj_create(panel);
+        position(toggle, 343, 3, 106, 36);
+        lv_obj_set_style_bg_color(toggle, colour(enabled ? cGreen : cPanel2), 0);
+        lv_obj_set_style_border_color(toggle, colour(cLine), 0);
+        lv_obj_set_style_border_width(toggle, 1, 0);
+        lv_obj_set_style_radius(toggle, 5, 0);
+        lv_obj_set_style_pad_all(toggle, 0, 0);
+        lv_obj_t *label = makeLabel(toggle, row == 0 ? "NEXT" : "TOGGLE", 0, 0, 14,
+                                    enabled ? cBlack : cWhite);
+        lv_obj_center(label);
+    } else {
+        makeButton(353, y + 4, 48, 36, "-", 24);
+        makeButton(411, y + 4, 48, 36, "+", 24);
+    }
+}
+
+void Channel2Ui::drawRxBatteryPage()
+{
+    activePage_ = UiPage::RxBatterySetup;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("RX BATTERY", "BACK");
+    for (int row = 0; row < 4; ++row) drawRxBatteryRow(row);
+    lv_obj_t *note = makeLabel(lv_scr_act(),
+        "Voltage received from ER6G telemetry", 0, 280, 12, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
 }
 
@@ -1120,9 +1213,12 @@ void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
 void Channel2Ui::handleSetupTouch(int16_t x, int16_t y)
 {
     if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
-    if (y >= 265 && y < 315 && x >= 60 && x < 205) { playBuzzer(500); return; }
-    if (y >= 265 && y < 315 && x >= 205 && x < 420) {
+    if (y >= 265 && y < 315 && x < 115) { playBuzzer(500); return; }
+    if (y >= 265 && y < 315 && x >= 115 && x < 290) {
         playKeyClick(); drawTxBatteryPage(); return;
+    }
+    if (y >= 265 && y < 315 && x >= 290) {
+        playKeyClick(); drawRxBatteryPage(); return;
     }
     if (y < 56 || y >= 256) return;
     const int row = (y - 56) / 50;
@@ -1152,7 +1248,7 @@ void Channel2Ui::handleTxBatteryTouch(int16_t x, int16_t y)
 
     if (row == 0 && x >= 340) {
         uint8_t chemistry = static_cast<uint8_t>(txBatterySettings_.chemistry);
-        chemistry = (chemistry + 1) % 3;
+        chemistry = (chemistry + 1) % 4;
         txBatterySettings_.chemistry = static_cast<BatteryChemistry>(chemistry);
         txBatterySettings_.cellCount = min(txBatterySettings_.cellCount,
             maximumCellsFor(txBatterySettings_.chemistry));
@@ -1171,10 +1267,10 @@ void Channel2Ui::handleTxBatteryTouch(int16_t x, int16_t y)
             txBatterySettings_.chemistry, txBatterySettings_.cellCount);
         changed = true;
     } else if (row == 2 && x >= 343 && x < 400 &&
-               txBatterySettings_.lowAlarmDecivolts > kTxBatteryMinimumAlarmDecivolts) {
+               txBatterySettings_.lowAlarmDecivolts > kBatteryMinimumAlarmDecivolts) {
         --txBatterySettings_.lowAlarmDecivolts; changed = true;
     } else if (row == 2 && x >= 400 &&
-               txBatterySettings_.lowAlarmDecivolts < kTxBatteryMaximumAlarmDecivolts) {
+               txBatterySettings_.lowAlarmDecivolts < kBatteryMaximumAlarmDecivolts) {
         ++txBatterySettings_.lowAlarmDecivolts; changed = true;
     } else if (row == 3 && x >= 340) {
         txBatterySettings_.voltageSenseEnabled = !txBatterySettings_.voltageSenseEnabled;
@@ -1185,6 +1281,50 @@ void Channel2Ui::handleTxBatteryTouch(int16_t x, int16_t y)
         saveTxBatterySettings();
         playKeyClick();
         drawTxBatteryPage();
+    }
+}
+
+void Channel2Ui::handleRxBatteryTouch(int16_t x, int16_t y)
+{
+    if (y < 48 && x >= 360) { playKeyClick(); drawSetupPage(); return; }
+    if (y < 56 || y >= 256) return;
+    const int row = (y - 56) / 50;
+    bool changed = false;
+
+    if (row == 0 && x >= 340) {
+        const uint8_t chemistry = static_cast<uint8_t>(rxBatterySettings_.chemistry);
+        rxBatterySettings_.chemistry = static_cast<BatteryChemistry>((chemistry + 1) % 4);
+        rxBatterySettings_.cellCount = min(rxBatterySettings_.cellCount,
+            maximumCellsFor(rxBatterySettings_.chemistry));
+        rxBatterySettings_.lowAlarmDecivolts = defaultLowAlarmDecivolts(
+            rxBatterySettings_.chemistry, rxBatterySettings_.cellCount);
+        changed = true;
+    } else if (row == 1 && x >= 343 && x < 405 && rxBatterySettings_.cellCount > 1) {
+        --rxBatterySettings_.cellCount;
+        rxBatterySettings_.lowAlarmDecivolts = defaultLowAlarmDecivolts(
+            rxBatterySettings_.chemistry, rxBatterySettings_.cellCount);
+        changed = true;
+    } else if (row == 1 && x >= 405 &&
+               rxBatterySettings_.cellCount < maximumCellsFor(rxBatterySettings_.chemistry)) {
+        ++rxBatterySettings_.cellCount;
+        rxBatterySettings_.lowAlarmDecivolts = defaultLowAlarmDecivolts(
+            rxBatterySettings_.chemistry, rxBatterySettings_.cellCount);
+        changed = true;
+    } else if (row == 2 && x >= 343 && x < 405 &&
+               rxBatterySettings_.lowAlarmDecivolts > kBatteryMinimumAlarmDecivolts) {
+        --rxBatterySettings_.lowAlarmDecivolts; changed = true;
+    } else if (row == 2 && x >= 405 &&
+               rxBatterySettings_.lowAlarmDecivolts < kBatteryMaximumAlarmDecivolts) {
+        ++rxBatterySettings_.lowAlarmDecivolts; changed = true;
+    } else if (row == 3 && x >= 340) {
+        rxBatterySettings_.alarmEnabled = !rxBatterySettings_.alarmEnabled;
+        changed = true;
+    }
+
+    if (changed) {
+        saveRxBatterySettings();
+        playKeyClick();
+        drawRxBatteryPage();
     }
 }
 
@@ -1199,6 +1339,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::ChannelPlaceholder) { if (y < 48 && x >= 360) { playKeyClick(); drawChannelsPage(); } return; }
     if (activePage_ == UiPage::Setup) { handleSetupTouch(x, y); return; }
     if (activePage_ == UiPage::TxBatterySetup) { handleTxBatteryTouch(x, y); return; }
+    if (activePage_ == UiPage::RxBatterySetup) { handleRxBatteryTouch(x, y); return; }
     if (y < 48 && x >= 210 && x < 294) { playKeyClick(); drawThrottleResponsePage(); return; }
     if (y < 48 && x >= 294 && x < 374) { playKeyClick(); drawChannelsPage(); return; }
     if (y < 48 && x >= 374) { playKeyClick(); startCalibration(latestRawAdc_); return; }

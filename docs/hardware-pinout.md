@@ -50,6 +50,11 @@ The display controller is ILI9486 at 480x320. LVGL 8.4 supplies the UI layer;
 Arduino_GFX remains the low-level ILI9486 transport. The touch controller is an
 NS2009 on I²C address `0x48`.
 
+Measured bench consumption for this TFT35 SPI V2.1 assembly is **0.25 A at
+5.0 V**, or approximately **1.25 W**, with the screen and backlight operating.
+Allow additional regulator capacity for the ESP32-S3 and transient/measurement
+margin; this measurement is not the total transmitter load.
+
 ## Ranger Nano CRSF connection
 
 | Ranger Nano connection | Connect to | Notes |
@@ -122,7 +127,9 @@ All grounds ------------------------------------------------ common GND
 
 Confirm the final regulator current rating and noise performance before fitting
 it permanently. Keep the CRSF wire and analogue-pot wiring away from switch-mode
-regulator inductors and high-current wiring.
+regulator inductors and high-current wiring. The TFT alone has been measured at
+0.25 A from 5 V, so the final 5 V regulator must not be sized from ESP32 current
+alone.
 
 ## Not yet assigned
 
@@ -132,4 +139,3 @@ and 12-way FFC conductors have not yet received final GPIO assignments. Their
 functional inventory and proposed CRSF roles are recorded in
 [`r1-control-map.md`](r1-control-map.md). Update this file and `include/config.h`
 together whenever a new physical input is mapped.
-

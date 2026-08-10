@@ -104,6 +104,14 @@ then full forward, then release it and
 leave it centred for approximately 1.5 seconds. The measured minimum, centre and
 maximum are validated and saved in ESP32 NVS, and are restored at the next boot.
 
+The calibration state machine and ADC-to-permille mapping live in the generic
+`ProportionalInput` component. Calibration belongs to the physical input rather
+than its assigned CRSF output, so remapping the trigger from channel 2 does not
+move or duplicate its calibration. The trigger uses the `jr-r1-trigger` NVS
+namespace; an existing calibration in the former `jr-r1-ch2` namespace is used
+as a migration default. Steering and other proportional controls can each use
+another `ProportionalInput` instance and their own input-scoped NVS namespace.
+
 The compiled `THROTTLE_ADC_*` values remain as safe defaults if NVS does not yet
 contain a valid calibration. Direction is selected separately on the CH2 page.
 

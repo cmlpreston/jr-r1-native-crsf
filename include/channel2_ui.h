@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <lvgl.h>
 #include "crsf_telemetry.h"
+#include "proportional_input.h"
 
 struct Channel2Settings {
     uint8_t brakeEndpointPercent = 100;
@@ -18,12 +19,6 @@ struct Channel2Settings {
 struct ChannelRoleSettings {
     uint8_t steeringChannel = 1;
     uint8_t throttleChannel = 2;
-};
-
-struct ThrottleCalibration {
-    uint16_t minimum = 1447;
-    uint16_t centre = 1970;
-    uint16_t maximum = 4015;
 };
 
 struct SystemSettings {
@@ -77,10 +72,10 @@ public:
                 uint16_t txVoltageDecivolts, bool txVoltageValid);
     int16_t mapAdcToPermille(uint16_t adc) const;
     int16_t applySettings(int16_t rawInputPermille) const;
-    bool calibrationActive() const { return calibrationActive_; }
-    uint16_t throttleCentreAdc() const { return calibration_.centre; }
+    bool calibrationActive() const { return triggerInput_.calibrationActive(); }
+    uint16_t throttleCentreAdc() const { return triggerInput_.centre(); }
     const Channel2Settings &settings() const { return settings_; }
-    const ThrottleCalibration &calibration() const { return calibration_; }
+    const ProportionalCalibration &calibration() const { return triggerInput_.calibration(); }
     bool txVoltageSenseEnabled() const { return txBatterySettings_.voltageSenseEnabled; }
     uint8_t steeringChannel() const { return channelRoleSettings_.steeringChannel; }
     uint8_t throttleChannel() const { return channelRoleSettings_.throttleChannel; }
@@ -130,6 +125,7 @@ private:
     void handleSetupTouch(int16_t x, int16_t y);
     void handleTxBatteryTouch(int16_t x, int16_t y);
     void handleRxBatteryTouch(int16_t x, int16_t y);
+    void updateTouch();
     void startCalibration(uint16_t adc);
     void updateCalibration(uint16_t adc);
     void cancelCalibration();
@@ -143,7 +139,7 @@ private:
 
     Channel2Settings settings_;
     ChannelRoleSettings channelRoleSettings_;
-    ThrottleCalibration calibration_;
+    ProportionalInput triggerInput_;
     SystemSettings systemSettings_;
     TxBatterySettings txBatterySettings_;
     RxBatterySettings rxBatterySettings_;
@@ -151,16 +147,11 @@ private:
     UiPage activePage_ = UiPage::Dashboard;
     uint8_t channelsBank_ = 0;
     uint8_t selectedChannel_ = 2;
-    bool calibrationActive_ = false;
     bool channelRolesChanged_ = false;
-    bool calibrationSawMinimum_ = false;
-    bool calibrationSawMaximum_ = false;
-    uint16_t calibrationMinimum_ = UINT16_MAX;
-    uint16_t calibrationMaximum_ = 0;
-    uint16_t calibrationStableAdc_ = 0;
-    uint32_t calibrationStableSinceMs_ = 0;
     uint16_t latestRawAdc_ = 0;
     bool touchWasDown_ = false;
+    uint32_t touchReleaseSinceMs_ = 0;
+    uint32_t touchIgnoreUntilMs_ = 0;
     int16_t lastTouchX_ = 0;
     int16_t lastTouchY_ = 0;
     int16_t lastMarkerX_ = -1;

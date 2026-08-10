@@ -3,6 +3,7 @@
 #include <driver/uart.h>
 #include <hal/uart_ll.h>
 #include <soc/gpio_sig_map.h>
+#include <esp_system.h>
 
 #include "channel2_ui.h"
 #include "config.h"
@@ -95,6 +96,19 @@ void updateNeutralInterlock(uint16_t adc)
     } else {
         neutralSinceMs = 0;
     }
+}
+
+void updateTriggerSafety(uint16_t adc, bool calibrationActive)
+{
+    // Calibration is handled by ProportionalInput. This is only the output
+    // safety policy: never arm during calibration and require neutral again
+    // after calibration finishes.
+    if (wasCalibrating && !calibrationActive) {
+        throttleArmed = false;
+        neutralSinceMs = 0;
+    }
+    wasCalibrating = calibrationActive;
+    if (!calibrationActive) updateNeutralInterlock(adc);
 }
 
 void packChannels(const uint16_t channels[CRSF_CHANNEL_COUNT], uint8_t payload[CRSF_PAYLOAD_BYTES])
@@ -238,6 +252,9 @@ void setup()
     delay(700);
     Serial.println();
     Serial.println("JR R1 native CRSF throttle test");
+    Serial.printf("BOOT: reset_reason=%u free_heap=%u bytes\n",
+                  static_cast<unsigned>(esp_reset_reason()),
+                  static_cast<unsigned>(ESP.getFreeHeap()));
     Serial.println("WARNING: disconnect the motor / raise the wheels for first test");
 
     analogReadResolution(12);
@@ -269,12 +286,7 @@ void loop()
     // Simple 1/8 IIR smoothing; sufficient for the first trigger test.
     filteredAdc = static_cast<uint16_t>((filteredAdc * 7U + sample) / 8U);
     const bool calibrating = channel2Ui.calibrationActive();
-    if (wasCalibrating && !calibrating) {
-        throttleArmed = false;
-        neutralSinceMs = 0;
-    }
-    wasCalibrating = calibrating;
-    if (!calibrating) updateNeutralInterlock(filteredAdc);
+    updateTriggerSafety(filteredAdc, calibrating);
 
     const int16_t rawThrottle = channel2Ui.mapAdcToPermille(filteredAdc);
     const int16_t configuredThrottle = channel2Ui.applySettings(rawThrottle);

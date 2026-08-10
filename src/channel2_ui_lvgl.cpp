@@ -17,11 +17,11 @@ constexpr uint16_t kCrsfMaximum = 2047;
 constexpr int16_t kExtendedTravelPermille = 1200;
 constexpr uint32_t kUiUpdateMs = 80;
 constexpr uint16_t kTouchPressureThreshold = 40;
+constexpr uint32_t kTouchReleaseDebounceMs = 25;
+constexpr uint32_t kTouchRetriggerGuardMs = 75;
 constexpr uint8_t kNsReadX = 0xC0;
 constexpr uint8_t kNsReadY = 0xD0;
 constexpr uint8_t kNsReadZ = 0xE0;
-constexpr uint32_t kCalibrationStableMs = 1500;
-constexpr uint16_t kCalibrationMovementThreshold = 16;
 constexpr uint16_t kBuzzerMinimumPitchHz = 500;
 constexpr uint16_t kBuzzerMaximumPitchHz = 5000;
 constexpr uint16_t kBuzzerPitchStepHz = 100;
@@ -218,6 +218,24 @@ uint16_t defaultLowAlarmDecivolts(BatteryChemistry chemistry,
     return static_cast<uint16_t>(perCellDecivolts) * cells;
 }
 
+const char *uiPageName(UiPage page)
+{
+    switch (page) {
+        case UiPage::Dashboard: return "dashboard";
+        case UiPage::MainMenu: return "main-menu";
+        case UiPage::Channels: return "channels";
+        case UiPage::ChannelRoles: return "channel-roles";
+        case UiPage::Channel2: return "channel";
+        case UiPage::ThrottleResponse: return "response";
+        case UiPage::ChannelPlaceholder: return "channel-placeholder";
+        case UiPage::Setup: return "setup";
+        case UiPage::TxBatterySetup: return "tx-battery";
+        case UiPage::RxBatterySetup: return "rx-battery";
+        case UiPage::Calibration: return "calibration";
+    }
+    return "unknown";
+}
+
 } // namespace
 
 bool Channel2Ui::begin()
@@ -286,9 +304,21 @@ void Channel2Ui::loadSettings()
     settings_.forwardExpoPercent = preferences.getChar("fwd_expo", 0);
     settings_.subtrimPercent = preferences.getChar("trim", 0);
     settings_.reversed = preferences.getBool("reverse", false);
-    calibration_.minimum = preferences.getUShort("adc_min", THROTTLE_ADC_MIN);
-    calibration_.centre = preferences.getUShort("adc_ctr", THROTTLE_ADC_CENTER);
-    calibration_.maximum = preferences.getUShort("adc_max", THROTTLE_ADC_MAX);
+    // Read the old channel-scoped keys as migration defaults. Calibration is
+    // now stored against the physical trigger input, not its assigned output.
+    const ProportionalCalibration legacyCalibration {
+        preferences.getUShort("adc_min", THROTTLE_ADC_MIN),
+        preferences.getUShort("adc_ctr", THROTTLE_ADC_CENTER),
+        preferences.getUShort("adc_max", THROTTLE_ADC_MAX),
+    };
+    preferences.end();
+
+    preferences.begin("jr-r1-trigger", true);
+    ProportionalCalibration calibration {
+        preferences.getUShort("adc_min", legacyCalibration.minimum),
+        preferences.getUShort("adc_ctr", legacyCalibration.centre),
+        preferences.getUShort("adc_max", legacyCalibration.maximum),
+    };
     preferences.end();
 
     settings_.brakeEndpointPercent = constrain(settings_.brakeEndpointPercent, 50, 100);
@@ -298,12 +328,10 @@ void Channel2Ui::loadSettings()
     settings_.brakeExpoPercent = constrain(settings_.brakeExpoPercent, -100, 100);
     settings_.forwardExpoPercent = constrain(settings_.forwardExpoPercent, -100, 100);
     settings_.subtrimPercent = constrain(settings_.subtrimPercent, -20, 20);
-    if (calibration_.minimum + 100 >= calibration_.centre ||
-        calibration_.centre + 100 >= calibration_.maximum) {
-        calibration_.minimum = THROTTLE_ADC_MIN;
-        calibration_.centre = THROTTLE_ADC_CENTER;
-        calibration_.maximum = THROTTLE_ADC_MAX;
+    if (!calibration.valid()) {
+        calibration = {THROTTLE_ADC_MIN, THROTTLE_ADC_CENTER, THROTTLE_ADC_MAX};
     }
+    triggerInput_.setCalibration(calibration);
 }
 
 void Channel2Ui::saveSettings()
@@ -354,11 +382,12 @@ bool Channel2Ui::consumeChannelRolesChanged()
 
 void Channel2Ui::saveCalibration()
 {
+    const ProportionalCalibration &calibration = triggerInput_.calibration();
     Preferences preferences;
-    preferences.begin("jr-r1-ch2", false);
-    preferences.putUShort("adc_min", calibration_.minimum);
-    preferences.putUShort("adc_ctr", calibration_.centre);
-    preferences.putUShort("adc_max", calibration_.maximum);
+    preferences.begin("jr-r1-trigger", false);
+    preferences.putUShort("adc_min", calibration.minimum);
+    preferences.putUShort("adc_ctr", calibration.centre);
+    preferences.putUShort("adc_max", calibration.maximum);
     preferences.end();
 }
 
@@ -471,13 +500,7 @@ void Channel2Ui::stopBuzzer()
 
 int16_t Channel2Ui::mapAdcToPermille(uint16_t adc) const
 {
-    adc = constrain(adc, calibration_.minimum, calibration_.maximum);
-    if (adc <= calibration_.centre) {
-        return static_cast<int16_t>(map(adc, calibration_.minimum,
-                                        calibration_.centre, -1000, 0));
-    }
-    return static_cast<int16_t>(map(adc, calibration_.centre,
-                                    calibration_.maximum, 0, 1000));
+    return triggerInput_.mapToPermille(adc);
 }
 
 int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const
@@ -1046,65 +1069,40 @@ void Channel2Ui::drawCalibrationPage()
 
 void Channel2Ui::drawCalibrationValues(uint16_t adc)
 {
-    if (!calibrationActive_ || !calibrationLiveLabel_) return;
-    lv_label_set_text_fmt(calibrationMinimumLabel_, "%4u", calibrationMinimum_);
+    if (!triggerInput_.calibrationActive() || !calibrationLiveLabel_) return;
+    const ProportionalCalibrationProgress progress =
+        triggerInput_.calibrationProgress();
+    lv_label_set_text_fmt(calibrationMinimumLabel_, "%4u", progress.minimum);
     lv_label_set_text_fmt(calibrationLiveLabel_, "%4u", adc);
-    lv_label_set_text_fmt(calibrationMaximumLabel_, "%4u", calibrationMaximum_);
+    lv_label_set_text_fmt(calibrationMaximumLabel_, "%4u", progress.maximum);
     lv_obj_set_style_text_color(calibrationMinimumLabel_,
-        colour(calibrationSawMinimum_ ? cGreen : cWhite), 0);
+        colour(progress.sawMinimum ? cGreen : cWhite), 0);
     lv_obj_set_style_text_color(calibrationMaximumLabel_,
-        colour(calibrationSawMaximum_ ? cGreen : cWhite), 0);
+        colour(progress.sawMaximum ? cGreen : cWhite), 0);
 }
 
 void Channel2Ui::startCalibration(uint16_t adc)
 {
     activePage_ = UiPage::Calibration;
-    calibrationActive_ = true;
-    calibrationSawMinimum_ = false;
-    calibrationSawMaximum_ = false;
-    calibrationMinimum_ = adc;
-    calibrationMaximum_ = adc;
-    calibrationStableAdc_ = adc;
-    calibrationStableSinceMs_ = 0;
+    triggerInput_.startCalibration(adc);
     drawCalibrationPage();
-    Serial.println("CAL: move trigger to both ends, then release and hold neutral");
+    Serial.println("CAL: move proportional input to both ends, then release and hold neutral");
 }
 
 void Channel2Ui::cancelCalibration()
 {
-    calibrationActive_ = false;
+    triggerInput_.cancelCalibration();
     drawPage();
     Serial.println("CAL: cancelled; previous calibration retained");
 }
 
 void Channel2Ui::updateCalibration(uint16_t adc)
 {
-    calibrationMinimum_ = min(calibrationMinimum_, adc);
-    calibrationMaximum_ = max(calibrationMaximum_, adc);
-    const uint16_t low = calibration_.centre - max<uint16_t>(100, (calibration_.centre - calibration_.minimum) / 3);
-    const uint16_t high = calibration_.centre + max<uint16_t>(100, (calibration_.maximum - calibration_.centre) / 3);
-    calibrationSawMinimum_ |= adc <= low;
-    calibrationSawMaximum_ |= adc >= high;
-    if (!calibrationSawMinimum_ || !calibrationSawMaximum_) { calibrationStableSinceMs_ = 0; return; }
-    const uint16_t span = calibrationMaximum_ - calibrationMinimum_;
-    if (adc <= calibrationMinimum_ + span / 8 || adc >= calibrationMaximum_ - span / 8) {
-        calibrationStableSinceMs_ = 0; calibrationStableAdc_ = adc; return;
-    }
-    if (abs(static_cast<int>(adc) - static_cast<int>(calibrationStableAdc_)) > kCalibrationMovementThreshold) {
-        calibrationStableAdc_ = adc; calibrationStableSinceMs_ = millis(); return;
-    }
-    if (calibrationStableSinceMs_ == 0) calibrationStableSinceMs_ = millis();
-    if (millis() - calibrationStableSinceMs_ < kCalibrationStableMs) return;
-    if (calibrationMinimum_ + 100 >= adc || adc + 100 >= calibrationMaximum_) {
-        calibrationStableSinceMs_ = 0; return;
-    }
-    calibration_.minimum = calibrationMinimum_;
-    calibration_.centre = adc;
-    calibration_.maximum = calibrationMaximum_;
+    if (!triggerInput_.updateCalibration(adc, millis())) return;
+    const ProportionalCalibration &calibration = triggerInput_.calibration();
     saveCalibration();
-    calibrationActive_ = false;
-    Serial.printf("CAL: saved min=%u centre=%u max=%u\n", calibration_.minimum,
-                  calibration_.centre, calibration_.maximum);
+    Serial.printf("CAL: saved min=%u centre=%u max=%u\n", calibration.minimum,
+                  calibration.centre, calibration.maximum);
     playBuzzer(180);
     drawPage();
 }
@@ -1330,7 +1328,7 @@ void Channel2Ui::handleRxBatteryTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleTouch(int16_t x, int16_t y)
 {
-    if (calibrationActive_) { if (y < 48 && x >= 360) cancelCalibration(); return; }
+    if (triggerInput_.calibrationActive()) { if (y < 48 && x >= 360) cancelCalibration(); return; }
     if (activePage_ == UiPage::Dashboard) { handleDashboardTouch(x, y); return; }
     if (activePage_ == UiPage::MainMenu) { handleMainMenuTouch(x, y); return; }
     if (activePage_ == UiPage::Channels) { handleChannelsTouch(x, y); return; }
@@ -1360,26 +1358,69 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (changed) { playKeyClick(); saveSettings(); drawPage(); }
 }
 
+void Channel2Ui::updateTouch()
+{
+    int16_t x = 0, y = 0;
+    uint16_t rawX = 0, rawY = 0, rawZ = 0;
+    const uint32_t now = millis();
+    const bool irqActive = digitalRead(TOUCH_IRQ_PIN) == LOW;
+    const bool touched = readTouch(x, y, rawX, rawY, rawZ);
+
+    if (touched) {
+        // A low-pressure or failed I2C sample while IRQ remains asserted is not
+        // a release. Clear the pending-release timer whenever valid pressure
+        // returns and keep treating this as the same physical touch.
+        touchReleaseSinceMs_ = 0;
+        if (!touchWasDown_ &&
+            static_cast<int32_t>(now - touchIgnoreUntilMs_) >= 0) {
+            touchWasDown_ = true;
+            Serial.printf("TOUCH down page=%s raw=(%u,%u,%u) screen=(%d,%d)\n",
+                          uiPageName(activePage_), rawX, rawY, rawZ, x, y);
+        }
+        if (touchWasDown_) {
+            lastTouchX_ = x;
+            lastTouchY_ = y;
+        }
+        return;
+    }
+
+    if (!touchWasDown_) return;
+    if (irqActive) {
+        // Pressure conversion can momentarily fail while the controller's IRQ
+        // still proves the panel is being touched.
+        touchReleaseSinceMs_ = 0;
+        return;
+    }
+
+    if (touchReleaseSinceMs_ == 0) {
+        touchReleaseSinceMs_ = now;
+        return;
+    }
+    if (now - touchReleaseSinceMs_ < kTouchReleaseDebounceMs) return;
+
+    const int16_t releasedX = lastTouchX_;
+    const int16_t releasedY = lastTouchY_;
+    touchWasDown_ = false;
+    touchReleaseSinceMs_ = 0;
+    touchIgnoreUntilMs_ = now + kTouchRetriggerGuardMs;
+    Serial.printf("TOUCH up page=%s screen=(%d,%d)\n",
+                  uiPageName(activePage_), releasedX, releasedY);
+    handleTouch(releasedX, releasedY);
+}
+
 void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
                         uint16_t crsfValue, bool throttleArmed,
                         const CrsfTelemetryState &telemetry,
                         uint16_t txVoltageDecivolts, bool txVoltageValid)
 {
     latestRawAdc_ = rawAdc;
-    int16_t x = 0, y = 0;
-    uint16_t rawX = 0, rawY = 0, rawZ = 0;
-    const bool touched = readTouch(x, y, rawX, rawY, rawZ);
-    if (touched) {
-        lastTouchX_ = x; lastTouchY_ = y;
-        if (!touchWasDown_) Serial.printf("TOUCH raw=(%u,%u,%u) screen=(%d,%d)\n", rawX, rawY, rawZ, x, y);
-    } else if (touchWasDown_) handleTouch(lastTouchX_, lastTouchY_);
-    touchWasDown_ = touched;
-    if (calibrationActive_) updateCalibration(rawAdc);
+    updateTouch();
+    if (triggerInput_.calibrationActive()) updateCalibration(rawAdc);
 
     const uint32_t now = millis();
     if (static_cast<int32_t>(now - nextDisplayUpdateMs_) >= 0) {
         nextDisplayUpdateMs_ = now + kUiUpdateMs;
-        if (calibrationActive_) drawCalibrationValues(rawAdc);
+        if (triggerInput_.calibrationActive()) drawCalibrationValues(rawAdc);
         else if (activePage_ == UiPage::Dashboard) {
             drawDashboardLive(crsfValue, throttleArmed, telemetry,
                               txVoltageDecivolts, txVoltageValid);

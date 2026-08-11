@@ -46,6 +46,10 @@ void ProportionalInput::startCalibration(uint16_t sample)
     calibrationFilterScaled_ =
         static_cast<uint32_t>(sample) << kCalibrationFilterShift;
     stableSinceMs_ = 0;
+    activeEndpoint_ = CalibrationEndpoint::None;
+    endpointSettleSample_ = sample;
+    endpointSettleSinceMs_ = 0;
+    endpointAveraging_ = false;
 }
 
 void ProportionalInput::cancelCalibration()
@@ -62,17 +66,18 @@ bool ProportionalInput::updateCalibration(uint16_t sample, uint32_t nowMs)
     // the centre saved after the stability interval is an averaged value.
     sample = filterCalibrationSample(sample);
     liveSample_ = sample;
-    observedMinimum_ = std::min(observedMinimum_, sample);
-    observedMaximum_ = std::max(observedMaximum_, sample);
-
     const uint16_t oldLowThreshold = calibration_.centre -
         std::max<uint16_t>(kMinimumHalfSpan,
                            (calibration_.centre - calibration_.minimum) / 3);
     const uint16_t oldHighThreshold = calibration_.centre +
         std::max<uint16_t>(kMinimumHalfSpan,
                            (calibration_.maximum - calibration_.centre) / 3);
-    sawMinimum_ |= sample <= oldLowThreshold;
-    sawMaximum_ |= sample >= oldHighThreshold;
+    const CalibrationEndpoint endpoint = sample <= oldLowThreshold
+        ? CalibrationEndpoint::Minimum
+        : sample >= oldHighThreshold
+            ? CalibrationEndpoint::Maximum
+            : CalibrationEndpoint::None;
+    updateEndpointAverage(endpoint, sample, nowMs);
     if (!sawMinimum_ || !sawMaximum_) {
         stableSinceMs_ = 0;
         return false;
@@ -120,6 +125,63 @@ uint16_t ProportionalInput::filterCalibrationSample(uint16_t sample)
     return static_cast<uint16_t>(
         (calibrationFilterScaled_ + (1U << (kCalibrationFilterShift - 1))) >>
         kCalibrationFilterShift);
+}
+
+void ProportionalInput::updateEndpointAverage(CalibrationEndpoint endpoint,
+                                              uint16_t sample,
+                                              uint32_t nowMs)
+{
+    if (endpoint == CalibrationEndpoint::None) {
+        activeEndpoint_ = CalibrationEndpoint::None;
+        endpointAveraging_ = false;
+        return;
+    }
+
+    if (endpoint != activeEndpoint_) {
+        activeEndpoint_ = endpoint;
+        endpointSettleSample_ = sample;
+        endpointSettleSinceMs_ = nowMs;
+        endpointAveraging_ = false;
+        return;
+    }
+
+    if (!endpointAveraging_) {
+        if (abs(static_cast<int>(sample) -
+                static_cast<int>(endpointSettleSample_)) >
+            kEndpointSettleMovement) {
+            endpointSettleSample_ = sample;
+            endpointSettleSinceMs_ = nowMs;
+            return;
+        }
+        if (nowMs - endpointSettleSinceMs_ < kEndpointSettleMs) return;
+
+        // The trigger has reached and settled at an extreme. Discard the
+        // transition samples, then continuously track the calibration EMA for
+        // as long as the trigger remains in this endpoint region. Unlike a
+        // lifetime arithmetic mean, this progressively forgets the approach
+        // to the stop and converges quickly on the resting endpoint.
+        endpointAveraging_ = true;
+    }
+
+    // Stop updating as soon as the filtered signal moves materially back
+    // toward centre. Without this guard, the EMA's release tail would replace
+    // a good held endpoint with progressively more central values.
+    if ((endpoint == CalibrationEndpoint::Minimum && sawMinimum_ &&
+         sample > observedMinimum_ + kEndpointReleaseMovement) ||
+        (endpoint == CalibrationEndpoint::Maximum && sawMaximum_ &&
+         sample + kEndpointReleaseMovement < observedMaximum_)) {
+        activeEndpoint_ = CalibrationEndpoint::None;
+        endpointAveraging_ = false;
+        return;
+    }
+
+    if (endpoint == CalibrationEndpoint::Minimum) {
+        observedMinimum_ = sample;
+        sawMinimum_ = true;
+    } else {
+        observedMaximum_ = sample;
+        sawMaximum_ = true;
+    }
 }
 
 ProportionalCalibrationProgress ProportionalInput::calibrationProgress() const

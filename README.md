@@ -141,10 +141,15 @@ then full forward, then release it and
 leave it centred for approximately 1.5 seconds. The measured minimum, centre and
 maximum are validated and saved in ESP32 NVS, and are restored at the next boot.
 Calibration applies an additional exponential moving average (1/8 new sample,
-7/8 previous value) before collecting its minimum, maximum and stable centre.
-This prevents a single ADC noise spike from becoming a permanent endpoint and
-averages the small temporal variation seen while the trigger is resting. Hold
-each endpoint briefly so the filter can settle before returning to neutral.
+7/8 previous value). After the trigger settles in either endpoint region for
+about 120 ms, its endpoint estimate continuously follows that filtered value
+for as long as the endpoint remains held. It therefore progressively forgets
+the transition toward the stop and converges on the resting endpoint instead
+of latching one extreme sample. Neutral likewise uses the settled filtered
+value. This rejects transition samples and prevents a single ADC noise spike
+from becoming a permanent calibration value. Hold each endpoint briefly—the
+longer it remains held, the more completely the estimate settles—before
+returning to neutral.
 
 The calibration state machine and ADC-to-permille mapping live in the generic
 `ProportionalInput` component. Calibration belongs to the physical input rather

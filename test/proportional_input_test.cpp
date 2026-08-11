@@ -13,7 +13,8 @@ void testCalibrationRejectsSingleSampleSpike()
 
     const ProportionalCalibrationProgress progress = input.calibrationProgress();
     assert(progress.live > 1700);
-    assert(progress.minimum > 1700);
+    assert(progress.minimum == 2000);
+    assert(!progress.sawMinimum);
 }
 
 void testCalibrationSavesFilteredEndpointsAndCentre()

@@ -54,6 +54,12 @@ public:
     ProportionalCalibrationProgress calibrationProgress() const;
 
 private:
+    enum class CalibrationEndpoint : uint8_t {
+        None,
+        Minimum,
+        Maximum,
+    };
+
     static constexpr uint16_t kMinimumHalfSpan = 100;
     static constexpr uint16_t kMovementThreshold = 16;
     static constexpr uint32_t kStableCentreMs = 1500;
@@ -61,6 +67,9 @@ private:
     // path may choose different filtering later, while calibration must never
     // save one noisy ADC sample as a permanent endpoint or centre value.
     static constexpr uint8_t kCalibrationFilterShift = 3; // EMA alpha = 1/8
+    static constexpr uint16_t kEndpointSettleMovement = 8;
+    static constexpr uint16_t kEndpointReleaseMovement = 24;
+    static constexpr uint32_t kEndpointSettleMs = 120;
 
     ProportionalCalibration calibration_;
     bool calibrationActive_ = false;
@@ -72,6 +81,12 @@ private:
     uint16_t liveSample_ = 0;
     uint32_t calibrationFilterScaled_ = 0;
     uint32_t stableSinceMs_ = 0;
+    CalibrationEndpoint activeEndpoint_ = CalibrationEndpoint::None;
+    uint16_t endpointSettleSample_ = 0;
+    uint32_t endpointSettleSinceMs_ = 0;
+    bool endpointAveraging_ = false;
 
     uint16_t filterCalibrationSample(uint16_t sample);
+    void updateEndpointAverage(CalibrationEndpoint endpoint, uint16_t sample,
+                               uint32_t nowMs);
 };

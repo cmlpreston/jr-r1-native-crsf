@@ -186,7 +186,18 @@ void makeHeader(const char *title, const char *action = nullptr)
 {
     lv_obj_t *header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
     makeLabel(header, title, 14, 8, 24);
-    if (action != nullptr) makeButton(382, 5, 88, 34, action, 14);
+    if (action != nullptr) makeButton(344, 5, 78, 34, action, 12);
+    makeButton(430, 5, 42, 34, LV_SYMBOL_HOME, 18);
+}
+
+bool headerActionTouched(int16_t x, int16_t y)
+{
+    return y < 48 && x >= 340 && x < 428;
+}
+
+bool headerHomeTouched(int16_t x, int16_t y)
+{
+    return y < 48 && x >= 428;
 }
 
 lv_obj_t *makeBar(lv_obj_t *parent, int16_t x, int16_t y, int16_t width,
@@ -1026,7 +1037,7 @@ void Channel2Ui::drawMainMenu()
     activePage_ = UiPage::MainMenu;
     startScreen();
     resetLvglObjects();
-    makeHeader("JR R1 CONTROLLER", "HOME");
+    makeHeader("JR R1 CONTROLLER");
     static const char *labels[] = {"MODELS", "CHANNELS", "RESPONSE", "CONTROL MAP",
         "DRIVE MODES", "TIMERS", "LINK / TELEM", "SETUP"};
     for (uint8_t index = 0; index < 8; ++index) {
@@ -1048,7 +1059,7 @@ void Channel2Ui::drawChannelsPage()
     startScreen();
     resetLvglObjects();
     makeHeader("CHANNELS", "BACK");
-    makeButton(282, 5, 88, 34, "ROLES", 12, cPanel2, cCyan);
+    makeButton(258, 5, 78, 34, "ROLES", 11, cPanel2, cCyan);
     const uint8_t first = channelsBank_ * 8 + 1;
     for (uint8_t index = 0; index < 8; ++index) {
         const uint8_t channel = first + index;
@@ -1272,9 +1283,9 @@ void Channel2Ui::drawPage()
     char title[24];
     snprintf(title, sizeof(title), "CH%u THROTTLE", channelRoleSettings_.throttleChannel);
     makeHeader(title);
-    makeButton(214, 5, 76, 34, "RESP", 12, cPanel2, cCyan);
-    makeButton(298, 5, 72, 34, "BACK", 12);
-    makeButton(378, 5, 72, 34, "CAL", 12);
+    makeButton(190, 5, 68, 34, "RESP", 11, cPanel2, cCyan);
+    makeButton(266, 5, 70, 34, "BACK", 11);
+    makeButton(344, 5, 78, 34, "CAL", 11);
     for (int row = 0; row < 4; ++row) drawSettingRow(row);
     char channelLabel[16];
     snprintf(channelLabel, sizeof(channelLabel), "CH%u", channelRoleSettings_.throttleChannel);
@@ -1325,7 +1336,7 @@ void Channel2Ui::drawThrottleResponsePage()
     startScreen();
     resetLvglObjects();
     makeHeader("THROTTLE RESPONSE", "BACK");
-    makeButton(282, 5, 88, 34, "SPEED", 12, cPanel2, cCyan);
+    makeButton(258, 5, 78, 34, "SPEED", 11, cPanel2, cCyan);
     for (int row = 0; row < 4; ++row) drawThrottleResponseRow(row);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "+EXPO = SOFTER AROUND NEUTRAL", 0, 280, 12, cDim);
@@ -1691,7 +1702,6 @@ void Channel2Ui::handleDashboardTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleMainMenuTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 390) { playKeyClick(); drawDashboard(); return; }
     if (x < 5 || x >= 475 || y < 52 || y >= 270) return;
     const int item = ((y - 52) / 54) * 2 + (x >= 240 ? 1 : 0);
     playKeyClick();
@@ -1704,10 +1714,10 @@ void Channel2Ui::handleMainMenuTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleChannelsTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 275 && x < 375) {
+    if (y < 48 && x >= 250 && x < 340) {
         playKeyClick(); drawChannelRolesPage(); return;
     }
-    if (y < 48 && x >= 375) { playKeyClick(); drawMainMenu(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
     if (y >= 270) {
         if (x < 90 && channelsBank_ > 0) { --channelsBank_; playKeyClick(); drawChannelsPage(); }
         else if (x >= 390 && channelsBank_ < 1) { ++channelsBank_; playKeyClick(); drawChannelsPage(); }
@@ -1722,7 +1732,7 @@ void Channel2Ui::handleChannelsTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawChannelsPage(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawChannelsPage(); return; }
     if (y < 72 || y >= 196 || x < 340) return;
     const int row = y < 140 ? 0 : 1;
     const int8_t direction = x < 400 ? -1 : 1;
@@ -1745,8 +1755,8 @@ void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 375) { playKeyClick(); drawPage(); return; }
-    if (y < 48 && x >= 275 && x < 375) { playKeyClick(); drawChannelSpeedPage(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawPage(); return; }
+    if (y < 48 && x >= 250 && x < 340) { playKeyClick(); drawChannelSpeedPage(); return; }
     if (y < 56 || y >= 256 || x < 340) return;
     const int row = (y - 56) / 50;
     const int8_t direction = x < 400 ? -1 : 1;
@@ -1769,7 +1779,7 @@ void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleChannelSpeedTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawThrottleResponsePage(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawThrottleResponsePage(); return; }
     if (x < 340 || y < 78 || y >= 230) return;
     const uint8_t row = (y - 78) / 76;
     const int16_t direction = x < 400 ? -1 : 1;
@@ -1784,7 +1794,7 @@ void Channel2Ui::handleChannelSpeedTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleControlAssignmentsTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
     if (y >= 248 && x < 245) {
         playKeyClick();
         inputMonitorBank_ = 0;
@@ -1821,7 +1831,7 @@ void Channel2Ui::handleInputMonitorTouch(int16_t x, int16_t y)
     constexpr uint8_t kRowsPerBank = 5;
     constexpr uint8_t kBankCount =
         (kPhysicalControlCount + kRowsPerBank - 1) / kRowsPerBank;
-    if (y < 48 && x >= 360) {
+    if (headerActionTouched(x, y)) {
         playKeyClick(); drawControlAssignmentsPage(); return;
     }
     if (y < 270) return;
@@ -1838,7 +1848,7 @@ void Channel2Ui::handleInputMonitorTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleDriveModesTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
     if (y >= 60 && y < 132) {
         if (x < 70 || x >= 415) return;
         const uint8_t index = x < 245 ? 0 : 1;
@@ -1862,7 +1872,7 @@ void Channel2Ui::handleDriveModesTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleSetupTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
     if (y >= 265 && y < 315 && x < 102) { playBuzzer(500); return; }
     if (y >= 265 && y < 315 && x >= 102 && x < 220) {
         playKeyClick(); drawDisplayPage(); return;
@@ -1894,7 +1904,7 @@ void Channel2Ui::handleSetupTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleDisplayTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawSetupPage(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawSetupPage(); return; }
     if (y < 56 || y >= 256 || x < 340) return;
     const uint8_t row = (y - 56) / 50;
     const int8_t direction = x < 405 ? -1 : 1;
@@ -1925,7 +1935,7 @@ void Channel2Ui::handleDisplayTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleTxBatteryTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawSetupPage(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawSetupPage(); return; }
     if (y < 56 || y >= 256) return;
     const int row = (y - 56) / 50;
     bool changed = false;
@@ -1970,7 +1980,7 @@ void Channel2Ui::handleTxBatteryTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleRxBatteryTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawSetupPage(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); drawSetupPage(); return; }
     if (y < 56 || y >= 256) return;
     const int row = (y - 56) / 50;
     bool changed = false;
@@ -2014,7 +2024,21 @@ void Channel2Ui::handleRxBatteryTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleTouch(int16_t x, int16_t y)
 {
-    if (triggerInput_.calibrationActive()) { if (y < 48 && x >= 360) cancelCalibration(); return; }
+    if (activePage_ != UiPage::Dashboard && headerHomeTouched(x, y)) {
+        if (triggerInput_.calibrationActive()) {
+            triggerInput_.cancelCalibration();
+            armRequested_ = false;
+            safetyResetRequested_ = true;
+            Serial.println("CAL: cancelled by Home; previous calibration retained");
+        }
+        playKeyClick();
+        drawDashboard();
+        return;
+    }
+    if (triggerInput_.calibrationActive()) {
+        if (headerActionTouched(x, y)) cancelCalibration();
+        return;
+    }
     if (activePage_ == UiPage::Dashboard) { handleDashboardTouch(x, y); return; }
     if (activePage_ == UiPage::MainMenu) { handleMainMenuTouch(x, y); return; }
     if (activePage_ == UiPage::Channels) { handleChannelsTouch(x, y); return; }
@@ -2024,14 +2048,17 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::ControlAssignments) { handleControlAssignmentsTouch(x, y); return; }
     if (activePage_ == UiPage::InputMonitor) { handleInputMonitorTouch(x, y); return; }
     if (activePage_ == UiPage::DriveModes) { handleDriveModesTouch(x, y); return; }
-    if (activePage_ == UiPage::ChannelPlaceholder) { if (y < 48 && x >= 360) { playKeyClick(); drawChannelsPage(); } return; }
+    if (activePage_ == UiPage::ChannelPlaceholder) {
+        if (headerActionTouched(x, y)) { playKeyClick(); drawChannelsPage(); }
+        return;
+    }
     if (activePage_ == UiPage::Setup) { handleSetupTouch(x, y); return; }
     if (activePage_ == UiPage::TxBatterySetup) { handleTxBatteryTouch(x, y); return; }
     if (activePage_ == UiPage::RxBatterySetup) { handleRxBatteryTouch(x, y); return; }
     if (activePage_ == UiPage::DisplaySetup) { handleDisplayTouch(x, y); return; }
-    if (y < 48 && x >= 210 && x < 294) { playKeyClick(); drawThrottleResponsePage(); return; }
-    if (y < 48 && x >= 294 && x < 374) { playKeyClick(); drawChannelsPage(); return; }
-    if (y < 48 && x >= 374) { playKeyClick(); startCalibration(latestRawAdc_); return; }
+    if (y < 48 && x >= 186 && x < 262) { playKeyClick(); drawThrottleResponsePage(); return; }
+    if (y < 48 && x >= 262 && x < 340) { playKeyClick(); drawChannelsPage(); return; }
+    if (headerActionTouched(x, y)) { playKeyClick(); startCalibration(latestRawAdc_); return; }
     if (y < 56 || y >= 256) return;
     const int row = (y - 56) / 50;
     bool changed = false;

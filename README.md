@@ -232,6 +232,12 @@ The transmitter boots into a scalable main menu. `CHANNELS`, `RESPONSE`,
 `CONTROL MAP`, `DRIVE MODES`, and `SETUP` are active; deferred sections remain
 dimmed:
 
+Every non-dashboard page reserves the top-right header position for a Home
+icon that returns directly to the dashboard. The page-local Back, Cancel, or
+primary action remains immediately to its left. Using Home during input
+calibration safely cancels calibration, retains the previous calibration, and
+returns the transmitter to CUT.
+
 - `MODELS`: select/name/copy/reset models and later transfer/import/export;
 - `CHANNELS`: names, reverse, calibration, sub-trim and endpoints per channel;
 - `RESPONSE`: dual rate, exponential, throttle curves and speed limiting;

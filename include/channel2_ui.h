@@ -37,14 +37,14 @@ struct SystemSettings {
 };
 
 enum class DriveMode : uint8_t {
-    Cut,
     Walk,
     Normal,
 };
 
 struct DriveModeSettings {
-    // Active mode deliberately starts at CUT on every boot and is not saved.
-    DriveMode activeMode = DriveMode::Cut;
+    // Drive mode controls response only. Arm/CUT is an independent safety
+    // state and always starts cut, irrespective of this selection.
+    DriveMode activeMode = DriveMode::Normal;
     uint8_t walkLimitPercent = 35;
 };
 

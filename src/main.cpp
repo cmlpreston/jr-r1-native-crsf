@@ -126,7 +126,7 @@ OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
         neutralSinceMs = 0;
         return OutputSafetyStatus::ChannelDisabled;
     }
-    if (channel2Ui.driveMode() == DriveMode::Cut || !channel2Ui.armRequested()) {
+    if (!channel2Ui.armRequested()) {
         throttleArmed = false;
         neutralSinceMs = 0;
         return OutputSafetyStatus::Cut;
@@ -386,7 +386,7 @@ void loop()
         nextLogMs += USB_LOG_PERIOD_MS;
         const int neutralDelta = static_cast<int>(filteredAdc) -
                                  static_cast<int>(channel2Ui.throttleCentreAdc());
-        Serial.printf("adc=%4u ctr=%4u delta=%+4d cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s stale=%s mode=%u link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV edges=%lu bytes=%lu frames=%lu crc=%lu\n",
+        Serial.printf("adc=%4u ctr=%4u delta=%+4d cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s stale=%s drive=%s link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV edges=%lu bytes=%lu frames=%lu crc=%lu\n",
                       filteredAdc,
                       channel2Ui.throttleCentreAdc(),
                       neutralDelta,
@@ -397,7 +397,7 @@ void loop()
                       transmittedThrottle,
                       throttleArmed ? "yes" : "NO",
                       sharedControlStale ? "YES" : "no",
-                      static_cast<unsigned>(channel2Ui.driveMode()),
+                      channel2Ui.driveMode() == DriveMode::Walk ? "WALK" : "NORMAL",
                       telemetry.linkValid ? "yes" : "no",
                       telemetry.uplinkLinkQuality,
                       telemetry.uplinkRssiDbm,

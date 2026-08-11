@@ -543,9 +543,9 @@ void Channel2Ui::loadDriveModeSettings()
     preferences.end();
     driveModeSettings_.walkLimitPercent = constrain(
         driveModeSettings_.walkLimitPercent, 10, 80);
-    // A power cycle is always a deliberate throttle cut, regardless of the
-    // mode that was active before shutdown.
-    driveModeSettings_.activeMode = DriveMode::Cut;
+    // The profile selection is intentionally not retained yet. A power cycle
+    // still starts safely because armRequested_ is always false.
+    driveModeSettings_.activeMode = DriveMode::Normal;
 }
 
 void Channel2Ui::saveDriveModeSettings()
@@ -647,7 +647,6 @@ int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const
 
 int16_t Channel2Ui::applyDriveMode(int16_t configuredPermille) const
 {
-    if (driveModeSettings_.activeMode == DriveMode::Cut) return 0;
     if (driveModeSettings_.activeMode == DriveMode::Walk) {
         return static_cast<int16_t>(
             static_cast<int32_t>(configuredPermille) *
@@ -742,11 +741,9 @@ void Channel2Ui::drawDashboard()
     makeButton(8, 249, 108, 62, "MENU", 18);
     makeButton(124, 249, 108, 62, "CHANNELS", 12, cPanel2, cCyan);
     makeButton(240, 249, 108, 62, "QUICK", 16, cPanel2, cCyan);
-    const char *mode = driveModeSettings_.activeMode == DriveMode::Cut ? "CUT" :
-                       driveModeSettings_.activeMode == DriveMode::Walk ? "WALK" : "NORMAL";
-    makeButton(356, 249, 116, 62, mode, 14,
-               driveModeSettings_.activeMode == DriveMode::Cut ? cAmber : cPanel2,
-               driveModeSettings_.activeMode == DriveMode::Cut ? cBlack : cGreen);
+    const char *mode = driveModeSettings_.activeMode == DriveMode::Walk
+        ? "MODE\nWALK" : "MODE\nNORMAL";
+    makeButton(356, 249, 116, 62, mode, 13, cPanel2, cGreen);
 
     lastDisplayedCrsf_ = UINT16_MAX;
     lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
@@ -1169,13 +1166,13 @@ void Channel2Ui::drawDriveModesPage()
     activePage_ = UiPage::DriveModes;
     startScreen();
     resetLvglObjects();
-    makeHeader("DRIVE MODES", "BACK");
-    const char *labels[] = {"CUT", "WALK", "NORMAL"};
-    for (uint8_t index = 0; index < 3; ++index) {
+    makeHeader("DRIVE MODE", "BACK");
+    const char *labels[] = {"WALK", "NORMAL"};
+    for (uint8_t index = 0; index < 2; ++index) {
         const DriveMode mode = static_cast<DriveMode>(index);
         const bool active = driveModeSettings_.activeMode == mode;
-        makeButton(12 + index * 156, 64, 144, 62, labels[index], 18,
-                   active ? (mode == DriveMode::Cut ? cAmber : cGreen) : cPanel2,
+        makeButton(76 + index * 174, 64, 156, 62, labels[index], 18,
+                   active ? cGreen : cPanel2,
                    active ? cBlack : cWhite);
     }
     lv_obj_t *panel = makePanel(16, 150, 448, 66);
@@ -1185,7 +1182,7 @@ void Channel2Ui::drawDriveModesPage()
     makeButton(358, 164, 42, 38, "-", 22);
     makeButton(410, 164, 42, 38, "+", 22);
     makeLabel(lv_scr_act(),
-        "Changing mode cuts output. Select ARM on the dashboard\nafter releasing the trigger.",
+        "Drive mode controls response only. Changing it forces CUT.\nTap LINK / SAFETY to arm after releasing the trigger.",
         20, 242, 14, cAmber);
 }
 
@@ -1481,8 +1478,7 @@ void Channel2Ui::handleDashboardTouch(int16_t x, int16_t y)
     else if (y >= 245 && x >= 236 && x < 352) { playKeyClick(); drawThrottleResponsePage(); }
     else if (y >= 245 && x >= 352) { playKeyClick(); drawDriveModesPage(); }
     else if (x >= 310 && y >= 45 && y < 140) {
-        if (driveModeSettings_.activeMode == DriveMode::Cut ||
-            !channelRoleSettings_.throttleEnabled) {
+        if (!channelRoleSettings_.throttleEnabled) {
             playKeyClick();
             drawDriveModesPage();
         } else {
@@ -1645,11 +1641,12 @@ void Channel2Ui::handleDriveModesTouch(int16_t x, int16_t y)
 {
     if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
     if (y >= 60 && y < 132) {
-        const uint8_t index = constrain(x / 156, 0, 2);
+        if (x < 70 || x >= 415) return;
+        const uint8_t index = x < 245 ? 0 : 1;
         driveModeSettings_.activeMode = static_cast<DriveMode>(index);
         armRequested_ = false;
         safetyResetRequested_ = true;
-        playBuzzer(index == 0 ? 180 : 80);
+        playBuzzer(80);
         drawDriveModesPage();
         return;
     }

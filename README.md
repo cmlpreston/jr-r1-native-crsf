@@ -174,9 +174,10 @@ input-to-function-to-channel assignment layer. It enables/disables the steering
 and trigger assignments and maps each to a CRSF channel. Additional buttons and
 switches will appear there as their hardware is mapped.
 
-`DRIVE MODES` provides CUT, WALK and NORMAL. CUT always sends neutral. WALK
-scales output to an adjustable limit (35% by default). Changing mode clears the
-arm request and cannot make the output live by itself.
+`DRIVE MODES` selects WALK or NORMAL. WALK scales output to an adjustable limit
+(35% by default). Arm/CUT is a separate safety state controlled from the
+dashboard's `LINK / SAFETY` panel. Every boot and every drive-mode change forces
+CUT; the trigger must return to neutral before the user can arm again.
 
 The throttle `SPEED` page configures independent forward and brake/reverse slew
 times from neutral to endpoint. Zero milliseconds means direct response.
@@ -195,7 +196,7 @@ dimmed:
 - `CHANNELS`: names, reverse, calibration, sub-trim and endpoints per channel;
 - `RESPONSE`: dual rate, exponential, throttle curves and speed limiting;
 - `CONTROL MAP`: current input enable/assignment and future programmable mixes;
-- `DRIVE MODES`: cut/walk/normal now; ABS, 4WS and throttle curves later;
+- `DRIVE MODES`: walk/normal now; ABS, 4WS and throttle curves later;
 - `TIMERS`: run, countdown and lap timers;
 - `LINK/TELEM`: ELRS link, failsafe, RF settings and telemetry pages;
 - `SETUP`: display, sound, controls, warnings and system preferences.

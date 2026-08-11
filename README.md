@@ -34,6 +34,12 @@ The script automatically selects a single `/dev/cu.usbmodem*` device. Use
 has red and blue exchanged, repeat it with `--swap-rb`; `--flip-x` and `--flip-y`
 are available for diagnosing controller read orientation.
 
+The dashboard channel monitor is adaptive and displays enabled channels only.
+One to four enabled channels use labelled, full-width horizontal bars; five or
+more use a compact vertical-bar layout. Link quality and RSSI share one line,
+while the Link/Safety card changes background and border colour for CUT, LIVE,
+waiting, and fault states.
+
 ## Safety
 
 For the first test, disconnect the buggy motor from the ESC or place the buggy on

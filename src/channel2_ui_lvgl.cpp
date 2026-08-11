@@ -52,6 +52,10 @@ constexpr uint32_t cDim = 0x526477;
 constexpr uint32_t cGreen = 0x67e33d;
 constexpr uint32_t cAmber = 0xffa51f;
 constexpr uint32_t cRed = 0xff4b43;
+constexpr uint32_t cSafetyCut = 0x402608;
+constexpr uint32_t cSafetyArmed = 0x103b20;
+constexpr uint32_t cSafetyWaiting = 0x3b3309;
+constexpr uint32_t cSafetyFault = 0x421416;
 
 uint8_t uiBrightnessPercent = 100;
 bool uiNightMode = false;
@@ -376,9 +380,9 @@ bool Channel2Ui::captureScreenshot(Stream &output)
 void Channel2Ui::resetLvglObjects()
 {
     dashboardThrottleBar_ = nullptr;
+    dashboardSafetyPanel_ = nullptr;
     dashboardSafetyLabel_ = nullptr;
     dashboardLinkLabel_ = nullptr;
-    dashboardRssiLabel_ = nullptr;
     dashboardRxVoltageLabel_ = nullptr;
     dashboardTxVoltageLabel_ = nullptr;
     channel2LiveBar_ = nullptr;
@@ -789,28 +793,61 @@ void Channel2Ui::drawDashboard()
     dashboardTxVoltageLabel_ = makeLabel(power, "TX  --.-V", 10, 31, 16, cDim);
     dashboardRxVoltageLabel_ = makeLabel(power, "RX  --.-V", 10, 57, 16, cDim);
 
-    lv_obj_t *link = makePanel(312, 47, 160, 87);
-    makeLabel(link, "LINK / SAFETY", 10, 8, 12, cCyan);
-    dashboardLinkLabel_ = makeLabel(link, "NO LINK", 10, 29, 18, cRed);
-    dashboardRssiLabel_ = makeLabel(link, "", 10, 52, 14, cWhite);
-    dashboardSafetyLabel_ = makeLabel(link, "THROTTLE SAFE", 10, 61, 12, cAmber);
-    makeLabel(link, "TAP TO ARM / CUT", 10, 74, 10, cDim);
+    dashboardSafetyPanel_ = makePanel(312, 47, 160, 87, cSafetyCut, cAmber);
+    makeLabel(dashboardSafetyPanel_, "LINK / SAFETY", 10, 7, 12, cCyan);
+    dashboardLinkLabel_ = makeLabel(dashboardSafetyPanel_, "NO LINK", 10, 28, 14, cRed);
+    dashboardSafetyLabel_ = makeLabel(dashboardSafetyPanel_, "CUT", 10, 51, 22, cAmber);
 
     lv_obj_t *monitor = makePanel(8, 141, 464, 99);
     makeLabel(monitor, "CHANNEL MONITOR", 10, 6, 12, cCyan);
-    for (uint8_t channel = 0; channel < 16; ++channel) {
-        const int16_t x = 9 + channel * 28;
-        char number[4];
-        snprintf(number, sizeof(number), "%u", channel + 1);
-        const bool assignedRole = channel + 1 == channelRoleSettings_.steeringChannel ||
-                                  channel + 1 == channelRoleSettings_.throttleChannel;
-        makeLabel(monitor, number, x + (channel < 9 ? 5 : 1), 21, 12,
-                  assignedRole ? cWhite : cDim);
-        lv_obj_t *bar = makeBar(monitor, x + 3, 37, 16, 44, 0, kCrsfMaximum,
-                                assignedRole ? cCyan : cDim);
-        lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
-        if (channel + 1 == channelRoleSettings_.throttleChannel)
-            dashboardThrottleBar_ = bar;
+    uint8_t enabledChannels[16];
+    uint8_t enabledCount = 0;
+    if (channelRoleSettings_.steeringEnabled)
+        enabledChannels[enabledCount++] = channelRoleSettings_.steeringChannel;
+    if (channelRoleSettings_.throttleEnabled &&
+        (!channelRoleSettings_.steeringEnabled ||
+         channelRoleSettings_.throttleChannel != channelRoleSettings_.steeringChannel))
+        enabledChannels[enabledCount++] = channelRoleSettings_.throttleChannel;
+
+    if (enabledCount == 0) {
+        makeLabel(monitor, "NO ENABLED CHANNELS", 10, 43, 16, cDim);
+    } else if (enabledCount <= 4) {
+        const bool roomy = enabledCount <= 2;
+        const int16_t firstY = roomy ? 29 : 24;
+        const int16_t spacing = roomy ? 34 : 18;
+        const int16_t barHeight = roomy ? 18 : 11;
+        for (uint8_t index = 0; index < enabledCount; ++index) {
+            const uint8_t channel = enabledChannels[index];
+            const bool steering = channel == channelRoleSettings_.steeringChannel;
+            char label[18];
+            snprintf(label, sizeof(label), "CH%u %s", channel,
+                     steering ? "STEER" : "THROTTLE");
+            const int16_t y = firstY + index * spacing;
+            makeLabel(monitor, label, 10, y - 1, roomy ? 12 : 10,
+                      steering ? cWhite : cCyan);
+            lv_obj_t *bar = makeBar(monitor, 112, y, 338, barHeight,
+                                    0, kCrsfMaximum,
+                                    steering ? cWhite : cCyan);
+            lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
+            if (channel == channelRoleSettings_.throttleChannel)
+                dashboardThrottleBar_ = bar;
+        }
+    } else {
+        const int16_t slotWidth = 442 / enabledCount;
+        for (uint8_t index = 0; index < enabledCount; ++index) {
+            const uint8_t channel = enabledChannels[index];
+            const int16_t x = 10 + index * slotWidth;
+            char number[4];
+            snprintf(number, sizeof(number), "%u", channel);
+            makeLabel(monitor, number, x + max<int16_t>(0, (slotWidth - 14) / 2),
+                      21, 10, cWhite);
+            lv_obj_t *bar = makeBar(monitor, x + max<int16_t>(2, (slotWidth - 16) / 2),
+                                    37, min<int16_t>(16, slotWidth - 4), 44,
+                                    0, kCrsfMaximum, cCyan);
+            lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
+            if (channel == channelRoleSettings_.throttleChannel)
+                dashboardThrottleBar_ = bar;
+        }
     }
 
     makeButton(8, 249, 108, 62, "MENU", 18);
@@ -838,34 +875,48 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
         lv_bar_set_value(dashboardThrottleBar_, crsfValue, LV_ANIM_OFF);
         lastDisplayedCrsf_ = crsfValue;
     }
-    if (dashboardSafetyLabel_ && safetyStatus != lastSafetyStatus_) {
-        const char *text = "THROTTLE SAFE";
+    if (dashboardSafetyLabel_ && dashboardSafetyPanel_ &&
+        safetyStatus != lastSafetyStatus_) {
+        const char *text = "CUT";
         uint32_t textColour = cAmber;
+        uint32_t panelColour = cSafetyCut;
+        uint32_t borderColour = cAmber;
         switch (safetyStatus) {
-            case OutputSafetyStatus::Armed: text = "OUTPUT LIVE"; textColour = cGreen; break;
-            case OutputSafetyStatus::NeutralRequired: text = "RELEASE TO ARM"; break;
-            case OutputSafetyStatus::Calibration: text = "CALIBRATION"; break;
-            case OutputSafetyStatus::InputFault: text = "INPUT FAULT"; textColour = cRed; break;
-            case OutputSafetyStatus::ControlStale: text = "CONTROL STALE"; textColour = cRed; break;
-            case OutputSafetyStatus::ChannelDisabled: text = "CHANNEL OFF"; break;
-            case OutputSafetyStatus::Cut: text = "THROTTLE CUT"; break;
+            case OutputSafetyStatus::Armed:
+                text = "LIVE"; textColour = cGreen;
+                panelColour = cSafetyArmed; borderColour = cGreen; break;
+            case OutputSafetyStatus::NeutralRequired:
+                text = "NEUTRAL..."; panelColour = cSafetyWaiting; break;
+            case OutputSafetyStatus::Calibration:
+                text = "CALIBRATE"; panelColour = cPanel2; break;
+            case OutputSafetyStatus::InputFault:
+                text = "INPUT FAULT"; textColour = cRed;
+                panelColour = cSafetyFault; borderColour = cRed; break;
+            case OutputSafetyStatus::ControlStale:
+                text = "STALE"; textColour = cRed;
+                panelColour = cSafetyFault; borderColour = cRed; break;
+            case OutputSafetyStatus::ChannelDisabled:
+                text = "CH OFF"; panelColour = cSafetyCut; break;
+            case OutputSafetyStatus::Cut: break;
         }
         lv_label_set_text(dashboardSafetyLabel_, text);
         lv_obj_set_style_text_color(dashboardSafetyLabel_, colour(textColour), 0);
+        lv_obj_set_style_bg_color(dashboardSafetyPanel_, colour(panelColour), 0);
+        lv_obj_set_style_border_color(dashboardSafetyPanel_, colour(borderColour), 0);
         lastSafetyStatus_ = safetyStatus;
     }
     if (dashboardLinkLabel_ &&
         (telemetry.linkValid != lastLinkValid_ ||
          telemetry.uplinkLinkQuality != lastLinkQuality_ ||
-         telemetry.uplinkRssiDbm != lastRssiDbm_)) {
+        telemetry.uplinkRssiDbm != lastRssiDbm_)) {
         if (telemetry.linkValid) {
-            lv_label_set_text_fmt(dashboardLinkLabel_, "LQ %3u%%", telemetry.uplinkLinkQuality);
+            lv_label_set_text_fmt(dashboardLinkLabel_, "%u%%  %d dBm",
+                                  telemetry.uplinkLinkQuality,
+                                  telemetry.uplinkRssiDbm);
             lv_obj_set_style_text_color(dashboardLinkLabel_,
                 colour(telemetry.uplinkLinkQuality >= 80 ? cGreen : cAmber), 0);
-            lv_label_set_text_fmt(dashboardRssiLabel_, "RSSI %d dBm", telemetry.uplinkRssiDbm);
         } else {
             lv_label_set_text(dashboardLinkLabel_, "NO LINK");
-            lv_label_set_text(dashboardRssiLabel_, "");
             lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cRed), 0);
         }
         lastLinkValid_ = telemetry.linkValid;

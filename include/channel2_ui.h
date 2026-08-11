@@ -239,9 +239,9 @@ private:
     uint32_t nextRxLowBatteryAlarmMs_ = 0;
     uint32_t nextDisplayUpdateMs_ = 0;
     lv_obj_t *dashboardThrottleBar_ = nullptr;
+    lv_obj_t *dashboardSafetyPanel_ = nullptr;
     lv_obj_t *dashboardSafetyLabel_ = nullptr;
     lv_obj_t *dashboardLinkLabel_ = nullptr;
-    lv_obj_t *dashboardRssiLabel_ = nullptr;
     lv_obj_t *dashboardRxVoltageLabel_ = nullptr;
     lv_obj_t *dashboardTxVoltageLabel_ = nullptr;
     lv_obj_t *channel2LiveBar_ = nullptr;

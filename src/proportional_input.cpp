@@ -50,6 +50,8 @@ void ProportionalInput::startCalibration(uint16_t sample)
     endpointSettleSample_ = sample;
     endpointSettleSinceMs_ = 0;
     endpointAveraging_ = false;
+    endpointReleaseLocked_ = false;
+    endpointReleaseAnchor_ = sample;
 }
 
 void ProportionalInput::cancelCalibration()
@@ -134,6 +136,7 @@ void ProportionalInput::updateEndpointAverage(CalibrationEndpoint endpoint,
     if (endpoint == CalibrationEndpoint::None) {
         activeEndpoint_ = CalibrationEndpoint::None;
         endpointAveraging_ = false;
+        endpointReleaseLocked_ = false;
         return;
     }
 
@@ -142,8 +145,15 @@ void ProportionalInput::updateEndpointAverage(CalibrationEndpoint endpoint,
         endpointSettleSample_ = sample;
         endpointSettleSinceMs_ = nowMs;
         endpointAveraging_ = false;
+        endpointReleaseLocked_ = false;
+        endpointReleaseAnchor_ = sample;
         return;
     }
+
+    // Once release has been recognised, preserve the endpoint and ignore the
+    // EMA tail until the signal really leaves this endpoint region. Otherwise
+    // a slowly moving trigger can be mistaken for another settled hold.
+    if (endpointReleaseLocked_) return;
 
     if (!endpointAveraging_) {
         if (abs(static_cast<int>(sample) -
@@ -161,17 +171,26 @@ void ProportionalInput::updateEndpointAverage(CalibrationEndpoint endpoint,
         // lifetime arithmetic mean, this progressively forgets the approach
         // to the stop and converges quickly on the resting endpoint.
         endpointAveraging_ = true;
+        endpointReleaseAnchor_ = sample;
     }
 
-    // Stop updating as soon as the filtered signal moves materially back
-    // toward centre. Without this guard, the EMA's release tail would replace
-    // a good held endpoint with progressively more central values.
-    if ((endpoint == CalibrationEndpoint::Minimum && sawMinimum_ &&
-         sample > observedMinimum_ + kEndpointReleaseMovement) ||
+    // Track a fixed, outward-moving anchor rather than comparing with the
+    // immediately previous average. A slow return to neutral may move only a
+    // few counts per sample, but its cumulative movement from this anchor is
+    // unambiguous.
+    if (endpoint == CalibrationEndpoint::Minimum)
+        endpointReleaseAnchor_ = std::min(endpointReleaseAnchor_, sample);
+    else
+        endpointReleaseAnchor_ = std::max(endpointReleaseAnchor_, sample);
+
+    const bool released =
+        (endpoint == CalibrationEndpoint::Minimum && sawMinimum_ &&
+         sample > endpointReleaseAnchor_ + kEndpointReleaseMovement) ||
         (endpoint == CalibrationEndpoint::Maximum && sawMaximum_ &&
-         sample + kEndpointReleaseMovement < observedMaximum_)) {
-        activeEndpoint_ = CalibrationEndpoint::None;
+         sample + kEndpointReleaseMovement < endpointReleaseAnchor_);
+    if (released) {
         endpointAveraging_ = false;
+        endpointReleaseLocked_ = true;
         return;
     }
 

@@ -169,6 +169,8 @@ private:
     void drawCalibrationPage();
     void drawCalibrationValues(uint16_t adc);
     void drawSettingRow(int row);
+    void refreshSettingRowValue(uint8_t row);
+    void scheduleSettingsSave();
     void drawLiveIndicator(int16_t outputPermille, uint16_t crsfValue);
     void handleTouch(int16_t x, int16_t y);
     void handleMainMenuTouch(int16_t x, int16_t y);
@@ -238,6 +240,8 @@ private:
     uint32_t nextTxLowBatteryAlarmMs_ = 0;
     uint32_t nextRxLowBatteryAlarmMs_ = 0;
     uint32_t nextDisplayUpdateMs_ = 0;
+    bool settingsSavePending_ = false;
+    uint32_t settingsSaveDueMs_ = 0;
     lv_obj_t *dashboardThrottleBar_ = nullptr;
     lv_obj_t *dashboardSafetyPanel_ = nullptr;
     lv_obj_t *dashboardSafetyLabel_ = nullptr;
@@ -246,6 +250,9 @@ private:
     lv_obj_t *dashboardTxVoltageLabel_ = nullptr;
     lv_obj_t *channel2LiveBar_ = nullptr;
     lv_obj_t *channel2ValueLabel_ = nullptr;
+    lv_obj_t *channel2SettingValueLabels_[4] = {};
+    lv_obj_t *channel2DirectionToggle_ = nullptr;
+    lv_obj_t *channel2DirectionToggleLabel_ = nullptr;
     lv_obj_t *calibrationMinimumLabel_ = nullptr;
     lv_obj_t *calibrationLiveLabel_ = nullptr;
     lv_obj_t *calibrationMaximumLabel_ = nullptr;

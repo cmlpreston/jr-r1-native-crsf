@@ -24,6 +24,7 @@ constexpr uint32_t kUiUpdateMs = 80;
 constexpr uint16_t kTouchPressureThreshold = 40;
 constexpr uint32_t kTouchReleaseDebounceMs = 25;
 constexpr uint32_t kTouchRetriggerGuardMs = 75;
+constexpr uint32_t kSettingsSaveDelayMs = 750;
 constexpr uint8_t kNsReadX = 0xC0;
 constexpr uint8_t kNsReadY = 0xD0;
 constexpr uint8_t kNsReadZ = 0xE0;
@@ -391,6 +392,9 @@ void Channel2Ui::resetLvglObjects()
     dashboardTxVoltageLabel_ = nullptr;
     channel2LiveBar_ = nullptr;
     channel2ValueLabel_ = nullptr;
+    for (lv_obj_t *&label : channel2SettingValueLabels_) label = nullptr;
+    channel2DirectionToggle_ = nullptr;
+    channel2DirectionToggleLabel_ = nullptr;
     calibrationMinimumLabel_ = nullptr;
     calibrationLiveLabel_ = nullptr;
     calibrationMaximumLabel_ = nullptr;
@@ -457,6 +461,13 @@ void Channel2Ui::saveSettings()
     preferences.putChar("trim", settings_.subtrimPercent);
     preferences.putBool("reverse", settings_.reversed);
     preferences.end();
+    settingsSavePending_ = false;
+}
+
+void Channel2Ui::scheduleSettingsSave()
+{
+    settingsSavePending_ = true;
+    settingsSaveDueMs_ = millis() + kSettingsSaveDelayMs;
 }
 
 void Channel2Ui::loadChannelRoleSettings()
@@ -1191,7 +1202,9 @@ void Channel2Ui::drawSettingRow(int row)
     else if (row == 1) snprintf(value, sizeof(value), "%+d%%", settings_.subtrimPercent);
     else if (row == 2) snprintf(value, sizeof(value), "%u%%", settings_.forwardEndpointPercent);
     else snprintf(value, sizeof(value), "%s", settings_.reversed ? "REVERSE" : "NORMAL");
-    makeLabel(panel, value, 212, 12, 16, row == 3 && settings_.reversed ? cAmber : cWhite);
+    channel2SettingValueLabels_[row] = makeLabel(
+        panel, value, 212, 12, 16,
+        row == 3 && settings_.reversed ? cAmber : cWhite);
     if (row < 3) {
         lv_obj_t *minus = lv_obj_create(panel);
         position(minus, 343, 3, 48, 36);
@@ -1210,16 +1223,44 @@ void Channel2Ui::drawSettingRow(int row)
         lv_obj_set_style_pad_all(plus, 0, 0);
         lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 24); lv_obj_center(pl);
     } else {
-        lv_obj_t *toggle = lv_obj_create(panel);
-        position(toggle, 343, 3, 106, 36);
-        lv_obj_set_style_bg_color(toggle, colour(settings_.reversed ? cAmber : cPanel2), 0);
-        lv_obj_set_style_border_color(toggle, colour(cLine), 0);
-        lv_obj_set_style_border_width(toggle, 1, 0);
-        lv_obj_set_style_radius(toggle, 5, 0);
-        lv_obj_set_style_pad_all(toggle, 0, 0);
-        lv_obj_t *tl = makeLabel(toggle, "TOGGLE", 0, 0, 14,
-                                 settings_.reversed ? cBlack : cWhite);
-        lv_obj_center(tl);
+        channel2DirectionToggle_ = lv_obj_create(panel);
+        position(channel2DirectionToggle_, 343, 3, 106, 36);
+        lv_obj_set_style_bg_color(channel2DirectionToggle_,
+                                  colour(settings_.reversed ? cAmber : cPanel2), 0);
+        lv_obj_set_style_border_color(channel2DirectionToggle_, colour(cLine), 0);
+        lv_obj_set_style_border_width(channel2DirectionToggle_, 1, 0);
+        lv_obj_set_style_radius(channel2DirectionToggle_, 5, 0);
+        lv_obj_set_style_pad_all(channel2DirectionToggle_, 0, 0);
+        channel2DirectionToggleLabel_ = makeLabel(
+            channel2DirectionToggle_, "TOGGLE", 0, 0, 14,
+            settings_.reversed ? cBlack : cWhite);
+        lv_obj_center(channel2DirectionToggleLabel_);
+    }
+}
+
+void Channel2Ui::refreshSettingRowValue(uint8_t row)
+{
+    if (row >= 4 || channel2SettingValueLabels_[row] == nullptr) return;
+    if (row == 0)
+        lv_label_set_text_fmt(channel2SettingValueLabels_[row], "%u%%",
+                              settings_.brakeEndpointPercent);
+    else if (row == 1)
+        lv_label_set_text_fmt(channel2SettingValueLabels_[row], "%+d%%",
+                              settings_.subtrimPercent);
+    else if (row == 2)
+        lv_label_set_text_fmt(channel2SettingValueLabels_[row], "%u%%",
+                              settings_.forwardEndpointPercent);
+    else {
+        lv_label_set_text(channel2SettingValueLabels_[row],
+                          settings_.reversed ? "REVERSE" : "NORMAL");
+        lv_obj_set_style_text_color(channel2SettingValueLabels_[row],
+            colour(settings_.reversed ? cAmber : cWhite), 0);
+        if (channel2DirectionToggle_ != nullptr)
+            lv_obj_set_style_bg_color(channel2DirectionToggle_,
+                colour(settings_.reversed ? cAmber : cPanel2), 0);
+        if (channel2DirectionToggleLabel_ != nullptr)
+            lv_obj_set_style_text_color(channel2DirectionToggleLabel_,
+                colour(settings_.reversed ? cBlack : cWhite), 0);
     }
 }
 
@@ -2005,7 +2046,11 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
         if (row == 2 && settings_.forwardEndpointPercent < 100) ++settings_.forwardEndpointPercent;
         changed = true;
     } else if (row == 3 && x >= 340) { settings_.reversed = !settings_.reversed; changed = true; }
-    if (changed) { playKeyClick(); saveSettings(); drawPage(); }
+    if (changed) {
+        playKeyClick();
+        scheduleSettingsSave();
+        refreshSettingRowValue(row);
+    }
 }
 
 void Channel2Ui::updateTouch()
@@ -2086,6 +2131,10 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
     if (triggerInput_.calibrationActive()) updateCalibration(rawAdc);
 
     const uint32_t now = millis();
+    if (settingsSavePending_ &&
+        static_cast<int32_t>(now - settingsSaveDueMs_) >= 0) {
+        saveSettings();
+    }
     if (!displaySleeping_ && systemSettings_.screenTimeoutSeconds != 0 &&
         now - lastInteractionMs_ >=
             static_cast<uint32_t>(systemSettings_.screenTimeoutSeconds) * 1000U) {

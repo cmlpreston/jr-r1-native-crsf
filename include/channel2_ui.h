@@ -42,8 +42,8 @@ enum class DriveMode : uint8_t {
 };
 
 struct DriveModeSettings {
-    // Drive mode controls response only. Arm/CUT is an independent safety
-    // state and always starts cut, irrespective of this selection.
+    // WALK limits physical forward drive only. Brake/reverse retains its full
+    // configured authority. Arm/CUT is an independent safety state.
     DriveMode activeMode = DriveMode::Normal;
     uint8_t walkLimitPercent = 35;
 };
@@ -108,7 +108,8 @@ public:
                 uint16_t txVoltageDecivolts, bool txVoltageValid);
     int16_t mapAdcToPermille(uint16_t adc) const;
     int16_t applySettings(int16_t rawInputPermille) const;
-    int16_t applyDriveMode(int16_t configuredPermille) const;
+    int16_t applyDriveMode(int16_t configuredPermille,
+                           int16_t rawInputPermille) const;
     int16_t applyChannelSpeed(int16_t targetPermille, uint32_t nowMs);
     void resetChannelSpeed();
     bool calibrationActive() const { return triggerInput_.calibrationActive(); }

@@ -306,7 +306,8 @@ void controlTask(void *)
 
         const int16_t rawThrottle = channel2Ui.mapAdcToPermille(filteredAdc);
         const int16_t responseThrottle = channel2Ui.applySettings(rawThrottle);
-        const int16_t modeThrottle = channel2Ui.applyDriveMode(responseThrottle);
+        const int16_t modeThrottle = channel2Ui.applyDriveMode(
+            responseThrottle, rawThrottle);
         int16_t configuredThrottle = 0;
         if (safetyStatus == OutputSafetyStatus::Armed)
             configuredThrottle = channel2Ui.applyChannelSpeed(modeThrottle, millis());

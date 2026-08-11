@@ -750,9 +750,14 @@ int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const
     return clampExtendedTravel(value);
 }
 
-int16_t Channel2Ui::applyDriveMode(int16_t configuredPermille) const
+int16_t Channel2Ui::applyDriveMode(int16_t configuredPermille,
+                                   int16_t rawInputPermille) const
 {
-    if (driveModeSettings_.activeMode == DriveMode::Walk) {
+    // Select the limited side from the physical trigger direction, not the
+    // post-reverse output sign. Reversing CH2 must not turn the brake side into
+    // the limited side.
+    if (driveModeSettings_.activeMode == DriveMode::Walk &&
+        rawInputPermille > 0) {
         return static_cast<int16_t>(
             static_cast<int32_t>(configuredPermille) *
             driveModeSettings_.walkLimitPercent / 100);
@@ -1386,13 +1391,13 @@ void Channel2Ui::drawDriveModesPage()
                    active ? cBlack : cWhite);
     }
     lv_obj_t *panel = makePanel(16, 150, 448, 66);
-    makeLabel(panel, "WALK LIMIT", 14, 20, 18, cCyan);
+    makeLabel(panel, "FORWARD LIMIT", 14, 20, 18, cCyan);
     char value[12]; snprintf(value, sizeof(value), "%u%%", driveModeSettings_.walkLimitPercent);
     makeLabel(panel, value, 260, 20, 18);
     makeButton(358, 164, 42, 38, "-", 22);
     makeButton(410, 164, 42, 38, "+", 22);
     makeLabel(lv_scr_act(),
-        "Drive mode controls response only. Changing it forces CUT.\nTap LINK / SAFETY to arm after releasing the trigger.",
+        "WALK limits forward only; brake/reverse stays at 100%.\nChanging mode forces CUT; release trigger before arming.",
         20, 242, 14, cAmber);
 }
 

@@ -214,8 +214,10 @@ input-to-function-to-channel assignment layer. It enables/disables the steering
 and trigger assignments and maps each to a CRSF channel. Additional buttons and
 switches will appear there as their hardware is mapped.
 
-`DRIVE MODES` selects WALK or NORMAL. WALK scales output to an adjustable limit
-(35% by default). Arm/CUT is a separate safety state controlled from the
+`DRIVE MODES` selects WALK or NORMAL. WALK scales physical forward drive to an
+adjustable limit (35% by default) while retaining the fully configured
+brake/reverse output. The physical trigger direction is used, so channel
+reversal cannot accidentally limit braking instead. Arm/CUT is a separate safety state controlled from the
 dashboard's `LINK / SAFETY` panel. Every boot and every drive-mode change forces
 CUT; the trigger must return to neutral before the user can arm again.
 

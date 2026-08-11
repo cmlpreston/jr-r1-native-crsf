@@ -753,16 +753,22 @@ int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const
 int16_t Channel2Ui::applyDriveMode(int16_t configuredPermille,
                                    int16_t rawInputPermille) const
 {
+    const int16_t trim = neutralOutputPermille();
+    int32_t driveComponent = static_cast<int32_t>(configuredPermille) - trim;
     // Select the limited side from the physical trigger direction, not the
     // post-reverse output sign. Reversing CH2 must not turn the brake side into
-    // the limited side.
+    // the limited side. Sub-trim is a centre offset rather than drive demand,
+    // so remove it before scaling and restore it unchanged afterwards.
     if (driveModeSettings_.activeMode == DriveMode::Walk &&
         rawInputPermille > 0) {
-        return static_cast<int16_t>(
-            static_cast<int32_t>(configuredPermille) *
-            driveModeSettings_.walkLimitPercent / 100);
+        driveComponent = driveComponent * driveModeSettings_.walkLimitPercent / 100;
     }
-    return configuredPermille;
+    return clampExtendedTravel(driveComponent + trim);
+}
+
+int16_t Channel2Ui::neutralOutputPermille() const
+{
+    return static_cast<int16_t>(settings_.subtrimPercent) * 10;
 }
 
 int16_t Channel2Ui::applyChannelSpeed(int16_t targetPermille, uint32_t nowMs)

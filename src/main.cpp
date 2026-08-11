@@ -50,6 +50,7 @@ Channel2Ui channel2Ui;
 CrsfTelemetryParser telemetryParser;
 volatile uint32_t crsfBusEdges = 0;
 volatile uint16_t sharedTransmittedThrottle = CRSF_CHANNEL_MID;
+volatile uint16_t sharedSafeNeutralThrottle = CRSF_CHANNEL_MID;
 volatile uint8_t sharedThrottleChannel = 2;
 volatile uint32_t sharedControlUpdateUs = 0;
 volatile bool sharedControlStale = true;
@@ -266,7 +267,7 @@ CrsfTelemetryState readTelemetrySnapshot()
 void requestControlReset()
 {
     controlResetRequested = true;
-    sharedTransmittedThrottle = CRSF_CHANNEL_MID;
+    sharedTransmittedThrottle = sharedSafeNeutralThrottle;
 }
 
 void publishControlState(const ControlStateSnapshot &snapshot)
@@ -308,6 +309,9 @@ void controlTask(void *)
         const int16_t responseThrottle = channel2Ui.applySettings(rawThrottle);
         const int16_t modeThrottle = channel2Ui.applyDriveMode(
             responseThrottle, rawThrottle);
+        const uint16_t safeNeutralThrottle = mapPermilleToCrsf(
+            channel2Ui.neutralOutputPermille());
+        sharedSafeNeutralThrottle = safeNeutralThrottle;
         int16_t configuredThrottle = 0;
         if (safetyStatus == OutputSafetyStatus::Armed)
             configuredThrottle = channel2Ui.applyChannelSpeed(modeThrottle, millis());
@@ -316,14 +320,16 @@ void controlTask(void *)
 
         const uint16_t requestedThrottle = mapPermilleToCrsf(configuredThrottle);
         const uint16_t transmittedThrottle =
-            (throttleArmed && !calibrating) ? requestedThrottle : CRSF_CHANNEL_MID;
+            (throttleArmed && !calibrating) ? requestedThrottle : safeNeutralThrottle;
         sharedTransmittedThrottle = transmittedThrottle;
         sharedControlUpdateUs = micros();
 
         ControlStateSnapshot snapshot;
         snapshot.adc = filteredAdc;
         snapshot.rawPermille = rawThrottle;
-        snapshot.outputPermille = throttleArmed ? configuredThrottle : 0;
+        snapshot.outputPermille = throttleArmed
+            ? configuredThrottle
+            : channel2Ui.neutralOutputPermille();
         snapshot.requestedCrsf = requestedThrottle;
         snapshot.transmittedCrsf = transmittedThrottle;
         snapshot.safetyStatus = safetyStatus;
@@ -349,7 +355,7 @@ void crsfTask(void *)
             const bool stale = lastControlUs == 0 ||
                 static_cast<uint32_t>(nowUs - lastControlUs) > CONTROL_STALE_TIMEOUT_US;
             sharedControlStale = stale;
-            const uint16_t throttle = stale ? CRSF_CHANNEL_MID
+            const uint16_t throttle = stale ? sharedSafeNeutralThrottle
                                             : sharedTransmittedThrottle;
             const uint8_t channel = sharedThrottleChannel;
             sendChannelsFrame(throttle, channel);
@@ -428,7 +434,7 @@ void loop()
     if (consumeScreenshotCommand()) {
         // Publish neutral immediately; the CRSF task must never retain a live
         // value while the main loop is occupied streaming the screenshot.
-        sharedTransmittedThrottle = CRSF_CHANNEL_MID;
+        sharedTransmittedThrottle = sharedSafeNeutralThrottle;
         sharedControlUpdateUs = micros();
         requestControlReset();
         channel2Ui.captureScreenshot(Serial);
@@ -466,7 +472,7 @@ void loop()
         // Publish neutral before changing the channel number. If the CRSF task
         // runs between these writes it can only send the previous channel at
         // neutral, never the previous live value on the newly selected output.
-        sharedTransmittedThrottle = CRSF_CHANNEL_MID;
+        sharedTransmittedThrottle = sharedSafeNeutralThrottle;
         sharedThrottleChannel = channel2Ui.throttleChannel();
         requestControlReset();
         Serial.printf("SAFE: throttle role changed to CH%u; release trigger to re-arm\n",

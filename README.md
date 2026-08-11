@@ -217,9 +217,12 @@ switches will appear there as their hardware is mapped.
 `DRIVE MODES` selects WALK or NORMAL. WALK scales physical forward drive to an
 adjustable limit (35% by default) while retaining the fully configured
 brake/reverse output. The physical trigger direction is used, so channel
-reversal cannot accidentally limit braking instead. Arm/CUT is a separate safety state controlled from the
+reversal cannot accidentally limit braking instead. Sub-trim remains an
+invariant centre offset and is never scaled by WALK. Arm/CUT is a separate safety state controlled from the
 dashboard's `LINK / SAFETY` panel. Every boot and every drive-mode change forces
-CUT; the trigger must return to neutral before the user can arm again.
+CUT; the trigger must return to neutral before the user can arm again. CUT,
+calibration, control reset and stale-control protection all hold the configured
+trimmed neutral rather than jumping to the untrimmed CRSF midpoint.
 
 The throttle `SPEED` page configures independent forward and brake/reverse slew
 times from neutral to endpoint. Zero milliseconds means direct response.

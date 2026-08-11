@@ -110,6 +110,7 @@ public:
     int16_t applySettings(int16_t rawInputPermille) const;
     int16_t applyDriveMode(int16_t configuredPermille,
                            int16_t rawInputPermille) const;
+    int16_t neutralOutputPermille() const;
     int16_t applyChannelSpeed(int16_t targetPermille, uint32_t nowMs);
     void resetChannelSpeed();
     bool calibrationActive() const { return triggerInput_.calibrationActive(); }

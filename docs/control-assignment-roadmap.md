@@ -86,9 +86,14 @@ bindings only when the combination is made explicit in the UI.
 
 - [x] Stable IDs and descriptors for all nineteen assignable R1 controls.
 - [x] Initial paged Input Monitor screen and mapped/unmapped state.
+- [x] Hardware-independent GPIO/MCP23017/ADC endpoint descriptors.
+- [x] Debounced button/switch processing with short, long, double and repeat events.
+- [x] Spring-return trim processing with hold-repeat and impossible-state detection.
+- [x] Raw/debounced state store suitable for the monitor and diagnostics UI.
 - [ ] Show raw GPIO/ADC state and debounced logical state live.
 - [ ] Show press, hold, double-press and trim repeat events.
 - [ ] Add wiring/GPIO identity and fault state.
+- [ ] Add direct-GPIO and MCP23017 sampling drivers and feed the state store.
 
 ### Bindings
 
@@ -152,4 +157,3 @@ saving solution for the measured 5 V / 0.25 A panel load.
 - [ ] Keep the ESP32 and CRSF control path alive while the TFT is powered down.
 
 Reference: <https://github.com/bigtreetech/TFT35-SPI/issues/2>
-

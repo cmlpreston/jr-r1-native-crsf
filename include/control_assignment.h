@@ -1,6 +1,7 @@
 #pragma once
 
-#include <Arduino.h>
+#include <stddef.h>
+#include <stdint.h>
 
 // Stable, model-independent identifiers for every assignable R1 control.
 // GPIOs belong in the hardware input layer; bindings refer only to these IDs.
@@ -44,12 +45,17 @@ enum class InputEvent : uint8_t {
     ShortPress,
     LongPress,
     DoublePress,
+    Repeat,
     NegativePress,
     NegativeRelease,
     PositivePress,
     PositiveRelease,
+    NegativeRepeat,
+    PositiveRepeat,
     PositionLow,
     PositionHigh,
+    InvalidState,
+    StateRestored,
 };
 
 enum ControlContext : uint8_t {

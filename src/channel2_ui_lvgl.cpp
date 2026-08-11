@@ -781,12 +781,10 @@ void Channel2Ui::drawDashboard()
     makeButton(433, 4, 39, 32, LV_SYMBOL_SETTINGS, 18);
 
     lv_obj_t *model = makePanel(8, 47, 144, 87);
-    makeLabel(model, "ACTIVE MODEL", 10, 8, 12, cCyan);
-    makeLabel(model, "01", 10, 28, 28);
+    makeLabel(model, "VEHICLE", 10, 7, 12, cCyan);
     lv_obj_t *buggy = lv_img_create(model);
     lv_img_set_src(buggy, &hyper7_icon);
-    lv_obj_set_pos(buggy, 55, 18);
-    makeLabel(model, "HYPER 7", 10, 68, 12, cDim);
+    lv_obj_set_pos(buggy, 31, 23);
 
     lv_obj_t *power = makePanel(160, 47, 144, 87);
     makeLabel(power, "POWER", 10, 8, 12, cCyan);

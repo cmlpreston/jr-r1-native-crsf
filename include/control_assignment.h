@@ -2,46 +2,165 @@
 
 #include <Arduino.h>
 
-// A physical R1 control can either operate the transmitter UI itself or feed
-// one of the sixteen CRSF channels.  These definitions intentionally contain
-// no GPIO numbers: the interface-PCB input map and the user's assignments are
-// separate concerns.
+// Stable, model-independent identifiers for every assignable R1 control.
+// GPIOs belong in the hardware input layer; bindings refer only to these IDs.
+enum class PhysicalControlId : uint8_t {
+    SteeringWheel,
+    ThrottleTrigger,
+    TimerButton,
+    DriveModeSwitch,
+    GripTrimA,
+    GripTrimB,
+    ThrottleTrim,
+    SteeringTrim,
+    Aux3Trim,
+    IdleUpSwitch,
+    DisplaySwitch,
+    KeyMode,
+    KeyUp,
+    KeyPlus,
+    KeySelect,
+    KeyPage,
+    KeyClear,
+    KeyDown,
+    KeyMinus,
+    Count,
+};
+
 enum class PhysicalControlKind : uint8_t {
-    Button,
-    Toggle,
     Proportional,
+    MomentaryButton,
+    MaintainedSwitch,
+    SpringCentredTrim,
+    KeypadButton,
+};
+
+// Trims are composite inputs. Their two electrical contacts become negative
+// and positive events while the logical control retains one stable ID.
+enum class InputEvent : uint8_t {
+    ValueChanged,
+    Pressed,
+    Released,
+    ShortPress,
+    LongPress,
+    DoublePress,
+    NegativePress,
+    NegativeRelease,
+    PositivePress,
+    PositiveRelease,
+    PositionLow,
+    PositionHigh,
+};
+
+enum ControlContext : uint8_t {
+    ContextAlways = 1U << 0,
+    ContextDashboard = 1U << 1,
+    ContextMenu = 1U << 2,
+    ContextCut = 1U << 3,
+    ContextArmed = 1U << 4,
 };
 
 enum class ControlBehaviour : uint8_t {
+    Proportional,
     Momentary,
     Toggle,
-    ThreePosition,
-    Proportional,
+    TwoPosition,
+    SpringReturnThreePosition,
+    Stepped,
+    ThreePositionSelector,
+    Pulse,
 };
 
 enum class AssignmentTarget : uint8_t {
     None,
     TransmitterFunction,
+    ModelParameter,
+    DriveMode,
     CrsfChannel,
+    Macro,
 };
 
 enum class TransmitterFunction : uint8_t {
     OpenMenu,
+    Dashboard,
     NextPage,
     PreviousPage,
+    QuickPanel,
+    DisplayOnOff,
+    DisplayWake,
+    ToggleNightMode,
+    TouchLock,
+    ArmCut,
+    PanicBrake,
+    TimerStartStop,
+    TimerLap,
+    TimerReset,
     ResetMaximums,
     ResetTrip,
-    TimerStartStop,
-    TrimIncrease,
-    TrimDecrease,
+    ResetConsumedCapacity,
+    LoggingStartStop,
+    AlarmAcknowledge,
+    NextModel,
+    PreviousModel,
 };
 
-struct ControlAssignment {
-    uint8_t physicalInput = 0;
-    PhysicalControlKind inputKind = PhysicalControlKind::Button;
-    ControlBehaviour behaviour = ControlBehaviour::Momentary;
-    AssignmentTarget target = AssignmentTarget::None;
-    TransmitterFunction function = TransmitterFunction::OpenMenu;
-    uint8_t crsfChannel = 0; // 1..16 when target == CrsfChannel
-    bool inverted = false;
+enum class ModelParameter : uint8_t {
+    SteeringTrim,
+    ThrottleTrim,
+    SteeringRate,
+    ThrottleRate,
+    WalkLimit,
+    ForwardExpo,
+    BrakeExpo,
+    BrakeStrength,
+    DragBrake,
+    AbsDepth,
+    AbsPoint,
+    AbsFrequency,
+    DisplayBrightness,
 };
+
+enum class DriveModeSelection : uint8_t {
+    CutArm,
+    WalkNormal,
+    ProfileAProfileB,
+};
+
+struct PhysicalControlDescriptor {
+    PhysicalControlId id;
+    PhysicalControlKind kind;
+    const char *name;
+    bool hardwareMapped;
+};
+
+// A model may have multiple bindings for one input. targetId contains the
+// selected TransmitterFunction, ModelParameter, DriveModeSelection or macro ID.
+// crsfChannel is 1..16 only when target == CrsfChannel.
+struct ControlBinding {
+    PhysicalControlId input = PhysicalControlId::TimerButton;
+    InputEvent event = InputEvent::ShortPress;
+    uint8_t contexts = ContextAlways;
+    AssignmentTarget target = AssignmentTarget::None;
+    ControlBehaviour behaviour = ControlBehaviour::Momentary;
+    uint16_t targetId = 0;
+    uint8_t crsfChannel = 0;
+    int16_t minimum = -1000;
+    int16_t maximum = 1000;
+    int16_t step = 50;
+    int16_t initial = 0;
+    int16_t failsafe = 0;
+    uint16_t pulseMs = 250;
+    bool enabled = true;
+    bool persistent = false;
+    bool inverted = false;
+    bool safetyCritical = false;
+};
+
+constexpr size_t kPhysicalControlCount =
+    static_cast<size_t>(PhysicalControlId::Count);
+
+const PhysicalControlDescriptor &physicalControlDescriptor(size_t index);
+const char *physicalControlKindName(PhysicalControlKind kind);
+const char *assignmentTargetName(AssignmentTarget target);
+const char *controlBehaviourName(ControlBehaviour behaviour);
+bool validateControlBinding(const ControlBinding &binding, const char **reason = nullptr);

@@ -200,6 +200,10 @@ dimmed:
 - `LINK/TELEM`: ELRS link, failsafe, RF settings and telemetry pages;
 - `SETUP`: display, sound, controls, warnings and system preferences.
 
+The programmable physical-control architecture, proposed default R1 bindings,
+safety constraints and implementation checklist are maintained in
+[`docs/control-assignment-roadmap.md`](docs/control-assignment-roadmap.md).
+
 This reorganises the original R1 System/Function menus without duplicating
 their historical navigation constraints. The channel browser exposes all 16
 CRSF channels in two banks. Whichever channel has the throttle role opens the

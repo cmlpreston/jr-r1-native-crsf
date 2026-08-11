@@ -15,6 +15,8 @@ proof of concept.
 
 ## Inputs, assignments and models
 
+- Follow the detailed checklist in `docs/control-assignment-roadmap.md`; it is
+  the source of truth for the programmable control-system feature.
 - Map the steering FPC and all original R1 buttons, toggles and trims.
 - Expand control assignments from steering/trigger to every physical input.
 - Support transmitter functions, channels, modes and multi-action macros.
@@ -38,6 +40,8 @@ proof of concept.
 - Add dim-before-sleep and dedicated sunlight/night palettes.
 - Add configurable dashboard widgets and quick-adjust overlays.
 - Add touch and physical-input diagnostic/calibration pages.
+- Bind the Timer button to next-dashboard-page in the default R1 profile while
+  retaining timer, momentary-channel and other actions as selectable options.
 
 ## Telemetry and peripherals
 

@@ -9,7 +9,7 @@ The Key Pad (page 7), and Function Select (page 15).
 |---:|---|---|---|---|
 | 18 | Steering wheel | 5 kΩ analogue potentiometer, spring centred | Proportional channel 1 steering | Fixed default: CH1 steering; calibratable and optionally remappable |
 | 19 | Throttle/brake lever | 5 kΩ analogue potentiometer, spring centred | Proportional channel 2 throttle/brake | Fixed default: CH2 throttle/brake with neutral safety interlock |
-| 8 | Timer button | Momentary pushbutton | Timer or throttle hold; could be inhibited | Local timer/lap button by default; optionally momentary or toggle channel |
+| 8 | Timer button | Momentary pushbutton | Timer or throttle hold; could be inhibited | General shortcut; next dashboard page by default, with timer/channel actions optionally assigned |
 | 9 | Drive Mode switch | Two-position maintained switch | Selects drive-mode-dependent settings; assignable as Drive Mode or Idle Up | Local drive profile by default; optionally two-position channel |
 | 10 | Grip Trimmer A | Two-way momentary digital trim | Assignable digital trim | Power/throttle rate adjustment by default; optionally stepped channel |
 | 11 | Grip Trimmer B | Two-way momentary digital trim | Assignable digital trim; factory steering dual-rate control | Steering dual rate by default; optionally stepped channel |
@@ -65,7 +65,7 @@ on touch input.
 | 4 | Display indicator | Indicator/output | Optional power/UI state LED |
 | 5 | Charge jack | Power connector | Retain only if compatible with the new battery/charger design |
 | 6 | D.S.C. jack | Legacy wired trainer/direct-servo port | Candidate service/debug connector; not initially required |
-| 7 | Display switch | Maintained system switch | Preserve as RF-enable/service mode if electrically accessible |
+| 7 | Display switch | Maintained system switch | Display/backlight off/on by default; optionally day/night mode if electrically accessible |
 | 16 | Steering tension adjustment | Mechanical adjustment | Retain unchanged; no ESP32 input required |
 | 17 | Dot-matrix display | Output | Replaced by TFT35 SPI touchscreen |
 | 20 | Keypad assembly | Eight digital inputs | UI navigation and configurable shortcuts |
@@ -112,3 +112,5 @@ assignment. An assignment can then target one of the following:
    conflict warnings before enabling accessory channels.
 6. Add keypad shortcuts only after the core navigation behavior is stable.
 
+Detailed status, default bindings, safety requirements and TFT blanking work are
+maintained in [control-assignment-roadmap.md](control-assignment-roadmap.md).

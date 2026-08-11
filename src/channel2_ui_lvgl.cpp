@@ -241,6 +241,7 @@ const char *uiPageName(UiPage page)
         case UiPage::ThrottleResponse: return "response";
         case UiPage::ChannelSpeed: return "channel-speed";
         case UiPage::ControlAssignments: return "control-map";
+        case UiPage::InputMonitor: return "input-monitor";
         case UiPage::DriveModes: return "drive-modes";
         case UiPage::ChannelPlaceholder: return "channel-placeholder";
         case UiPage::Setup: return "setup";
@@ -609,6 +610,7 @@ void Channel2Ui::redrawActivePage()
         case UiPage::ThrottleResponse: drawThrottleResponsePage(); break;
         case UiPage::ChannelSpeed: drawChannelSpeedPage(); break;
         case UiPage::ControlAssignments: drawControlAssignmentsPage(); break;
+        case UiPage::InputMonitor: drawInputMonitorPage(); break;
         case UiPage::DriveModes: drawDriveModesPage(); break;
         case UiPage::ChannelPlaceholder: drawChannelPlaceholder(); break;
         case UiPage::Setup: drawSetupPage(); break;
@@ -952,8 +954,43 @@ void Channel2Ui::drawControlAssignmentsPage()
                    enabled[row] ? cAmber : cPanel2,
                    enabled[row] ? cBlack : cWhite);
     }
-    makeLabel(lv_scr_act(), "BUTTON/SWITCH INPUTS APPEAR HERE AS THEY ARE WIRED",
-              20, 259, 12, cDim);
+    makeButton(18, 252, 214, 54, "INPUT MONITOR", 16, cPanel2, cCyan);
+    makeLabel(lv_scr_act(), "2 OF 19 INPUTS MAPPED", 258, 270, 12, cDim);
+}
+
+void Channel2Ui::drawInputMonitorPage()
+{
+    activePage_ = UiPage::InputMonitor;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("INPUT MONITOR", "BACK");
+
+    constexpr uint8_t kRowsPerBank = 5;
+    constexpr uint8_t kBankCount =
+        (kPhysicalControlCount + kRowsPerBank - 1) / kRowsPerBank;
+    const size_t first = inputMonitorBank_ * kRowsPerBank;
+    for (uint8_t row = 0; row < kRowsPerBank; ++row) {
+        const size_t index = first + row;
+        if (index >= kPhysicalControlCount) break;
+        const PhysicalControlDescriptor &control = physicalControlDescriptor(index);
+        const int16_t y = 54 + row * 43;
+        lv_obj_t *panel = makePanel(10, y, 460, 37);
+        makeLabel(panel, control.name, 10, 5, 14, cWhite);
+        makeLabel(panel, physicalControlKindName(control.kind), 210, 5, 12, cDim);
+        makeLabel(panel, control.hardwareMapped ? "MAPPED" : "UNMAPPED",
+                  365, 5, 12, control.hardwareMapped ? cGreen : cAmber);
+    }
+
+    makeButton(12, 274, 58, 34, "<", 22,
+               inputMonitorBank_ == 0 ? cBlack : cPanel,
+               inputMonitorBank_ == 0 ? cDim : cWhite);
+    makeButton(410, 274, 58, 34, ">", 22,
+               inputMonitorBank_ + 1 >= kBankCount ? cBlack : cPanel,
+               inputMonitorBank_ + 1 >= kBankCount ? cDim : cWhite);
+    char page[16];
+    snprintf(page, sizeof(page), "%u / %u", inputMonitorBank_ + 1, kBankCount);
+    lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 284, 14, cDim);
+    lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 284);
 }
 
 void Channel2Ui::drawChannelRolesPage()
@@ -1553,6 +1590,12 @@ void Channel2Ui::handleChannelSpeedTouch(int16_t x, int16_t y)
 void Channel2Ui::handleControlAssignmentsTouch(int16_t x, int16_t y)
 {
     if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
+    if (y >= 248 && x < 245) {
+        playKeyClick();
+        inputMonitorBank_ = 0;
+        drawInputMonitorPage();
+        return;
+    }
     if (y < 58 || y >= 242) return;
     const uint8_t row = (y - 58) / 92;
     const int16_t localY = y - (58 + row * 92);
@@ -1576,6 +1619,26 @@ void Channel2Ui::handleControlAssignmentsTouch(int16_t x, int16_t y)
     saveChannelRoleSettings();
     playKeyClick();
     drawControlAssignmentsPage();
+}
+
+void Channel2Ui::handleInputMonitorTouch(int16_t x, int16_t y)
+{
+    constexpr uint8_t kRowsPerBank = 5;
+    constexpr uint8_t kBankCount =
+        (kPhysicalControlCount + kRowsPerBank - 1) / kRowsPerBank;
+    if (y < 48 && x >= 360) {
+        playKeyClick(); drawControlAssignmentsPage(); return;
+    }
+    if (y < 270) return;
+    if (x < 90 && inputMonitorBank_ > 0) {
+        --inputMonitorBank_;
+        playKeyClick();
+        drawInputMonitorPage();
+    } else if (x >= 390 && inputMonitorBank_ + 1 < kBankCount) {
+        ++inputMonitorBank_;
+        playKeyClick();
+        drawInputMonitorPage();
+    }
 }
 
 void Channel2Ui::handleDriveModesTouch(int16_t x, int16_t y)
@@ -1763,6 +1826,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::ThrottleResponse) { handleThrottleResponseTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelSpeed) { handleChannelSpeedTouch(x, y); return; }
     if (activePage_ == UiPage::ControlAssignments) { handleControlAssignmentsTouch(x, y); return; }
+    if (activePage_ == UiPage::InputMonitor) { handleInputMonitorTouch(x, y); return; }
     if (activePage_ == UiPage::DriveModes) { handleDriveModesTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelPlaceholder) { if (y < 48 && x >= 360) { playKeyClick(); drawChannelsPage(); } return; }
     if (activePage_ == UiPage::Setup) { handleSetupTouch(x, y); return; }

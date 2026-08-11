@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <lvgl.h>
+#include "control_assignment.h"
 #include "crsf_telemetry.h"
 #include "proportional_input.h"
 
@@ -87,6 +88,7 @@ enum class UiPage : uint8_t {
     ThrottleResponse,
     ChannelSpeed,
     ControlAssignments,
+    InputMonitor,
     DriveModes,
     ChannelPlaceholder,
     Setup,
@@ -153,6 +155,7 @@ private:
     void drawChannelSpeedPage();
     void drawChannelSpeedRow(int row);
     void drawControlAssignmentsPage();
+    void drawInputMonitorPage();
     void drawDriveModesPage();
     void drawSetupPage();
     void drawSetupRow(int row);
@@ -174,6 +177,7 @@ private:
     void handleThrottleResponseTouch(int16_t x, int16_t y);
     void handleChannelSpeedTouch(int16_t x, int16_t y);
     void handleControlAssignmentsTouch(int16_t x, int16_t y);
+    void handleInputMonitorTouch(int16_t x, int16_t y);
     void handleDriveModesTouch(int16_t x, int16_t y);
     void handleSetupTouch(int16_t x, int16_t y);
     void handleTxBatteryTouch(int16_t x, int16_t y);
@@ -205,6 +209,7 @@ private:
     UiPage activePage_ = UiPage::Dashboard;
     uint8_t channelsBank_ = 0;
     uint8_t selectedChannel_ = 2;
+    uint8_t inputMonitorBank_ = 0;
     bool channelRolesChanged_ = false;
     bool safetyResetRequested_ = false;
     bool armRequested_ = false;

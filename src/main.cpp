@@ -44,6 +44,8 @@ volatile bool sharedControlStale = true;
 CrsfTelemetryState telemetrySnapshot;
 portMUX_TYPE telemetryMux = portMUX_INITIALIZER_UNLOCKED;
 TaskHandle_t crsfTaskHandle = nullptr;
+char usbCommand[32];
+uint8_t usbCommandLength = 0;
 
 void IRAM_ATTR countCrsfBusEdge()
 {
@@ -274,6 +276,26 @@ void crsfTask(void *)
     }
 }
 
+bool consumeScreenshotCommand()
+{
+    while (Serial.available() > 0) {
+        const char character = static_cast<char>(Serial.read());
+        if (character == '\r') continue;
+        if (character == '\n') {
+            usbCommand[usbCommandLength] = '\0';
+            const bool matched = strcmp(usbCommand, "SCREENSHOT") == 0;
+            usbCommandLength = 0;
+            if (matched) return true;
+            continue;
+        }
+        if (usbCommandLength + 1 < sizeof(usbCommand))
+            usbCommand[usbCommandLength++] = character;
+        else
+            usbCommandLength = 0;
+    }
+    return false;
+}
+
 } // namespace
 
 void setup()
@@ -312,6 +334,19 @@ void setup()
 
 void loop()
 {
+    if (consumeScreenshotCommand()) {
+        // Publish neutral immediately; the CRSF task must never retain a live
+        // value while the main loop is occupied streaming the screenshot.
+        sharedTransmittedThrottle = CRSF_CHANNEL_MID;
+        sharedControlUpdateUs = micros();
+        throttleArmed = false;
+        neutralSinceMs = 0;
+        channel2Ui.resetChannelSpeed();
+        channel2Ui.captureScreenshot(Serial);
+        nextLogMs = millis() + USB_LOG_PERIOD_MS;
+        return;
+    }
+
     const uint16_t sample = analogRead(THROTTLE_ADC_PIN);
     // Simple 1/8 IIR smoothing; sufficient for the first trigger test.
     filteredAdc = static_cast<uint16_t>((filteredAdc * 7U + sample) / 8U);

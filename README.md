@@ -16,6 +16,24 @@ inventory and future assignment plan is in
 [`docs/r1-control-map.md`](docs/r1-control-map.md).
 Deferred work is tracked in [`TODO.md`](TODO.md).
 
+## Capturing a TFT screenshot
+
+The firmware accepts `SCREENSHOT` over its native USB serial connection. It
+reads the ILI9486 display memory through the TFT35 `MISO` connection and streams
+a framed 480x320 RGB888 image without allocating a full framebuffer. Capturing
+forces throttle CUT because the main control loop pauses during the transfer.
+
+Stop PlatformIO's serial monitor so the capture tool can open the port, then run:
+
+```sh
+./.venv/bin/python tools/capture_tft.py dashboard.png
+```
+
+The script automatically selects a single `/dev/cu.usbmodem*` device. Use
+`--port /dev/cu.usbmodem101` if more than one is connected. If the first capture
+has red and blue exchanged, repeat it with `--swap-rb`; `--flip-x` and `--flip-y`
+are available for diagnosing controller read orientation.
+
 ## Safety
 
 For the first test, disconnect the buggy motor from the ESC or place the buggy on

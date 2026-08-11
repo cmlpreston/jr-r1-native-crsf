@@ -121,6 +121,7 @@ public:
     bool throttleEnabled() const { return channelRoleSettings_.throttleEnabled; }
     bool armRequested() const { return armRequested_; }
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
+    bool captureScreenshot(Stream &output);
     bool consumeChannelRolesChanged();
     bool consumeSafetyResetRequested();
 

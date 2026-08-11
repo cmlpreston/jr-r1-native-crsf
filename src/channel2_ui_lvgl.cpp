@@ -2,6 +2,7 @@
 
 #include <Arduino_GFX_Library.h>
 #include <Preferences.h>
+#include <SPI.h>
 #include <Wire.h>
 
 #include "config.h"
@@ -35,6 +36,10 @@ constexpr uint8_t kResponseRateStepPercent = 5;
 constexpr int8_t kResponseExpoStepPercent = 5;
 constexpr uint16_t kChannelSpeedStepMs = 50;
 constexpr uint16_t kChannelSpeedMaximumMs = 2000;
+constexpr uint32_t kScreenshotSpiFrequency = 4000000;
+constexpr uint8_t kLcdColumnAddressSet = 0x2a;
+constexpr uint8_t kLcdPageAddressSet = 0x2b;
+constexpr uint8_t kLcdMemoryRead = 0x2e;
 
 constexpr uint32_t cBlack = 0x05080d;
 constexpr uint32_t cHeader = 0x06182c;
@@ -55,10 +60,27 @@ Arduino_DataBus *displayBus = new Arduino_ESP32SPI(
     TFT_DC_PIN, TFT_CS_PIN, TFT_SCK_PIN, TFT_MOSI_PIN, TFT_MISO_PIN);
 Arduino_GFX *display = new Arduino_ILI9486_18bit(
     displayBus, GFX_NOT_DEFINED, 1, false);
+SPIClass screenshotSpi(FSPI);
 
 lv_disp_draw_buf_t drawBuffer;
 lv_disp_drv_t displayDriver;
 lv_color_t lineBuffer[kScreenWidth * 16];
+uint8_t screenshotRow[kScreenWidth * 3];
+
+void screenshotCommand(uint8_t command)
+{
+    digitalWrite(TFT_DC_PIN, LOW);
+    screenshotSpi.transfer(command);
+    digitalWrite(TFT_DC_PIN, HIGH);
+}
+
+void screenshotCoordinate(uint16_t start, uint16_t end)
+{
+    screenshotSpi.transfer(static_cast<uint8_t>(start >> 8));
+    screenshotSpi.transfer(static_cast<uint8_t>(start));
+    screenshotSpi.transfer(static_cast<uint8_t>(end >> 8));
+    screenshotSpi.transfer(static_cast<uint8_t>(end));
+}
 
 lv_color_t colour(uint32_t rgb)
 {
@@ -272,6 +294,10 @@ bool Channel2Ui::begin()
     Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
     Wire.setClock(400000);
 
+    // Initialise the shared hardware SPI handle before Arduino_GFX configures
+    // the same FSPI peripheral. It is used only for explicit, synchronous LCD
+    // GRAM reads while LVGL is idle.
+    screenshotSpi.begin(TFT_SCK_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_CS_PIN);
     displayReady_ = display->begin(TFT_SPI_FREQUENCY);
     if (!displayReady_) {
         Serial.println("TFT35/LVGL: display initialisation failed");
@@ -295,6 +321,55 @@ bool Channel2Ui::begin()
                   kScreenWidth, kScreenHeight,
                   static_cast<unsigned long>(TFT_SPI_FREQUENCY), 16U);
     playBuzzer(80);
+    return true;
+}
+
+bool Channel2Ui::captureScreenshot(Stream &output)
+{
+    if (!displayReady_) return false;
+    if (displaySleeping_) wakeDisplay();
+
+    // A capture blocks the UI/control loop while pixels cross USB. Keep the
+    // independent CRSF task alive, but require an explicit re-arm afterwards.
+    armRequested_ = false;
+    safetyResetRequested_ = true;
+    lv_refr_now(nullptr);
+    delay(2);
+
+    char header[64];
+    const uint32_t payloadBytes =
+        static_cast<uint32_t>(kScreenWidth) * kScreenHeight * 3U;
+    const int headerLength = snprintf(
+        header, sizeof(header), "TFTSHOT1 %d %d RGB888 %lu\n",
+        kScreenWidth, kScreenHeight,
+        static_cast<unsigned long>(payloadBytes));
+    output.write(reinterpret_cast<const uint8_t *>(header), headerLength);
+
+    const SPISettings settings(kScreenshotSpiFrequency, MSBFIRST, SPI_MODE0);
+    for (uint16_t row = 0; row < kScreenHeight; ++row) {
+        screenshotSpi.beginTransaction(settings);
+        digitalWrite(TFT_CS_PIN, LOW);
+
+        screenshotCommand(kLcdColumnAddressSet);
+        screenshotCoordinate(0, kScreenWidth - 1);
+        screenshotCommand(kLcdPageAddressSet);
+        screenshotCoordinate(row, row);
+        screenshotCommand(kLcdMemoryRead);
+
+        // ILI9486 memory reads contain one dummy byte followed by one byte per
+        // red, green and blue component. The low two bits may be zero because
+        // the controller's internal colour path is six bits per component.
+        screenshotSpi.transfer(0x00);
+        for (size_t index = 0; index < sizeof(screenshotRow); ++index)
+            screenshotRow[index] = screenshotSpi.transfer(0x00);
+
+        digitalWrite(TFT_CS_PIN, HIGH);
+        screenshotSpi.endTransaction();
+        output.write(screenshotRow, sizeof(screenshotRow));
+        delay(0);
+    }
+    output.print("\nTFTSHOT-END\n");
+    output.flush();
     return true;
 }
 

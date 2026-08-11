@@ -218,7 +218,9 @@ private:
     bool safetyResetRequested_ = false;
     bool armRequested_ = false;
     bool displaySleeping_ = false;
-    bool discardWakeTouchUntilRelease_ = false;
+    // A touch used to wake the display, or one beginning inside the post-tap
+    // guard interval, must be discarded as one complete physical gesture.
+    bool discardTouchUntilRelease_ = false;
     int16_t slewedThrottlePermille_ = 0;
     uint32_t lastSlewUpdateMs_ = 0;
     uint32_t lastInteractionMs_ = 0;

@@ -23,7 +23,7 @@ constexpr int16_t kExtendedTravelPermille = 1200;
 constexpr uint32_t kUiUpdateMs = 80;
 constexpr uint16_t kTouchPressureThreshold = 40;
 constexpr uint32_t kTouchReleaseDebounceMs = 25;
-constexpr uint32_t kTouchRetriggerGuardMs = 75;
+constexpr uint32_t kTouchRetriggerGuardMs = 100;
 constexpr uint32_t kSettingsSaveDelayMs = 750;
 constexpr uint8_t kNsReadX = 0xC0;
 constexpr uint8_t kNsReadY = 0xD0;
@@ -2094,16 +2094,16 @@ void Channel2Ui::updateTouch()
     if (displaySleeping_) {
         if (irqActive) {
             wakeDisplay();
-            discardWakeTouchUntilRelease_ = true;
+            discardTouchUntilRelease_ = true;
             touchWasDown_ = false;
             touchReleaseSinceMs_ = 0;
             touchIgnoreUntilMs_ = now + 250;
         }
         return;
     }
-    if (discardWakeTouchUntilRelease_) {
+    if (discardTouchUntilRelease_) {
         if (!irqActive) {
-            discardWakeTouchUntilRelease_ = false;
+            discardTouchUntilRelease_ = false;
             touchIgnoreUntilMs_ = now + kTouchRetriggerGuardMs;
         }
         return;
@@ -2111,19 +2111,31 @@ void Channel2Ui::updateTouch()
     const bool touched = readTouch(x, y, rawX, rawY, rawZ);
 
     if (touched) {
+        if (!touchWasDown_ &&
+            static_cast<int32_t>(now - touchIgnoreUntilMs_) < 0) {
+            // Never promote a press that began during the guard period after
+            // the timer expires. It may be contact bounce or the tail of the
+            // gesture that just changed pages, so consume it through release.
+            discardTouchUntilRelease_ = true;
+            touchReleaseSinceMs_ = 0;
+            return;
+        }
         // A low-pressure or failed I2C sample while IRQ remains asserted is not
         // a release. Clear the pending-release timer whenever valid pressure
         // returns and keep treating this as the same physical touch.
         touchReleaseSinceMs_ = 0;
-        if (!touchWasDown_ &&
-            static_cast<int32_t>(now - touchIgnoreUntilMs_) >= 0) {
+        if (!touchWasDown_) {
             touchWasDown_ = true;
-            Serial.printf("TOUCH down page=%s raw=(%u,%u,%u) screen=(%d,%d)\n",
-                          uiPageName(activePage_), rawX, rawY, rawZ, x, y);
-        }
-        if (touchWasDown_) {
             lastTouchX_ = x;
             lastTouchY_ = y;
+            Serial.printf("TOUCH down page=%s raw=(%u,%u,%u) screen=(%d,%d)\n",
+                          uiPageName(activePage_), rawX, rawY, rawZ, x, y);
+        } else {
+            // Resistive coordinates often wander as pressure falls at lift-off.
+            // A modest low-pass average keeps the hit near the body of the tap
+            // instead of blindly using the final, least reliable sample.
+            lastTouchX_ = static_cast<int16_t>((lastTouchX_ * 3 + x) / 4);
+            lastTouchY_ = static_cast<int16_t>((lastTouchY_ * 3 + y) / 4);
         }
         return;
     }

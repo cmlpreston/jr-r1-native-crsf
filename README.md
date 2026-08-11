@@ -240,6 +240,11 @@ primary action remains immediately to its left. Using Home during input
 calibration safely cancels calibration, retains the previous calibration, and
 returns the transmitter to CUT.
 
+Touch actions are dispatched on release. A gesture beginning during the short
+post-action guard interval is discarded through its complete release rather
+than being promoted into a tap on the newly drawn page. Coordinates are also
+filtered across the gesture to suppress resistive-panel lift-off drift.
+
 - `MODELS`: select/name/copy/reset models and later transfer/import/export;
 - `CHANNELS`: names, reverse, calibration, sub-trim and endpoints per channel;
 - `RESPONSE`: dual rate, exponential, throttle curves and speed limiting;

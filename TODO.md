@@ -19,6 +19,8 @@ proof of concept.
   the source of truth for the programmable control-system feature.
 - Map the steering FPC and all original R1 buttons, toggles and trims.
 - Expand control assignments from steering/trigger to every physical input.
+- Feed enabled auxiliary outputs and their live values into the dashboard's
+  right-hand vertical channel bank; keep steering/throttle as horizontal bars.
 - Support transmitter functions, channels, modes and multi-action macros.
 - Add momentary, toggle, three-position and proportional behaviours.
 - Add model select/name/copy/reset and safe switching through neutral.

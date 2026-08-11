@@ -809,42 +809,72 @@ void Channel2Ui::drawDashboard()
 
     if (enabledCount == 0) {
         makeLabel(monitor, "NO ENABLED CHANNELS", 10, 43, 16, cDim);
-    } else if (enabledCount <= 4) {
-        const bool roomy = enabledCount <= 2;
-        const int16_t firstY = roomy ? 29 : 24;
-        const int16_t spacing = roomy ? 34 : 18;
-        const int16_t barHeight = roomy ? 18 : 11;
+    } else {
+        // Steering and throttle are permanent primary instruments. Once the
+        // 16-channel output model supplies enabled auxiliaries, they occupy a
+        // compact vertical bank on the right without shrinking the primary
+        // channels into the same low-priority representation.
+        uint8_t primaryChannels[2];
+        uint8_t primaryCount = 0;
+        uint8_t auxiliaryChannels[14];
+        uint8_t auxiliaryCount = 0;
         for (uint8_t index = 0; index < enabledCount; ++index) {
             const uint8_t channel = enabledChannels[index];
+            const bool primary = channel == channelRoleSettings_.steeringChannel ||
+                                 channel == channelRoleSettings_.throttleChannel;
+            if (primary && primaryCount < 2)
+                primaryChannels[primaryCount++] = channel;
+            else if (!primary && auxiliaryCount < 14)
+                auxiliaryChannels[auxiliaryCount++] = channel;
+        }
+
+        const int16_t primaryBarWidth = auxiliaryCount == 0 ? 338 : 218;
+        const int16_t firstY = primaryCount == 1 ? 46 : 29;
+        for (uint8_t index = 0; index < primaryCount; ++index) {
+            const uint8_t channel = primaryChannels[index];
             const bool steering = channel == channelRoleSettings_.steeringChannel;
             char label[18];
             snprintf(label, sizeof(label), "CH%u %s", channel,
                      steering ? "STEER" : "THROTTLE");
-            const int16_t y = firstY + index * spacing;
-            makeLabel(monitor, label, 10, y - 1, roomy ? 12 : 10,
+            const int16_t y = firstY + index * 34;
+            makeLabel(monitor, label, 10, y - 1, 12,
                       steering ? cWhite : cCyan);
-            lv_obj_t *bar = makeBar(monitor, 112, y, 338, barHeight,
+            lv_obj_t *bar = makeBar(monitor, 112, y, primaryBarWidth, 18,
                                     0, kCrsfMaximum,
                                     steering ? cWhite : cCyan);
             lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
             if (channel == channelRoleSettings_.throttleChannel)
                 dashboardThrottleBar_ = bar;
         }
-    } else {
-        const int16_t slotWidth = 442 / enabledCount;
-        for (uint8_t index = 0; index < enabledCount; ++index) {
-            const uint8_t channel = enabledChannels[index];
-            const int16_t x = 10 + index * slotWidth;
-            char number[4];
-            snprintf(number, sizeof(number), "%u", channel);
-            makeLabel(monitor, number, x + max<int16_t>(0, (slotWidth - 14) / 2),
-                      21, 10, cWhite);
-            lv_obj_t *bar = makeBar(monitor, x + max<int16_t>(2, (slotWidth - 16) / 2),
-                                    37, min<int16_t>(16, slotWidth - 4), 44,
-                                    0, kCrsfMaximum, cCyan);
-            lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
-            if (channel == channelRoleSettings_.throttleChannel)
-                dashboardThrottleBar_ = bar;
+
+        if (auxiliaryCount > 0) {
+            constexpr uint8_t kMaximumVisibleAuxiliaries = 6;
+            const uint8_t visibleCount = min<uint8_t>(auxiliaryCount,
+                                                       kMaximumVisibleAuxiliaries);
+            const int16_t bankX = 344;
+            const int16_t bankWidth = 106;
+            const int16_t slotWidth = bankWidth / visibleCount;
+            char auxHeading[12];
+            if (auxiliaryCount > visibleCount)
+                snprintf(auxHeading, sizeof(auxHeading), "AUX +%u",
+                         auxiliaryCount - visibleCount);
+            else
+                snprintf(auxHeading, sizeof(auxHeading), "AUX");
+            makeLabel(monitor, auxHeading, bankX, 6, 10, cDim);
+            for (uint8_t index = 0; index < visibleCount; ++index) {
+                const uint8_t channel = auxiliaryChannels[index];
+                const int16_t x = bankX + index * slotWidth;
+                char number[4];
+                snprintf(number, sizeof(number), "%u", channel);
+                makeLabel(monitor, number,
+                          x + max<int16_t>(0, (slotWidth - 12) / 2),
+                          21, 10, cWhite);
+                lv_obj_t *bar = makeBar(
+                    monitor, x + max<int16_t>(1, (slotWidth - 10) / 2),
+                    37, min<int16_t>(10, slotWidth - 2), 44,
+                    0, kCrsfMaximum, cCyan);
+                lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
+            }
         }
     }
 

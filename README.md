@@ -223,6 +223,9 @@ dashboard's `LINK / SAFETY` panel. Every boot and every drive-mode change forces
 CUT; the trigger must return to neutral before the user can arm again. CUT,
 calibration, control reset and stale-control protection all hold the configured
 trimmed neutral rather than jumping to the untrimmed CRSF midpoint.
+The neutral-interlock ADC window is also the throttle output deadband. Normal
+spring-return/pot variation inside that window therefore produces exactly zero
+drive demand, while travel outside it is remapped to retain both full endpoints.
 
 The throttle `SPEED` page configures independent forward and brake/reverse slew
 times from neutral to endpoint. Zero milliseconds means direct response.

@@ -728,7 +728,32 @@ void Channel2Ui::redrawActivePage()
 
 int16_t Channel2Ui::mapAdcToPermille(uint16_t adc) const
 {
-    return triggerInput_.mapToPermille(adc);
+    const ProportionalCalibration &calibration = triggerInput_.calibration();
+    const uint16_t neutralLow = max<uint16_t>(
+        calibration.minimum + 1,
+        calibration.centre > ARM_NEUTRAL_ADC_WINDOW
+            ? calibration.centre - ARM_NEUTRAL_ADC_WINDOW
+            : calibration.minimum + 1);
+    const uint16_t neutralHigh = min<uint16_t>(
+        calibration.maximum - 1,
+        calibration.centre + ARM_NEUTRAL_ADC_WINDOW);
+
+    // The same region accepted by the neutral safety interlock must produce an
+    // exact zero command. Otherwise ordinary spring/pot variation can be armed
+    // as a small drive/brake command, then visibly jump when CUT restores the
+    // configured neutral. Remap outside the deadband so both endpoints retain
+    // the full -1000..+1000 range.
+    if (adc >= neutralLow && adc <= neutralHigh) return 0;
+    if (adc < neutralLow) {
+        adc = max(adc, calibration.minimum);
+        return static_cast<int16_t>(-
+            static_cast<int32_t>(neutralLow - adc) * 1000 /
+            (neutralLow - calibration.minimum));
+    }
+    adc = min(adc, calibration.maximum);
+    return static_cast<int16_t>(
+        static_cast<uint32_t>(adc - neutralHigh) * 1000 /
+        (calibration.maximum - neutralHigh));
 }
 
 int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const

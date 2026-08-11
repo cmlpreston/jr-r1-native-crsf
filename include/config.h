@@ -43,8 +43,9 @@ constexpr uint16_t THROTTLE_ADC_MIN = 1447;
 constexpr uint16_t THROTTLE_ADC_CENTER = 1970;
 constexpr uint16_t THROTTLE_ADC_MAX = 4015;
 
-// Neutral protection. The module receives neutral until the trigger has remained
-// close to centre for ARM_NEUTRAL_TIME_MS after boot.
+// Neutral protection and output deadband. The module receives neutral until
+// the trigger has remained close to centre for ARM_NEUTRAL_TIME_MS after boot,
+// and this same ADC region maps to exactly zero command while running.
 constexpr uint16_t ARM_NEUTRAL_ADC_WINDOW = 80;
 constexpr uint32_t ARM_NEUTRAL_TIME_MS = 1000;
 // Plausibility and freshness limits used by the independent CRSF task. A

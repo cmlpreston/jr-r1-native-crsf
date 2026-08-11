@@ -57,6 +57,10 @@ private:
     static constexpr uint16_t kMinimumHalfSpan = 100;
     static constexpr uint16_t kMovementThreshold = 16;
     static constexpr uint32_t kStableCentreMs = 1500;
+    // Calibration deliberately has its own low-pass filter. The normal control
+    // path may choose different filtering later, while calibration must never
+    // save one noisy ADC sample as a permanent endpoint or centre value.
+    static constexpr uint8_t kCalibrationFilterShift = 3; // EMA alpha = 1/8
 
     ProportionalCalibration calibration_;
     bool calibrationActive_ = false;
@@ -66,5 +70,8 @@ private:
     uint16_t observedMaximum_ = 0;
     uint16_t stableSample_ = 0;
     uint16_t liveSample_ = 0;
+    uint32_t calibrationFilterScaled_ = 0;
     uint32_t stableSinceMs_ = 0;
+
+    uint16_t filterCalibrationSample(uint16_t sample);
 };

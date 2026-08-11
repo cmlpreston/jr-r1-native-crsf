@@ -1657,11 +1657,12 @@ void Channel2Ui::drawCalibrationPage()
 
 void Channel2Ui::drawCalibrationValues(uint16_t adc)
 {
+    (void)adc;
     if (!triggerInput_.calibrationActive() || !calibrationLiveLabel_) return;
     const ProportionalCalibrationProgress progress =
         triggerInput_.calibrationProgress();
     lv_label_set_text_fmt(calibrationMinimumLabel_, "%4u", progress.minimum);
-    lv_label_set_text_fmt(calibrationLiveLabel_, "%4u", adc);
+    lv_label_set_text_fmt(calibrationLiveLabel_, "%4u", progress.live);
     lv_label_set_text_fmt(calibrationMaximumLabel_, "%4u", progress.maximum);
     lv_obj_set_style_text_color(calibrationMinimumLabel_,
         colour(progress.sawMinimum ? cGreen : cWhite), 0);

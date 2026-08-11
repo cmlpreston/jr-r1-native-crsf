@@ -43,6 +43,8 @@ void ProportionalInput::startCalibration(uint16_t sample)
     observedMaximum_ = sample;
     stableSample_ = sample;
     liveSample_ = sample;
+    calibrationFilterScaled_ =
+        static_cast<uint32_t>(sample) << kCalibrationFilterShift;
     stableSinceMs_ = 0;
 }
 
@@ -55,6 +57,10 @@ bool ProportionalInput::updateCalibration(uint16_t sample, uint32_t nowMs)
 {
     if (!calibrationActive_) return false;
 
+    // Work only with the calibration-filtered value below. A one-sample spike
+    // can therefore move the saved extrema by only 1/8 of its magnitude, and
+    // the centre saved after the stability interval is an averaged value.
+    sample = filterCalibrationSample(sample);
     liveSample_ = sample;
     observedMinimum_ = std::min(observedMinimum_, sample);
     observedMaximum_ = std::max(observedMaximum_, sample);
@@ -102,6 +108,18 @@ bool ProportionalInput::updateCalibration(uint16_t sample, uint32_t nowMs)
     calibration_ = candidate;
     calibrationActive_ = false;
     return true;
+}
+
+uint16_t ProportionalInput::filterCalibrationSample(uint16_t sample)
+{
+    const int32_t target =
+        static_cast<int32_t>(sample) << kCalibrationFilterShift;
+    const int32_t current = static_cast<int32_t>(calibrationFilterScaled_);
+    calibrationFilterScaled_ = static_cast<uint32_t>(
+        current + (target - current) / (1 << kCalibrationFilterShift));
+    return static_cast<uint16_t>(
+        (calibrationFilterScaled_ + (1U << (kCalibrationFilterShift - 1))) >>
+        kCalibrationFilterShift);
 }
 
 ProportionalCalibrationProgress ProportionalInput::calibrationProgress() const

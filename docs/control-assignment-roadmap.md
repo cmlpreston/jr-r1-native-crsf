@@ -32,6 +32,9 @@ The control task must remain independent of display rendering, touch handling
 and telemetry decoding. Throttle CUT and stale-input protection always have
 priority over bindings and macros.
 
+- [x] Proportional control sampling/processing runs independently of TFT/LVGL
+  rendering; page changes cannot create a synthetic neutral output.
+
 ## Proposed default R1 profile
 
 | Input | Short/default action | Additional configurable actions |

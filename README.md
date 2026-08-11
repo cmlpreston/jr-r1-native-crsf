@@ -54,6 +54,11 @@ it exceeds 250 ms, it transmits neutral even if the UI/core has stalled.
 Implausible ADC values, calibration and a disabled throttle assignment also fail
 closed.
 
+Control sampling and response processing run in a dedicated 4 ms high-priority
+task, independently of LVGL rendering. Full-screen page changes therefore
+cannot interrupt steering/throttle updates; the CRSF task's 250 ms stale check
+monitors this control task rather than the display loop.
+
 Always fit the Ranger antenna before powering the module. Begin at the lowest RF
 power setting.
 

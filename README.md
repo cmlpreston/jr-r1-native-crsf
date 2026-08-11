@@ -147,6 +147,16 @@ another `ProportionalInput` instance and their own input-scoped NVS namespace.
 The compiled `THROTTLE_ADC_*` values remain as safe defaults if NVS does not yet
 contain a valid calibration. Direction is selected separately on the CH2 page.
 
+At 100% rate and endpoint the transmitter sends the standard CRSF travel range
+of 172–1811 (992 neutral). ExpressLRS normally maps that to approximately
+988–2012 us PWM at the receiver. Although CRSF can encode the wider absolute
+range 0–2047, 1811 is conventional full servo/ESC travel; dashboard bars are
+scaled to 172–1811 so this is displayed as full scale. Before calibrating an
+ESC, confirm the USB log reaches `requested=1811` at full forward and
+`requested=172` at full brake/reverse (and the same `sent` values when safely
+armed), then teach the ESC those actual receiver endpoints according to its own
+calibration procedure.
+
 ## BIGTREETECH TFT35 SPI V2.1 wiring
 
 The screen board takes **5 V power**, but its LCD, touch and interrupt signals

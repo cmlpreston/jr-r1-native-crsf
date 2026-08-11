@@ -14,7 +14,11 @@ namespace {
 constexpr int16_t kScreenWidth = 480;
 constexpr int16_t kScreenHeight = 320;
 constexpr uint16_t kCrsfMid = 992;
-constexpr uint16_t kCrsfMaximum = 2047;
+// Standard CRSF/servo travel. Values 0..2047 are representable, but 172..1811
+// maps to the conventional approximately 988..2012 us receiver PWM range.
+// UI bars therefore use the standard travel so full trigger looks full-scale.
+constexpr uint16_t kCrsfMinimum = 172;
+constexpr uint16_t kCrsfMaximum = 1811;
 constexpr int16_t kExtendedTravelPermille = 1200;
 constexpr uint32_t kUiUpdateMs = 80;
 constexpr uint16_t kTouchPressureThreshold = 40;
@@ -776,12 +780,11 @@ void Channel2Ui::drawDashboard()
 
     lv_obj_t *header = makePanel(0, 0, 480, 40, cHeader, cHeader, 0);
     makeLabel(header, "MODEL 01", 12, 8, 20);
-    makeLabel(header, "HYPER 7", 120, 10, 16, cCyan);
     makeLabel(header, "CRSF TX", 320, 10, 16, cGreen);
     makeButton(433, 4, 39, 32, LV_SYMBOL_SETTINGS, 18);
 
     lv_obj_t *model = makePanel(8, 47, 144, 87);
-    makeLabel(model, "VEHICLE", 10, 7, 12, cCyan);
+    makeLabel(model, "HYPER 7", 10, 7, 12, cCyan);
     lv_obj_t *buggy = lv_img_create(model);
     lv_img_set_src(buggy, &hyper7_icon);
     lv_obj_set_pos(buggy, 31, 23);
@@ -840,7 +843,7 @@ void Channel2Ui::drawDashboard()
             makeLabel(monitor, label, 10, y - 1, 12,
                       steering ? cWhite : cCyan);
             lv_obj_t *bar = makeBar(monitor, 112, y, primaryBarWidth, 18,
-                                    0, kCrsfMaximum,
+                                    kCrsfMinimum, kCrsfMaximum,
                                     steering ? cWhite : cCyan);
             lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
             if (channel == channelRoleSettings_.throttleChannel)
@@ -872,7 +875,7 @@ void Channel2Ui::drawDashboard()
                 lv_obj_t *bar = makeBar(
                     monitor, x + max<int16_t>(1, (slotWidth - 10) / 2),
                     37, min<int16_t>(10, slotWidth - 2), 44,
-                    0, kCrsfMaximum, cCyan);
+                    kCrsfMinimum, kCrsfMaximum, cCyan);
                 lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
             }
         }
@@ -1236,7 +1239,8 @@ void Channel2Ui::drawPage()
     snprintf(channelLabel, sizeof(channelLabel), "CH%u", channelRoleSettings_.throttleChannel);
     makeLabel(lv_scr_act(), channelLabel, 12, 283, 16, cCyan);
     channel2ValueLabel_ = makeLabel(lv_scr_act(), "992", 422, 283, 14, cGreen);
-    channel2LiveBar_ = makeBar(lv_scr_act(), 60, 287, 350, 14, 0, kCrsfMaximum, cGreen);
+    channel2LiveBar_ = makeBar(lv_scr_act(), 60, 287, 350, 14,
+                               kCrsfMinimum, kCrsfMaximum, cGreen);
     lv_bar_set_value(channel2LiveBar_, kCrsfMid, LV_ANIM_OFF);
     makeLabel(lv_scr_act(), settings_.reversed ? "FORWARD" : "BRAKE/REV", 60, 304, 12, cDim);
     makeLabel(lv_scr_act(), settings_.reversed ? "BRAKE/REV" : "FORWARD", 338, 304, 12, cDim);

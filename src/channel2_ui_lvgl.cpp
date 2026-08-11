@@ -33,6 +33,8 @@ constexpr uint16_t kBatteryMaximumAlarmDecivolts = 168;
 constexpr uint32_t kLowBatteryRepeatMs = 10000;
 constexpr uint8_t kResponseRateStepPercent = 5;
 constexpr int8_t kResponseExpoStepPercent = 5;
+constexpr uint16_t kChannelSpeedStepMs = 50;
+constexpr uint16_t kChannelSpeedMaximumMs = 2000;
 
 constexpr uint32_t cBlack = 0x05080d;
 constexpr uint32_t cHeader = 0x06182c;
@@ -46,6 +48,9 @@ constexpr uint32_t cGreen = 0x67e33d;
 constexpr uint32_t cAmber = 0xffa51f;
 constexpr uint32_t cRed = 0xff4b43;
 
+uint8_t uiBrightnessPercent = 100;
+bool uiNightMode = false;
+
 Arduino_DataBus *displayBus = new Arduino_ESP32SPI(
     TFT_DC_PIN, TFT_CS_PIN, TFT_SCK_PIN, TFT_MOSI_PIN, TFT_MISO_PIN);
 Arduino_GFX *display = new Arduino_ILI9486_18bit(
@@ -57,6 +62,13 @@ lv_color_t lineBuffer[kScreenWidth * 16];
 
 lv_color_t colour(uint32_t rgb)
 {
+    uint16_t scale = uiBrightnessPercent;
+    if (uiNightMode) scale = scale * 60U / 100U;
+    const uint8_t red = ((rgb >> 16) & 0xffU) * scale / 100U;
+    const uint8_t green = ((rgb >> 8) & 0xffU) * scale / 100U;
+    const uint8_t blue = (rgb & 0xffU) * scale / 100U;
+    rgb = (static_cast<uint32_t>(red) << 16) |
+          (static_cast<uint32_t>(green) << 8) | blue;
     return lv_color_hex(rgb);
 }
 
@@ -227,10 +239,14 @@ const char *uiPageName(UiPage page)
         case UiPage::ChannelRoles: return "channel-roles";
         case UiPage::Channel2: return "channel";
         case UiPage::ThrottleResponse: return "response";
+        case UiPage::ChannelSpeed: return "channel-speed";
+        case UiPage::ControlAssignments: return "control-map";
+        case UiPage::DriveModes: return "drive-modes";
         case UiPage::ChannelPlaceholder: return "channel-placeholder";
         case UiPage::Setup: return "setup";
         case UiPage::TxBatterySetup: return "tx-battery";
         case UiPage::RxBatterySetup: return "rx-battery";
+        case UiPage::DisplaySetup: return "display";
         case UiPage::Calibration: return "calibration";
     }
     return "unknown";
@@ -245,6 +261,9 @@ bool Channel2Ui::begin()
     loadSystemSettings();
     loadTxBatterySettings();
     loadRxBatterySettings();
+    loadDriveModeSettings();
+    uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
+    uiNightMode = systemSettings_.nightMode;
     setToneChannel(BUZZER_LEDC_CHANNEL);
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
@@ -269,6 +288,7 @@ bool Channel2Ui::begin()
     lv_disp_drv_register(&displayDriver);
 
     drawDashboard();
+    lastInteractionMs_ = millis();
     lv_refr_now(nullptr);
     Serial.printf("TFT35/LVGL: %dx%d, SPI=%lu Hz, buffer=%u rows\n",
                   kScreenWidth, kScreenHeight,
@@ -302,6 +322,8 @@ void Channel2Ui::loadSettings()
     settings_.forwardRatePercent = preferences.getUChar("fwd_rate", 100);
     settings_.brakeExpoPercent = preferences.getChar("brk_expo", 0);
     settings_.forwardExpoPercent = preferences.getChar("fwd_expo", 0);
+    settings_.brakeSpeedMs = preferences.getUShort("brk_speed", 0);
+    settings_.forwardSpeedMs = preferences.getUShort("fwd_speed", 0);
     settings_.subtrimPercent = preferences.getChar("trim", 0);
     settings_.reversed = preferences.getBool("reverse", false);
     // Read the old channel-scoped keys as migration defaults. Calibration is
@@ -327,6 +349,8 @@ void Channel2Ui::loadSettings()
     settings_.forwardRatePercent = constrain(settings_.forwardRatePercent, 0, 100);
     settings_.brakeExpoPercent = constrain(settings_.brakeExpoPercent, -100, 100);
     settings_.forwardExpoPercent = constrain(settings_.forwardExpoPercent, -100, 100);
+    settings_.brakeSpeedMs = constrain(settings_.brakeSpeedMs, 0, kChannelSpeedMaximumMs);
+    settings_.forwardSpeedMs = constrain(settings_.forwardSpeedMs, 0, kChannelSpeedMaximumMs);
     settings_.subtrimPercent = constrain(settings_.subtrimPercent, -20, 20);
     if (!calibration.valid()) {
         calibration = {THROTTLE_ADC_MIN, THROTTLE_ADC_CENTER, THROTTLE_ADC_MAX};
@@ -344,6 +368,8 @@ void Channel2Ui::saveSettings()
     preferences.putUChar("fwd_rate", settings_.forwardRatePercent);
     preferences.putChar("brk_expo", settings_.brakeExpoPercent);
     preferences.putChar("fwd_expo", settings_.forwardExpoPercent);
+    preferences.putUShort("brk_speed", settings_.brakeSpeedMs);
+    preferences.putUShort("fwd_speed", settings_.forwardSpeedMs);
     preferences.putChar("trim", settings_.subtrimPercent);
     preferences.putBool("reverse", settings_.reversed);
     preferences.end();
@@ -355,6 +381,8 @@ void Channel2Ui::loadChannelRoleSettings()
     preferences.begin("jr-r1-model1", true);
     channelRoleSettings_.steeringChannel = preferences.getUChar("steer_ch", 1);
     channelRoleSettings_.throttleChannel = preferences.getUChar("throt_ch", 2);
+    channelRoleSettings_.steeringEnabled = preferences.getBool("steer_en", true);
+    channelRoleSettings_.throttleEnabled = preferences.getBool("throt_en", true);
     preferences.end();
     channelRoleSettings_.steeringChannel = constrain(channelRoleSettings_.steeringChannel, 1, 16);
     channelRoleSettings_.throttleChannel = constrain(channelRoleSettings_.throttleChannel, 1, 16);
@@ -370,6 +398,8 @@ void Channel2Ui::saveChannelRoleSettings()
     preferences.begin("jr-r1-model1", false);
     preferences.putUChar("steer_ch", channelRoleSettings_.steeringChannel);
     preferences.putUChar("throt_ch", channelRoleSettings_.throttleChannel);
+    preferences.putBool("steer_en", channelRoleSettings_.steeringEnabled);
+    preferences.putBool("throt_en", channelRoleSettings_.throttleEnabled);
     preferences.end();
 }
 
@@ -378,6 +408,13 @@ bool Channel2Ui::consumeChannelRolesChanged()
     const bool changed = channelRolesChanged_;
     channelRolesChanged_ = false;
     return changed;
+}
+
+bool Channel2Ui::consumeSafetyResetRequested()
+{
+    const bool requested = safetyResetRequested_;
+    safetyResetRequested_ = false;
+    return requested;
 }
 
 void Channel2Ui::saveCalibration()
@@ -399,6 +436,9 @@ void Channel2Ui::loadSystemSettings()
     systemSettings_.keyClicksEnabled = preferences.getBool("key_beep", true);
     systemSettings_.buzzerPitchHz = preferences.getUShort("pitch", 3200);
     systemSettings_.keyClickDurationMs = preferences.getUShort("click_ms", 10);
+    systemSettings_.screenTimeoutSeconds = preferences.getUShort("scr_timeout", 60);
+    systemSettings_.displayBrightnessPercent = preferences.getUChar("brightness", 100);
+    systemSettings_.nightMode = preferences.getBool("night", false);
     preferences.end();
     systemSettings_.buzzerPitchHz = constrain(systemSettings_.buzzerPitchHz,
                                                kBuzzerMinimumPitchHz,
@@ -406,6 +446,14 @@ void Channel2Ui::loadSystemSettings()
     systemSettings_.keyClickDurationMs = constrain(systemSettings_.keyClickDurationMs,
                                                     kBuzzerMinimumDurationMs,
                                                     kBuzzerMaximumDurationMs);
+    if (systemSettings_.screenTimeoutSeconds != 0 &&
+        systemSettings_.screenTimeoutSeconds != 30 &&
+        systemSettings_.screenTimeoutSeconds != 60 &&
+        systemSettings_.screenTimeoutSeconds != 300) {
+        systemSettings_.screenTimeoutSeconds = 60;
+    }
+    systemSettings_.displayBrightnessPercent = constrain(
+        systemSettings_.displayBrightnessPercent, 20, 100);
 }
 
 void Channel2Ui::saveSystemSettings()
@@ -416,6 +464,9 @@ void Channel2Ui::saveSystemSettings()
     preferences.putBool("key_beep", systemSettings_.keyClicksEnabled);
     preferences.putUShort("pitch", systemSettings_.buzzerPitchHz);
     preferences.putUShort("click_ms", systemSettings_.keyClickDurationMs);
+    preferences.putUShort("scr_timeout", systemSettings_.screenTimeoutSeconds);
+    preferences.putUChar("brightness", systemSettings_.displayBrightnessPercent);
+    preferences.putBool("night", systemSettings_.nightMode);
     preferences.end();
 }
 
@@ -483,6 +534,27 @@ void Channel2Ui::saveRxBatterySettings()
     preferences.end();
 }
 
+void Channel2Ui::loadDriveModeSettings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-drive", true);
+    driveModeSettings_.walkLimitPercent = preferences.getUChar("walk_limit", 35);
+    preferences.end();
+    driveModeSettings_.walkLimitPercent = constrain(
+        driveModeSettings_.walkLimitPercent, 10, 80);
+    // A power cycle is always a deliberate throttle cut, regardless of the
+    // mode that was active before shutdown.
+    driveModeSettings_.activeMode = DriveMode::Cut;
+}
+
+void Channel2Ui::saveDriveModeSettings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-drive", false);
+    preferences.putUChar("walk_limit", driveModeSettings_.walkLimitPercent);
+    preferences.end();
+}
+
 void Channel2Ui::playBuzzer(uint16_t durationMs)
 {
     if (systemSettings_.buzzerEnabled) tone(BUZZER_PIN, systemSettings_.buzzerPitchHz, durationMs);
@@ -496,6 +568,55 @@ void Channel2Ui::playKeyClick()
 void Channel2Ui::stopBuzzer()
 {
     noTone(BUZZER_PIN);
+}
+
+void Channel2Ui::sleepDisplay()
+{
+    if (!displayReady_ || displaySleeping_) return;
+    displayBus->beginWrite();
+    displayBus->writeCommand(0x28); // display off
+    displayBus->writeCommand(0x10); // sleep in
+    displayBus->endWrite();
+    displaySleeping_ = true;
+    Serial.println("DISPLAY: sleeping (touch to wake)");
+}
+
+void Channel2Ui::wakeDisplay()
+{
+    if (!displayReady_ || !displaySleeping_) return;
+    displayBus->beginWrite();
+    displayBus->writeCommand(0x11); // sleep out
+    displayBus->endWrite();
+    delay(120);
+    displayBus->beginWrite();
+    displayBus->writeCommand(0x29); // display on
+    displayBus->endWrite();
+    displaySleeping_ = false;
+    lastInteractionMs_ = millis();
+    lv_obj_invalidate(lv_scr_act());
+    lv_refr_now(nullptr);
+    Serial.println("DISPLAY: awake");
+}
+
+void Channel2Ui::redrawActivePage()
+{
+    switch (activePage_) {
+        case UiPage::Dashboard: drawDashboard(); break;
+        case UiPage::MainMenu: drawMainMenu(); break;
+        case UiPage::Channels: drawChannelsPage(); break;
+        case UiPage::ChannelRoles: drawChannelRolesPage(); break;
+        case UiPage::Channel2: drawPage(); break;
+        case UiPage::ThrottleResponse: drawThrottleResponsePage(); break;
+        case UiPage::ChannelSpeed: drawChannelSpeedPage(); break;
+        case UiPage::ControlAssignments: drawControlAssignmentsPage(); break;
+        case UiPage::DriveModes: drawDriveModesPage(); break;
+        case UiPage::ChannelPlaceholder: drawChannelPlaceholder(); break;
+        case UiPage::Setup: drawSetupPage(); break;
+        case UiPage::TxBatterySetup: drawTxBatteryPage(); break;
+        case UiPage::RxBatterySetup: drawRxBatteryPage(); break;
+        case UiPage::DisplaySetup: drawDisplayPage(); break;
+        case UiPage::Calibration: drawCalibrationPage(); break;
+    }
 }
 
 int16_t Channel2Ui::mapAdcToPermille(uint16_t adc) const
@@ -520,6 +641,50 @@ int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const
     if (settings_.reversed) value = -value;
     value += static_cast<int32_t>(settings_.subtrimPercent) * 10;
     return clampExtendedTravel(value);
+}
+
+int16_t Channel2Ui::applyDriveMode(int16_t configuredPermille) const
+{
+    if (driveModeSettings_.activeMode == DriveMode::Cut) return 0;
+    if (driveModeSettings_.activeMode == DriveMode::Walk) {
+        return static_cast<int16_t>(
+            static_cast<int32_t>(configuredPermille) *
+            driveModeSettings_.walkLimitPercent / 100);
+    }
+    return configuredPermille;
+}
+
+int16_t Channel2Ui::applyChannelSpeed(int16_t targetPermille, uint32_t nowMs)
+{
+    if (lastSlewUpdateMs_ == 0) {
+        lastSlewUpdateMs_ = nowMs;
+        slewedThrottlePermille_ = 0;
+    }
+    const uint32_t elapsedMs = min<uint32_t>(nowMs - lastSlewUpdateMs_, 100U);
+    lastSlewUpdateMs_ = nowMs;
+
+    const bool forwardSide = targetPermille > 0 ||
+        (targetPermille == 0 && slewedThrottlePermille_ > 0);
+    const uint16_t travelMs = forwardSide ? settings_.forwardSpeedMs
+                                          : settings_.brakeSpeedMs;
+    if (travelMs == 0 || elapsedMs == 0) {
+        slewedThrottlePermille_ = targetPermille;
+        return targetPermille;
+    }
+
+    const int32_t maximumStep = max<int32_t>(1,
+        (1000L * static_cast<int32_t>(elapsedMs) + travelMs - 1) / travelMs);
+    const int32_t delta = static_cast<int32_t>(targetPermille) -
+                          slewedThrottlePermille_;
+    slewedThrottlePermille_ += static_cast<int16_t>(
+        constrain(delta, -maximumStep, maximumStep));
+    return slewedThrottlePermille_;
+}
+
+void Channel2Ui::resetChannelSpeed()
+{
+    slewedThrottlePermille_ = 0;
+    lastSlewUpdateMs_ = millis();
 }
 
 void Channel2Ui::drawDashboard()
@@ -552,7 +717,8 @@ void Channel2Ui::drawDashboard()
     makeLabel(link, "LINK / SAFETY", 10, 8, 12, cCyan);
     dashboardLinkLabel_ = makeLabel(link, "NO LINK", 10, 29, 18, cRed);
     dashboardRssiLabel_ = makeLabel(link, "", 10, 52, 14, cWhite);
-    dashboardSafetyLabel_ = makeLabel(link, "THROTTLE SAFE", 10, 69, 12, cAmber);
+    dashboardSafetyLabel_ = makeLabel(link, "THROTTLE SAFE", 10, 61, 12, cAmber);
+    makeLabel(link, "TAP TO ARM / CUT", 10, 74, 10, cDim);
 
     lv_obj_t *monitor = makePanel(8, 141, 464, 99);
     makeLabel(monitor, "CHANNEL MONITOR", 10, 6, 12, cCyan);
@@ -573,17 +739,22 @@ void Channel2Ui::drawDashboard()
 
     makeButton(8, 249, 108, 62, "MENU", 18);
     makeButton(124, 249, 108, 62, "CHANNELS", 12, cPanel2, cCyan);
-    makeButton(240, 249, 108, 62, "TRIM", 18, cBlack, cDim, cDim);
-    makeButton(356, 249, 116, 62, "TELEMETRY", 12, cBlack, cDim, cDim);
+    makeButton(240, 249, 108, 62, "QUICK", 16, cPanel2, cCyan);
+    const char *mode = driveModeSettings_.activeMode == DriveMode::Cut ? "CUT" :
+                       driveModeSettings_.activeMode == DriveMode::Walk ? "WALK" : "NORMAL";
+    makeButton(356, 249, 116, 62, mode, 14,
+               driveModeSettings_.activeMode == DriveMode::Cut ? cAmber : cPanel2,
+               driveModeSettings_.activeMode == DriveMode::Cut ? cBlack : cGreen);
 
     lastDisplayedCrsf_ = UINT16_MAX;
-    lastDashboardArmed_ = true;
+    lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
     lastLinkValid_ = !lastLinkValid_;
     lastReceiverVoltageValid_ = !lastReceiverVoltageValid_;
     lastTxVoltageValid_ = !lastTxVoltageValid_;
 }
 
-void Channel2Ui::drawDashboardLive(uint16_t crsfValue, bool throttleArmed,
+void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
+                                   OutputSafetyStatus safetyStatus,
                                    const CrsfTelemetryState &telemetry,
                                    uint16_t txVoltageDecivolts,
                                    bool txVoltageValid)
@@ -593,11 +764,21 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue, bool throttleArmed,
         lv_bar_set_value(dashboardThrottleBar_, crsfValue, LV_ANIM_OFF);
         lastDisplayedCrsf_ = crsfValue;
     }
-    if (dashboardSafetyLabel_ && throttleArmed != lastDashboardArmed_) {
-        lv_label_set_text(dashboardSafetyLabel_, throttleArmed ? "OUTPUT LIVE" : "THROTTLE SAFE");
-        lv_obj_set_style_text_color(dashboardSafetyLabel_,
-                                    colour(throttleArmed ? cGreen : cAmber), 0);
-        lastDashboardArmed_ = throttleArmed;
+    if (dashboardSafetyLabel_ && safetyStatus != lastSafetyStatus_) {
+        const char *text = "THROTTLE SAFE";
+        uint32_t textColour = cAmber;
+        switch (safetyStatus) {
+            case OutputSafetyStatus::Armed: text = "OUTPUT LIVE"; textColour = cGreen; break;
+            case OutputSafetyStatus::NeutralRequired: text = "RELEASE TO ARM"; break;
+            case OutputSafetyStatus::Calibration: text = "CALIBRATION"; break;
+            case OutputSafetyStatus::InputFault: text = "INPUT FAULT"; textColour = cRed; break;
+            case OutputSafetyStatus::ControlStale: text = "CONTROL STALE"; textColour = cRed; break;
+            case OutputSafetyStatus::ChannelDisabled: text = "CHANNEL OFF"; break;
+            case OutputSafetyStatus::Cut: text = "THROTTLE CUT"; break;
+        }
+        lv_label_set_text(dashboardSafetyLabel_, text);
+        lv_obj_set_style_text_color(dashboardSafetyLabel_, colour(textColour), 0);
+        lastSafetyStatus_ = safetyStatus;
     }
     if (dashboardLinkLabel_ &&
         (telemetry.linkValid != lastLinkValid_ ||
@@ -679,10 +860,11 @@ void Channel2Ui::drawMainMenu()
     startScreen();
     resetLvglObjects();
     makeHeader("JR R1 CONTROLLER", "HOME");
-    static const char *labels[] = {"MODELS", "CHANNELS", "RESPONSE", "MIXES",
-        "DRIVE AIDS", "TIMERS", "LINK / TELEM", "SETUP"};
+    static const char *labels[] = {"MODELS", "CHANNELS", "RESPONSE", "CONTROL MAP",
+        "DRIVE MODES", "TIMERS", "LINK / TELEM", "SETUP"};
     for (uint8_t index = 0; index < 8; ++index) {
-        const bool enabled = index == 1 || index == 2 || index == 7;
+        const bool enabled = index == 1 || index == 2 || index == 3 ||
+                             index == 4 || index == 7;
         makeButton(10 + (index % 2) * 235, 52 + (index / 2) * 54, 225, 46,
                    labels[index], 16,
                    enabled ? cPanel2 : cBlack,
@@ -738,6 +920,40 @@ void Channel2Ui::drawChannelRoleRow(int row)
     makeLabel(panel, value, 242, 16, 18, cWhite);
     makeButton(350, y + 8, 44, 40, "-", 22);
     makeButton(404, y + 8, 44, 40, "+", 22);
+}
+
+void Channel2Ui::drawControlAssignmentsPage()
+{
+    activePage_ = UiPage::ControlAssignments;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("CONTROL ASSIGNMENTS", "BACK");
+
+    const char *inputs[] = {"STEERING WHEEL", "THROTTLE TRIGGER"};
+    const bool enabled[] = {channelRoleSettings_.steeringEnabled,
+                            channelRoleSettings_.throttleEnabled};
+    const uint8_t channels[] = {channelRoleSettings_.steeringChannel,
+                                channelRoleSettings_.throttleChannel};
+    for (uint8_t row = 0; row < 2; ++row) {
+        const int16_t y = 58 + row * 92;
+        lv_obj_t *panel = makePanel(10, y, 460, 80);
+        makeLabel(panel, inputs[row], 12, 10, 16, cCyan);
+        makeLabel(panel, row == 0 ? "PROPORTIONAL / STEERING" :
+                                   "PROPORTIONAL / THROTTLE", 12, 39, 12, cDim);
+        lv_obj_t *status = makeLabel(panel, enabled[row] ? "ON" : "OFF", 278, 12,
+                                     16, enabled[row] ? cGreen : cAmber);
+        (void)status;
+        char channel[8];
+        snprintf(channel, sizeof(channel), "CH%u", channels[row]);
+        makeLabel(panel, channel, 278, 43, 16, cWhite);
+        makeButton(340, y + 34, 34, 36, "-", 22);
+        makeButton(380, y + 34, 34, 36, "+", 22);
+        makeButton(420, y + 6, 40, 28, enabled[row] ? "OFF" : "ON", 11,
+                   enabled[row] ? cAmber : cPanel2,
+                   enabled[row] ? cBlack : cWhite);
+    }
+    makeLabel(lv_scr_act(), "BUTTON/SWITCH INPUTS APPEAR HERE AS THEY ARE WIRED",
+              20, 259, 12, cDim);
 }
 
 void Channel2Ui::drawChannelRolesPage()
@@ -876,10 +1092,64 @@ void Channel2Ui::drawThrottleResponsePage()
     startScreen();
     resetLvglObjects();
     makeHeader("THROTTLE RESPONSE", "BACK");
+    makeButton(282, 5, 88, 34, "SPEED", 12, cPanel2, cCyan);
     for (int row = 0; row < 4; ++row) drawThrottleResponseRow(row);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "+EXPO = SOFTER AROUND NEUTRAL", 0, 280, 12, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
+}
+
+void Channel2Ui::drawChannelSpeedRow(int row)
+{
+    const int16_t y = 78 + row * 76;
+    lv_obj_t *panel = makePanel(14, y, 452, 62);
+    makeLabel(panel, row == 0 ? "FORWARD TRAVEL TIME" : "BRAKE/REV TRAVEL TIME",
+              12, 10, 16, cCyan);
+    const uint16_t value = row == 0 ? settings_.forwardSpeedMs : settings_.brakeSpeedMs;
+    char text[20];
+    if (value == 0) snprintf(text, sizeof(text), "DIRECT");
+    else snprintf(text, sizeof(text), "%u ms", value);
+    makeLabel(panel, text, 242, 10, 16, cWhite);
+    makeButton(350, y + 20, 42, 34, "-", 22);
+    makeButton(402, y + 20, 42, 34, "+", 22);
+}
+
+void Channel2Ui::drawChannelSpeedPage()
+{
+    activePage_ = UiPage::ChannelSpeed;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("THROTTLE CHANNEL SPEED", "BACK");
+    drawChannelSpeedRow(0);
+    drawChannelSpeedRow(1);
+    lv_obj_t *note = makeLabel(lv_scr_act(),
+        "0 ms = direct. Time is neutral-to-endpoint slew.", 0, 250, 14, cDim);
+    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 250);
+}
+
+void Channel2Ui::drawDriveModesPage()
+{
+    activePage_ = UiPage::DriveModes;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("DRIVE MODES", "BACK");
+    const char *labels[] = {"CUT", "WALK", "NORMAL"};
+    for (uint8_t index = 0; index < 3; ++index) {
+        const DriveMode mode = static_cast<DriveMode>(index);
+        const bool active = driveModeSettings_.activeMode == mode;
+        makeButton(12 + index * 156, 64, 144, 62, labels[index], 18,
+                   active ? (mode == DriveMode::Cut ? cAmber : cGreen) : cPanel2,
+                   active ? cBlack : cWhite);
+    }
+    lv_obj_t *panel = makePanel(16, 150, 448, 66);
+    makeLabel(panel, "WALK LIMIT", 14, 20, 18, cCyan);
+    char value[12]; snprintf(value, sizeof(value), "%u%%", driveModeSettings_.walkLimitPercent);
+    makeLabel(panel, value, 260, 20, 18);
+    makeButton(358, 164, 42, 38, "-", 22);
+    makeButton(410, 164, 42, 38, "+", 22);
+    makeLabel(lv_scr_act(),
+        "Changing mode cuts output. Select ARM on the dashboard\nafter releasing the trigger.",
+        20, 242, 14, cAmber);
 }
 
 void Channel2Ui::drawLiveIndicator(int16_t, uint16_t crsfValue)
@@ -931,9 +1201,47 @@ void Channel2Ui::drawSetupPage()
     resetLvglObjects();
     makeHeader("SYSTEM SETUP", "BACK");
     for (int row = 0; row < 4; ++row) drawSetupRow(row);
-    makeButton(10, 265, 100, 44, "TEST", 16, cPanel2, cAmber);
-    makeButton(120, 265, 165, 44, "TX BATTERY", 14, cPanel2, cCyan);
-    makeButton(295, 265, 175, 44, "RX BATTERY", 14, cPanel2, cCyan);
+    makeButton(10, 265, 88, 44, "TEST", 14, cPanel2, cAmber);
+    makeButton(106, 265, 110, 44, "DISPLAY", 13, cPanel2, cCyan);
+    makeButton(224, 265, 116, 44, "TX BAT", 13, cPanel2, cCyan);
+    makeButton(348, 265, 122, 44, "RX BAT", 13, cPanel2, cCyan);
+}
+
+void Channel2Ui::drawDisplayRow(int row)
+{
+    static const char *labels[] = {"SCREEN TIMEOUT", "UI BRIGHTNESS", "NIGHT MODE", "SLEEP NOW"};
+    const int16_t y = 56 + row * 50;
+    lv_obj_t *panel = makePanel(10, y, 460, 44);
+    makeLabel(panel, labels[row], 12, 12, 16, cCyan);
+    char value[24];
+    if (row == 0) {
+        if (systemSettings_.screenTimeoutSeconds == 0) snprintf(value, sizeof(value), "NEVER");
+        else snprintf(value, sizeof(value), "%u sec", systemSettings_.screenTimeoutSeconds);
+    } else if (row == 1) {
+        snprintf(value, sizeof(value), "%u%%", systemSettings_.displayBrightnessPercent);
+    } else if (row == 2) {
+        snprintf(value, sizeof(value), "%s", systemSettings_.nightMode ? "ON" : "OFF");
+    } else snprintf(value, sizeof(value), "DISPLAY OFF");
+    makeLabel(panel, value, 220, 12, 16, row == 2 && systemSettings_.nightMode ? cAmber : cWhite);
+    if (row < 2) {
+        makeButton(353, y + 4, 48, 36, "-", 24);
+        makeButton(411, y + 4, 48, 36, "+", 24);
+    } else {
+        makeButton(353, y + 4, 106, 36, row == 2 ? "TOGGLE" : "SLEEP", 13,
+                   row == 3 ? cAmber : cPanel2,
+                   row == 3 ? cBlack : cWhite);
+    }
+}
+
+void Channel2Ui::drawDisplayPage()
+{
+    activePage_ = UiPage::DisplaySetup;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("DISPLAY", "BACK");
+    for (int row = 0; row < 4; ++row) drawDisplayRow(row);
+    makeLabel(lv_scr_act(), "UI dimming is visual; full backlight saving needs a BL switch.",
+              20, 280, 12, cDim);
 }
 
 void Channel2Ui::drawTxBatteryRow(int row)
@@ -1133,6 +1441,20 @@ void Channel2Ui::handleDashboardTouch(int16_t x, int16_t y)
 {
     if ((y < 45 && x >= 415) || (y >= 245 && x < 120)) { playKeyClick(); drawMainMenu(); }
     else if (y >= 245 && x >= 120 && x < 236) { playKeyClick(); drawChannelsPage(); }
+    else if (y >= 245 && x >= 236 && x < 352) { playKeyClick(); drawThrottleResponsePage(); }
+    else if (y >= 245 && x >= 352) { playKeyClick(); drawDriveModesPage(); }
+    else if (x >= 310 && y >= 45 && y < 140) {
+        if (driveModeSettings_.activeMode == DriveMode::Cut ||
+            !channelRoleSettings_.throttleEnabled) {
+            playKeyClick();
+            drawDriveModesPage();
+        } else {
+            armRequested_ = !armRequested_;
+            safetyResetRequested_ = true;
+            playBuzzer(armRequested_ ? 80 : 180);
+            lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
+        }
+    }
 }
 
 void Channel2Ui::handleMainMenuTouch(int16_t x, int16_t y)
@@ -1143,6 +1465,8 @@ void Channel2Ui::handleMainMenuTouch(int16_t x, int16_t y)
     playKeyClick();
     if (item == 1) drawChannelsPage();
     else if (item == 2) drawThrottleResponsePage();
+    else if (item == 3) drawControlAssignmentsPage();
+    else if (item == 4) drawDriveModesPage();
     else if (item == 7) drawSetupPage();
 }
 
@@ -1180,6 +1504,8 @@ void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
             channelRoleSettings_.steeringChannel);
     }
     channelRolesChanged_ = true;
+    safetyResetRequested_ = true;
+    armRequested_ = false;
     saveChannelRoleSettings();
     playKeyClick();
     drawChannelRolesPage();
@@ -1187,7 +1513,8 @@ void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
 {
-    if (y < 48 && x >= 360) { playKeyClick(); drawPage(); return; }
+    if (y < 48 && x >= 375) { playKeyClick(); drawPage(); return; }
+    if (y < 48 && x >= 275 && x < 375) { playKeyClick(); drawChannelSpeedPage(); return; }
     if (y < 56 || y >= 256 || x < 340) return;
     const int row = (y - 56) / 50;
     const int8_t direction = x < 400 ? -1 : 1;
@@ -1208,14 +1535,83 @@ void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
     if (changed) { saveSettings(); playKeyClick(); drawThrottleResponsePage(); }
 }
 
+void Channel2Ui::handleChannelSpeedTouch(int16_t x, int16_t y)
+{
+    if (y < 48 && x >= 360) { playKeyClick(); drawThrottleResponsePage(); return; }
+    if (x < 340 || y < 78 || y >= 230) return;
+    const uint8_t row = (y - 78) / 76;
+    const int16_t direction = x < 400 ? -1 : 1;
+    uint16_t &value = row == 0 ? settings_.forwardSpeedMs : settings_.brakeSpeedMs;
+    const int32_t changed = static_cast<int32_t>(value) +
+                            direction * kChannelSpeedStepMs;
+    value = constrain(changed, 0L, static_cast<long>(kChannelSpeedMaximumMs));
+    saveSettings();
+    playKeyClick();
+    drawChannelSpeedPage();
+}
+
+void Channel2Ui::handleControlAssignmentsTouch(int16_t x, int16_t y)
+{
+    if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
+    if (y < 58 || y >= 242) return;
+    const uint8_t row = (y - 58) / 92;
+    const int16_t localY = y - (58 + row * 92);
+    if (x >= 415 && localY < 38) {
+        if (row == 0) channelRoleSettings_.steeringEnabled =
+            !channelRoleSettings_.steeringEnabled;
+        else channelRoleSettings_.throttleEnabled =
+            !channelRoleSettings_.throttleEnabled;
+    } else if (x >= 335 && localY >= 28) {
+        const int8_t direction = x < 378 ? -1 : 1;
+        if (row == 0) channelRoleSettings_.steeringChannel = adjacentChannel(
+            channelRoleSettings_.steeringChannel, direction,
+            channelRoleSettings_.throttleChannel);
+        else channelRoleSettings_.throttleChannel = adjacentChannel(
+            channelRoleSettings_.throttleChannel, direction,
+            channelRoleSettings_.steeringChannel);
+    } else return;
+    channelRolesChanged_ = true;
+    safetyResetRequested_ = true;
+    armRequested_ = false;
+    saveChannelRoleSettings();
+    playKeyClick();
+    drawControlAssignmentsPage();
+}
+
+void Channel2Ui::handleDriveModesTouch(int16_t x, int16_t y)
+{
+    if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
+    if (y >= 60 && y < 132) {
+        const uint8_t index = constrain(x / 156, 0, 2);
+        driveModeSettings_.activeMode = static_cast<DriveMode>(index);
+        armRequested_ = false;
+        safetyResetRequested_ = true;
+        playBuzzer(index == 0 ? 180 : 80);
+        drawDriveModesPage();
+        return;
+    }
+    if (y >= 150 && y < 220 && x >= 345) {
+        const int16_t direction = x < 405 ? -1 : 1;
+        driveModeSettings_.walkLimitPercent = constrain(
+            static_cast<int>(driveModeSettings_.walkLimitPercent) + direction * 5,
+            10, 80);
+        saveDriveModeSettings();
+        playKeyClick();
+        drawDriveModesPage();
+    }
+}
+
 void Channel2Ui::handleSetupTouch(int16_t x, int16_t y)
 {
     if (y < 48 && x >= 360) { playKeyClick(); drawMainMenu(); return; }
-    if (y >= 265 && y < 315 && x < 115) { playBuzzer(500); return; }
-    if (y >= 265 && y < 315 && x >= 115 && x < 290) {
+    if (y >= 265 && y < 315 && x < 102) { playBuzzer(500); return; }
+    if (y >= 265 && y < 315 && x >= 102 && x < 220) {
+        playKeyClick(); drawDisplayPage(); return;
+    }
+    if (y >= 265 && y < 315 && x >= 220 && x < 344) {
         playKeyClick(); drawTxBatteryPage(); return;
     }
-    if (y >= 265 && y < 315 && x >= 290) {
+    if (y >= 265 && y < 315 && x >= 344) {
         playKeyClick(); drawRxBatteryPage(); return;
     }
     if (y < 56 || y >= 256) return;
@@ -1235,6 +1631,37 @@ void Channel2Ui::handleSetupTouch(int16_t x, int16_t y)
         systemSettings_.keyClickDurationMs += kBuzzerDurationStepMs; changed = true;
     }
     if (changed) { saveSystemSettings(); playKeyClick(); drawSetupPage(); }
+}
+
+void Channel2Ui::handleDisplayTouch(int16_t x, int16_t y)
+{
+    if (y < 48 && x >= 360) { playKeyClick(); drawSetupPage(); return; }
+    if (y < 56 || y >= 256 || x < 340) return;
+    const uint8_t row = (y - 56) / 50;
+    const int8_t direction = x < 405 ? -1 : 1;
+    if (row == 0) {
+        static const uint16_t values[] = {0, 30, 60, 300};
+        uint8_t index = 0;
+        while (index < 4 && values[index] != systemSettings_.screenTimeoutSeconds) ++index;
+        if (index >= 4) index = 2;
+        index = static_cast<uint8_t>((index + (direction > 0 ? 1 : 3)) % 4);
+        systemSettings_.screenTimeoutSeconds = values[index];
+    } else if (row == 1) {
+        systemSettings_.displayBrightnessPercent = constrain(
+            static_cast<int>(systemSettings_.displayBrightnessPercent) + direction * 10,
+            20, 100);
+        uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
+    } else if (row == 2) {
+        systemSettings_.nightMode = !systemSettings_.nightMode;
+        uiNightMode = systemSettings_.nightMode;
+    } else {
+        playKeyClick();
+        sleepDisplay();
+        return;
+    }
+    saveSystemSettings();
+    playKeyClick();
+    drawDisplayPage();
 }
 
 void Channel2Ui::handleTxBatteryTouch(int16_t x, int16_t y)
@@ -1334,10 +1761,14 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::Channels) { handleChannelsTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelRoles) { handleChannelRolesTouch(x, y); return; }
     if (activePage_ == UiPage::ThrottleResponse) { handleThrottleResponseTouch(x, y); return; }
+    if (activePage_ == UiPage::ChannelSpeed) { handleChannelSpeedTouch(x, y); return; }
+    if (activePage_ == UiPage::ControlAssignments) { handleControlAssignmentsTouch(x, y); return; }
+    if (activePage_ == UiPage::DriveModes) { handleDriveModesTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelPlaceholder) { if (y < 48 && x >= 360) { playKeyClick(); drawChannelsPage(); } return; }
     if (activePage_ == UiPage::Setup) { handleSetupTouch(x, y); return; }
     if (activePage_ == UiPage::TxBatterySetup) { handleTxBatteryTouch(x, y); return; }
     if (activePage_ == UiPage::RxBatterySetup) { handleRxBatteryTouch(x, y); return; }
+    if (activePage_ == UiPage::DisplaySetup) { handleDisplayTouch(x, y); return; }
     if (y < 48 && x >= 210 && x < 294) { playKeyClick(); drawThrottleResponsePage(); return; }
     if (y < 48 && x >= 294 && x < 374) { playKeyClick(); drawChannelsPage(); return; }
     if (y < 48 && x >= 374) { playKeyClick(); startCalibration(latestRawAdc_); return; }
@@ -1364,6 +1795,23 @@ void Channel2Ui::updateTouch()
     uint16_t rawX = 0, rawY = 0, rawZ = 0;
     const uint32_t now = millis();
     const bool irqActive = digitalRead(TOUCH_IRQ_PIN) == LOW;
+    if (displaySleeping_) {
+        if (irqActive) {
+            wakeDisplay();
+            discardWakeTouchUntilRelease_ = true;
+            touchWasDown_ = false;
+            touchReleaseSinceMs_ = 0;
+            touchIgnoreUntilMs_ = now + 250;
+        }
+        return;
+    }
+    if (discardWakeTouchUntilRelease_) {
+        if (!irqActive) {
+            discardWakeTouchUntilRelease_ = false;
+            touchIgnoreUntilMs_ = now + kTouchRetriggerGuardMs;
+        }
+        return;
+    }
     const bool touched = readTouch(x, y, rawX, rawY, rawZ);
 
     if (touched) {
@@ -1403,13 +1851,14 @@ void Channel2Ui::updateTouch()
     touchWasDown_ = false;
     touchReleaseSinceMs_ = 0;
     touchIgnoreUntilMs_ = now + kTouchRetriggerGuardMs;
+    lastInteractionMs_ = now;
     Serial.printf("TOUCH up page=%s screen=(%d,%d)\n",
                   uiPageName(activePage_), releasedX, releasedY);
     handleTouch(releasedX, releasedY);
 }
 
 void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
-                        uint16_t crsfValue, bool throttleArmed,
+                        uint16_t crsfValue, OutputSafetyStatus safetyStatus,
                         const CrsfTelemetryState &telemetry,
                         uint16_t txVoltageDecivolts, bool txVoltageValid)
 {
@@ -1418,11 +1867,16 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
     if (triggerInput_.calibrationActive()) updateCalibration(rawAdc);
 
     const uint32_t now = millis();
+    if (!displaySleeping_ && systemSettings_.screenTimeoutSeconds != 0 &&
+        now - lastInteractionMs_ >=
+            static_cast<uint32_t>(systemSettings_.screenTimeoutSeconds) * 1000U) {
+        sleepDisplay();
+    }
     if (static_cast<int32_t>(now - nextDisplayUpdateMs_) >= 0) {
         nextDisplayUpdateMs_ = now + kUiUpdateMs;
         if (triggerInput_.calibrationActive()) drawCalibrationValues(rawAdc);
         else if (activePage_ == UiPage::Dashboard) {
-            drawDashboardLive(crsfValue, throttleArmed, telemetry,
+            drawDashboardLive(crsfValue, safetyStatus, telemetry,
                               txVoltageDecivolts, txVoltageValid);
         }
         else if (activePage_ == UiPage::Channel2) drawLiveIndicator(outputPermille, crsfValue);

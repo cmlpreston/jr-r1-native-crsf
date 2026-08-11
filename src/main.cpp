@@ -39,6 +39,8 @@ CrsfTelemetryParser telemetryParser;
 volatile uint32_t crsfBusEdges = 0;
 volatile uint16_t sharedTransmittedThrottle = CRSF_CHANNEL_MID;
 volatile uint8_t sharedThrottleChannel = 2;
+volatile uint32_t sharedControlUpdateUs = 0;
+volatile bool sharedControlStale = true;
 CrsfTelemetryState telemetrySnapshot;
 portMUX_TYPE telemetryMux = portMUX_INITIALIZER_UNLOCKED;
 TaskHandle_t crsfTaskHandle = nullptr;
@@ -98,7 +100,8 @@ void updateNeutralInterlock(uint16_t adc)
     }
 }
 
-void updateTriggerSafety(uint16_t adc, bool calibrationActive)
+OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
+                                      bool inputValid)
 {
     // Calibration is handled by ProportionalInput. This is only the output
     // safety policy: never arm during calibration and require neutral again
@@ -108,7 +111,29 @@ void updateTriggerSafety(uint16_t adc, bool calibrationActive)
         neutralSinceMs = 0;
     }
     wasCalibrating = calibrationActive;
-    if (!calibrationActive) updateNeutralInterlock(adc);
+    if (calibrationActive) {
+        throttleArmed = false;
+        neutralSinceMs = 0;
+        return OutputSafetyStatus::Calibration;
+    }
+    if (!inputValid) {
+        throttleArmed = false;
+        neutralSinceMs = 0;
+        return OutputSafetyStatus::InputFault;
+    }
+    if (!channel2Ui.throttleEnabled()) {
+        throttleArmed = false;
+        neutralSinceMs = 0;
+        return OutputSafetyStatus::ChannelDisabled;
+    }
+    if (channel2Ui.driveMode() == DriveMode::Cut || !channel2Ui.armRequested()) {
+        throttleArmed = false;
+        neutralSinceMs = 0;
+        return OutputSafetyStatus::Cut;
+    }
+    updateNeutralInterlock(adc);
+    return throttleArmed ? OutputSafetyStatus::Armed
+                         : OutputSafetyStatus::NeutralRequired;
 }
 
 void packChannels(const uint16_t channels[CRSF_CHANNEL_COUNT], uint8_t payload[CRSF_PAYLOAD_BYTES])
@@ -230,7 +255,12 @@ void crsfTask(void *)
             // Do not send a burst after a scheduling hiccup; resume at the
             // current 250 Hz phase with the latest requested channel value.
             nextFrameUs = nowUs + CRSF_FRAME_PERIOD_US;
-            const uint16_t throttle = sharedTransmittedThrottle;
+            const uint32_t lastControlUs = sharedControlUpdateUs;
+            const bool stale = lastControlUs == 0 ||
+                static_cast<uint32_t>(nowUs - lastControlUs) > CONTROL_STALE_TIMEOUT_US;
+            sharedControlStale = stale;
+            const uint16_t throttle = stale ? CRSF_CHANNEL_MID
+                                            : sharedTransmittedThrottle;
             const uint8_t channel = sharedThrottleChannel;
             sendChannelsFrame(throttle, channel);
         }
@@ -286,14 +316,25 @@ void loop()
     // Simple 1/8 IIR smoothing; sufficient for the first trigger test.
     filteredAdc = static_cast<uint16_t>((filteredAdc * 7U + sample) / 8U);
     const bool calibrating = channel2Ui.calibrationActive();
-    updateTriggerSafety(filteredAdc, calibrating);
+    const bool inputValid = filteredAdc >= THROTTLE_ADC_VALID_MIN &&
+                            filteredAdc <= THROTTLE_ADC_VALID_MAX;
+    OutputSafetyStatus safetyStatus = updateTriggerSafety(
+        filteredAdc, calibrating, inputValid);
 
     const int16_t rawThrottle = channel2Ui.mapAdcToPermille(filteredAdc);
-    const int16_t configuredThrottle = channel2Ui.applySettings(rawThrottle);
+    const int16_t responseThrottle = channel2Ui.applySettings(rawThrottle);
+    const int16_t modeThrottle = channel2Ui.applyDriveMode(responseThrottle);
+    int16_t configuredThrottle = 0;
+    if (safetyStatus == OutputSafetyStatus::Armed) {
+        configuredThrottle = channel2Ui.applyChannelSpeed(modeThrottle, millis());
+    } else {
+        channel2Ui.resetChannelSpeed();
+    }
     const uint16_t requestedThrottle = mapPermilleToCrsf(configuredThrottle);
     const uint16_t transmittedThrottle =
         (throttleArmed && !calibrating) ? requestedThrottle : CRSF_CHANNEL_MID;
     sharedTransmittedThrottle = transmittedThrottle;
+    sharedControlUpdateUs = micros();
     const CrsfTelemetryState telemetry = readTelemetrySnapshot();
 
     uint16_t txVoltageDecivolts = 0;
@@ -317,7 +358,7 @@ void loop()
     }
     channel2Ui.update(filteredAdc, rawThrottle,
                       throttleArmed ? configuredThrottle : 0,
-                      transmittedThrottle, throttleArmed,
+                      transmittedThrottle, safetyStatus,
                       telemetry, txVoltageDecivolts, txVoltageValid);
     if (channel2Ui.consumeChannelRolesChanged()) {
         // Publish neutral before changing the channel number. If the CRSF task
@@ -332,12 +373,20 @@ void loop()
     } else {
         sharedThrottleChannel = channel2Ui.throttleChannel();
     }
+    if (channel2Ui.consumeSafetyResetRequested()) {
+        sharedTransmittedThrottle = CRSF_CHANNEL_MID;
+        throttleArmed = false;
+        neutralSinceMs = 0;
+        channel2Ui.resetChannelSpeed();
+        safetyStatus = OutputSafetyStatus::Cut;
+        Serial.println("SAFE: mode/assignment/arm state changed; output reset to neutral");
+    }
 
     if (static_cast<int32_t>(nowMs - nextLogMs) >= 0) {
         nextLogMs += USB_LOG_PERIOD_MS;
         const int neutralDelta = static_cast<int>(filteredAdc) -
                                  static_cast<int>(channel2Ui.throttleCentreAdc());
-        Serial.printf("adc=%4u ctr=%4u delta=%+4d cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV edges=%lu bytes=%lu frames=%lu crc=%lu\n",
+        Serial.printf("adc=%4u ctr=%4u delta=%+4d cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s stale=%s mode=%u link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV edges=%lu bytes=%lu frames=%lu crc=%lu\n",
                       filteredAdc,
                       channel2Ui.throttleCentreAdc(),
                       neutralDelta,
@@ -347,6 +396,8 @@ void loop()
                       requestedThrottle,
                       transmittedThrottle,
                       throttleArmed ? "yes" : "NO",
+                      sharedControlStale ? "YES" : "no",
+                      static_cast<unsigned>(channel2Ui.driveMode()),
                       telemetry.linkValid ? "yes" : "no",
                       telemetry.uplinkLinkQuality,
                       telemetry.uplinkRssiDbm,

@@ -47,6 +47,16 @@ constexpr uint16_t THROTTLE_ADC_MAX = 4015;
 // close to centre for ARM_NEUTRAL_TIME_MS after boot.
 constexpr uint16_t ARM_NEUTRAL_ADC_WINDOW = 80;
 constexpr uint32_t ARM_NEUTRAL_TIME_MS = 1000;
+// Plausibility and freshness limits used by the independent CRSF task. A
+// disconnected ADC or a stalled control loop can never leave a live throttle
+// value latched on the radio link.
+constexpr uint16_t THROTTLE_ADC_VALID_MIN = 100;
+constexpr uint16_t THROTTLE_ADC_VALID_MAX = 4090;
+constexpr uint32_t CONTROL_STALE_TIMEOUT_US = 250000; // 250 ms
+
+// The TFT35 connector used here has no exposed backlight-control input. Set
+// this to a real PWM-capable GPIO only after adding a transistor/MOSFET stage.
+constexpr int TFT_BACKLIGHT_PIN = -1;
 
 constexpr uint32_t CRSF_BAUD = 400000;
 constexpr uint32_t CRSF_FRAME_PERIOD_US = 4000; // 250 Hz initial test rate

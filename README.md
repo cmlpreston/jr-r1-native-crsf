@@ -14,13 +14,20 @@ The consolidated wiring and GPIO allocation is maintained in
 [`docs/hardware-pinout.md`](docs/hardware-pinout.md). The original R1 control
 inventory and future assignment plan is in
 [`docs/r1-control-map.md`](docs/r1-control-map.md).
+Deferred work is tracked in [`TODO.md`](TODO.md).
 
 ## Safety
 
 For the first test, disconnect the buggy motor from the ESC or place the buggy on
-a secure stand. The firmware holds the selected throttle channel at neutral
-until the trigger remains near its configured centre for one second. Changing a
-channel role also disarms throttle and requires this neutral re-arm sequence.
+a secure stand. Every boot starts in **CUT** with the arm request cleared. Select
+Walk or Normal, tap the dashboard safety panel, and leave the trigger near its
+configured centre for one second. Assignment, role, mode and calibration changes
+immediately publish neutral and require this process again.
+
+The CRSF task independently checks the age of the last control-loop update. If
+it exceeds 250 ms, it transmits neutral even if the UI/core has stalled.
+Implausible ADC values, calibration and a disabled throttle assignment also fail
+closed.
 
 Always fit the Ranger antenna before powering the module. Begin at the lowest RF
 power setting.
@@ -162,14 +169,33 @@ actions drive, without accidentally exchanging their endpoint or response
 settings. `BRAKE/REV` is used because a car ESC commonly brakes on the first
 reverse-trigger command and supplies reverse drive only after stopping.
 
-The transmitter boots into a scalable main menu. `CHANNELS`, `RESPONSE`, and
-`SETUP` are active; the remaining roadmap sections are shown dimmed and disabled:
+`CONTROL MAP` is the first functional version of the generic
+input-to-function-to-channel assignment layer. It enables/disables the steering
+and trigger assignments and maps each to a CRSF channel. Additional buttons and
+switches will appear there as their hardware is mapped.
+
+`DRIVE MODES` provides CUT, WALK and NORMAL. CUT always sends neutral. WALK
+scales output to an adjustable limit (35% by default). Changing mode clears the
+arm request and cannot make the output live by itself.
+
+The throttle `SPEED` page configures independent forward and brake/reverse slew
+times from neutral to endpoint. Zero milliseconds means direct response.
+
+`SETUP > DISPLAY` provides timeout, software brightness, night palette and
+immediate sleep. Touch wakes the panel. Because the TFT35 connector does not
+expose backlight control, software dimming changes pixels but does not eliminate
+the measured backlight current; that needs a transistor/MOSFET-controlled
+backlight or 5 V rail.
+
+The transmitter boots into a scalable main menu. `CHANNELS`, `RESPONSE`,
+`CONTROL MAP`, `DRIVE MODES`, and `SETUP` are active; deferred sections remain
+dimmed:
 
 - `MODELS`: select/name/copy/reset models and later transfer/import/export;
 - `CHANNELS`: names, reverse, calibration, sub-trim and endpoints per channel;
 - `RESPONSE`: dual rate, exponential, throttle curves and speed limiting;
-- `MIXES`: programmable mixes and input-to-output routing;
-- `DRIVE AIDS`: throttle hold, ABS, idle-up and quick-throttle functions;
+- `CONTROL MAP`: current input enable/assignment and future programmable mixes;
+- `DRIVE MODES`: cut/walk/normal now; ABS, 4WS and throttle curves later;
 - `TIMERS`: run, countdown and lap timers;
 - `LINK/TELEM`: ELRS link, failsafe, RF settings and telemetry pages;
 - `SETUP`: display, sound, controls, warnings and system preferences.

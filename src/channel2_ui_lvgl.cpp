@@ -680,22 +680,21 @@ void Channel2Ui::sleepDisplay()
 {
     if (!displayReady_ || displaySleeping_) return;
     displayBus->beginWrite();
-    displayBus->writeCommand(0x28); // display off
-    displayBus->writeCommand(0x10); // sleep in
+    // ILI9486 DCS Display OFF. Do not also issue Sleep IN here: on the
+    // TFT35-SPI V2.1 panel that combination leaves the powered backlight
+    // illuminating a solid white panel. Keeping this as an isolated 0x28
+    // command also lets us measure what display blanking alone saves.
+    displayBus->writeCommand(0x28);
     displayBus->endWrite();
     displaySleeping_ = true;
-    Serial.println("DISPLAY: sleeping (touch to wake)");
+    Serial.println("DISPLAY: off (0x28; touch to wake)");
 }
 
 void Channel2Ui::wakeDisplay()
 {
     if (!displayReady_ || !displaySleeping_) return;
     displayBus->beginWrite();
-    displayBus->writeCommand(0x11); // sleep out
-    displayBus->endWrite();
-    delay(120);
-    displayBus->beginWrite();
-    displayBus->writeCommand(0x29); // display on
+    displayBus->writeCommand(0x29); // ILI9486 DCS Display ON
     displayBus->endWrite();
     displaySleeping_ = false;
     lastInteractionMs_ = millis();

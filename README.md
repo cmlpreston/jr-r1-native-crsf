@@ -241,10 +241,12 @@ The throttle `SPEED` page configures independent forward and brake/reverse slew
 times from neutral to endpoint. Zero milliseconds means direct response.
 
 `SETUP > DISPLAY` provides timeout, software brightness, night palette and
-immediate sleep. Touch wakes the panel. Because the TFT35 connector does not
-expose backlight control, software dimming changes pixels but does not eliminate
-the measured backlight current; that needs a transistor/MOSFET-controlled
-backlight or 5 V rail.
+immediate blanking. It sends the ILI9486 `Display OFF` command (`0x28`) and
+wakes with `Display ON` (`0x29`). `Sleep IN` (`0x10`) is deliberately not
+combined with blanking because that left this TFT35-SPI V2.1 panel solid white.
+Touch wakes the panel. Because the TFT35 connector does not expose backlight
+control, software dimming or blanking may not eliminate the measured backlight
+current; that needs a transistor/MOSFET-controlled backlight or 5 V rail.
 
 The transmitter boots into a scalable main menu. `CHANNELS`, `RESPONSE`,
 `CONTROL MAP`, `DRIVE MODES`, and `SETUP` are active; deferred sections remain

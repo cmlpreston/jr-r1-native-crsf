@@ -124,6 +124,49 @@ void testSteppedTrimAndThreePosition()
     assert(resolver.value(1) == 0);
 }
 
+void testChannelParameterActionsAndConflicts()
+{
+    ControlBinding trim;
+    trim.input = PhysicalControlId::GripTrimA;
+    trim.event = InputEvent::PositivePress;
+    trim.target = AssignmentTarget::ModelParameter;
+    trim.targetId = encodeChannelParameterTarget(2, ChannelParameterKind::Subtrim);
+    trim.behaviour = ControlBehaviour::Stepped;
+    trim.crsfChannel = 0;
+    trim.minimum = -200;
+    trim.maximum = 200;
+    trim.step = 10;
+    trim.initial = 30;
+    trim.failsafe = 30;
+
+    BindingResolver resolver;
+    assert(resolver.setBindings(&trim, 1).ok());
+    ResolvedBindingActionBuffer actions;
+    resolver.processEvent(event(PhysicalControlId::GripTrimA,
+                                InputEvent::PositivePress, 1),
+                          ContextDashboard, actions);
+    assert(actions.size() == 1);
+    assert(actions[0].target == AssignmentTarget::ModelParameter);
+    assert(channelParameterTargetChannel(actions[0].targetId) == 2);
+    assert(channelParameterTargetKind(actions[0].targetId) ==
+           ChannelParameterKind::Subtrim);
+    assert(actions[0].value == 40);
+
+    ControlBinding duplicate = trim;
+    duplicate.input = PhysicalControlId::GripTrimB;
+    ControlBinding bindings[] = {trim, duplicate};
+    BindingLoadResult result = resolver.setBindings(bindings, 2);
+    assert(result.error == BindingLoadError::ConflictingParameterWriter);
+
+    duplicate.targetId = encodeChannelParameterTarget(1,
+                                                       ChannelParameterKind::Subtrim);
+    assert(resolver.setBindings(&duplicate, 1).ok());
+    duplicate.targetId = encodeChannelParameterTarget(17,
+                                                       ChannelParameterKind::Trim);
+    result = resolver.setBindings(&duplicate, 1);
+    assert(result.error == BindingLoadError::InvalidBinding);
+}
+
 void testPulseExpiryAndLocalAction()
 {
     ControlBinding pulse = channelBinding(ControlBehaviour::Pulse,
@@ -188,6 +231,7 @@ int main()
     testRejectsConflictingChannelWriters();
     testMomentaryToggleAndReservedChannel();
     testSteppedTrimAndThreePosition();
+    testChannelParameterActionsAndConflicts();
     testPulseExpiryAndLocalAction();
     testProportionalAndFailsafe();
     puts("binding_resolver_test: PASS");

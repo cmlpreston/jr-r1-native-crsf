@@ -42,6 +42,7 @@ enum class BindingLoadError : uint8_t {
     TooManyBindings,
     InvalidBinding,
     ConflictingChannelWriter,
+    ConflictingParameterWriter,
 };
 
 struct BindingLoadResult {

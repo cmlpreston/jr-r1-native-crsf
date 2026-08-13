@@ -126,6 +126,40 @@ enum class ModelParameter : uint8_t {
     DisplayBrightness,
 };
 
+// Per-channel parameters use a tagged targetId so they can coexist with the
+// older model-wide ModelParameter IDs above. Values are stored in permille:
+// 10 permille is one percent of conventional servo travel.
+enum class ChannelParameterKind : uint8_t {
+    Trim = 0,
+    Subtrim = 1,
+};
+
+constexpr uint16_t kChannelParameterTag = 0x8000;
+constexpr uint16_t encodeChannelParameterTarget(
+    uint8_t channel, ChannelParameterKind kind)
+{
+    return static_cast<uint16_t>(kChannelParameterTag |
+        (static_cast<uint16_t>(channel) << 8) |
+        static_cast<uint8_t>(kind));
+}
+
+constexpr bool isChannelParameterTarget(uint16_t targetId)
+{
+    return (targetId & kChannelParameterTag) != 0;
+}
+
+constexpr uint8_t channelParameterTargetChannel(uint16_t targetId)
+{
+    return static_cast<uint8_t>((targetId >> 8) & 0x1f);
+}
+
+constexpr ChannelParameterKind channelParameterTargetKind(uint16_t targetId)
+{
+    return static_cast<ChannelParameterKind>(targetId & 0xff);
+}
+
+const char *channelParameterKindName(ChannelParameterKind kind);
+
 enum class DriveModeSelection : uint8_t {
     CutArm,
     WalkNormal,

@@ -99,6 +99,15 @@ const char *controlBehaviourName(ControlBehaviour behaviour)
     return "UNKNOWN";
 }
 
+const char *channelParameterKindName(ChannelParameterKind kind)
+{
+    switch (kind) {
+        case ChannelParameterKind::Trim: return "TRIM";
+        case ChannelParameterKind::Subtrim: return "SUBTRIM";
+    }
+    return "UNKNOWN";
+}
+
 bool validateControlBinding(const ControlBinding &binding, const char **reason)
 {
     auto fail = [reason](const char *message) {
@@ -118,6 +127,18 @@ bool validateControlBinding(const ControlBinding &binding, const char **reason)
         return fail("CRSF channel must be 1..16");
     if (binding.target != AssignmentTarget::CrsfChannel && binding.crsfChannel != 0)
         return fail("non-channel binding has a CRSF channel");
+    if (binding.target == AssignmentTarget::ModelParameter &&
+        isChannelParameterTarget(binding.targetId)) {
+        const uint8_t channel = channelParameterTargetChannel(binding.targetId);
+        const ChannelParameterKind kind = channelParameterTargetKind(binding.targetId);
+        if (channel < 1 || channel > 16)
+            return fail("channel parameter must use channel 1..16");
+        if (kind != ChannelParameterKind::Trim &&
+            kind != ChannelParameterKind::Subtrim)
+            return fail("invalid channel parameter kind");
+        if (binding.behaviour != ControlBehaviour::Stepped)
+            return fail("channel trim requires stepped behaviour");
+    }
     if ((binding.behaviour == ControlBehaviour::Stepped ||
          binding.behaviour == ControlBehaviour::ThreePositionSelector) &&
         binding.step <= 0)

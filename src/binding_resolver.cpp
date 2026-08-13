@@ -76,18 +76,28 @@ BindingLoadResult BindingResolver::setBindings(const ControlBinding *bindings,
             result.reason = reason;
             return result;
         }
-        if (!bindings[index].enabled ||
-            bindings[index].target != AssignmentTarget::CrsfChannel)
+        if (!bindings[index].enabled)
             continue;
         for (size_t previous = 0; previous < index; ++previous) {
-            if (!bindings[previous].enabled ||
-                bindings[previous].target != AssignmentTarget::CrsfChannel)
+            if (!bindings[previous].enabled)
                 continue;
-            if (bindings[previous].crsfChannel == bindings[index].crsfChannel) {
+            if (bindings[index].target == AssignmentTarget::CrsfChannel &&
+                bindings[previous].target == AssignmentTarget::CrsfChannel &&
+                bindings[previous].crsfChannel == bindings[index].crsfChannel) {
                 result.error = BindingLoadError::ConflictingChannelWriter;
                 result.bindingIndex = index;
                 result.conflictingIndex = previous;
                 result.reason = "multiple bindings write the same CRSF channel";
+                return result;
+            }
+            if (bindings[index].target == AssignmentTarget::ModelParameter &&
+                isChannelParameterTarget(bindings[index].targetId) &&
+                bindings[previous].target == AssignmentTarget::ModelParameter &&
+                bindings[previous].targetId == bindings[index].targetId) {
+                result.error = BindingLoadError::ConflictingParameterWriter;
+                result.bindingIndex = index;
+                result.conflictingIndex = previous;
+                result.reason = "multiple controls adjust the same channel parameter";
                 return result;
             }
         }

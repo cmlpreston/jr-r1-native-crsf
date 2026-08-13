@@ -27,6 +27,11 @@ struct ChannelRoleSettings {
     bool throttleEnabled = true;
 };
 
+struct ChannelParameterValues {
+    int16_t trimPermille = 0;
+    int16_t subtrimPermille = 0;
+};
+
 struct SystemSettings {
     bool buzzerEnabled = true;
     bool keyClicksEnabled = true;
@@ -113,6 +118,10 @@ public:
     int16_t applyDriveMode(int16_t configuredPermille,
                            int16_t rawInputPermille) const;
     int16_t neutralOutputPermille() const;
+    int16_t applyChannelAdjustments(uint8_t channel,
+                                    int16_t inputPermille) const;
+    int16_t channelNeutralPermille(uint8_t channel) const;
+    bool applyChannelParameterAction(uint16_t targetId, int16_t value);
     int16_t applyChannelSpeed(int16_t targetPermille, uint32_t nowMs);
     void resetChannelSpeed();
     bool calibrationActive() const { return triggerInput_.calibrationActive(); }
@@ -122,6 +131,7 @@ public:
     bool txVoltageSenseEnabled() const { return txBatterySettings_.voltageSenseEnabled; }
     uint8_t steeringChannel() const { return channelRoleSettings_.steeringChannel; }
     uint8_t throttleChannel() const { return channelRoleSettings_.throttleChannel; }
+    bool steeringEnabled() const { return channelRoleSettings_.steeringEnabled; }
     bool throttleEnabled() const { return channelRoleSettings_.throttleEnabled; }
     bool armRequested() const { return armRequested_; }
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
@@ -186,6 +196,7 @@ private:
     void handleDashboardTouch(int16_t x, int16_t y);
     void handleChannelsTouch(int16_t x, int16_t y);
     void handleChannelRolesTouch(int16_t x, int16_t y);
+    void handleChannelConfigTouch(int16_t x, int16_t y);
     void handleThrottleResponseTouch(int16_t x, int16_t y);
     void handleChannelSpeedTouch(int16_t x, int16_t y);
     void handleControlAssignmentsTouch(int16_t x, int16_t y);
@@ -212,6 +223,9 @@ private:
     void wakeDisplay();
     void loadBindings();
     void saveBindings();
+    void loadChannelParameters();
+    void saveChannelParameters();
+    void scheduleChannelParameterSave();
     void restoreDefaultBindings();
     int bindingIndexForInput(PhysicalControlId input) const;
     ControlBinding defaultBindingForInput(PhysicalControlId input) const;
@@ -219,6 +233,15 @@ private:
     bool removeSelectedBinding();
     bool bindingUsesChannel(uint8_t channel,
                             PhysicalControlId exceptInput) const;
+    int bindingIndexForChannelParameter(uint8_t channel,
+                                        ChannelParameterKind kind) const;
+    bool assignChannelParameterControl(uint8_t channel,
+                                       ChannelParameterKind kind,
+                                       PhysicalControlId input);
+    PhysicalControlId adjacentChannelParameterControl(
+        uint8_t channel, ChannelParameterKind kind, int8_t direction) const;
+    int16_t channelParameterValue(uint8_t channel,
+                                  ChannelParameterKind kind) const;
     uint8_t adjacentBindingChannel(uint8_t current, int8_t direction) const;
     ControlBehaviour adjacentBindingBehaviour(PhysicalControlKind kind,
                                               ControlBehaviour current,
@@ -242,6 +265,7 @@ private:
     char bindingError_[64] = {};
     ControlBinding bindings_[kPhysicalControlCount] = {};
     size_t bindingCount_ = 0;
+    ChannelParameterValues channelParameters_[16] = {};
     bool channelRolesChanged_ = false;
     bool safetyResetRequested_ = false;
     bool bindingsChanged_ = false;
@@ -274,6 +298,8 @@ private:
     uint32_t nextDisplayUpdateMs_ = 0;
     bool settingsSavePending_ = false;
     uint32_t settingsSaveDueMs_ = 0;
+    bool channelParameterSavePending_ = false;
+    uint32_t channelParameterSaveDueMs_ = 0;
     lv_obj_t *dashboardThrottleBar_ = nullptr;
     lv_obj_t *dashboardSafetyPanel_ = nullptr;
     lv_obj_t *dashboardSafetyLabel_ = nullptr;

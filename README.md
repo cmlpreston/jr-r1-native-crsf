@@ -233,6 +233,12 @@ nineteen physical controls. Steering and trigger open the primary role editor;
 each digital switch, trim or button opens an assignment editor that can enable
 or disable the input, select a non-reserved CRSF channel, choose a compatible
 momentary/toggle/pulse/two-position/trim behaviour, save it, or remove it.
+Spring-return trims can instead target `TRIM` or `SUBTRIM` on any channel. The
+same assignment is visible from that channel's configuration page, where one
+of the five R1 trim controls can be selected or the parameter left unassigned.
+Trim values use 1% steps over +/-20%, survive restarts in `jr-r1-chparam`, and
+are applied to the role-owned steering/throttle output paths. Subtrim translates
+the full output envelope; ordinary trim remains within conventional travel.
 Enabled bindings cannot share an output channel or take the steering/throttle
 role channels. Assignments are saved in the versioned `jr-r1-bind` NVS
 namespace. Saving or removing one forces CUT and requires neutral re-arm before
@@ -322,8 +328,8 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-The current ESP32-S3 build uses 142,416 of 327,680 bytes of statically allocated
-internal RAM (43.5%) and 797,045 of 3,342,336 application-flash bytes (23.8%).
+The current ESP32-S3 build uses 142,488 of 327,680 bytes of statically allocated
+internal RAM (43.5%) and 800,613 of 3,342,336 application-flash bytes (24.0%).
 The editable nineteen-input binding table is small compared with LVGL and its
 display buffers, so assignments do not create a practical memory risk. Boot
 logging reports total/free/minimum/largest heap, PSRAM size and the heap consumed

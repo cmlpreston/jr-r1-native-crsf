@@ -28,6 +28,8 @@ constexpr uint32_t kTouchReleaseDebounceMs = 25;
 constexpr uint32_t kTouchRetriggerGuardMs = 100;
 constexpr uint32_t kSettingsSaveDelayMs = 750;
 constexpr uint16_t kBindingProfileVersion = 1;
+constexpr uint16_t kChannelParameterVersion = 1;
+constexpr int16_t kChannelParameterLimitPermille = 200;
 constexpr uint8_t kNsReadX = 0xC0;
 constexpr uint8_t kNsReadY = 0xD0;
 constexpr uint8_t kNsReadZ = 0xE0;
@@ -309,6 +311,7 @@ bool Channel2Ui::begin()
     loadTxBatterySettings();
     loadRxBatterySettings();
     loadDriveModeSettings();
+    loadChannelParameters();
     loadBindings();
     uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
     uiNightMode = systemSettings_.nightMode;
@@ -536,8 +539,19 @@ size_t Channel2Ui::copyBindings(ControlBinding *destination,
 {
     if (destination == nullptr) return 0;
     const size_t count = bindingCount_ < capacity ? bindingCount_ : capacity;
-    for (size_t index = 0; index < count; ++index)
+    for (size_t index = 0; index < count; ++index) {
         destination[index] = bindings_[index];
+        if (destination[index].target == AssignmentTarget::ModelParameter &&
+            isChannelParameterTarget(destination[index].targetId)) {
+            const uint8_t channel = channelParameterTargetChannel(
+                destination[index].targetId);
+            const ChannelParameterKind kind = channelParameterTargetKind(
+                destination[index].targetId);
+            const int16_t value = channelParameterValue(channel, kind);
+            destination[index].initial = value;
+            destination[index].failsafe = value;
+        }
+    }
     return count;
 }
 
@@ -738,11 +752,134 @@ void Channel2Ui::saveBindings()
     preferences.end();
 }
 
+void Channel2Ui::loadChannelParameters()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-chparam", true);
+    const uint16_t version = preferences.getUShort("version", 0);
+    const size_t bytes = preferences.getBytesLength("values");
+    const bool valid = version == kChannelParameterVersion &&
+        bytes == sizeof(channelParameters_) &&
+        preferences.getBytes("values", channelParameters_, bytes) == bytes;
+    preferences.end();
+    if (!valid) {
+        for (ChannelParameterValues &values : channelParameters_)
+            values = ChannelParameterValues{};
+    }
+    for (ChannelParameterValues &values : channelParameters_) {
+        values.trimPermille = constrain(values.trimPermille,
+            -kChannelParameterLimitPermille, kChannelParameterLimitPermille);
+        values.subtrimPermille = constrain(values.subtrimPermille,
+            -kChannelParameterLimitPermille, kChannelParameterLimitPermille);
+    }
+}
+
+void Channel2Ui::saveChannelParameters()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-chparam", false);
+    preferences.putUShort("version", kChannelParameterVersion);
+    preferences.putBytes("values", channelParameters_, sizeof(channelParameters_));
+    preferences.end();
+    channelParameterSavePending_ = false;
+}
+
+void Channel2Ui::scheduleChannelParameterSave()
+{
+    channelParameterSavePending_ = true;
+    channelParameterSaveDueMs_ = millis() + kSettingsSaveDelayMs;
+}
+
 int Channel2Ui::bindingIndexForInput(PhysicalControlId input) const
 {
     for (size_t index = 0; index < bindingCount_; ++index)
         if (bindings_[index].input == input) return static_cast<int>(index);
     return -1;
+}
+
+int Channel2Ui::bindingIndexForChannelParameter(
+    uint8_t channel, ChannelParameterKind kind) const
+{
+    const uint16_t targetId = encodeChannelParameterTarget(channel, kind);
+    for (size_t index = 0; index < bindingCount_; ++index) {
+        if (bindings_[index].target == AssignmentTarget::ModelParameter &&
+            bindings_[index].targetId == targetId)
+            return static_cast<int>(index);
+    }
+    return -1;
+}
+
+PhysicalControlId Channel2Ui::adjacentChannelParameterControl(
+    uint8_t channel, ChannelParameterKind kind, int8_t direction) const
+{
+    constexpr PhysicalControlId choices[] = {
+        PhysicalControlId::Count,
+        PhysicalControlId::GripTrimA,
+        PhysicalControlId::GripTrimB,
+        PhysicalControlId::ThrottleTrim,
+        PhysicalControlId::SteeringTrim,
+        PhysicalControlId::Aux3Trim,
+    };
+    PhysicalControlId current = PhysicalControlId::Count;
+    const int currentBinding = bindingIndexForChannelParameter(channel, kind);
+    if (currentBinding >= 0) current = bindings_[currentBinding].input;
+    int selected = 0;
+    for (size_t index = 0; index < sizeof(choices) / sizeof(choices[0]); ++index)
+        if (choices[index] == current) selected = static_cast<int>(index);
+    for (size_t attempt = 0; attempt < sizeof(choices) / sizeof(choices[0]); ++attempt) {
+        selected += direction;
+        if (selected < 0) selected = static_cast<int>(sizeof(choices) /
+            sizeof(choices[0])) - 1;
+        if (selected >= static_cast<int>(sizeof(choices) / sizeof(choices[0])))
+            selected = 0;
+        const PhysicalControlId candidate = choices[selected];
+        if (candidate == PhysicalControlId::Count ||
+            bindingIndexForInput(candidate) < 0 || candidate == current)
+            return candidate;
+    }
+    return current;
+}
+
+bool Channel2Ui::assignChannelParameterControl(
+    uint8_t channel, ChannelParameterKind kind, PhysicalControlId input)
+{
+    ControlBinding candidate[kPhysicalControlCount];
+    size_t count = 0;
+    const uint16_t targetId = encodeChannelParameterTarget(channel, kind);
+    for (size_t index = 0; index < bindingCount_; ++index) {
+        if (bindings_[index].target == AssignmentTarget::ModelParameter &&
+            bindings_[index].targetId == targetId)
+            continue;
+        candidate[count++] = bindings_[index];
+    }
+    if (input != PhysicalControlId::Count) {
+        for (size_t index = 0; index < count; ++index)
+            if (candidate[index].input == input) return false;
+        if (count >= kPhysicalControlCount) return false;
+        ControlBinding binding = defaultBindingForInput(input);
+        binding.target = AssignmentTarget::ModelParameter;
+        binding.targetId = targetId;
+        binding.crsfChannel = 0;
+        binding.event = InputEvent::PositivePress;
+        binding.behaviour = ControlBehaviour::Stepped;
+        binding.minimum = -kChannelParameterLimitPermille;
+        binding.maximum = kChannelParameterLimitPermille;
+        binding.step = 10;
+        binding.initial = channelParameterValue(channel, kind);
+        binding.failsafe = binding.initial;
+        binding.enabled = true;
+        binding.persistent = true;
+        candidate[count++] = binding;
+    }
+    BindingResolver validator;
+    if (!validator.setBindings(candidate, count).ok()) return false;
+    bindingCount_ = count;
+    for (size_t index = 0; index < count; ++index) bindings_[index] = candidate[index];
+    saveBindings();
+    bindingsChanged_ = true;
+    safetyResetRequested_ = true;
+    armRequested_ = false;
+    return true;
 }
 
 ControlBinding Channel2Ui::defaultBindingForInput(PhysicalControlId input) const
@@ -843,11 +980,20 @@ bool Channel2Ui::saveBindingDraft()
 {
     bindingError_[0] = '\0';
     if (bindingDraft_.enabled &&
+        bindingDraft_.target == AssignmentTarget::CrsfChannel &&
         (bindingDraft_.crsfChannel == channelRoleSettings_.steeringChannel ||
          bindingDraft_.crsfChannel == channelRoleSettings_.throttleChannel)) {
         snprintf(bindingError_, sizeof(bindingError_),
                  "CH%u is reserved for a primary role", bindingDraft_.crsfChannel);
         return false;
+    }
+    if (bindingDraft_.target == AssignmentTarget::ModelParameter &&
+        isChannelParameterTarget(bindingDraft_.targetId)) {
+        const uint8_t channel = channelParameterTargetChannel(bindingDraft_.targetId);
+        const ChannelParameterKind parameter = channelParameterTargetKind(
+            bindingDraft_.targetId);
+        bindingDraft_.initial = channelParameterValue(channel, parameter);
+        bindingDraft_.failsafe = bindingDraft_.initial;
     }
 
     ControlBinding candidate[kPhysicalControlCount];
@@ -1009,7 +1155,7 @@ int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const
 int16_t Channel2Ui::applyDriveMode(int16_t configuredPermille,
                                    int16_t rawInputPermille) const
 {
-    const int16_t trim = neutralOutputPermille();
+    const int16_t trim = static_cast<int16_t>(settings_.subtrimPercent) * 10;
     int32_t driveComponent = static_cast<int32_t>(configuredPermille) - trim;
     // Select the limited side from the physical trigger direction, not the
     // post-reverse output sign. Reversing CH2 must not turn the brake side into
@@ -1024,7 +1170,61 @@ int16_t Channel2Ui::applyDriveMode(int16_t configuredPermille,
 
 int16_t Channel2Ui::neutralOutputPermille() const
 {
-    return static_cast<int16_t>(settings_.subtrimPercent) * 10;
+    return channelNeutralPermille(channelRoleSettings_.throttleChannel);
+}
+
+int16_t Channel2Ui::applyChannelAdjustments(uint8_t channel,
+                                            int16_t inputPermille) const
+{
+    if (channel < 1 || channel > 16) return inputPermille;
+    const ChannelParameterValues &values = channelParameters_[channel - 1];
+    // Subtrim translates the full output envelope, preserving endpoint travel.
+    // Ordinary trim is then constrained to conventional travel, so using it
+    // consumes travel at one end just like a traditional transmitter trim.
+    const int16_t shifted = clampExtendedTravel(
+        static_cast<int32_t>(inputPermille) + values.subtrimPermille);
+    return static_cast<int16_t>(constrain(
+        static_cast<int32_t>(shifted) + values.trimPermille, -1000L, 1000L));
+}
+
+int16_t Channel2Ui::channelNeutralPermille(uint8_t channel) const
+{
+    int16_t base = 0;
+    if (channel == channelRoleSettings_.throttleChannel)
+        base = static_cast<int16_t>(settings_.subtrimPercent) * 10;
+    return applyChannelAdjustments(channel, base);
+}
+
+int16_t Channel2Ui::channelParameterValue(uint8_t channel,
+                                          ChannelParameterKind kind) const
+{
+    if (channel < 1 || channel > 16) return 0;
+    const ChannelParameterValues &values = channelParameters_[channel - 1];
+    return kind == ChannelParameterKind::Subtrim
+        ? values.subtrimPermille : values.trimPermille;
+}
+
+bool Channel2Ui::applyChannelParameterAction(uint16_t targetId, int16_t value)
+{
+    if (!isChannelParameterTarget(targetId)) return false;
+    const uint8_t channel = channelParameterTargetChannel(targetId);
+    const ChannelParameterKind kind = channelParameterTargetKind(targetId);
+    if (channel < 1 || channel > 16 ||
+        (kind != ChannelParameterKind::Trim &&
+         kind != ChannelParameterKind::Subtrim)) return false;
+    value = constrain(value, -kChannelParameterLimitPermille,
+                      kChannelParameterLimitPermille);
+    int16_t &stored = kind == ChannelParameterKind::Subtrim
+        ? channelParameters_[channel - 1].subtrimPermille
+        : channelParameters_[channel - 1].trimPermille;
+    if (stored == value) return true;
+    stored = value;
+    scheduleChannelParameterSave();
+    Serial.printf("CHANNEL PARAM: CH%u %s=%+.1f%%\n", channel,
+                  channelParameterKindName(kind), value / 10.0f);
+    if (activePage_ == UiPage::ChannelPlaceholder && selectedChannel_ == channel)
+        drawChannelPlaceholder();
+    return true;
 }
 
 int16_t Channel2Ui::applyChannelSpeed(int16_t targetPermille, uint32_t nowMs)
@@ -1403,9 +1603,18 @@ void Channel2Ui::drawControlAssignmentsPage()
                 snprintf(summary, sizeof(summary), "UNASSIGNED");
             } else {
                 const ControlBinding &binding = bindings_[bindingIndex];
-                snprintf(summary, sizeof(summary), "%s CH%u  %s",
-                         binding.enabled ? "ON" : "OFF", binding.crsfChannel,
-                         controlBehaviourName(binding.behaviour));
+                if (binding.target == AssignmentTarget::ModelParameter &&
+                    isChannelParameterTarget(binding.targetId)) {
+                    snprintf(summary, sizeof(summary), "%s CH%u %s",
+                        binding.enabled ? "ON" : "OFF",
+                        channelParameterTargetChannel(binding.targetId),
+                        channelParameterKindName(
+                            channelParameterTargetKind(binding.targetId)));
+                } else {
+                    snprintf(summary, sizeof(summary), "%s CH%u  %s",
+                             binding.enabled ? "ON" : "OFF", binding.crsfChannel,
+                             controlBehaviourName(binding.behaviour));
+                }
                 summaryColour = binding.enabled ? cGreen : cAmber;
             }
         }
@@ -1435,38 +1644,55 @@ void Channel2Ui::drawBindingEditorPage()
 
     const PhysicalControlDescriptor &control = physicalControlDescriptor(
         static_cast<size_t>(selectedBindingInput_));
-    lv_obj_t *namePanel = makePanel(12, 50, 456, 42);
-    makeLabel(namePanel, control.name, 12, 10, 16, cCyan);
-    makeLabel(namePanel, r1InputEndpointLabel(selectedBindingInput_), 300, 12, 11, cDim);
+    lv_obj_t *namePanel = makePanel(12, 48, 456, 36);
+    makeLabel(namePanel, control.name, 12, 7, 15, cCyan);
+    makeLabel(namePanel, r1InputEndpointLabel(selectedBindingInput_), 300, 9, 10, cDim);
 
-    const int16_t ys[] = {100, 148, 196};
-    const char *labels[] = {"ENABLED", "OUTPUT CHANNEL", "BEHAVIOUR"};
-    for (uint8_t row = 0; row < 3; ++row) {
-        lv_obj_t *panel = makePanel(12, ys[row], 456, 40);
-        makeLabel(panel, labels[row], 10, 11, 13, cDim);
+    const int16_t ys[] = {89, 128, 167, 206};
+    const char *labels[] = {"ENABLED", "TARGET", "CHANNEL", "MODE"};
+    for (uint8_t row = 0; row < 4; ++row) {
+        lv_obj_t *panel = makePanel(12, ys[row], 456, 34);
+        makeLabel(panel, labels[row], 10, 8, 12, cDim);
     }
-    makeButton(344, 105, 108, 30, bindingDraft_.enabled ? "ON" : "OFF", 13,
+    makeButton(344, 91, 108, 30, bindingDraft_.enabled ? "ON" : "OFF", 13,
                bindingDraft_.enabled ? cGreen : cPanel2,
                bindingDraft_.enabled ? cBlack : cWhite);
+
+    const bool parameter = bindingDraft_.target == AssignmentTarget::ModelParameter &&
+        isChannelParameterTarget(bindingDraft_.targetId);
+    makeLabel(lv_scr_act(), parameter ? "CHANNEL PARAM" : "AUX OUTPUT",
+              220, 137, 12, parameter ? cCyan : cWhite);
+    if (control.kind == PhysicalControlKind::SpringCentredTrim) {
+        makeButton(350, 130, 42, 30, "<", 20);
+        makeButton(408, 130, 42, 30, ">", 20);
+    }
+
+    const uint8_t selectedChannel = parameter
+        ? channelParameterTargetChannel(bindingDraft_.targetId)
+        : bindingDraft_.crsfChannel;
     char channel[12];
-    snprintf(channel, sizeof(channel), "CH%u", bindingDraft_.crsfChannel);
-    makeLabel(lv_scr_act(), channel, 300, 160, 16, cWhite);
-    makeButton(350, 153, 42, 30, "-", 20);
-    makeButton(408, 153, 42, 30, "+", 20);
-    makeLabel(lv_scr_act(), controlBehaviourName(bindingDraft_.behaviour),
-              220, 208, 12, cWhite);
-    makeButton(350, 201, 42, 30, "<", 20);
-    makeButton(408, 201, 42, 30, ">", 20);
+    snprintf(channel, sizeof(channel), "CH%u", selectedChannel);
+    makeLabel(lv_scr_act(), channel, 300, 176, 15, cWhite);
+    makeButton(350, 169, 42, 30, "-", 20);
+    makeButton(408, 169, 42, 30, "+", 20);
+    makeLabel(lv_scr_act(), parameter
+                  ? channelParameterKindName(
+                        channelParameterTargetKind(bindingDraft_.targetId))
+                  : controlBehaviourName(bindingDraft_.behaviour),
+              220, 215, 12, cWhite);
+    makeButton(350, 208, 42, 30, "<", 20);
+    makeButton(408, 208, 42, 30, ">", 20);
 
     if (bindingError_[0] != '\0')
-        makeLabel(lv_scr_act(), bindingError_, 14, 244, 11, cRed);
+        makeLabel(lv_scr_act(), bindingError_, 14, 246, 11, cRed);
     else
-        makeLabel(lv_scr_act(), "Edits force CUT and require neutral re-arm",
-                  14, 244, 11, cAmber);
-    makeButton(12, 271, 138, 38, "CANCEL", 14, cPanel);
+        makeLabel(lv_scr_act(), parameter ? "Step: 1%; edits force CUT" :
+                  "Edits force CUT and require neutral re-arm",
+                  14, 246, 11, cAmber);
+    makeButton(12, 274, 138, 34, "CANCEL", 13, cPanel);
     if (bindingIndexForInput(selectedBindingInput_) >= 0)
-        makeButton(160, 271, 138, 38, "REMOVE", 14, cAmber, cBlack);
-    makeButton(308, 271, 160, 38, "SAVE", 14, cGreen, cBlack);
+        makeButton(160, 274, 138, 34, "REMOVE", 13, cAmber, cBlack);
+    makeButton(308, 274, 160, 34, "SAVE", 13, cGreen, cBlack);
 }
 
 void Channel2Ui::drawInputMonitorPage()
@@ -1575,13 +1801,38 @@ void Channel2Ui::drawChannelPlaceholder()
     char title[20];
     snprintf(title, sizeof(title), "CHANNEL %u", selectedChannel_);
     makeHeader(title, "BACK");
-    lv_obj_t *coming = makeLabel(lv_scr_act(), "CONFIGURATION\nCOMING NEXT", 0, 110, 28, cCyan);
-    lv_obj_set_style_text_align(coming, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(coming, LV_ALIGN_TOP_MID, 0, 110);
-    char detail[40];
-    snprintf(detail, sizeof(detail), "CRSF CHANNEL %u IS CENTRED", selectedChannel_);
-    lv_obj_t *detailLabel = makeLabel(lv_scr_act(), detail, 0, 226, 16, cDim);
-    lv_obj_align(detailLabel, LV_ALIGN_TOP_MID, 0, 226);
+    const char *role = selectedChannel_ == channelRoleSettings_.steeringChannel
+        ? "STEERING" : selectedChannel_ == channelRoleSettings_.throttleChannel
+        ? "THROTTLE" : "AUXILIARY";
+    char roleText[32];
+    snprintf(roleText, sizeof(roleText), "ROLE: %s", role);
+    makeLabel(lv_scr_act(), roleText, 18, 52, 13, cCyan);
+
+    const ChannelParameterKind kinds[] = {
+        ChannelParameterKind::Trim, ChannelParameterKind::Subtrim};
+    for (uint8_t row = 0; row < 2; ++row) {
+        const int16_t y = 76 + row * 66;
+        lv_obj_t *panel = makePanel(12, y, 456, 56);
+        makeLabel(panel, channelParameterKindName(kinds[row]), 10, 8, 13, cDim);
+        const int bindingIndex = bindingIndexForChannelParameter(
+            selectedChannel_, kinds[row]);
+        const char *control = bindingIndex >= 0
+            ? physicalControlDescriptor(
+                static_cast<size_t>(bindings_[bindingIndex].input)).name
+            : "NONE";
+        makeLabel(panel, control, 108, 7, 13,
+                  bindingIndex >= 0 ? cWhite : cAmber);
+        char value[20];
+        snprintf(value, sizeof(value), "%+.1f%%",
+                 channelParameterValue(selectedChannel_, kinds[row]) / 10.0f);
+        makeLabel(panel, value, 260, 31, 12, cCyan);
+        makeButton(352, y + 8, 42, 40, "<", 20);
+        makeButton(406, y + 8, 42, 40, ">", 20);
+    }
+    makeLabel(lv_scr_act(), "A trim control can own one output or parameter",
+              18, 214, 11, cAmber);
+    if (selectedChannel_ == channelRoleSettings_.throttleChannel)
+        makeButton(122, 249, 236, 46, "THROTTLE SETUP", 15, cPanel2, cCyan);
 }
 
 void Channel2Ui::drawSettingRow(int row)
@@ -2109,8 +2360,31 @@ void Channel2Ui::handleChannelsTouch(int16_t x, int16_t y)
     if (y < 52 || y >= 264) return;
     selectedChannel_ = channelsBank_ * 8 + ((y - 52) / 52) * 2 + (x >= 240 ? 1 : 0) + 1;
     playKeyClick();
-    if (selectedChannel_ == channelRoleSettings_.throttleChannel) drawPage();
-    else drawChannelPlaceholder();
+    drawChannelPlaceholder();
+}
+
+void Channel2Ui::handleChannelConfigTouch(int16_t x, int16_t y)
+{
+    if (headerActionTouched(x, y)) {
+        playKeyClick(); drawChannelsPage(); return;
+    }
+    if (selectedChannel_ == channelRoleSettings_.throttleChannel &&
+        y >= 244 && y < 304 && x >= 110 && x < 370) {
+        playKeyClick(); drawPage(); return;
+    }
+    if (x < 340 || y < 72 || y >= 212) return;
+    const uint8_t row = static_cast<uint8_t>((y - 76) / 66);
+    if (row > 1) return;
+    const ChannelParameterKind kind = row == 0
+        ? ChannelParameterKind::Trim : ChannelParameterKind::Subtrim;
+    const PhysicalControlId next = adjacentChannelParameterControl(
+        selectedChannel_, kind, x < 400 ? -1 : 1);
+    if (assignChannelParameterControl(selectedChannel_, kind, next)) {
+        playKeyClick();
+        drawChannelPlaceholder();
+    } else {
+        playBuzzer(180);
+    }
 }
 
 void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
@@ -2212,26 +2486,87 @@ void Channel2Ui::handleControlAssignmentsTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
 {
-    if (headerActionTouched(x, y) || (y >= 266 && x < 150)) {
+    if (headerActionTouched(x, y) || (y >= 270 && x < 150)) {
         playKeyClick(); drawControlAssignmentsPage(); return;
     }
     const PhysicalControlKind kind = physicalControlDescriptor(
         static_cast<size_t>(selectedBindingInput_)).kind;
-    if (y >= 100 && y < 140 && x >= 330) {
+    const bool parameter = bindingDraft_.target == AssignmentTarget::ModelParameter &&
+        isChannelParameterTarget(bindingDraft_.targetId);
+    if (y >= 88 && y < 124 && x >= 330) {
         bindingDraft_.enabled = !bindingDraft_.enabled;
-    } else if (y >= 148 && y < 188 && x >= 330) {
-        bindingDraft_.crsfChannel = adjacentBindingChannel(
-            bindingDraft_.crsfChannel, x < 400 ? -1 : 1);
-    } else if (y >= 196 && y < 236 && x >= 330) {
-        bindingDraft_.behaviour = adjacentBindingBehaviour(
-            kind, bindingDraft_.behaviour, x < 400 ? -1 : 1);
-    } else if (y >= 266 && x >= 160 && x < 300 &&
+    } else if (y >= 127 && y < 163 && x >= 330 &&
+               kind == PhysicalControlKind::SpringCentredTrim) {
+        if (parameter) {
+            bindingDraft_.target = AssignmentTarget::CrsfChannel;
+            bindingDraft_.targetId = 0;
+            bindingDraft_.crsfChannel = adjacentBindingChannel(2, 1);
+            bindingDraft_.behaviour = ControlBehaviour::SpringReturnThreePosition;
+            bindingDraft_.minimum = -1000;
+            bindingDraft_.maximum = 1000;
+            bindingDraft_.step = 50;
+            bindingDraft_.initial = 0;
+            bindingDraft_.failsafe = 0;
+            bindingDraft_.persistent = false;
+        } else {
+            const uint8_t channel = selectedBindingInput_ ==
+                    PhysicalControlId::ThrottleTrim
+                ? channelRoleSettings_.throttleChannel
+                : selectedBindingInput_ == PhysicalControlId::Aux3Trim
+                ? static_cast<uint8_t>(3)
+                : channelRoleSettings_.steeringChannel;
+            bindingDraft_.target = AssignmentTarget::ModelParameter;
+            bindingDraft_.targetId = encodeChannelParameterTarget(
+                channel, ChannelParameterKind::Trim);
+            bindingDraft_.crsfChannel = 0;
+            bindingDraft_.behaviour = ControlBehaviour::Stepped;
+            bindingDraft_.event = InputEvent::PositivePress;
+            bindingDraft_.minimum = -kChannelParameterLimitPermille;
+            bindingDraft_.maximum = kChannelParameterLimitPermille;
+            bindingDraft_.step = 10;
+            bindingDraft_.initial = channelParameterValue(
+                channel, ChannelParameterKind::Trim);
+            bindingDraft_.failsafe = bindingDraft_.initial;
+            bindingDraft_.persistent = true;
+        }
+    } else if (y >= 166 && y < 202 && x >= 330) {
+        const int8_t direction = x < 400 ? -1 : 1;
+        if (parameter) {
+            uint8_t channel = channelParameterTargetChannel(bindingDraft_.targetId);
+            channel = static_cast<uint8_t>(
+                ((static_cast<int>(channel) - 1 + direction + 16) % 16) + 1);
+            const ChannelParameterKind parameterKind = channelParameterTargetKind(
+                bindingDraft_.targetId);
+            bindingDraft_.targetId = encodeChannelParameterTarget(channel,
+                                                                   parameterKind);
+            bindingDraft_.initial = channelParameterValue(channel, parameterKind);
+            bindingDraft_.failsafe = bindingDraft_.initial;
+        } else {
+            bindingDraft_.crsfChannel = adjacentBindingChannel(
+                bindingDraft_.crsfChannel, direction);
+        }
+    } else if (y >= 205 && y < 241 && x >= 330) {
+        if (parameter) {
+            const uint8_t channel = channelParameterTargetChannel(
+                bindingDraft_.targetId);
+            const ChannelParameterKind next =
+                channelParameterTargetKind(bindingDraft_.targetId) ==
+                        ChannelParameterKind::Trim
+                    ? ChannelParameterKind::Subtrim : ChannelParameterKind::Trim;
+            bindingDraft_.targetId = encodeChannelParameterTarget(channel, next);
+            bindingDraft_.initial = channelParameterValue(channel, next);
+            bindingDraft_.failsafe = bindingDraft_.initial;
+        } else {
+            bindingDraft_.behaviour = adjacentBindingBehaviour(
+                kind, bindingDraft_.behaviour, x < 400 ? -1 : 1);
+        }
+    } else if (y >= 270 && x >= 160 && x < 300 &&
                bindingIndexForInput(selectedBindingInput_) >= 0) {
         if (removeSelectedBinding()) {
             playBuzzer(80); drawControlAssignmentsPage();
         }
         return;
-    } else if (y >= 266 && x >= 300) {
+    } else if (y >= 270 && x >= 300) {
         if (saveBindingDraft()) {
             playBuzzer(80); drawControlAssignmentsPage();
         } else {
@@ -2468,8 +2803,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::InputMonitor) { handleInputMonitorTouch(x, y); return; }
     if (activePage_ == UiPage::DriveModes) { handleDriveModesTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelPlaceholder) {
-        if (headerActionTouched(x, y)) { playKeyClick(); drawChannelsPage(); }
-        return;
+        handleChannelConfigTouch(x, y); return;
     }
     if (activePage_ == UiPage::Setup) { handleSetupTouch(x, y); return; }
     if (activePage_ == UiPage::TxBatterySetup) { handleTxBatteryTouch(x, y); return; }
@@ -2592,6 +2926,10 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
     if (settingsSavePending_ &&
         static_cast<int32_t>(now - settingsSaveDueMs_) >= 0) {
         saveSettings();
+    }
+    if (channelParameterSavePending_ &&
+        static_cast<int32_t>(now - channelParameterSaveDueMs_) >= 0) {
+        saveChannelParameters();
     }
     if (!displaySleeping_ && systemSettings_.screenTimeoutSeconds != 0 &&
         now - lastInteractionMs_ >=

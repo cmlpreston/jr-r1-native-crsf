@@ -108,6 +108,12 @@ bindings only when the combination is made explicit in the UI.
 - [x] Versioned NVS binding store for the current Model 1 profile.
 - [x] Binding list grouped by physical input.
 - [x] Add/edit/delete/enable binding screens for CRSF channel targets.
+- [x] Let spring-return trims target either an independent CRSF channel or a
+  retained per-channel trim/subtrim parameter from the same editor.
+- [x] Add a channel-centric trim/subtrim control selector, with ownership
+  conflict checks shared with the input-centric editor.
+- [x] Persist all sixteen channels' trim/subtrim values independently of the
+  physical-control binding profile.
 - [ ] Move the versioned binding store into each future model profile and add
   migrations when the stored schema changes.
 - [x] Detect duplicate/conflicting CRSF channel writers.
@@ -119,7 +125,8 @@ bindings only when the combination is made explicit in the UI.
 - [x] Resolve local functions and parameters into a typed action queue.
 - [x] Add momentary, toggle, pulse and switch output resolvers.
 - [x] Add trim jog, stepped and three-position output resolvers.
-- [ ] Dispatch resolved local actions to UI/model/drive-mode consumers.
+- [x] Dispatch per-channel trim/subtrim actions to the live model pipeline.
+- [ ] Dispatch the remaining UI/model/drive-mode local actions.
 - [x] Feed sampled physical-input events into the resolver on hardware.
 - [ ] Show live CRSF value and receiver-output mapping notes.
 

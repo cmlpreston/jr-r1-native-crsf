@@ -318,11 +318,13 @@ void controlTask(void *)
         const int16_t responseThrottle = channel2Ui.applySettings(rawThrottle);
         const int16_t modeThrottle = channel2Ui.applyDriveMode(
             responseThrottle, rawThrottle);
+        const int16_t adjustedThrottle = channel2Ui.applyChannelAdjustments(
+            channel2Ui.throttleChannel(), modeThrottle);
         const uint16_t safeNeutralThrottle = crsfValueFromPermille(
             channel2Ui.neutralOutputPermille());
         int16_t configuredThrottle = 0;
         if (safetyStatus == OutputSafetyStatus::Armed)
-            configuredThrottle = channel2Ui.applyChannelSpeed(modeThrottle, millis());
+            configuredThrottle = channel2Ui.applyChannelSpeed(adjustedThrottle, millis());
         else
             channel2Ui.resetChannelSpeed();
 
@@ -334,8 +336,18 @@ void controlTask(void *)
         portENTER_CRITICAL(&bindingResolverMux);
         bindingResolver.update(millis(), bindingActions);
         bindingResolver.applyChannelOutputs(outputs,
-            static_cast<uint16_t>(1U << (channel2Ui.throttleChannel() - 1)));
+            static_cast<uint16_t>(
+                (1U << (channel2Ui.throttleChannel() - 1)) |
+                (1U << (channel2Ui.steeringChannel() - 1))));
         portEXIT_CRITICAL(&bindingResolverMux);
+        // Steering is centred until its 5 kOhm pot is connected, but channel
+        // trim/subtrim already operate through the same role-owned pipeline.
+        outputs.configure(channel2Ui.steeringChannel(),
+            crsfValueFromPermille(channel2Ui.channelNeutralPermille(
+                channel2Ui.steeringChannel())),
+            crsfValueFromPermille(channel2Ui.channelNeutralPermille(
+                channel2Ui.steeringChannel())),
+            channel2Ui.steeringEnabled());
         // The dedicated safety-checked throttle path has final ownership of
         // its configured channel, even if a future profile is malformed.
         outputs.configure(channel2Ui.throttleChannel(), requestedThrottle,
@@ -524,6 +536,12 @@ void loop()
                 static_cast<uint8_t>(ContextAlways | ContextDashboard |
                     (throttleArmed ? ContextArmed : ContextCut)), actions);
             portEXIT_CRITICAL(&bindingResolverMux);
+            for (size_t index = 0; index < actions.size(); ++index) {
+                const ResolvedBindingAction &action = actions[index];
+                if (action.target == AssignmentTarget::ModelParameter)
+                    channel2Ui.applyChannelParameterAction(action.targetId,
+                                                            action.value);
+            }
             for (size_t index = 0; index < physicalInputEvents.size(); ++index) {
                 const PhysicalInputEvent &inputEvent = physicalInputEvents[index];
                 Serial.printf("INPUT: %s event=%s value=%d source=%s\n",

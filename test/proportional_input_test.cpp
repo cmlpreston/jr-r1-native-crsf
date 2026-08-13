@@ -70,6 +70,33 @@ void testSlowReleaseDoesNotPullEndpointTowardCentre()
     assert(released.minimum < 1100);
 }
 
+void testHeldEndpointIsRunningMeanNotLiveTracker()
+{
+    ProportionalInput input({500, 2000, 3500});
+    input.startCalibration(2000);
+    uint32_t now = 0;
+
+    // Establish a settled minimum, then introduce a sustained but still
+    // endpoint-sized shift smaller than the release threshold. A live/EMA
+    // tracker converges on 1018; a held-period mean retains the earlier data.
+    for (int i = 0; i < 250; ++i) {
+        now += 4;
+        input.updateCalibration(1000, now);
+    }
+    const uint16_t established = input.calibrationProgress().minimum;
+    assert(input.calibrationProgress().sawMinimum);
+
+    for (int i = 0; i < 125; ++i) {
+        now += 4;
+        input.updateCalibration(1018, now);
+    }
+    const ProportionalCalibrationProgress progress = input.calibrationProgress();
+    assert(progress.live >= 1016);
+    assert(progress.minimum > established);
+    assert(progress.minimum <= 1008);
+    assert(progress.minimum + 8 < progress.live);
+}
+
 } // namespace
 
 int main()
@@ -77,6 +104,7 @@ int main()
     testCalibrationRejectsSingleSampleSpike();
     testCalibrationSavesFilteredEndpointsAndCentre();
     testSlowReleaseDoesNotPullEndpointTowardCentre();
+    testHeldEndpointIsRunningMeanNotLiveTracker();
     puts("proportional_input_test: PASS");
     return 0;
 }

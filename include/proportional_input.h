@@ -87,6 +87,8 @@ private:
     bool endpointAveraging_ = false;
     bool endpointReleaseLocked_ = false;
     uint16_t endpointReleaseAnchor_ = 0;
+    uint64_t endpointSampleSum_ = 0;
+    uint32_t endpointSampleCount_ = 0;
 
     uint16_t filterCalibrationSample(uint16_t sample);
     void updateEndpointAverage(CalibrationEndpoint endpoint, uint16_t sample,

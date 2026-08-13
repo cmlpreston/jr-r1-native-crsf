@@ -52,6 +52,8 @@ void ProportionalInput::startCalibration(uint16_t sample)
     endpointAveraging_ = false;
     endpointReleaseLocked_ = false;
     endpointReleaseAnchor_ = sample;
+    endpointSampleSum_ = 0;
+    endpointSampleCount_ = 0;
 }
 
 void ProportionalInput::cancelCalibration()
@@ -137,6 +139,8 @@ void ProportionalInput::updateEndpointAverage(CalibrationEndpoint endpoint,
         activeEndpoint_ = CalibrationEndpoint::None;
         endpointAveraging_ = false;
         endpointReleaseLocked_ = false;
+        endpointSampleSum_ = 0;
+        endpointSampleCount_ = 0;
         return;
     }
 
@@ -147,6 +151,8 @@ void ProportionalInput::updateEndpointAverage(CalibrationEndpoint endpoint,
         endpointAveraging_ = false;
         endpointReleaseLocked_ = false;
         endpointReleaseAnchor_ = sample;
+        endpointSampleSum_ = 0;
+        endpointSampleCount_ = 0;
         return;
     }
 
@@ -165,13 +171,14 @@ void ProportionalInput::updateEndpointAverage(CalibrationEndpoint endpoint,
         }
         if (nowMs - endpointSettleSinceMs_ < kEndpointSettleMs) return;
 
-        // The trigger has reached and settled at an extreme. Discard the
-        // transition samples, then continuously track the calibration EMA for
-        // as long as the trigger remains in this endpoint region. Unlike a
-        // lifetime arithmetic mean, this progressively forgets the approach
-        // to the stop and converges quickly on the resting endpoint.
+        // The input has reached and settled at an extreme. Discard transition
+        // samples, then calculate a true mean over the complete held period.
+        // This gives the operator visible noise rejection rather than an EMA
+        // which eventually becomes indistinguishable from the live value.
         endpointAveraging_ = true;
         endpointReleaseAnchor_ = sample;
+        endpointSampleSum_ = 0;
+        endpointSampleCount_ = 0;
     }
 
     // Track a fixed, outward-moving anchor rather than comparing with the
@@ -194,11 +201,17 @@ void ProportionalInput::updateEndpointAverage(CalibrationEndpoint endpoint,
         return;
     }
 
+    endpointSampleSum_ += sample;
+    ++endpointSampleCount_;
+    const uint16_t heldAverage = static_cast<uint16_t>(
+        (endpointSampleSum_ + endpointSampleCount_ / 2U) /
+        endpointSampleCount_);
+
     if (endpoint == CalibrationEndpoint::Minimum) {
-        observedMinimum_ = sample;
+        observedMinimum_ = heldAverage;
         sawMinimum_ = true;
     } else {
-        observedMaximum_ = sample;
+        observedMaximum_ = heldAverage;
         sawMaximum_ = true;
     }
 }

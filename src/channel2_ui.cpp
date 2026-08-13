@@ -668,11 +668,11 @@ void Channel2Ui::drawCalibrationPage()
     display->setTextSize(2);
     display->setTextColor(kDim);
     display->setCursor(34, 216);
-    display->print("MIN");
+    display->print("MIN AVG");
     display->setCursor(200, 216);
     display->print("LIVE");
     display->setCursor(365, 216);
-    display->print("MAX");
+    display->print("MAX AVG");
     drawCalibrationValues(latestRawAdc_);
 }
 

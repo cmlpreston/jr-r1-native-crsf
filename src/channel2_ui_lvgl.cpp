@@ -1645,9 +1645,9 @@ void Channel2Ui::drawCalibrationPage()
              channelRoleSettings_.throttleChannel);
     makeLabel(lv_scr_act(), held, 20, 160, 16, cAmber);
     lv_obj_t *panel = makePanel(18, 202, 444, 92);
-    makeLabel(panel, "MIN", 16, 10, 14, cDim);
+    makeLabel(panel, "MIN AVG", 16, 10, 14, cDim);
     makeLabel(panel, "LIVE", 180, 10, 14, cDim);
-    makeLabel(panel, "MAX", 342, 10, 14, cDim);
+    makeLabel(panel, "MAX AVG", 326, 10, 14, cDim);
     calibrationMinimumLabel_ = makeLabel(panel, "----", 10, 42, 24);
     calibrationLiveLabel_ = makeLabel(panel, "----", 168, 42, 24);
     calibrationMaximumLabel_ = makeLabel(panel, "----", 326, 42, 24);

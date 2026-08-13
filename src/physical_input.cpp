@@ -208,6 +208,11 @@ void PhysicalInputStateStore::setValue(PhysicalControlId input, int16_t value)
     states_[stateIndex(input)].value = value;
 }
 
+void PhysicalInputStateStore::setFaulted(PhysicalControlId input, bool faulted)
+{
+    states_[stateIndex(input)].faulted = faulted;
+}
+
 void PhysicalInputStateStore::apply(const PhysicalInputEvent &event)
 {
     PhysicalInputState &inputState = states_[stateIndex(event.input)];

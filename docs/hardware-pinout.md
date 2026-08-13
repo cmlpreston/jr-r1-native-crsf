@@ -10,28 +10,34 @@ and a RadioMaster Ranger Nano transmitter module.
 | ESP32-S3 pin | Direction | Connected device/signal | Electrical notes | Firmware symbol/status |
 |---:|---|---|---|---|
 | GPIO1 / ADC1_CH0 | Input | Original 5 kΩ throttle-pot wiper | Wiper through 1 kΩ; 100 nF from GPIO1 to GND; pot ends use 3.3 V and GND | `THROTTLE_ADC_PIN`; active |
+| GPIO2 / ADC1_CH1 | Input | Original 5 kΩ steering-pot wiper | Reserved production endpoint; same 1 kΩ/100 nF input filtering as throttle | `STEERING_ADC_PIN`; reserved |
 | GPIO4 | Output/PWM | Original passive piezo buzzer | 220–330 Ω series resistor; other piezo lead to GND | `BUZZER_PIN`; active |
 | GPIO5 / ADC1_CH4 | Input | Local transmitter-pack voltage | Only through 47 kΩ/10 kΩ divider; 100 nF from GPIO5 to GND | `TX_BATTERY_ADC_PIN`; implemented, user-enabled |
+| GPIO6 | Input | Keypad `+` | Active-low contact; internal pull-up | production map |
+| GPIO7 | Input | Keypad `SELECT` | Active-low contact; internal pull-up | production map |
 | GPIO8 | Bidirectional | TFT35 NS2009 touch `SDA` | 3.3 V I²C | `TOUCH_SDA_PIN`; active |
 | GPIO9 | Output | TFT35 LCD `RS` / data-command | 3.3 V logic | `TFT_DC_PIN`; active |
 | GPIO10 | Output | TFT35 LCD `NSS` / chip select | 3.3 V logic | `TFT_CS_PIN`; active |
 | GPIO11 | Output | TFT35 LCD `MOSI` | 3.3 V SPI | `TFT_MOSI_PIN`; active |
 | GPIO12 | Output | TFT35 LCD `SCK` | 3.3 V SPI, presently 25 MHz | `TFT_SCK_PIN`; active |
 | GPIO13 | Input | TFT35 LCD `MISO` | 3.3 V SPI | `TFT_MISO_PIN`; active |
+| GPIO14 | Input | Keypad `PAGE` | Active-low contact; internal pull-up | production map |
+| GPIO15 | Input | Keypad `CLEAR` | Active-low contact; internal pull-up | production map |
 | GPIO16 | Input | TFT35 touch `IDRQ` | Active-low, internal pull-up | `TOUCH_IRQ_PIN`; active |
 | GPIO17 | Half-duplex UART | Ranger Nano `SIGNAL/CRSF` | Single-wire 400 kbaud 8N1 through 220–470 Ω series resistor | `CRSF_SIGNAL_PIN`; active |
 | GPIO18 | Output | TFT35 NS2009 touch `SCL` | 3.3 V I²C, presently 400 kHz | `TOUCH_SCL_PIN`; active |
 | GPIO19 | Reserved | Native USB D- | Do not allocate while native USB programming/monitoring is used | reserved |
 | GPIO20 | Reserved | Native USB D+ | Do not allocate while native USB programming/monitoring is used | reserved |
+| GPIO21 | Input | Keypad `DOWN` | Active-low contact; internal pull-up | production map |
+| GPIO47 | Input | Keypad `-` / custom | Active-low contact; internal pull-up | production map |
 | 3V3 | Power output | Throttle potentiometer reference | ESP32 3.3 V rail; do not use for TFT or Ranger power | active |
 | GND | Common | All low-voltage circuits | ESP32, TFT, Ranger, sensors and regulators require a common ground | active |
 | 5V/VIN | Power input | Regulated 5 V for ESP32 | On this DevKit it is treated as an input in the final installation | planned supply |
 
-GPIO2, GPIO3, GPIO6, GPIO7, GPIO14, GPIO15 and the higher exposed GPIOs remain
-unassigned in the present firmware. Reserve at least one ADC-capable input for
-the steering potentiometer before assigning button inputs.
+GPIO3 and the remaining exposed higher GPIOs stay free for service, future
+hardware and any inputs added after the original R1 controls are connected.
 
-## Waveshare MCP23017 input expander (prototype)
+## Waveshare MCP23017 input expander
 
 | MCP23017 | ESP32-S3 | Notes |
 |---|---:|---|
@@ -42,10 +48,27 @@ the steering potentiometer before assigning button inputs.
 | `INTA`, `INTB` | Not connected | Polling during initial test |
 
 With A0/A1/A2 open, the Waveshare board is expected at `0x27`. All sixteen
-ports are configured as inputs with internal pull-ups. The initial test maps
-PA0 (jumper to GND) to `TimerButton`, which drives CRSF CH4 high while held and
-returns it to centre when released. This is temporary scaffolding until the
-per-model binding store and MCP23017 assignment UI are connected.
+ports are configured as active-low inputs with internal pull-ups and are polled
+every 5 ms. The production allocation consumes exactly one expander:
+
+| MCP contact(s) | R1 control |
+|---|---|
+| PA0 | Timer button |
+| PA1 | Drive Mode switch |
+| PA2 / PA3 | Grip Trim A - / + |
+| PA4 / PA5 | Grip Trim B - / + |
+| PA6 / PA7 | Throttle Trim - / + |
+| PB0 / PB1 | Steering Trim - / + |
+| PB2 / PB3 | Aux 3 Trim - / + |
+| PB4 | Idle Up switch |
+| PB5 | Display switch |
+| PB6 | Keypad MODE |
+| PB7 | Keypad UP |
+
+PA0 remains bound to CRSF CH4 while held as the current resolver proof. The
+other contacts already produce debounced logical events and live monitor state;
+their per-model functions are deliberately unassigned until the binding editor
+is implemented.
 
 ## BIGTREETECH TFT35 SPI V2.1 connector
 
@@ -147,11 +170,10 @@ regulator inductors and high-current wiring. The TFT alone has been measured at
 0.25 A from 5 V, so the final 5 V regulator must not be sized from ESP32 current
 alone.
 
-## Not yet assigned
+## Physical-input capacity
 
-The steering potentiometer, programming keypad, five digital trims, drive-mode
-switch, idle-up switch, timer button, display switch and remaining internal JST
-and 12-way FFC conductors have not yet received final GPIO assignments. Their
-functional inventory and proposed CRSF roles are recorded in
-[`r1-control-map.md`](r1-control-map.md). Update this file and `include/config.h`
-together whenever a new physical input is mapped.
+The original controls require 22 digital contacts: ten contacts for five
+spring-return trims, four maintained/momentary controls, and eight keypad keys.
+One MCP23017 supplies 16; six direct ESP32 GPIOs supply the remainder. Steering
+and throttle are separate ADC inputs, so a second expander is not required.
+The endpoint table in `src/r1_input_map.cpp` is the firmware source of truth.

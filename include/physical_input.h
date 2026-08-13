@@ -16,6 +16,12 @@ enum class InputSourceKind : uint8_t {
 // Mcp23017, and an ADC pin/channel identifier for Adc. device identifies which
 // expander to use (normally its 7-bit I2C address) and is zero otherwise.
 struct InputEndpoint {
+    constexpr InputEndpoint() = default;
+    constexpr InputEndpoint(InputSourceKind sourceValue, uint8_t deviceValue,
+                            uint8_t indexValue, bool activeLowValue)
+        : source(sourceValue), device(deviceValue), sourceIndex(indexValue),
+          activeLow(activeLowValue) {}
+
     InputSourceKind source = InputSourceKind::Unmapped;
     uint8_t device = 0;
     uint8_t sourceIndex = 0;
@@ -23,6 +29,12 @@ struct InputEndpoint {
 };
 
 struct PhysicalInputHardwareBinding {
+    constexpr PhysicalInputHardwareBinding() = default;
+    constexpr PhysicalInputHardwareBinding(PhysicalControlId inputValue,
+                                           InputEndpoint primaryValue,
+                                           InputEndpoint secondaryValue)
+        : input(inputValue), primary(primaryValue), secondary(secondaryValue) {}
+
     PhysicalControlId input = PhysicalControlId::TimerButton;
     InputEndpoint primary;
     InputEndpoint secondary; // positive contact for a spring-centred trim
@@ -78,6 +90,7 @@ private:
 
 class DigitalInputProcessor {
 public:
+    DigitalInputProcessor() = default;
     DigitalInputProcessor(PhysicalControlId input,
                           const DigitalInputTiming &timing = DigitalInputTiming(),
                           bool repeatEnabled = false);
@@ -107,6 +120,7 @@ enum class TrimPosition : int8_t {
 
 class SpringTrimInputProcessor {
 public:
+    SpringTrimInputProcessor() = default;
     SpringTrimInputProcessor(PhysicalControlId input,
                              const DigitalInputTiming &timing = DigitalInputTiming());
 
@@ -150,6 +164,7 @@ public:
     void setContacts(PhysicalControlId input, bool rawPrimary, bool rawSecondary,
                      bool stablePrimary, bool stableSecondary, bool faulted);
     void setValue(PhysicalControlId input, int16_t value);
+    void setFaulted(PhysicalControlId input, bool faulted);
     void apply(const PhysicalInputEvent &event);
     const PhysicalInputState &state(PhysicalControlId input) const;
 

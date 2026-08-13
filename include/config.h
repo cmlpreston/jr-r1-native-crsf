@@ -5,6 +5,7 @@
 // ESP32-S3 DevKitC-1 pin assignments.
 // GPIO19 and GPIO20 are deliberately not used: they are native USB D-/D+.
 constexpr gpio_num_t THROTTLE_ADC_PIN = GPIO_NUM_1;
+constexpr uint8_t STEERING_ADC_PIN = 2;
 // Local transmitter-pack measurement. Connect only through the documented
 // 47 kOhm / 10 kOhm divider; never connect a battery directly to this pin.
 constexpr gpio_num_t TX_BATTERY_ADC_PIN = GPIO_NUM_5;

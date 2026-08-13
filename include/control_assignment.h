@@ -167,6 +167,7 @@ constexpr size_t kPhysicalControlCount =
 
 const PhysicalControlDescriptor &physicalControlDescriptor(size_t index);
 const char *physicalControlKindName(PhysicalControlKind kind);
+const char *inputEventName(InputEvent event);
 const char *assignmentTargetName(AssignmentTarget target);
 const char *controlBehaviourName(ControlBehaviour behaviour);
 bool validateControlBinding(const ControlBinding &binding, const char **reason = nullptr);

@@ -6,6 +6,7 @@
 #include <Wire.h>
 
 #include "config.h"
+#include "r1_input_map.h"
 
 LV_IMG_DECLARE(hyper7_icon);
 
@@ -409,6 +410,16 @@ void Channel2Ui::resetLvglObjects()
     calibrationMinimumLabel_ = nullptr;
     calibrationLiveLabel_ = nullptr;
     calibrationMaximumLabel_ = nullptr;
+    for (lv_obj_t *&label : inputMonitorStateLabels_) label = nullptr;
+    for (lv_obj_t *&label : inputMonitorEventLabels_) label = nullptr;
+}
+
+void Channel2Ui::setPhysicalInputStates(const PhysicalInputStateStore &states)
+{
+    for (size_t index = 0; index < kPhysicalControlCount; ++index) {
+        physicalInputStates_[index] = states.state(
+            static_cast<PhysicalControlId>(index));
+    }
 }
 
 void Channel2Ui::loadSettings()
@@ -1166,7 +1177,15 @@ void Channel2Ui::drawControlAssignmentsPage()
                    enabled[row] ? cBlack : cWhite);
     }
     makeButton(18, 252, 214, 54, "INPUT MONITOR", 16, cPanel2, cCyan);
-    makeLabel(lv_scr_act(), "2 OF 19 INPUTS MAPPED", 258, 270, 12, cDim);
+    size_t mapped = 0;
+    for (const PhysicalInputState &state : physicalInputStates_)
+        if (state.mapped) ++mapped;
+    char summary[32];
+    snprintf(summary, sizeof(summary), "%u OF %u INPUTS MAPPED",
+             static_cast<unsigned>(mapped),
+             static_cast<unsigned>(kPhysicalControlCount));
+    makeLabel(lv_scr_act(), summary, 258, 270, 12,
+              mapped == kPhysicalControlCount ? cGreen : cDim);
 }
 
 void Channel2Ui::drawInputMonitorPage()
@@ -1186,10 +1205,10 @@ void Channel2Ui::drawInputMonitorPage()
         const PhysicalControlDescriptor &control = physicalControlDescriptor(index);
         const int16_t y = 54 + row * 43;
         lv_obj_t *panel = makePanel(10, y, 460, 37);
-        makeLabel(panel, control.name, 10, 5, 14, cWhite);
-        makeLabel(panel, physicalControlKindName(control.kind), 210, 5, 12, cDim);
-        makeLabel(panel, control.hardwareMapped ? "MAPPED" : "UNMAPPED",
-                  365, 5, 12, control.hardwareMapped ? cGreen : cAmber);
+        makeLabel(panel, control.name, 8, 5, 12, cWhite);
+        makeLabel(panel, r1InputEndpointLabel(control.id), 150, 6, 11, cDim);
+        inputMonitorStateLabels_[row] = makeLabel(panel, "--", 285, 5, 12, cWhite);
+        inputMonitorEventLabels_[row] = makeLabel(panel, "--", 370, 6, 11, cDim);
     }
 
     makeButton(12, 274, 58, 34, "<", 22,
@@ -1202,6 +1221,53 @@ void Channel2Ui::drawInputMonitorPage()
     snprintf(page, sizeof(page), "%u / %u", inputMonitorBank_ + 1, kBankCount);
     lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 284, 14, cDim);
     lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 284);
+    refreshInputMonitorRows();
+}
+
+void Channel2Ui::refreshInputMonitorRows()
+{
+    constexpr uint8_t kRowsPerBank = 5;
+    const size_t first = inputMonitorBank_ * kRowsPerBank;
+    const uint32_t now = millis();
+    for (uint8_t row = 0; row < kRowsPerBank; ++row) {
+        const size_t index = first + row;
+        if (index >= kPhysicalControlCount || inputMonitorStateLabels_[row] == nullptr)
+            continue;
+        const PhysicalControlDescriptor &control = physicalControlDescriptor(index);
+        const PhysicalInputState &state = physicalInputStates_[index];
+        char logical[24];
+        if (!state.mapped) {
+            snprintf(logical, sizeof(logical), "UNMAPPED");
+        } else if (state.faulted) {
+            snprintf(logical, sizeof(logical), "FAULT %u/%u",
+                     state.rawPrimary, state.rawSecondary);
+        } else if (control.kind == PhysicalControlKind::Proportional) {
+            snprintf(logical, sizeof(logical), "%+d", state.value);
+        } else if (control.kind == PhysicalControlKind::SpringCentredTrim) {
+            const char *position = state.stablePrimary ? "-" :
+                                   state.stableSecondary ? "+" : "CENTRE";
+            snprintf(logical, sizeof(logical), "%s %u/%u", position,
+                     state.rawPrimary, state.rawSecondary);
+        } else {
+            snprintf(logical, sizeof(logical), "%s %u>%u",
+                     state.stablePrimary ? "ON" : "OFF",
+                     state.rawPrimary, state.stablePrimary);
+        }
+        lv_label_set_text(inputMonitorStateLabels_[row], logical);
+        lv_obj_set_style_text_color(inputMonitorStateLabels_[row],
+            colour(state.faulted ? cRed : state.mapped ? cGreen : cAmber), 0);
+
+        char event[24];
+        if (state.lastEventMs == 0) {
+            snprintf(event, sizeof(event), "NO EVENT");
+        } else {
+            const uint32_t age = now - state.lastEventMs;
+            snprintf(event, sizeof(event), "%s %lus",
+                     inputEventName(state.lastEvent),
+                     static_cast<unsigned long>(age / 1000));
+        }
+        lv_label_set_text(inputMonitorEventLabels_[row], event);
+    }
 }
 
 void Channel2Ui::drawChannelRolesPage()
@@ -2223,6 +2289,7 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
                               txVoltageDecivolts, txVoltageValid);
         }
         else if (activePage_ == UiPage::Channel2) drawLiveIndicator(outputPermille, crsfValue);
+        else if (activePage_ == UiPage::InputMonitor) refreshInputMonitorRows();
     }
     lv_timer_handler();
 }

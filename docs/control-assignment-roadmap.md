@@ -93,12 +93,12 @@ bindings only when the combination is made explicit in the UI.
 - [x] Debounced button/switch processing with short, long, double and repeat events.
 - [x] Spring-return trim processing with hold-repeat and impossible-state detection.
 - [x] Raw/debounced state store suitable for the monitor and diagnostics UI.
-- [ ] Show raw GPIO/ADC state and debounced logical state live.
-- [ ] Show press, hold, double-press and trim repeat events.
-- [ ] Add wiring/GPIO identity and fault state.
+- [x] Show raw GPIO/ADC state and debounced logical state live.
+- [x] Show press, hold, double-press and trim repeat events.
+- [x] Add wiring/GPIO identity and fault state.
 - [x] Add MCP23017 polling input driver and prove PA0 through the resolver to CRSF CH4.
-- [ ] Add production MCP23017 mappings, interrupt handling and state-store updates.
-- [ ] Add direct-GPIO sampling drivers and feed the state store.
+- [x] Add production MCP23017 mappings, polling and state-store updates.
+- [x] Add direct-GPIO sampling drivers and feed the state store.
 
 ### Bindings
 
@@ -118,7 +118,7 @@ bindings only when the combination is made explicit in the UI.
 - [x] Add momentary, toggle, pulse and switch output resolvers.
 - [x] Add trim jog, stepped and three-position output resolvers.
 - [ ] Dispatch resolved local actions to UI/model/drive-mode consumers.
-- [ ] Feed sampled physical-input events into the resolver on hardware.
+- [x] Feed sampled physical-input events into the resolver on hardware.
 - [ ] Show live CRSF value and receiver-output mapping notes.
 
 ### Contexts and shortcuts
@@ -148,9 +148,10 @@ bindings only when the combination is made explicit in the UI.
 
 ## TFT35-SPI display blanking
 
-The current firmware sends the ILI9486 `Display OFF` (`0x28`) and `Sleep IN`
-(`0x10`) commands, then wakes with `Sleep OUT` (`0x11`) and `Display ON`
-(`0x29`). This blanks pixel drive but does not switch the TFT35-SPI backlight.
+The current firmware sends the ILI9486 `Display OFF` (`0x28`) command and wakes
+with `Display ON` (`0x29`). This blanks pixel drive but does not switch the
+TFT35-SPI backlight. `Sleep IN` was intentionally removed because this specific
+panel showed a solid white image when both commands were combined.
 
 Reports from Linux/KlipperScreen users confirm that DPMS can turn the image
 black while the module backlight remains powered. Therefore software controller

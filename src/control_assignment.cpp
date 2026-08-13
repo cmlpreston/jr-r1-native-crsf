@@ -47,6 +47,30 @@ const char *physicalControlKindName(PhysicalControlKind kind)
     return "UNKNOWN";
 }
 
+const char *inputEventName(InputEvent event)
+{
+    switch (event) {
+        case InputEvent::ValueChanged: return "VALUE";
+        case InputEvent::Pressed: return "PRESS";
+        case InputEvent::Released: return "RELEASE";
+        case InputEvent::ShortPress: return "SHORT";
+        case InputEvent::LongPress: return "LONG";
+        case InputEvent::DoublePress: return "DOUBLE";
+        case InputEvent::Repeat: return "REPEAT";
+        case InputEvent::NegativePress: return "- PRESS";
+        case InputEvent::NegativeRelease: return "- RELEASE";
+        case InputEvent::PositivePress: return "+ PRESS";
+        case InputEvent::PositiveRelease: return "+ RELEASE";
+        case InputEvent::NegativeRepeat: return "- REPEAT";
+        case InputEvent::PositiveRepeat: return "+ REPEAT";
+        case InputEvent::PositionLow: return "LOW";
+        case InputEvent::PositionHigh: return "HIGH";
+        case InputEvent::InvalidState: return "FAULT";
+        case InputEvent::StateRestored: return "RESTORED";
+    }
+    return "UNKNOWN";
+}
+
 const char *assignmentTargetName(AssignmentTarget target)
 {
     switch (target) {

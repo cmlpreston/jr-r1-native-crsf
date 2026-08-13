@@ -19,9 +19,10 @@ Deferred work is tracked in [`TODO.md`](TODO.md).
 The CRSF output path maintains requested, safe and enabled state independently
 for all 16 channels. The control task publishes a complete atomic snapshot to
 the CRSF task; CUT, stale input and maintenance operations resolve the entire
-snapshot to its safe values. At this stage throttle is the only live physical
-input, while unassigned channels remain safely centred ready for the binding
-resolver and steering input hardware.
+snapshot to its safe values. Throttle is the only fully configured proportional
+axis, while the complete 22-contact R1 digital-input layer is mapped through one
+MCP23017 plus six direct GPIOs. Unassigned controls generate diagnostic events
+but cannot affect output channels until given an explicit binding.
 
 ## Capturing a TFT screenshot
 

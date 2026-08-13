@@ -4,6 +4,7 @@
 #include <lvgl.h>
 #include "control_assignment.h"
 #include "crsf_telemetry.h"
+#include "physical_input.h"
 #include "proportional_input.h"
 
 struct Channel2Settings {
@@ -124,6 +125,7 @@ public:
     bool armRequested() const { return armRequested_; }
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
     bool captureScreenshot(Stream &output);
+    void setPhysicalInputStates(const PhysicalInputStateStore &states);
     bool consumeChannelRolesChanged();
     bool consumeSafetyResetRequested();
 
@@ -159,6 +161,7 @@ private:
     void drawChannelSpeedRow(int row);
     void drawControlAssignmentsPage();
     void drawInputMonitorPage();
+    void refreshInputMonitorRows();
     void drawDriveModesPage();
     void drawSetupPage();
     void drawSetupRow(int row);
@@ -260,4 +263,7 @@ private:
     lv_obj_t *calibrationMinimumLabel_ = nullptr;
     lv_obj_t *calibrationLiveLabel_ = nullptr;
     lv_obj_t *calibrationMaximumLabel_ = nullptr;
+    PhysicalInputState physicalInputStates_[kPhysicalControlCount] = {};
+    lv_obj_t *inputMonitorStateLabels_[5] = {};
+    lv_obj_t *inputMonitorEventLabels_[5] = {};
 };

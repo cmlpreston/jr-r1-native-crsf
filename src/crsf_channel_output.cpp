@@ -2,6 +2,21 @@
 
 #include <string.h>
 
+uint16_t crsfValueFromPermille(int16_t value)
+{
+    if (value < -1000) value = -1000;
+    if (value > 1000) value = 1000;
+    int32_t mapped;
+    if (value <= 0) {
+        mapped = CRSF_CHANNEL_MID + static_cast<int32_t>(value) *
+                 (CRSF_CHANNEL_MID - CRSF_CHANNEL_MIN) / 1000;
+    } else {
+        mapped = CRSF_CHANNEL_MID + static_cast<int32_t>(value) *
+                 (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MID) / 1000;
+    }
+    return static_cast<uint16_t>(mapped);
+}
+
 CrsfChannelOutputModel::CrsfChannelOutputModel()
 {
     reset();

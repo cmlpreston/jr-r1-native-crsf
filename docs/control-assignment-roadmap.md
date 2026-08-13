@@ -102,18 +102,21 @@ bindings only when the combination is made explicit in the UI.
 
 - [x] Data model for input events, contexts, targets and behaviours.
 - [x] Binding range/step/initial/failsafe/persistence fields and validator.
+- [x] Host-testable binding resolver with context filtering and conflict checks.
 - [ ] Per-model binding store with schema version and migration.
 - [ ] Binding list grouped by physical input.
 - [ ] Add/edit/delete/enable binding screens.
-- [ ] Detect duplicate/conflicting channel writers.
+- [x] Detect duplicate/conflicting CRSF channel writers.
 - [ ] Provide restore-default-profile command.
 
 ### Outputs
 
 - [x] Replace the single-throttle CRSF builder with a 16-channel output model.
-- [ ] Resolve local functions and parameters before channel output.
-- [ ] Add momentary, toggle, pulse and switch output resolvers.
-- [ ] Add trim jog, stepped and three-position output resolvers.
+- [x] Resolve local functions and parameters into a typed action queue.
+- [x] Add momentary, toggle, pulse and switch output resolvers.
+- [x] Add trim jog, stepped and three-position output resolvers.
+- [ ] Dispatch resolved local actions to UI/model/drive-mode consumers.
+- [ ] Feed sampled physical-input events into the resolver on hardware.
 - [ ] Show live CRSF value and receiver-output mapping notes.
 
 ### Contexts and shortcuts

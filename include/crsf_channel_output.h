@@ -14,6 +14,11 @@ constexpr size_t CRSF_CHANNEL_COUNT = 16;
 constexpr size_t CRSF_PAYLOAD_BYTES = 22;
 constexpr size_t CRSF_FRAME_BYTES = 26;
 
+// Convert the transmitter's normalised -1000..+1000 control range to the
+// asymmetric CRSF 172..1811 range. Values outside the normal range are
+// clamped, making this safe for user-configurable bindings.
+uint16_t crsfValueFromPermille(int16_t value);
+
 // Requested and safe values are kept separately so CUT/stale-input handling
 // can atomically substitute all sixteen outputs without destroying the values
 // that will resume after a deliberate re-arm. Channels are numbered 1..16 at

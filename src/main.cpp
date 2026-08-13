@@ -6,6 +6,7 @@
 #include <esp_system.h>
 
 #include "channel2_ui.h"
+#include "binding_resolver.h"
 #include "config.h"
 #include "crsf_channel_output.h"
 #include "crsf_telemetry.h"
@@ -45,6 +46,8 @@ uint32_t nextFrameUs = 0;
 uint32_t nextLogMs = 0;
 Channel2Ui channel2Ui;
 CrsfTelemetryParser telemetryParser;
+BindingResolver bindingResolver;
+ResolvedBindingActionBuffer bindingActions;
 volatile uint32_t crsfBusEdges = 0;
 volatile bool sharedControlStale = true;
 SharedChannelOutputState sharedChannelOutputs;
@@ -62,23 +65,6 @@ uint8_t usbCommandLength = 0;
 void IRAM_ATTR countCrsfBusEdge()
 {
     ++crsfBusEdges;
-}
-
-uint16_t mapPermilleToCrsf(int16_t value)
-{
-    int32_t mapped;
-    if (value <= 0) {
-        mapped = CRSF_CHANNEL_MID +
-                 static_cast<int32_t>(value) *
-                 (CRSF_CHANNEL_MID - CRSF_CHANNEL_MIN) / 1000;
-    } else {
-        mapped = CRSF_CHANNEL_MID +
-                 static_cast<int32_t>(value) *
-                 (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MID) / 1000;
-    }
-    return static_cast<uint16_t>(constrain(mapped,
-                                           CRSF_CHANNEL_ABSOLUTE_MIN,
-                                           CRSF_CHANNEL_ABSOLUTE_MAX));
 }
 
 void updateNeutralInterlock(uint16_t adc)
@@ -280,7 +266,7 @@ void controlTask(void *)
         const int16_t responseThrottle = channel2Ui.applySettings(rawThrottle);
         const int16_t modeThrottle = channel2Ui.applyDriveMode(
             responseThrottle, rawThrottle);
-        const uint16_t safeNeutralThrottle = mapPermilleToCrsf(
+        const uint16_t safeNeutralThrottle = crsfValueFromPermille(
             channel2Ui.neutralOutputPermille());
         int16_t configuredThrottle = 0;
         if (safetyStatus == OutputSafetyStatus::Armed)
@@ -288,10 +274,16 @@ void controlTask(void *)
         else
             channel2Ui.resetChannelSpeed();
 
-        const uint16_t requestedThrottle = mapPermilleToCrsf(configuredThrottle);
+        const uint16_t requestedThrottle = crsfValueFromPermille(configuredThrottle);
         const uint16_t transmittedThrottle =
             (throttleArmed && !calibrating) ? requestedThrottle : safeNeutralThrottle;
         CrsfChannelOutputModel outputs;
+        bindingActions.clear();
+        bindingResolver.update(millis(), bindingActions);
+        bindingResolver.applyChannelOutputs(outputs,
+            static_cast<uint16_t>(1U << (channel2Ui.throttleChannel() - 1)));
+        // The dedicated safety-checked throttle path has final ownership of
+        // its configured channel, even if a future profile is malformed.
         outputs.configure(channel2Ui.throttleChannel(), requestedThrottle,
                           safeNeutralThrottle, channel2Ui.throttleEnabled());
         const uint32_t controlUpdateUs = micros();

@@ -89,6 +89,7 @@ enum class UiPage : uint8_t {
     ThrottleResponse,
     ChannelSpeed,
     ControlAssignments,
+    BindingEditor,
     InputMonitor,
     DriveModes,
     ChannelPlaceholder,
@@ -126,6 +127,8 @@ public:
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
     bool captureScreenshot(Stream &output);
     void setPhysicalInputStates(const PhysicalInputStateStore &states);
+    size_t copyBindings(ControlBinding *destination, size_t capacity) const;
+    bool consumeBindingsChanged();
     bool consumeChannelRolesChanged();
     bool consumeSafetyResetRequested();
 
@@ -160,6 +163,7 @@ private:
     void drawChannelSpeedPage();
     void drawChannelSpeedRow(int row);
     void drawControlAssignmentsPage();
+    void drawBindingEditorPage();
     void drawInputMonitorPage();
     void refreshInputMonitorRows();
     void drawDriveModesPage();
@@ -185,6 +189,7 @@ private:
     void handleThrottleResponseTouch(int16_t x, int16_t y);
     void handleChannelSpeedTouch(int16_t x, int16_t y);
     void handleControlAssignmentsTouch(int16_t x, int16_t y);
+    void handleBindingEditorTouch(int16_t x, int16_t y);
     void handleInputMonitorTouch(int16_t x, int16_t y);
     void handleDriveModesTouch(int16_t x, int16_t y);
     void handleSetupTouch(int16_t x, int16_t y);
@@ -205,6 +210,19 @@ private:
     void redrawActivePage();
     void sleepDisplay();
     void wakeDisplay();
+    void loadBindings();
+    void saveBindings();
+    void restoreDefaultBindings();
+    int bindingIndexForInput(PhysicalControlId input) const;
+    ControlBinding defaultBindingForInput(PhysicalControlId input) const;
+    bool saveBindingDraft();
+    bool removeSelectedBinding();
+    bool bindingUsesChannel(uint8_t channel,
+                            PhysicalControlId exceptInput) const;
+    uint8_t adjacentBindingChannel(uint8_t current, int8_t direction) const;
+    ControlBehaviour adjacentBindingBehaviour(PhysicalControlKind kind,
+                                              ControlBehaviour current,
+                                              int8_t direction) const;
 
     Channel2Settings settings_;
     ChannelRoleSettings channelRoleSettings_;
@@ -218,8 +236,15 @@ private:
     uint8_t channelsBank_ = 0;
     uint8_t selectedChannel_ = 2;
     uint8_t inputMonitorBank_ = 0;
+    uint8_t assignmentBank_ = 0;
+    PhysicalControlId selectedBindingInput_ = PhysicalControlId::TimerButton;
+    ControlBinding bindingDraft_;
+    char bindingError_[64] = {};
+    ControlBinding bindings_[kPhysicalControlCount] = {};
+    size_t bindingCount_ = 0;
     bool channelRolesChanged_ = false;
     bool safetyResetRequested_ = false;
+    bool bindingsChanged_ = false;
     bool armRequested_ = false;
     bool displaySleeping_ = false;
     // A touch used to wake the display, or one beginning inside the post-tap

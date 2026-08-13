@@ -6,6 +6,7 @@
 #include <Wire.h>
 
 #include "config.h"
+#include "binding_resolver.h"
 #include "r1_input_map.h"
 
 LV_IMG_DECLARE(hyper7_icon);
@@ -26,6 +27,7 @@ constexpr uint16_t kTouchPressureThreshold = 40;
 constexpr uint32_t kTouchReleaseDebounceMs = 25;
 constexpr uint32_t kTouchRetriggerGuardMs = 100;
 constexpr uint32_t kSettingsSaveDelayMs = 750;
+constexpr uint16_t kBindingProfileVersion = 1;
 constexpr uint8_t kNsReadX = 0xC0;
 constexpr uint8_t kNsReadY = 0xD0;
 constexpr uint8_t kNsReadZ = 0xE0;
@@ -284,6 +286,7 @@ const char *uiPageName(UiPage page)
         case UiPage::ThrottleResponse: return "response";
         case UiPage::ChannelSpeed: return "channel-speed";
         case UiPage::ControlAssignments: return "control-map";
+        case UiPage::BindingEditor: return "binding-editor";
         case UiPage::InputMonitor: return "input-monitor";
         case UiPage::DriveModes: return "drive-modes";
         case UiPage::ChannelPlaceholder: return "channel-placeholder";
@@ -306,6 +309,7 @@ bool Channel2Ui::begin()
     loadTxBatterySettings();
     loadRxBatterySettings();
     loadDriveModeSettings();
+    loadBindings();
     uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
     uiNightMode = systemSettings_.nightMode;
     setToneChannel(BUZZER_LEDC_CHANNEL);
@@ -527,6 +531,23 @@ bool Channel2Ui::consumeChannelRolesChanged()
     return changed;
 }
 
+size_t Channel2Ui::copyBindings(ControlBinding *destination,
+                                size_t capacity) const
+{
+    if (destination == nullptr) return 0;
+    const size_t count = bindingCount_ < capacity ? bindingCount_ : capacity;
+    for (size_t index = 0; index < count; ++index)
+        destination[index] = bindings_[index];
+    return count;
+}
+
+bool Channel2Ui::consumeBindingsChanged()
+{
+    const bool changed = bindingsChanged_;
+    bindingsChanged_ = false;
+    return changed;
+}
+
 bool Channel2Ui::consumeSafetyResetRequested()
 {
     const bool requested = safetyResetRequested_;
@@ -672,6 +693,205 @@ void Channel2Ui::saveDriveModeSettings()
     preferences.end();
 }
 
+void Channel2Ui::restoreDefaultBindings()
+{
+    bindingCount_ = 1;
+    bindings_[0] = defaultBindingForInput(PhysicalControlId::TimerButton);
+    bindings_[0].enabled = true;
+    bindings_[0].crsfChannel = MCP23017_TEST_CRSF_CHANNEL;
+}
+
+void Channel2Ui::loadBindings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-bind", true);
+    const uint16_t version = preferences.getUShort("version", 0);
+    const uint8_t count = preferences.getUChar("count", 0);
+    const size_t storedBytes = preferences.getBytesLength("items");
+    bool valid = version == kBindingProfileVersion &&
+                 count <= kPhysicalControlCount &&
+                 storedBytes == static_cast<size_t>(count) * sizeof(ControlBinding);
+    if (valid && count != 0) {
+        valid = preferences.getBytes("items", bindings_, storedBytes) == storedBytes;
+    }
+    preferences.end();
+    bindingCount_ = valid ? count : 0;
+
+    BindingResolver validator;
+    if (!valid || !validator.setBindings(bindings_, bindingCount_).ok()) {
+        restoreDefaultBindings();
+        saveBindings();
+        Serial.println("BINDINGS: invalid/missing profile; restored defaults");
+    } else {
+        Serial.printf("BINDINGS: loaded %u editable assignments\n",
+                      static_cast<unsigned>(bindingCount_));
+    }
+}
+
+void Channel2Ui::saveBindings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-bind", false);
+    preferences.putUShort("version", kBindingProfileVersion);
+    preferences.putUChar("count", static_cast<uint8_t>(bindingCount_));
+    preferences.putBytes("items", bindings_, bindingCount_ * sizeof(ControlBinding));
+    preferences.end();
+}
+
+int Channel2Ui::bindingIndexForInput(PhysicalControlId input) const
+{
+    for (size_t index = 0; index < bindingCount_; ++index)
+        if (bindings_[index].input == input) return static_cast<int>(index);
+    return -1;
+}
+
+ControlBinding Channel2Ui::defaultBindingForInput(PhysicalControlId input) const
+{
+    ControlBinding binding;
+    binding.input = input;
+    binding.target = AssignmentTarget::CrsfChannel;
+    binding.minimum = -1000;
+    binding.maximum = 1000;
+    binding.initial = 0;
+    binding.failsafe = 0;
+    binding.crsfChannel = 3;
+    binding.enabled = false;
+    const PhysicalControlKind kind = physicalControlDescriptor(
+        static_cast<size_t>(input)).kind;
+    if (kind == PhysicalControlKind::Proportional) {
+        binding.event = InputEvent::ValueChanged;
+        binding.behaviour = ControlBehaviour::Proportional;
+    } else if (kind == PhysicalControlKind::MaintainedSwitch) {
+        binding.event = InputEvent::Pressed;
+        binding.behaviour = ControlBehaviour::TwoPosition;
+    } else if (kind == PhysicalControlKind::SpringCentredTrim) {
+        binding.event = InputEvent::PositivePress;
+        binding.behaviour = ControlBehaviour::SpringReturnThreePosition;
+    } else {
+        binding.event = InputEvent::Pressed;
+        binding.behaviour = ControlBehaviour::Momentary;
+    }
+    return binding;
+}
+
+uint8_t Channel2Ui::adjacentBindingChannel(uint8_t current,
+                                           int8_t direction) const
+{
+    uint8_t candidate = current;
+    for (uint8_t attempts = 0; attempts < 16; ++attempts) {
+        candidate = static_cast<uint8_t>(
+            ((static_cast<int>(candidate) - 1 + direction + 16) % 16) + 1);
+        if (candidate == channelRoleSettings_.steeringChannel ||
+            candidate == channelRoleSettings_.throttleChannel)
+            continue;
+        bool occupied = false;
+        for (size_t index = 0; index < bindingCount_; ++index) {
+            if (bindings_[index].input != selectedBindingInput_ &&
+                bindings_[index].enabled &&
+                bindings_[index].target == AssignmentTarget::CrsfChannel &&
+                bindings_[index].crsfChannel == candidate) {
+                occupied = true;
+                break;
+            }
+        }
+        if (!occupied) return candidate;
+    }
+    return current;
+}
+
+ControlBehaviour Channel2Ui::adjacentBindingBehaviour(
+    PhysicalControlKind kind, ControlBehaviour current, int8_t direction) const
+{
+    const ControlBehaviour buttonModes[] = {
+        ControlBehaviour::Momentary, ControlBehaviour::Toggle,
+        ControlBehaviour::Pulse};
+    const ControlBehaviour trimModes[] = {
+        ControlBehaviour::SpringReturnThreePosition,
+        ControlBehaviour::Stepped,
+        ControlBehaviour::ThreePositionSelector};
+    const ControlBehaviour *modes = buttonModes;
+    size_t count = sizeof(buttonModes) / sizeof(buttonModes[0]);
+    if (kind == PhysicalControlKind::MaintainedSwitch)
+        return ControlBehaviour::TwoPosition;
+    if (kind == PhysicalControlKind::SpringCentredTrim) {
+        modes = trimModes;
+        count = sizeof(trimModes) / sizeof(trimModes[0]);
+    }
+    size_t selected = 0;
+    for (size_t index = 0; index < count; ++index)
+        if (modes[index] == current) selected = index;
+    int next = static_cast<int>(selected) + direction;
+    if (next < 0) next = static_cast<int>(count) - 1;
+    if (next >= static_cast<int>(count)) next = 0;
+    return modes[next];
+}
+
+bool Channel2Ui::bindingUsesChannel(uint8_t channel,
+                                    PhysicalControlId exceptInput) const
+{
+    for (size_t index = 0; index < bindingCount_; ++index) {
+        const ControlBinding &binding = bindings_[index];
+        if (binding.input != exceptInput && binding.enabled &&
+            binding.target == AssignmentTarget::CrsfChannel &&
+            binding.crsfChannel == channel)
+            return true;
+    }
+    return false;
+}
+
+bool Channel2Ui::saveBindingDraft()
+{
+    bindingError_[0] = '\0';
+    if (bindingDraft_.enabled &&
+        (bindingDraft_.crsfChannel == channelRoleSettings_.steeringChannel ||
+         bindingDraft_.crsfChannel == channelRoleSettings_.throttleChannel)) {
+        snprintf(bindingError_, sizeof(bindingError_),
+                 "CH%u is reserved for a primary role", bindingDraft_.crsfChannel);
+        return false;
+    }
+
+    ControlBinding candidate[kPhysicalControlCount];
+    size_t count = bindingCount_;
+    for (size_t index = 0; index < count; ++index) candidate[index] = bindings_[index];
+    const int existing = bindingIndexForInput(selectedBindingInput_);
+    if (existing >= 0) candidate[existing] = bindingDraft_;
+    else if (count < kPhysicalControlCount) candidate[count++] = bindingDraft_;
+    else {
+        snprintf(bindingError_, sizeof(bindingError_), "Assignment storage is full");
+        return false;
+    }
+
+    BindingResolver validator;
+    const BindingLoadResult result = validator.setBindings(candidate, count);
+    if (!result.ok()) {
+        snprintf(bindingError_, sizeof(bindingError_), "%s",
+                 result.reason == nullptr ? "Invalid assignment" : result.reason);
+        return false;
+    }
+    bindingCount_ = count;
+    for (size_t index = 0; index < count; ++index) bindings_[index] = candidate[index];
+    saveBindings();
+    bindingsChanged_ = true;
+    safetyResetRequested_ = true;
+    armRequested_ = false;
+    return true;
+}
+
+bool Channel2Ui::removeSelectedBinding()
+{
+    const int existing = bindingIndexForInput(selectedBindingInput_);
+    if (existing < 0) return false;
+    for (size_t index = static_cast<size_t>(existing); index + 1 < bindingCount_;
+         ++index)
+        bindings_[index] = bindings_[index + 1];
+    --bindingCount_;
+    saveBindings();
+    bindingsChanged_ = true;
+    safetyResetRequested_ = true;
+    armRequested_ = false;
+    return true;
+}
+
 void Channel2Ui::playBuzzer(uint16_t durationMs)
 {
     if (systemSettings_.buzzerEnabled) tone(BUZZER_PIN, systemSettings_.buzzerPitchHz, durationMs);
@@ -725,6 +945,7 @@ void Channel2Ui::redrawActivePage()
         case UiPage::ThrottleResponse: drawThrottleResponsePage(); break;
         case UiPage::ChannelSpeed: drawChannelSpeedPage(); break;
         case UiPage::ControlAssignments: drawControlAssignmentsPage(); break;
+        case UiPage::BindingEditor: drawBindingEditorPage(); break;
         case UiPage::InputMonitor: drawInputMonitorPage(); break;
         case UiPage::DriveModes: drawDriveModesPage(); break;
         case UiPage::ChannelPlaceholder: drawChannelPlaceholder(); break;
@@ -1151,41 +1372,101 @@ void Channel2Ui::drawControlAssignmentsPage()
     activePage_ = UiPage::ControlAssignments;
     startScreen();
     resetLvglObjects();
-    makeHeader("CONTROL ASSIGNMENTS", "BACK");
+    makeHeader("ASSIGNMENTS", "BACK");
 
-    const char *inputs[] = {"STEERING WHEEL", "THROTTLE TRIGGER"};
-    const bool enabled[] = {channelRoleSettings_.steeringEnabled,
-                            channelRoleSettings_.throttleEnabled};
-    const uint8_t channels[] = {channelRoleSettings_.steeringChannel,
-                                channelRoleSettings_.throttleChannel};
-    for (uint8_t row = 0; row < 2; ++row) {
-        const int16_t y = 58 + row * 92;
-        lv_obj_t *panel = makePanel(10, y, 460, 80);
-        makeLabel(panel, inputs[row], 12, 10, 16, cCyan);
-        makeLabel(panel, row == 0 ? "PROPORTIONAL / STEERING" :
-                                   "PROPORTIONAL / THROTTLE", 12, 39, 12, cDim);
-        lv_obj_t *status = makeLabel(panel, enabled[row] ? "ON" : "OFF", 278, 12,
-                                     16, enabled[row] ? cGreen : cAmber);
-        (void)status;
-        char channel[8];
-        snprintf(channel, sizeof(channel), "CH%u", channels[row]);
-        makeLabel(panel, channel, 278, 43, 16, cWhite);
-        makeButton(340, y + 34, 34, 36, "-", 22);
-        makeButton(380, y + 34, 34, 36, "+", 22);
-        makeButton(420, y + 6, 40, 28, enabled[row] ? "OFF" : "ON", 11,
-                   enabled[row] ? cAmber : cPanel2,
-                   enabled[row] ? cBlack : cWhite);
+    constexpr uint8_t kRows = 5;
+    constexpr uint8_t kBanks =
+        (kPhysicalControlCount + kRows - 1) / kRows;
+    const size_t first = assignmentBank_ * kRows;
+    for (uint8_t row = 0; row < kRows; ++row) {
+        const size_t inputIndex = first + row;
+        if (inputIndex >= kPhysicalControlCount) break;
+        const PhysicalControlDescriptor &control =
+            physicalControlDescriptor(inputIndex);
+        const int16_t y = 50 + row * 40;
+        lv_obj_t *panel = makePanel(10, y, 460, 35);
+        makeLabel(panel, control.name, 8, 5, 12, cWhite);
+        char summary[48];
+        uint32_t summaryColour = cDim;
+        if (control.kind == PhysicalControlKind::Proportional) {
+            const bool steering = control.id == PhysicalControlId::SteeringWheel;
+            const bool enabled = steering ? channelRoleSettings_.steeringEnabled :
+                                            channelRoleSettings_.throttleEnabled;
+            const uint8_t channel = steering ? channelRoleSettings_.steeringChannel :
+                                               channelRoleSettings_.throttleChannel;
+            snprintf(summary, sizeof(summary), "ROLE CH%u  %s", channel,
+                     enabled ? "ON" : "OFF");
+            summaryColour = enabled ? cCyan : cAmber;
+        } else {
+            const int bindingIndex = bindingIndexForInput(control.id);
+            if (bindingIndex < 0) {
+                snprintf(summary, sizeof(summary), "UNASSIGNED");
+            } else {
+                const ControlBinding &binding = bindings_[bindingIndex];
+                snprintf(summary, sizeof(summary), "%s CH%u  %s",
+                         binding.enabled ? "ON" : "OFF", binding.crsfChannel,
+                         controlBehaviourName(binding.behaviour));
+                summaryColour = binding.enabled ? cGreen : cAmber;
+            }
+        }
+        makeLabel(panel, summary, 215, 5, 11, summaryColour);
+        makeLabel(panel, ">", 438, 4, 16, cDim);
     }
-    makeButton(18, 252, 214, 54, "INPUT MONITOR", 16, cPanel2, cCyan);
-    size_t mapped = 0;
-    for (const PhysicalInputState &state : physicalInputStates_)
-        if (state.mapped) ++mapped;
-    char summary[32];
-    snprintf(summary, sizeof(summary), "%u OF %u INPUTS MAPPED",
-             static_cast<unsigned>(mapped),
-             static_cast<unsigned>(kPhysicalControlCount));
-    makeLabel(lv_scr_act(), summary, 258, 270, 12,
-              mapped == kPhysicalControlCount ? cGreen : cDim);
+
+    makeButton(10, 263, 50, 42, "<", 22,
+               assignmentBank_ == 0 ? cBlack : cPanel,
+               assignmentBank_ == 0 ? cDim : cWhite);
+    makeButton(70, 263, 94, 42, "ROLES", 12, cPanel2, cCyan);
+    makeButton(174, 263, 132, 42, "INPUT MON", 12, cPanel2, cCyan);
+    char page[12];
+    snprintf(page, sizeof(page), "%u/%u", assignmentBank_ + 1, kBanks);
+    makeLabel(lv_scr_act(), page, 329, 276, 12, cDim);
+    makeButton(420, 263, 50, 42, ">", 22,
+               assignmentBank_ + 1 >= kBanks ? cBlack : cPanel,
+               assignmentBank_ + 1 >= kBanks ? cDim : cWhite);
+}
+
+void Channel2Ui::drawBindingEditorPage()
+{
+    activePage_ = UiPage::BindingEditor;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("EDIT ASSIGNMENT", "BACK");
+
+    const PhysicalControlDescriptor &control = physicalControlDescriptor(
+        static_cast<size_t>(selectedBindingInput_));
+    lv_obj_t *namePanel = makePanel(12, 50, 456, 42);
+    makeLabel(namePanel, control.name, 12, 10, 16, cCyan);
+    makeLabel(namePanel, r1InputEndpointLabel(selectedBindingInput_), 300, 12, 11, cDim);
+
+    const int16_t ys[] = {100, 148, 196};
+    const char *labels[] = {"ENABLED", "OUTPUT CHANNEL", "BEHAVIOUR"};
+    for (uint8_t row = 0; row < 3; ++row) {
+        lv_obj_t *panel = makePanel(12, ys[row], 456, 40);
+        makeLabel(panel, labels[row], 10, 11, 13, cDim);
+    }
+    makeButton(344, 105, 108, 30, bindingDraft_.enabled ? "ON" : "OFF", 13,
+               bindingDraft_.enabled ? cGreen : cPanel2,
+               bindingDraft_.enabled ? cBlack : cWhite);
+    char channel[12];
+    snprintf(channel, sizeof(channel), "CH%u", bindingDraft_.crsfChannel);
+    makeLabel(lv_scr_act(), channel, 300, 160, 16, cWhite);
+    makeButton(350, 153, 42, 30, "-", 20);
+    makeButton(408, 153, 42, 30, "+", 20);
+    makeLabel(lv_scr_act(), controlBehaviourName(bindingDraft_.behaviour),
+              220, 208, 12, cWhite);
+    makeButton(350, 201, 42, 30, "<", 20);
+    makeButton(408, 201, 42, 30, ">", 20);
+
+    if (bindingError_[0] != '\0')
+        makeLabel(lv_scr_act(), bindingError_, 14, 244, 11, cRed);
+    else
+        makeLabel(lv_scr_act(), "Edits force CUT and require neutral re-arm",
+                  14, 244, 11, cAmber);
+    makeButton(12, 271, 138, 38, "CANCEL", 14, cPanel);
+    if (bindingIndexForInput(selectedBindingInput_) >= 0)
+        makeButton(160, 271, 138, 38, "REMOVE", 14, cAmber, cBlack);
+    makeButton(308, 271, 160, 38, "SAVE", 14, cGreen, cBlack);
 }
 
 void Channel2Ui::drawInputMonitorPage()
@@ -1838,14 +2119,13 @@ void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
     if (y < 72 || y >= 196 || x < 340) return;
     const int row = y < 140 ? 0 : 1;
     const int8_t direction = x < 400 ? -1 : 1;
-    if (row == 0) {
-        channelRoleSettings_.steeringChannel = adjacentChannel(
-            channelRoleSettings_.steeringChannel, direction,
-            channelRoleSettings_.throttleChannel);
-    } else {
-        channelRoleSettings_.throttleChannel = adjacentChannel(
-            channelRoleSettings_.throttleChannel, direction,
-            channelRoleSettings_.steeringChannel);
+    uint8_t &roleChannel = row == 0 ? channelRoleSettings_.steeringChannel :
+                                      channelRoleSettings_.throttleChannel;
+    const uint8_t otherRole = row == 0 ? channelRoleSettings_.throttleChannel :
+                                        channelRoleSettings_.steeringChannel;
+    for (uint8_t attempts = 0; attempts < 16; ++attempts) {
+        roleChannel = adjacentChannel(roleChannel, direction, otherRole);
+        if (!bindingUsesChannel(roleChannel, PhysicalControlId::Count)) break;
     }
     channelRolesChanged_ = true;
     safetyResetRequested_ = true;
@@ -1897,35 +2177,71 @@ void Channel2Ui::handleChannelSpeedTouch(int16_t x, int16_t y)
 void Channel2Ui::handleControlAssignmentsTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
-    if (y >= 248 && x < 245) {
-        playKeyClick();
-        inputMonitorBank_ = 0;
-        drawInputMonitorPage();
+    constexpr uint8_t kRows = 5;
+    constexpr uint8_t kBanks = (kPhysicalControlCount + kRows - 1) / kRows;
+    if (y >= 258) {
+        if (x < 60 && assignmentBank_ > 0) {
+            --assignmentBank_; playKeyClick(); drawControlAssignmentsPage();
+        } else if (x >= 70 && x < 164) {
+            playKeyClick(); drawChannelRolesPage();
+        } else if (x >= 174 && x < 306) {
+            inputMonitorBank_ = 0; playKeyClick(); drawInputMonitorPage();
+        } else if (x >= 420 && assignmentBank_ + 1 < kBanks) {
+            ++assignmentBank_; playKeyClick(); drawControlAssignmentsPage();
+        }
         return;
     }
-    if (y < 58 || y >= 242) return;
-    const uint8_t row = (y - 58) / 92;
-    const int16_t localY = y - (58 + row * 92);
-    if (x >= 415 && localY < 38) {
-        if (row == 0) channelRoleSettings_.steeringEnabled =
-            !channelRoleSettings_.steeringEnabled;
-        else channelRoleSettings_.throttleEnabled =
-            !channelRoleSettings_.throttleEnabled;
-    } else if (x >= 335 && localY >= 28) {
-        const int8_t direction = x < 378 ? -1 : 1;
-        if (row == 0) channelRoleSettings_.steeringChannel = adjacentChannel(
-            channelRoleSettings_.steeringChannel, direction,
-            channelRoleSettings_.throttleChannel);
-        else channelRoleSettings_.throttleChannel = adjacentChannel(
-            channelRoleSettings_.throttleChannel, direction,
-            channelRoleSettings_.steeringChannel);
-    } else return;
-    channelRolesChanged_ = true;
-    safetyResetRequested_ = true;
-    armRequested_ = false;
-    saveChannelRoleSettings();
+    if (y < 50 || y >= 250) return;
+    const size_t inputIndex = assignmentBank_ * kRows + (y - 50) / 40;
+    if (inputIndex >= kPhysicalControlCount) return;
+    const PhysicalControlDescriptor &control = physicalControlDescriptor(inputIndex);
     playKeyClick();
-    drawControlAssignmentsPage();
+    if (control.kind == PhysicalControlKind::Proportional) {
+        drawChannelRolesPage();
+        return;
+    }
+    selectedBindingInput_ = control.id;
+    const int existing = bindingIndexForInput(control.id);
+    bindingDraft_ = existing >= 0 ? bindings_[existing] :
+                                    defaultBindingForInput(control.id);
+    if (existing < 0)
+        bindingDraft_.crsfChannel = adjacentBindingChannel(2, 1);
+    bindingError_[0] = '\0';
+    drawBindingEditorPage();
+}
+
+void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
+{
+    if (headerActionTouched(x, y) || (y >= 266 && x < 150)) {
+        playKeyClick(); drawControlAssignmentsPage(); return;
+    }
+    const PhysicalControlKind kind = physicalControlDescriptor(
+        static_cast<size_t>(selectedBindingInput_)).kind;
+    if (y >= 100 && y < 140 && x >= 330) {
+        bindingDraft_.enabled = !bindingDraft_.enabled;
+    } else if (y >= 148 && y < 188 && x >= 330) {
+        bindingDraft_.crsfChannel = adjacentBindingChannel(
+            bindingDraft_.crsfChannel, x < 400 ? -1 : 1);
+    } else if (y >= 196 && y < 236 && x >= 330) {
+        bindingDraft_.behaviour = adjacentBindingBehaviour(
+            kind, bindingDraft_.behaviour, x < 400 ? -1 : 1);
+    } else if (y >= 266 && x >= 160 && x < 300 &&
+               bindingIndexForInput(selectedBindingInput_) >= 0) {
+        if (removeSelectedBinding()) {
+            playBuzzer(80); drawControlAssignmentsPage();
+        }
+        return;
+    } else if (y >= 266 && x >= 300) {
+        if (saveBindingDraft()) {
+            playBuzzer(80); drawControlAssignmentsPage();
+        } else {
+            playBuzzer(180); drawBindingEditorPage();
+        }
+        return;
+    } else return;
+    bindingError_[0] = '\0';
+    playKeyClick();
+    drawBindingEditorPage();
 }
 
 void Channel2Ui::handleInputMonitorTouch(int16_t x, int16_t y)
@@ -2148,6 +2464,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::ThrottleResponse) { handleThrottleResponseTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelSpeed) { handleChannelSpeedTouch(x, y); return; }
     if (activePage_ == UiPage::ControlAssignments) { handleControlAssignmentsTouch(x, y); return; }
+    if (activePage_ == UiPage::BindingEditor) { handleBindingEditorTouch(x, y); return; }
     if (activePage_ == UiPage::InputMonitor) { handleInputMonitorTouch(x, y); return; }
     if (activePage_ == UiPage::DriveModes) { handleDriveModesTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelPlaceholder) {

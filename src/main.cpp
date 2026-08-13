@@ -104,6 +104,16 @@ void configureDirectGpioInputs()
     }
 }
 
+BindingLoadResult installUiBindings()
+{
+    ControlBinding bindings[kPhysicalControlCount];
+    const size_t count = channel2Ui.copyBindings(bindings, kPhysicalControlCount);
+    portENTER_CRITICAL(&bindingResolverMux);
+    const BindingLoadResult result = bindingResolver.setBindings(bindings, count);
+    portEXIT_CRITICAL(&bindingResolverMux);
+    return result;
+}
+
 void IRAM_ATTR countCrsfBusEdge()
 {
     ++crsfBusEdges;
@@ -410,6 +420,14 @@ void setup()
     Serial.printf("BOOT: reset_reason=%u free_heap=%u bytes\n",
                   static_cast<unsigned>(esp_reset_reason()),
                   static_cast<unsigned>(ESP.getFreeHeap()));
+    Serial.printf("MEMORY: heap=%u free=%u min_free=%u largest=%u "
+                  "psram=%u free_psram=%u\n",
+                  static_cast<unsigned>(ESP.getHeapSize()),
+                  static_cast<unsigned>(ESP.getFreeHeap()),
+                  static_cast<unsigned>(ESP.getMinFreeHeap()),
+                  static_cast<unsigned>(ESP.getMaxAllocHeap()),
+                  static_cast<unsigned>(ESP.getPsramSize()),
+                  static_cast<unsigned>(ESP.getFreePsram()));
     Serial.println("WARNING: disconnect the motor / raise the wheels for first test");
 
     analogReadResolution(12);
@@ -430,25 +448,23 @@ void setup()
     xTaskCreatePinnedToCore(crsfTask, "crsf-link", 4096, nullptr, 4,
                             &crsfTaskHandle, 0);
 
+    const uint32_t heapBeforeUi = ESP.getFreeHeap();
     channel2Ui.begin();
+    Serial.printf("MEMORY: UI init used=%u heap_free=%u min_free=%u "
+                  "largest=%u free_psram=%u\n",
+                  static_cast<unsigned>(heapBeforeUi - ESP.getFreeHeap()),
+                  static_cast<unsigned>(ESP.getFreeHeap()),
+                  static_cast<unsigned>(ESP.getMinFreeHeap()),
+                  static_cast<unsigned>(ESP.getMaxAllocHeap()),
+                  static_cast<unsigned>(ESP.getFreePsram()));
     const bool inputMapReady = physicalInputs.begin(kR1InputMap, kR1InputMapCount);
     configureDirectGpioInputs();
     Serial.printf("INPUT MAP: %u controls, one MCP23017 + six direct GPIO: %s\n",
                   static_cast<unsigned>(kR1InputMapCount),
                   inputMapReady ? "ready" : "INVALID");
-    ControlBinding testBinding;
-    testBinding.input = PhysicalControlId::TimerButton;
-    testBinding.event = InputEvent::Pressed;
-    testBinding.target = AssignmentTarget::CrsfChannel;
-    testBinding.behaviour = ControlBehaviour::Momentary;
-    testBinding.crsfChannel = MCP23017_TEST_CRSF_CHANNEL;
-    testBinding.minimum = -1000;
-    testBinding.maximum = 1000;
-    testBinding.initial = 0;
-    testBinding.failsafe = 0;
-    const BindingLoadResult bindingResult = bindingResolver.setBindings(&testBinding, 1);
-    Serial.printf("BINDING: Timer button -> held CH%u HIGH, release CENTER: %s\n",
-                  MCP23017_TEST_CRSF_CHANNEL,
+    const BindingLoadResult bindingResult = installUiBindings();
+    Serial.printf("BINDINGS: installed %u assignments: %s\n",
+                  static_cast<unsigned>(bindingResolver.bindingCount()),
                   bindingResult.ok() ? "ready" : bindingResult.reason);
     inputExpanderReady = inputExpander.begin();
     Serial.printf("MCP23017: address=0x%02X %s; PA0 is Timer button\n",
@@ -541,6 +557,17 @@ void loop()
                       control.outputPermille,
                       control.transmittedCrsf, control.safetyStatus,
                       telemetry, txVoltageDecivolts, txVoltageValid);
+    if (channel2Ui.consumeBindingsChanged()) {
+        // CUT the complete output model before replacing resolver state. The
+        // new mapping cannot reach the RF task until the neutral interlock is
+        // satisfied again.
+        requestControlReset();
+        const BindingLoadResult result = installUiBindings();
+        Serial.printf("BINDINGS: TFT profile reload %s (%u assignments)\n",
+                      result.ok() ? "ready" :
+                          (result.reason == nullptr ? "FAILED" : result.reason),
+                      static_cast<unsigned>(bindingResolver.bindingCount()));
+    }
     if (channel2Ui.consumeChannelRolesChanged()) {
         // Disable all live outputs before the next atomic model snapshot moves
         // throttle to its newly selected channel.

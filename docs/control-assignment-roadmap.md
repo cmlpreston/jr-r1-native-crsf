@@ -105,9 +105,11 @@ bindings only when the combination is made explicit in the UI.
 - [x] Data model for input events, contexts, targets and behaviours.
 - [x] Binding range/step/initial/failsafe/persistence fields and validator.
 - [x] Host-testable binding resolver with context filtering and conflict checks.
-- [ ] Per-model binding store with schema version and migration.
-- [ ] Binding list grouped by physical input.
-- [ ] Add/edit/delete/enable binding screens.
+- [x] Versioned NVS binding store for the current Model 1 profile.
+- [x] Binding list grouped by physical input.
+- [x] Add/edit/delete/enable binding screens for CRSF channel targets.
+- [ ] Move the versioned binding store into each future model profile and add
+  migrations when the stored schema changes.
 - [x] Detect duplicate/conflicting CRSF channel writers.
 - [ ] Provide restore-default-profile command.
 
@@ -133,7 +135,7 @@ bindings only when the combination is made explicit in the UI.
 
 - [ ] Dedicated, exclusive arm/CUT binding.
 - [ ] CUT overrides every mix, macro and output.
-- [ ] Binding edits force CUT and neutral re-arm.
+- [x] Binding edits force CUT and neutral re-arm.
 - [ ] Startup switch-position and retained-state warnings.
 - [ ] Model change only while CUT and throttle-neutral.
 - [ ] Explicit initial and failsafe values for retained accessory channels.

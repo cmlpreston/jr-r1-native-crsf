@@ -18,11 +18,13 @@ proof of concept.
 - Follow the detailed checklist in `docs/control-assignment-roadmap.md`; it is
   the source of truth for the programmable control-system feature.
 - Map the steering FPC and all original R1 buttons, toggles and trims.
-- Expand control assignments from steering/trigger to every physical input.
+- Extend the TFT assignment editor beyond CRSF outputs to local actions,
+  parameters, contexts and multi-action bindings.
 - Feed enabled auxiliary outputs and their live values into the dashboard's
   right-hand vertical channel bank; keep steering/throttle as horizontal bars.
 - Support transmitter functions, channels, modes and multi-action macros.
-- Add momentary, toggle, three-position and proportional behaviours.
+- Add TFT editors for behaviour-specific range, step, initial, failsafe and
+  pulse-duration values (the resolver already supports them).
 - Add model select/name/copy/reset and safe switching through neutral.
 - Export/import versioned JSON profiles through a Wi-Fi web interface.
 - Add general multi-input/output mixes with direction, weight and offset.

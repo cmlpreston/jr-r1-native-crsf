@@ -228,9 +228,16 @@ settings. `BRAKE/REV` is used because a car ESC commonly brakes on the first
 reverse-trigger command and supplies reverse drive only after stopping.
 
 `CONTROL MAP` is the first functional version of the generic
-input-to-function-to-channel assignment layer. It enables/disables the steering
-and trigger assignments and maps each to a CRSF channel. Additional buttons and
-switches will appear there as their hardware is mapped.
+input-to-function-to-channel assignment layer. Its paged TFT list covers all
+nineteen physical controls. Steering and trigger open the primary role editor;
+each digital switch, trim or button opens an assignment editor that can enable
+or disable the input, select a non-reserved CRSF channel, choose a compatible
+momentary/toggle/pulse/two-position/trim behaviour, save it, or remove it.
+Enabled bindings cannot share an output channel or take the steering/throttle
+role channels. Assignments are saved in the versioned `jr-r1-bind` NVS
+namespace. Saving or removing one forces CUT and requires neutral re-arm before
+the new map becomes live. The Timer button to CH4 proof binding is installed as
+the default profile when no valid stored profile exists.
 
 `DRIVE MODES` selects WALK or NORMAL. WALK scales physical forward drive to an
 adjustable limit (35% by default) while retaining the fully configured
@@ -314,6 +321,18 @@ does not lengthen short key clicks.
 pio run -t upload
 pio device monitor -b 115200
 ```
+
+The current ESP32-S3 build uses 142,416 of 327,680 bytes of statically allocated
+internal RAM (43.5%) and 797,045 of 3,342,336 application-flash bytes (23.8%).
+The editable nineteen-input binding table is small compared with LVGL and its
+display buffers, so assignments do not create a practical memory risk. Boot
+logging reports total/free/minimum/largest heap, PSRAM size and the heap consumed
+by UI initialisation for ongoing runtime monitoring. On the flashed prototype,
+the initialised UI used 7,932 heap bytes and left 227,544 bytes free, with a
+204,788-byte largest contiguous allocation. The selected PlatformIO
+board target is currently the N8 `No PSRAM` configuration, even though the
+attached chip is detected by the flashing tool as containing 8 MB embedded
+PSRAM; firmware therefore does not depend on PSRAM yet.
 
 UART1 transmits channel frames and UART2 listens continuously on the same GPIO.
 The listener sees harmless echoes of the outgoing channel frames plus Ranger

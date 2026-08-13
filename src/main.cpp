@@ -10,6 +10,7 @@
 #include "config.h"
 #include "crsf_channel_output.h"
 #include "crsf_telemetry.h"
+#include "mcp23017_input.h"
 
 namespace {
 
@@ -48,6 +49,13 @@ Channel2Ui channel2Ui;
 CrsfTelemetryParser telemetryParser;
 BindingResolver bindingResolver;
 ResolvedBindingActionBuffer bindingActions;
+Mcp23017Input inputExpander(MCP23017_I2C_ADDRESS);
+DigitalInputProcessor expanderTestButton(PhysicalControlId::TimerButton);
+PhysicalInputEventBuffer physicalInputEvents;
+portMUX_TYPE bindingResolverMux = portMUX_INITIALIZER_UNLOCKED;
+uint32_t nextExpanderPollMs = 0;
+uint16_t expanderPorts = 0xffff;
+bool inputExpanderReady = false;
 volatile uint32_t crsfBusEdges = 0;
 volatile bool sharedControlStale = true;
 SharedChannelOutputState sharedChannelOutputs;
@@ -279,9 +287,11 @@ void controlTask(void *)
             (throttleArmed && !calibrating) ? requestedThrottle : safeNeutralThrottle;
         CrsfChannelOutputModel outputs;
         bindingActions.clear();
+        portENTER_CRITICAL(&bindingResolverMux);
         bindingResolver.update(millis(), bindingActions);
         bindingResolver.applyChannelOutputs(outputs,
             static_cast<uint16_t>(1U << (channel2Ui.throttleChannel() - 1)));
+        portEXIT_CRITICAL(&bindingResolverMux);
         // The dedicated safety-checked throttle path has final ownership of
         // its configured channel, even if a future profile is malformed.
         outputs.configure(channel2Ui.throttleChannel(), requestedThrottle,
@@ -387,6 +397,24 @@ void setup()
                             &crsfTaskHandle, 0);
 
     channel2Ui.begin();
+    ControlBinding testBinding;
+    testBinding.input = PhysicalControlId::TimerButton;
+    testBinding.event = InputEvent::Pressed;
+    testBinding.target = AssignmentTarget::CrsfChannel;
+    testBinding.behaviour = ControlBehaviour::Momentary;
+    testBinding.crsfChannel = MCP23017_TEST_CRSF_CHANNEL;
+    testBinding.minimum = -1000;
+    testBinding.maximum = 1000;
+    testBinding.initial = 0;
+    testBinding.failsafe = 0;
+    const BindingLoadResult bindingResult = bindingResolver.setBindings(&testBinding, 1);
+    Serial.printf("BINDING: PA%u -> held CH%u HIGH, release CENTER: %s\n",
+                  MCP23017_TEST_PORT, MCP23017_TEST_CRSF_CHANNEL,
+                  bindingResult.ok() ? "ready" : bindingResult.reason);
+    inputExpanderReady = inputExpander.begin();
+    Serial.printf("MCP23017: address=0x%02X %s; PA0 jumper to GND is active\n",
+                  MCP23017_I2C_ADDRESS,
+                  inputExpanderReady ? "ONLINE" : "NOT FOUND");
     filteredAdc = analogRead(THROTTLE_ADC_PIN);
     publishControlState(ControlStateSnapshot());
     xTaskCreatePinnedToCore(controlTask, "control-input", 4096, nullptr, 5,
@@ -411,6 +439,37 @@ void loop()
     uint16_t txVoltageDecivolts = 0;
     bool txVoltageValid = false;
     const uint32_t nowMs = millis();
+    if (inputExpanderReady &&
+        static_cast<int32_t>(nowMs - nextExpanderPollMs) >= 0) {
+        nextExpanderPollMs = nowMs + MCP23017_POLL_PERIOD_MS;
+        uint16_t ports;
+        if (inputExpander.read(ports)) {
+            expanderPorts = ports;
+            physicalInputEvents.clear();
+            const bool pa0Active =
+                (ports & static_cast<uint16_t>(1U << MCP23017_TEST_PORT)) == 0;
+            expanderTestButton.update(pa0Active, nowMs, physicalInputEvents);
+            if (physicalInputEvents.size() != 0) {
+                ResolvedBindingActionBuffer actions;
+                portENTER_CRITICAL(&bindingResolverMux);
+                bindingResolver.processEvents(physicalInputEvents,
+                    static_cast<uint8_t>(ContextAlways | ContextDashboard |
+                        (throttleArmed ? ContextArmed : ContextCut)), actions);
+                portEXIT_CRITICAL(&bindingResolverMux);
+                for (size_t index = 0; index < physicalInputEvents.size(); ++index) {
+                    const PhysicalInputEvent &inputEvent = physicalInputEvents[index];
+                    Serial.printf("INPUT: PA0 TimerButton event=%u active=%s -> CH%u\n",
+                                  static_cast<unsigned>(inputEvent.event),
+                                  pa0Active ? "yes" : "no",
+                                  MCP23017_TEST_CRSF_CHANNEL);
+                }
+            }
+        } else {
+            inputExpanderReady = false;
+            Serial.printf("MCP23017: read failed at 0x%02X; inputs disabled\n",
+                          MCP23017_I2C_ADDRESS);
+        }
+    }
     if (channel2Ui.txVoltageSenseEnabled()) {
         if (static_cast<int32_t>(nowMs - nextTxBatterySampleMs) >= 0) {
             nextTxBatterySampleMs = nowMs + 20;
@@ -447,7 +506,7 @@ void loop()
         nextLogMs += USB_LOG_PERIOD_MS;
         const int neutralDelta = static_cast<int>(control.adc) -
                                  static_cast<int>(channel2Ui.throttleCentreAdc());
-        Serial.printf("adc=%4u ctr=%4u delta=%+4d cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s stale=%s drive=%s link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV edges=%lu bytes=%lu frames=%lu crc=%lu\n",
+        Serial.printf("adc=%4u ctr=%4u delta=%+4d cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s stale=%s drive=%s PA0=%s MCP=%s link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV edges=%lu bytes=%lu frames=%lu crc=%lu\n",
                       control.adc,
                       channel2Ui.throttleCentreAdc(),
                       neutralDelta,
@@ -459,6 +518,8 @@ void loop()
                       throttleArmed ? "yes" : "NO",
                       sharedControlStale ? "YES" : "no",
                       channel2Ui.driveMode() == DriveMode::Walk ? "WALK" : "NORMAL",
+                      (expanderPorts & 1U) == 0 ? "ON" : "off",
+                      inputExpanderReady ? "ok" : "OFFLINE",
                       telemetry.linkValid ? "yes" : "no",
                       telemetry.uplinkLinkQuality,
                       telemetry.uplinkRssiDbm,

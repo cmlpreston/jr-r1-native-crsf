@@ -31,6 +31,22 @@ GPIO2, GPIO3, GPIO6, GPIO7, GPIO14, GPIO15 and the higher exposed GPIOs remain
 unassigned in the present firmware. Reserve at least one ADC-capable input for
 the steering potentiometer before assigning button inputs.
 
+## Waveshare MCP23017 input expander (prototype)
+
+| MCP23017 | ESP32-S3 | Notes |
+|---|---:|---|
+| `VCC` | `3V3` | Keep the expander and its GPIO at 3.3 V |
+| `GND` | `GND` | Common ground |
+| `SDA` | GPIO8 | Shared with TFT touch I2C |
+| `SCL` | GPIO18 | Shared with TFT touch I2C |
+| `INTA`, `INTB` | Not connected | Polling during initial test |
+
+With A0/A1/A2 open, the Waveshare board is expected at `0x27`. All sixteen
+ports are configured as inputs with internal pull-ups. The initial test maps
+PA0 (jumper to GND) to `TimerButton`, which drives CRSF CH4 high while held and
+returns it to centre when released. This is temporary scaffolding until the
+per-model binding store and MCP23017 assignment UI are connected.
+
 ## BIGTREETECH TFT35 SPI V2.1 connector
 
 | TFT35 marking | ESP32-S3 connection | Interface/function | Voltage |

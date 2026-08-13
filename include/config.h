@@ -25,6 +25,14 @@ constexpr int TOUCH_SDA_PIN = 8;     // NS2009 SDA
 constexpr int TOUCH_SCL_PIN = 18;    // NS2009 SCL
 constexpr int TOUCH_IRQ_PIN = 16;    // TFT35 IDRQ, active low
 
+// Waveshare MCP23017 I/O expansion board on the same I2C bus as the NS2009
+// touch controller. With A0/A1/A2 all open, Waveshare pulls all three address
+// bits high and the board responds at 0x27.
+constexpr uint8_t MCP23017_I2C_ADDRESS = 0x27;
+constexpr uint32_t MCP23017_POLL_PERIOD_MS = 5;
+constexpr uint8_t MCP23017_TEST_PORT = 0;       // PA0
+constexpr uint8_t MCP23017_TEST_CRSF_CHANNEL = 4;
+
 constexpr uint32_t TFT_SPI_FREQUENCY = 25000000;
 constexpr uint8_t NS2009_I2C_ADDRESS = 0x48;
 

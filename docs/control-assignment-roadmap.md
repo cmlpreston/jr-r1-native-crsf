@@ -96,7 +96,9 @@ bindings only when the combination is made explicit in the UI.
 - [ ] Show raw GPIO/ADC state and debounced logical state live.
 - [ ] Show press, hold, double-press and trim repeat events.
 - [ ] Add wiring/GPIO identity and fault state.
-- [ ] Add direct-GPIO and MCP23017 sampling drivers and feed the state store.
+- [x] Add MCP23017 polling input driver and prove PA0 through the resolver to CRSF CH4.
+- [ ] Add production MCP23017 mappings, interrupt handling and state-store updates.
+- [ ] Add direct-GPIO sampling drivers and feed the state store.
 
 ### Bindings
 

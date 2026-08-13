@@ -110,7 +110,7 @@ bindings only when the combination is made explicit in the UI.
 
 ### Outputs
 
-- [ ] Replace the single-throttle CRSF builder with a 16-channel output model.
+- [x] Replace the single-throttle CRSF builder with a 16-channel output model.
 - [ ] Resolve local functions and parameters before channel output.
 - [ ] Add momentary, toggle, pulse and switch output resolvers.
 - [ ] Add trim jog, stepped and three-position output resolvers.

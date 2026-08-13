@@ -7,6 +7,7 @@
 
 #include "channel2_ui.h"
 #include "config.h"
+#include "crsf_channel_output.h"
 #include "crsf_telemetry.h"
 
 namespace {
@@ -15,16 +16,6 @@ HardwareSerial rangerSerial(1);
 HardwareSerial rangerRxSerial(2);
 
 constexpr uart_port_t RANGER_UART = UART_NUM_1;
-constexpr uint8_t CRSF_SYNC_BYTE = 0xC8;
-constexpr uint8_t CRSF_FRAMETYPE_RC_CHANNELS_PACKED = 0x16;
-constexpr uint16_t CRSF_CHANNEL_MIN = 172;
-constexpr uint16_t CRSF_CHANNEL_MID = 992;
-constexpr uint16_t CRSF_CHANNEL_MAX = 1811;
-constexpr uint16_t CRSF_CHANNEL_ABSOLUTE_MIN = 0;
-constexpr uint16_t CRSF_CHANNEL_ABSOLUTE_MAX = 2047;
-constexpr size_t CRSF_CHANNEL_COUNT = 16;
-constexpr size_t CRSF_PAYLOAD_BYTES = 22;
-constexpr size_t CRSF_FRAME_BYTES = 26;
 constexpr uint32_t CONTROL_TASK_PERIOD_MS = 4;
 
 struct ControlStateSnapshot {
@@ -38,6 +29,12 @@ struct ControlStateSnapshot {
     bool inputValid = true;
 };
 
+struct SharedChannelOutputState {
+    CrsfChannelOutputModel model;
+    bool live = false;
+    uint32_t updatedUs = 0;
+};
+
 uint16_t filteredAdc = THROTTLE_ADC_CENTER;
 uint32_t filteredTxBatteryAdcMv = 0;
 uint32_t nextTxBatterySampleMs = 0;
@@ -49,11 +46,9 @@ uint32_t nextLogMs = 0;
 Channel2Ui channel2Ui;
 CrsfTelemetryParser telemetryParser;
 volatile uint32_t crsfBusEdges = 0;
-volatile uint16_t sharedTransmittedThrottle = CRSF_CHANNEL_MID;
-volatile uint16_t sharedSafeNeutralThrottle = CRSF_CHANNEL_MID;
-volatile uint8_t sharedThrottleChannel = 2;
-volatile uint32_t sharedControlUpdateUs = 0;
 volatile bool sharedControlStale = true;
+SharedChannelOutputState sharedChannelOutputs;
+portMUX_TYPE channelOutputMux = portMUX_INITIALIZER_UNLOCKED;
 CrsfTelemetryState telemetrySnapshot;
 portMUX_TYPE telemetryMux = portMUX_INITIALIZER_UNLOCKED;
 TaskHandle_t crsfTaskHandle = nullptr;
@@ -67,19 +62,6 @@ uint8_t usbCommandLength = 0;
 void IRAM_ATTR countCrsfBusEdge()
 {
     ++crsfBusEdges;
-}
-
-uint8_t crc8DvbS2(const uint8_t *data, size_t length)
-{
-    uint8_t crc = 0;
-    while (length-- != 0) {
-        crc ^= *data++;
-        for (uint8_t bit = 0; bit < 8; ++bit) {
-            crc = (crc & 0x80U) ? static_cast<uint8_t>((crc << 1U) ^ 0xD5U)
-                                : static_cast<uint8_t>(crc << 1U);
-        }
-    }
-    return crc;
 }
 
 uint16_t mapPermilleToCrsf(int16_t value)
@@ -155,44 +137,6 @@ OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
                          : OutputSafetyStatus::NeutralRequired;
 }
 
-void packChannels(const uint16_t channels[CRSF_CHANNEL_COUNT], uint8_t payload[CRSF_PAYLOAD_BYTES])
-{
-    memset(payload, 0, CRSF_PAYLOAD_BYTES);
-    uint32_t accumulator = 0;
-    uint8_t bitsInAccumulator = 0;
-    size_t outputIndex = 0;
-
-    for (size_t channel = 0; channel < CRSF_CHANNEL_COUNT; ++channel) {
-        accumulator |= static_cast<uint32_t>(channels[channel] & 0x07FFU)
-                       << bitsInAccumulator;
-        bitsInAccumulator += 11;
-
-        while (bitsInAccumulator >= 8) {
-            payload[outputIndex++] = static_cast<uint8_t>(accumulator & 0xFFU);
-            accumulator >>= 8;
-            bitsInAccumulator -= 8;
-        }
-    }
-}
-
-void buildChannelsFrame(uint16_t throttle, uint8_t throttleChannel,
-                        uint8_t frame[CRSF_FRAME_BYTES])
-{
-    uint16_t channels[CRSF_CHANNEL_COUNT];
-    for (uint16_t &channel : channels) {
-        channel = CRSF_CHANNEL_MID;
-    }
-
-    throttleChannel = constrain(throttleChannel, 1, 16);
-    channels[throttleChannel - 1] = throttle;
-
-    frame[0] = CRSF_SYNC_BYTE;
-    frame[1] = 24; // type + 22-byte channel payload + CRC
-    frame[2] = CRSF_FRAMETYPE_RC_CHANNELS_PACKED;
-    packChannels(channels, &frame[3]);
-    frame[25] = crc8DvbS2(&frame[2], 23); // type + payload
-}
-
 void setCrsfBusReceive()
 {
     // The Saleae capture of the actual Nano-adapter bus decodes as ordinary
@@ -228,10 +172,10 @@ void transmitCrsfFrame(const uint8_t *frame, size_t length)
     setCrsfBusReceive();
 }
 
-void sendChannelsFrame(uint16_t throttle, uint8_t throttleChannel)
+void sendChannelsFrame(const CrsfChannelOutputModel &model, bool live)
 {
     uint8_t frame[CRSF_FRAME_BYTES];
-    buildChannelsFrame(throttle, throttleChannel, frame);
+    buildCrsfChannelsFrame(model, live, frame);
     transmitCrsfFrame(frame, sizeof(frame));
 }
 
@@ -264,10 +208,37 @@ CrsfTelemetryState readTelemetrySnapshot()
     return snapshot;
 }
 
+void publishChannelOutputs(const CrsfChannelOutputModel &model, bool live,
+                           uint32_t updatedUs)
+{
+    portENTER_CRITICAL(&channelOutputMux);
+    sharedChannelOutputs.model = model;
+    sharedChannelOutputs.live = live;
+    sharedChannelOutputs.updatedUs = updatedUs;
+    portEXIT_CRITICAL(&channelOutputMux);
+}
+
+SharedChannelOutputState readChannelOutputs()
+{
+    SharedChannelOutputState snapshot;
+    portENTER_CRITICAL(&channelOutputMux);
+    snapshot = sharedChannelOutputs;
+    portEXIT_CRITICAL(&channelOutputMux);
+    return snapshot;
+}
+
+void forceChannelOutputsSafe()
+{
+    portENTER_CRITICAL(&channelOutputMux);
+    sharedChannelOutputs.live = false;
+    sharedChannelOutputs.updatedUs = micros();
+    portEXIT_CRITICAL(&channelOutputMux);
+}
+
 void requestControlReset()
 {
     controlResetRequested = true;
-    sharedTransmittedThrottle = sharedSafeNeutralThrottle;
+    forceChannelOutputsSafe();
 }
 
 void publishControlState(const ControlStateSnapshot &snapshot)
@@ -311,7 +282,6 @@ void controlTask(void *)
             responseThrottle, rawThrottle);
         const uint16_t safeNeutralThrottle = mapPermilleToCrsf(
             channel2Ui.neutralOutputPermille());
-        sharedSafeNeutralThrottle = safeNeutralThrottle;
         int16_t configuredThrottle = 0;
         if (safetyStatus == OutputSafetyStatus::Armed)
             configuredThrottle = channel2Ui.applyChannelSpeed(modeThrottle, millis());
@@ -321,8 +291,13 @@ void controlTask(void *)
         const uint16_t requestedThrottle = mapPermilleToCrsf(configuredThrottle);
         const uint16_t transmittedThrottle =
             (throttleArmed && !calibrating) ? requestedThrottle : safeNeutralThrottle;
-        sharedTransmittedThrottle = transmittedThrottle;
-        sharedControlUpdateUs = micros();
+        CrsfChannelOutputModel outputs;
+        outputs.configure(channel2Ui.throttleChannel(), requestedThrottle,
+                          safeNeutralThrottle, channel2Ui.throttleEnabled());
+        const uint32_t controlUpdateUs = micros();
+        publishChannelOutputs(outputs,
+                              safetyStatus == OutputSafetyStatus::Armed,
+                              controlUpdateUs);
 
         ControlStateSnapshot snapshot;
         snapshot.adc = filteredAdc;
@@ -351,14 +326,12 @@ void crsfTask(void *)
             // Do not send a burst after a scheduling hiccup; resume at the
             // current 250 Hz phase with the latest requested channel value.
             nextFrameUs = nowUs + CRSF_FRAME_PERIOD_US;
-            const uint32_t lastControlUs = sharedControlUpdateUs;
+            const SharedChannelOutputState outputs = readChannelOutputs();
+            const uint32_t lastControlUs = outputs.updatedUs;
             const bool stale = lastControlUs == 0 ||
                 static_cast<uint32_t>(nowUs - lastControlUs) > CONTROL_STALE_TIMEOUT_US;
             sharedControlStale = stale;
-            const uint16_t throttle = stale ? sharedSafeNeutralThrottle
-                                            : sharedTransmittedThrottle;
-            const uint8_t channel = sharedThrottleChannel;
-            sendChannelsFrame(throttle, channel);
+            sendChannelsFrame(outputs.model, outputs.live && !stale);
         }
         readReturnedTelemetry();
         const uint32_t nowMs = millis();
@@ -432,10 +405,8 @@ void setup()
 void loop()
 {
     if (consumeScreenshotCommand()) {
-        // Publish neutral immediately; the CRSF task must never retain a live
-        // value while the main loop is occupied streaming the screenshot.
-        sharedTransmittedThrottle = sharedSafeNeutralThrottle;
-        sharedControlUpdateUs = micros();
+        // Force the whole channel model safe immediately; the CRSF task must
+        // never retain live outputs while the UI task streams a screenshot.
         requestControlReset();
         channel2Ui.captureScreenshot(Serial);
         nextLogMs = millis() + USB_LOG_PERIOD_MS;
@@ -469,16 +440,11 @@ void loop()
                       control.transmittedCrsf, control.safetyStatus,
                       telemetry, txVoltageDecivolts, txVoltageValid);
     if (channel2Ui.consumeChannelRolesChanged()) {
-        // Publish neutral before changing the channel number. If the CRSF task
-        // runs between these writes it can only send the previous channel at
-        // neutral, never the previous live value on the newly selected output.
-        sharedTransmittedThrottle = sharedSafeNeutralThrottle;
-        sharedThrottleChannel = channel2Ui.throttleChannel();
+        // Disable all live outputs before the next atomic model snapshot moves
+        // throttle to its newly selected channel.
         requestControlReset();
         Serial.printf("SAFE: throttle role changed to CH%u; release trigger to re-arm\n",
                       channel2Ui.throttleChannel());
-    } else {
-        sharedThrottleChannel = channel2Ui.throttleChannel();
     }
     if (channel2Ui.consumeSafetyResetRequested()) {
         requestControlReset();

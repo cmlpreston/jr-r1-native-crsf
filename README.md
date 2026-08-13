@@ -16,6 +16,13 @@ inventory and future assignment plan is in
 [`docs/r1-control-map.md`](docs/r1-control-map.md).
 Deferred work is tracked in [`TODO.md`](TODO.md).
 
+The CRSF output path maintains requested, safe and enabled state independently
+for all 16 channels. The control task publishes a complete atomic snapshot to
+the CRSF task; CUT, stale input and maintenance operations resolve the entire
+snapshot to its safe values. At this stage throttle is the only live physical
+input, while unassigned channels remain safely centred ready for the binding
+resolver and steering input hardware.
+
 ## Capturing a TFT screenshot
 
 The firmware accepts `SCREENSHOT` over its native USB serial connection. It

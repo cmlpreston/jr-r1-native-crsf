@@ -4,6 +4,7 @@
 #include <lvgl.h>
 #include "control_assignment.h"
 #include "crsf_telemetry.h"
+#include "crsf_management.h"
 #include "physical_input.h"
 #include "proportional_input.h"
 
@@ -102,6 +103,7 @@ enum class UiPage : uint8_t {
     TxBatterySetup,
     RxBatterySetup,
     DisplaySetup,
+    ElrsBinding,
     Calibration,
 };
 
@@ -141,6 +143,7 @@ public:
     bool consumeBindingsChanged();
     bool consumeChannelRolesChanged();
     bool consumeSafetyResetRequested();
+    bool consumeElrsManagementRequest(ElrsManagementRequest &request);
 
 private:
     void loadSettings();
@@ -156,6 +159,8 @@ private:
     void saveRxBatterySettings();
     void loadDriveModeSettings();
     void saveDriveModeSettings();
+    void loadElrsSettings();
+    void saveElrsSettings();
     void drawMainMenu();
     void drawDashboard();
     void drawDashboardLive(uint16_t crsfValue,
@@ -185,6 +190,7 @@ private:
     void drawRxBatteryRow(int row);
     void drawDisplayPage();
     void drawDisplayRow(int row);
+    void drawElrsBindingPage();
     void drawCalibrationPage();
     void drawCalibrationValues(uint16_t adc);
     void drawSettingRow(int row);
@@ -207,6 +213,10 @@ private:
     void handleTxBatteryTouch(int16_t x, int16_t y);
     void handleRxBatteryTouch(int16_t x, int16_t y);
     void handleDisplayTouch(int16_t x, int16_t y);
+    void handleElrsBindingTouch(int16_t x, int16_t y);
+    void appendElrsKeyboardCharacter(char character);
+    void queueElrsRequest(ElrsManagementAction action,
+                          ElrsManagementTarget target);
     void updateTouch();
     void startCalibration(uint16_t adc);
     void updateCalibration(uint16_t adc);
@@ -258,6 +268,14 @@ private:
     TxBatterySettings txBatterySettings_;
     RxBatterySettings rxBatterySettings_;
     DriveModeSettings driveModeSettings_;
+    char elrsBindPhrase_[52] = {};
+    bool elrsKeyboardUppercase_ = false;
+    bool elrsRequestPending_ = false;
+    ElrsManagementRequest elrsPendingRequest_;
+    bool elrsReceiverLinkAvailable_ = false;
+    char elrsStatus_[80] = "Enter phrase, then SET TX";
+    uint32_t lastTransmitterUidUpdateMs_ = 0;
+    uint32_t lastReceiverUidUpdateMs_ = 0;
     bool displayReady_ = false;
     UiPage activePage_ = UiPage::Dashboard;
     uint8_t channelsBank_ = 0;

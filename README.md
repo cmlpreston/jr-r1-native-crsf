@@ -116,6 +116,26 @@ separate USB battery pack, with grounds joined and the VCC pin left disconnected
 The 220–470 Ω series resistor limits contention current if both sides briefly
 drive the half-duplex bus. The ESP32 CRSF logic level is 3.3 V.
 
+### ELRS bindphrase from the touchscreen
+
+With ExpressLRS 4.1 or newer on the addressed device, open
+`MENU > LINK / TELEM`. The page implements ExpressLRS's MSP command `0x2D`
+inside CRSF `MSP_REQ`/`MSP_WRITE` frames. Its on-screen keyboard accepts up to
+51 characters and stores the desired phrase locally in ESP32 NVS.
+
+`SET TX` addresses the locally connected Ranger Nano and therefore works even
+when no receiver is bound. The module reboots after the write; firmware waits
+1.2 seconds and automatically asks it for its six-byte UID. The displayed UID
+is compared with the UID calculated locally from the phrase and reports
+`MATCH` or `DIFFERS`. `UID TX` performs the read without changing anything.
+
+`SET RX` and `UID RX` remain disabled until valid RF link telemetry is present:
+an unbound receiver cannot receive these commands. When changing a linked pair,
+write the receiver first and the transmitter second. All management operations
+force CUT and require the normal neutral/arm process afterwards. `CLEAR` only
+clears the text entry; blank writes are deliberately refused to prevent an
+accidental unbind.
+
 ## Transmitter battery voltage
 
 The local transmitter pack is measured by the ESP32 rather than obtained from

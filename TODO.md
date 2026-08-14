@@ -5,6 +5,11 @@ proof of concept.
 
 ## Safety and validation
 
+- Bench-test the implemented ExpressLRS 4.1 `SET TX`/`UID TX` flow against the
+  Ranger Nano and save a logic-analyser request/response capture.
+- Once a receiver is linked on 4.1, test receiver-first `SET RX`, then `SET TX`,
+  and verify that both returned UIDs match the locally calculated phrase UID.
+
 - Bench-test ER6G PWM output during boot, TX loss, RX reboot and deliberate
   brownout with the motor disconnected; save Saleae captures and pulse widths.
 - Add a physical throttle-cut/arm control after mapping the R1 switches.

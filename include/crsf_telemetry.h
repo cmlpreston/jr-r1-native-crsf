@@ -17,6 +17,12 @@ struct CrsfTelemetryState {
     uint32_t validFrames = 0;
     uint32_t crcErrors = 0;
     uint32_t rawBytes = 0;
+    bool transmitterUidValid = false;
+    bool receiverUidValid = false;
+    uint8_t transmitterUid[6] = {};
+    uint8_t receiverUid[6] = {};
+    uint32_t transmitterUidUpdatedMs = 0;
+    uint32_t receiverUidUpdatedMs = 0;
 };
 
 class CrsfTelemetryParser {

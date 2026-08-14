@@ -8,6 +8,9 @@ constexpr uint8_t kCrsfReceiverAddress = 0xEC;
 constexpr uint8_t kCrsfTransmitterAddress = 0xEE;
 constexpr uint8_t kFrameTypeBatterySensor = 0x08;
 constexpr uint8_t kFrameTypeLinkStatistics = 0x14;
+constexpr uint8_t kFrameTypeMspResponse = 0x7b;
+constexpr uint8_t kMspSetBindPhrase = 0x2d;
+constexpr uint8_t kSubcommandUid = 0x00;
 constexpr uint32_t kLinkFreshMs = 3000;
 // ER6G battery packets are substantially less frequent than link-statistics
 // packets. Retain the last valid voltage between reports without making a
@@ -102,6 +105,24 @@ void CrsfTelemetryParser::processFrame()
             static_cast<uint16_t>((payload[0] << 8) | payload[1]);
         state_.receiverVoltageValid = state_.receiverVoltageDecivolts != 0;
         state_.batteryUpdatedMs = millis();
+        return;
+    }
+
+    // MSP response layout: destination, origin, MSP header, length, command,
+    // subcommand, then the six UID bytes. The originating address identifies
+    // whether the response came from the local TX module or the RF receiver.
+    if (frameType == kFrameTypeMspResponse && payloadLength >= 12 &&
+        payload[0] == kRadioTransmitterAddress &&
+        payload[4] == kMspSetBindPhrase && payload[5] == kSubcommandUid) {
+        if (payload[1] == kCrsfTransmitterAddress) {
+            memcpy(state_.transmitterUid, &payload[6], 6);
+            state_.transmitterUidValid = true;
+            state_.transmitterUidUpdatedMs = millis();
+        } else if (payload[1] == kCrsfReceiverAddress) {
+            memcpy(state_.receiverUid, &payload[6], 6);
+            state_.receiverUidValid = true;
+            state_.receiverUidUpdatedMs = millis();
+        }
     }
 }
 

@@ -9,6 +9,7 @@
 #include "binding_resolver.h"
 #include "config.h"
 #include "crsf_channel_output.h"
+#include "crsf_management.h"
 #include "crsf_telemetry.h"
 #include "mcp23017_input.h"
 #include "physical_input_runtime.h"
@@ -65,6 +66,9 @@ SharedChannelOutputState sharedChannelOutputs;
 portMUX_TYPE channelOutputMux = portMUX_INITIALIZER_UNLOCKED;
 CrsfTelemetryState telemetrySnapshot;
 portMUX_TYPE telemetryMux = portMUX_INITIALIZER_UNLOCKED;
+portMUX_TYPE managementMux = portMUX_INITIALIZER_UNLOCKED;
+ElrsManagementRequest pendingManagementRequest;
+bool managementRequestPending = false;
 TaskHandle_t crsfTaskHandle = nullptr;
 TaskHandle_t controlTaskHandle = nullptr;
 ControlStateSnapshot controlStateSnapshot;
@@ -215,6 +219,44 @@ void sendChannelsFrame(const CrsfChannelOutputModel &model, bool live)
     uint8_t frame[CRSF_FRAME_BYTES];
     buildCrsfChannelsFrame(model, live, frame);
     transmitCrsfFrame(frame, sizeof(frame));
+}
+
+bool queueManagementRequest(const ElrsManagementRequest &request)
+{
+    bool queued = false;
+    portENTER_CRITICAL(&managementMux);
+    if (!managementRequestPending) {
+        pendingManagementRequest = request;
+        managementRequestPending = true;
+        queued = true;
+    }
+    portEXIT_CRITICAL(&managementMux);
+    return queued;
+}
+
+bool takeManagementRequest(ElrsManagementRequest &request)
+{
+    bool available = false;
+    portENTER_CRITICAL(&managementMux);
+    if (managementRequestPending) {
+        request = pendingManagementRequest;
+        managementRequestPending = false;
+        available = true;
+    }
+    portEXIT_CRITICAL(&managementMux);
+    return available;
+}
+
+void sendManagementRequest(const ElrsManagementRequest &request)
+{
+    uint8_t frame[64];
+    const size_t length = buildElrsManagementFrame(request, frame, sizeof(frame));
+    if (length == 0) return;
+    transmitCrsfFrame(frame, length);
+    Serial.printf("ELRS MGMT: sent %s to %s (%u-byte phrase)\n",
+        request.action == ElrsManagementAction::ReadUid ? "UID request" : "bindphrase",
+        request.target == ElrsManagementTarget::Transmitter ? "TX module" : "receiver",
+        request.phraseLength);
 }
 
 void readReturnedTelemetry()
@@ -378,6 +420,9 @@ void crsfTask(void *)
 {
     nextFrameUs = micros();
     uint32_t nextSnapshotMs = millis();
+    bool uidFollowupPending = false;
+    uint32_t uidFollowupDueMs = 0;
+    ElrsManagementTarget uidFollowupTarget = ElrsManagementTarget::Transmitter;
     for (;;) {
         const uint32_t nowUs = micros();
         if (static_cast<int32_t>(nowUs - nextFrameUs) >= 0) {
@@ -389,7 +434,27 @@ void crsfTask(void *)
             const bool stale = lastControlUs == 0 ||
                 static_cast<uint32_t>(nowUs - lastControlUs) > CONTROL_STALE_TIMEOUT_US;
             sharedControlStale = stale;
-            sendChannelsFrame(outputs.model, outputs.live && !stale);
+            ElrsManagementRequest management;
+            const bool requested = takeManagementRequest(management);
+            const bool followup = !requested && uidFollowupPending &&
+                static_cast<int32_t>(millis() - uidFollowupDueMs) >= 0;
+            if (requested || followup) {
+                if (followup) {
+                    management = ElrsManagementRequest{};
+                    management.action = ElrsManagementAction::ReadUid;
+                    management.target = uidFollowupTarget;
+                    uidFollowupPending = false;
+                }
+                sendManagementRequest(management);
+                if (management.action == ElrsManagementAction::SetBindPhrase) {
+                    // ExpressLRS schedules a reboot 200 ms after changing its
+                    // UID. Give the endpoint ample time, then verify the UID.
+                    uidFollowupTarget = management.target;
+                    uidFollowupDueMs = millis() + 1200;
+                    uidFollowupPending = true;
+                }
+            } else
+                sendChannelsFrame(outputs.model, outputs.live && !stale);
         }
         readReturnedTelemetry();
         const uint32_t nowMs = millis();
@@ -575,6 +640,12 @@ void loop()
                       control.outputPermille,
                       control.transmittedCrsf, control.safetyStatus,
                       telemetry, txVoltageDecivolts, txVoltageValid);
+    ElrsManagementRequest management;
+    if (channel2Ui.consumeElrsManagementRequest(management)) {
+        requestControlReset();
+        if (!queueManagementRequest(management))
+            Serial.println("ELRS MGMT: queue busy; request discarded");
+    }
     if (channel2Ui.consumeBindingsChanged()) {
         // CUT the complete output model before replacing resolver state. The
         // new mapping cannot reach the RF task until the neutral interlock is

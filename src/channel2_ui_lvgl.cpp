@@ -285,6 +285,12 @@ uint16_t defaultLowAlarmDecivolts(BatteryChemistry chemistry,
     return static_cast<uint16_t>(perCellDecivolts) * cells;
 }
 
+void formatUid(const uint8_t *uid, char *text, size_t capacity)
+{
+    snprintf(text, capacity, "%02X:%02X:%02X:%02X:%02X:%02X",
+             uid[0], uid[1], uid[2], uid[3], uid[4], uid[5]);
+}
+
 const char *uiPageName(UiPage page)
 {
     switch (page) {
@@ -304,6 +310,7 @@ const char *uiPageName(UiPage page)
         case UiPage::TxBatterySetup: return "tx-battery";
         case UiPage::RxBatterySetup: return "rx-battery";
         case UiPage::DisplaySetup: return "display";
+        case UiPage::ElrsBinding: return "elrs-binding";
         case UiPage::Calibration: return "calibration";
     }
     return "unknown";
@@ -319,6 +326,7 @@ bool Channel2Ui::begin()
     loadTxBatterySettings();
     loadRxBatterySettings();
     loadDriveModeSettings();
+    loadElrsSettings();
     loadChannelParameters();
     loadBindings();
     uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
@@ -588,6 +596,14 @@ bool Channel2Ui::consumeSafetyResetRequested()
     return requested;
 }
 
+bool Channel2Ui::consumeElrsManagementRequest(ElrsManagementRequest &request)
+{
+    if (!elrsRequestPending_) return false;
+    request = elrsPendingRequest_;
+    elrsRequestPending_ = false;
+    return true;
+}
+
 void Channel2Ui::saveCalibration()
 {
     const ProportionalCalibration &calibration = triggerInput_.calibration();
@@ -723,6 +739,23 @@ void Channel2Ui::saveDriveModeSettings()
     Preferences preferences;
     preferences.begin("jr-r1-drive", false);
     preferences.putUChar("walk_limit", driveModeSettings_.walkLimitPercent);
+    preferences.end();
+}
+
+void Channel2Ui::loadElrsSettings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-elrs", true);
+    String phrase = preferences.getString("phrase", "");
+    preferences.end();
+    phrase.toCharArray(elrsBindPhrase_, sizeof(elrsBindPhrase_));
+}
+
+void Channel2Ui::saveElrsSettings()
+{
+    Preferences preferences;
+    preferences.begin("jr-r1-elrs", false);
+    preferences.putString("phrase", elrsBindPhrase_);
     preferences.end();
 }
 
@@ -1123,6 +1156,7 @@ void Channel2Ui::redrawActivePage()
         case UiPage::TxBatterySetup: drawTxBatteryPage(); break;
         case UiPage::RxBatterySetup: drawRxBatteryPage(); break;
         case UiPage::DisplaySetup: drawDisplayPage(); break;
+        case UiPage::ElrsBinding: drawElrsBindingPage(); break;
         case UiPage::Calibration: drawCalibrationPage(); break;
     }
 }
@@ -1533,7 +1567,7 @@ void Channel2Ui::drawMainMenu()
         "DRIVE MODES", "TIMERS", "LINK / TELEM", "SETUP"};
     for (uint8_t index = 0; index < 8; ++index) {
         const bool enabled = index == 1 || index == 2 || index == 3 ||
-                             index == 4 || index == 7;
+                             index == 4 || index == 6 || index == 7;
         makeButton(10 + (index % 2) * 235, 52 + (index / 2) * 54, 225, 46,
                    labels[index], 16,
                    enabled ? cPanel2 : cBlack,
@@ -2108,6 +2142,49 @@ void Channel2Ui::drawSetupPage()
     makeButton(348, 265, 122, 44, "RX BAT", 13, cPanel2, cCyan);
 }
 
+void Channel2Ui::drawElrsBindingPage()
+{
+    activePage_ = UiPage::ElrsBinding;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("ELRS BINDING", "BACK");
+
+    lv_obj_t *phrasePanel = makePanel(8, 47, 464, 43);
+    char phraseText[64];
+    snprintf(phraseText, sizeof(phraseText), "PHRASE: %s",
+             elrsBindPhrase_[0] == '\0' ? "<blank / unbound>" : elrsBindPhrase_);
+    makeLabel(phrasePanel, phraseText, 8, 3, 13, cWhite);
+    makeLabel(phrasePanel, elrsStatus_, 8, 22, 11,
+              strstr(elrsStatus_, "MATCH") != nullptr ? cGreen : cAmber);
+
+    const char *actions[] = {"SET TX", "SET RX", "UID TX", "UID RX", "CLEAR"};
+    for (uint8_t index = 0; index < 5; ++index) {
+        const bool unavailable = (index == 1 || index == 3) &&
+                                 !elrsReceiverLinkAvailable_;
+        makeButton(8 + index * 93, 94, 87, 32, actions[index], 11,
+                   unavailable ? cBlack : cPanel2,
+                   unavailable ? cDim : (index < 2 ? cAmber : cCyan));
+    }
+
+    const char *rows[] = {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm-_"};
+    const uint8_t lengths[] = {10, 10, 9, 9};
+    for (uint8_t row = 0; row < 4; ++row) {
+        constexpr int16_t width = 42;
+        const int16_t startX = (kScreenWidth - lengths[row] * width) / 2;
+        for (uint8_t column = 0; column < lengths[row]; ++column) {
+            char label[2] = {rows[row][column], '\0'};
+            if (elrsKeyboardUppercase_ && label[0] >= 'a' && label[0] <= 'z')
+                label[0] = static_cast<char>(label[0] - 'a' + 'A');
+            makeButton(startX + column * width, 130 + row * 38,
+                       width - 3, 34, label, 14, cPanel, cWhite);
+        }
+    }
+    makeButton(43, 282, 92, 32,
+               elrsKeyboardUppercase_ ? "lower" : "UPPER", 12);
+    makeButton(143, 282, 194, 32, "SPACE", 12);
+    makeButton(345, 282, 92, 32, "<--", 14, cPanel2, cAmber);
+}
+
 void Channel2Ui::drawDisplayRow(int row)
 {
     static const char *labels[] = {"SCREEN TIMEOUT", "UI BRIGHTNESS", "NIGHT MODE", "SLEEP NOW"};
@@ -2482,6 +2559,7 @@ void Channel2Ui::handleMainMenuTouch(int16_t x, int16_t y)
     else if (item == 2) drawThrottleResponsePage();
     else if (item == 3) drawControlAssignmentsPage();
     else if (item == 4) drawDriveModesPage();
+    else if (item == 6) drawElrsBindingPage();
     else if (item == 7) drawSetupPage();
 }
 
@@ -2794,6 +2872,99 @@ void Channel2Ui::handleSetupTouch(int16_t x, int16_t y)
     if (changed) { saveSystemSettings(); playKeyClick(); drawSetupPage(); }
 }
 
+void Channel2Ui::appendElrsKeyboardCharacter(char character)
+{
+    const size_t length = strlen(elrsBindPhrase_);
+    if (length >= kElrsMaximumBindPhraseLength) {
+        snprintf(elrsStatus_, sizeof(elrsStatus_), "Maximum is 51 characters");
+        return;
+    }
+    elrsBindPhrase_[length] = character;
+    elrsBindPhrase_[length + 1] = '\0';
+    snprintf(elrsStatus_, sizeof(elrsStatus_), "Edited locally; not sent yet");
+}
+
+void Channel2Ui::queueElrsRequest(ElrsManagementAction action,
+                                  ElrsManagementTarget target)
+{
+    if (target == ElrsManagementTarget::Receiver && !elrsReceiverLinkAvailable_) {
+        snprintf(elrsStatus_, sizeof(elrsStatus_), "RX unavailable: no live RF link");
+        return;
+    }
+    if (action == ElrsManagementAction::SetBindPhrase &&
+        elrsBindPhrase_[0] == '\0') {
+        snprintf(elrsStatus_, sizeof(elrsStatus_), "Blank would unbind; enter a phrase");
+        return;
+    }
+    if (elrsRequestPending_) {
+        snprintf(elrsStatus_, sizeof(elrsStatus_), "Management request already queued");
+        return;
+    }
+    elrsPendingRequest_ = ElrsManagementRequest{};
+    elrsPendingRequest_.action = action;
+    elrsPendingRequest_.target = target;
+    elrsPendingRequest_.phraseLength = static_cast<uint8_t>(strlen(elrsBindPhrase_));
+    memcpy(elrsPendingRequest_.phrase, elrsBindPhrase_,
+           elrsPendingRequest_.phraseLength + 1);
+    elrsRequestPending_ = true;
+    armRequested_ = false;
+    safetyResetRequested_ = true;
+    if (action == ElrsManagementAction::SetBindPhrase) saveElrsSettings();
+    snprintf(elrsStatus_, sizeof(elrsStatus_), "%s queued; outputs CUT",
+             action == ElrsManagementAction::SetBindPhrase ? "Bindphrase" : "UID read");
+}
+
+void Channel2Ui::handleElrsBindingTouch(int16_t x, int16_t y)
+{
+    if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
+    if (y >= 94 && y < 128) {
+        const uint8_t action = constrain(x / 93, 0, 4);
+        if (action == 0) queueElrsRequest(ElrsManagementAction::SetBindPhrase,
+                                         ElrsManagementTarget::Transmitter);
+        else if (action == 1) queueElrsRequest(ElrsManagementAction::SetBindPhrase,
+                                              ElrsManagementTarget::Receiver);
+        else if (action == 2) queueElrsRequest(ElrsManagementAction::ReadUid,
+                                              ElrsManagementTarget::Transmitter);
+        else if (action == 3) queueElrsRequest(ElrsManagementAction::ReadUid,
+                                              ElrsManagementTarget::Receiver);
+        else {
+            elrsBindPhrase_[0] = '\0';
+            snprintf(elrsStatus_, sizeof(elrsStatus_), "Entry cleared; module unchanged");
+        }
+        playKeyClick(); drawElrsBindingPage(); return;
+    }
+
+    const char *rows[] = {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm-_"};
+    const uint8_t lengths[] = {10, 10, 9, 9};
+    if (y >= 130 && y < 282) {
+        const uint8_t row = (y - 130) / 38;
+        if (row < 4) {
+            constexpr int16_t width = 42;
+            const int16_t startX = (kScreenWidth - lengths[row] * width) / 2;
+            if (x >= startX) {
+                const uint8_t column = (x - startX) / width;
+                if (column < lengths[row]) {
+                    char character = rows[row][column];
+                    if (elrsKeyboardUppercase_ && character >= 'a' && character <= 'z')
+                        character = static_cast<char>(character - 'a' + 'A');
+                    appendElrsKeyboardCharacter(character);
+                    playKeyClick(); drawElrsBindingPage(); return;
+                }
+            }
+        }
+    }
+    if (y >= 282) {
+        if (x < 140) elrsKeyboardUppercase_ = !elrsKeyboardUppercase_;
+        else if (x < 340) appendElrsKeyboardCharacter(' ');
+        else {
+            const size_t length = strlen(elrsBindPhrase_);
+            if (length != 0) elrsBindPhrase_[length - 1] = '\0';
+            snprintf(elrsStatus_, sizeof(elrsStatus_), "Edited locally; not sent yet");
+        }
+        playKeyClick(); drawElrsBindingPage();
+    }
+}
+
 void Channel2Ui::handleDisplayTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) { playKeyClick(); drawSetupPage(); return; }
@@ -2949,6 +3120,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::TxBatterySetup) { handleTxBatteryTouch(x, y); return; }
     if (activePage_ == UiPage::RxBatterySetup) { handleRxBatteryTouch(x, y); return; }
     if (activePage_ == UiPage::DisplaySetup) { handleDisplayTouch(x, y); return; }
+    if (activePage_ == UiPage::ElrsBinding) { handleElrsBindingTouch(x, y); return; }
     if (y < 48 && x >= 186 && x < 262) { playKeyClick(); drawThrottleResponsePage(); return; }
     if (y < 48 && x >= 262 && x < 340) { playKeyClick(); drawChannelsPage(); return; }
     if (headerActionTouched(x, y)) { playKeyClick(); startCalibration(latestRawAdc_); return; }
@@ -3066,6 +3238,36 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
                         uint16_t txVoltageDecivolts, bool txVoltageValid)
 {
     latestRawAdc_ = rawAdc;
+    bool redrawElrsPage = false;
+    if (elrsReceiverLinkAvailable_ != telemetry.linkValid) {
+        elrsReceiverLinkAvailable_ = telemetry.linkValid;
+        redrawElrsPage = activePage_ == UiPage::ElrsBinding;
+    }
+    if (telemetry.transmitterUidValid &&
+        telemetry.transmitterUidUpdatedMs != lastTransmitterUidUpdateMs_) {
+        lastTransmitterUidUpdateMs_ = telemetry.transmitterUidUpdatedMs;
+        uint8_t expected[kElrsUidLength];
+        calculateElrsBindPhraseUid(elrsBindPhrase_, expected);
+        char uidText[24];
+        formatUid(telemetry.transmitterUid, uidText, sizeof(uidText));
+        snprintf(elrsStatus_, sizeof(elrsStatus_), "TX UID %s  %s", uidText,
+                 memcmp(expected, telemetry.transmitterUid, kElrsUidLength) == 0
+                    ? "MATCH" : "DIFFERS");
+        redrawElrsPage = activePage_ == UiPage::ElrsBinding;
+    }
+    if (telemetry.receiverUidValid &&
+        telemetry.receiverUidUpdatedMs != lastReceiverUidUpdateMs_) {
+        lastReceiverUidUpdateMs_ = telemetry.receiverUidUpdatedMs;
+        uint8_t expected[kElrsUidLength];
+        calculateElrsBindPhraseUid(elrsBindPhrase_, expected);
+        char uidText[24];
+        formatUid(telemetry.receiverUid, uidText, sizeof(uidText));
+        snprintf(elrsStatus_, sizeof(elrsStatus_), "RX UID %s  %s", uidText,
+                 memcmp(expected, telemetry.receiverUid, kElrsUidLength) == 0
+                    ? "MATCH" : "DIFFERS");
+        redrawElrsPage = activePage_ == UiPage::ElrsBinding;
+    }
+    if (redrawElrsPage) drawElrsBindingPage();
     updateTouch();
     if (triggerInput_.calibrationActive()) updateCalibration(rawAdc);
 

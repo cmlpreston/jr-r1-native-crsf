@@ -214,6 +214,10 @@ private:
     bool readTouch(int16_t &x, int16_t &y, uint16_t &rawX, uint16_t &rawY,
                    uint16_t &rawZ);
     uint16_t readTouchRegister(uint8_t command);
+    bool initialiseTouchController();
+    bool readGt911Register(uint16_t reg, uint8_t *data, size_t length);
+    bool writeGt911Register(uint16_t reg, uint8_t value);
+    void applyBacklight(uint8_t percent);
     void playBuzzer(uint16_t durationMs);
     void playKeyClick();
     void stopBuzzer();

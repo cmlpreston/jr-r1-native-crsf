@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "display_profile.h"
 
 // ESP32-S3 DevKitC-1 pin assignments.
 // GPIO19 and GPIO20 are deliberately not used: they are native USB D-/D+.
@@ -15,34 +16,13 @@ constexpr gpio_num_t CRSF_SIGNAL_PIN = GPIO_NUM_17;
 constexpr gpio_num_t BUZZER_PIN = GPIO_NUM_4;
 constexpr uint8_t BUZZER_LEDC_CHANNEL = 7;
 
-// BIGTREETECH TFT35 SPI V2.1. The LCD is powered from 5 V but all interface
-// signals are 3.3 V logic. GPIO19/20 remain reserved for native USB.
-constexpr int TFT_CS_PIN = 10;       // TFT35 NSS
-constexpr int TFT_DC_PIN = 9;        // TFT35 RS / data-command
-constexpr int TFT_SCK_PIN = 12;
-constexpr int TFT_MOSI_PIN = 11;
-constexpr int TFT_MISO_PIN = 13;
-constexpr int TOUCH_SDA_PIN = 8;     // NS2009 SDA
-constexpr int TOUCH_SCL_PIN = 18;    // NS2009 SCL
-constexpr int TOUCH_IRQ_PIN = 16;    // TFT35 IDRQ, active low
-
-// Waveshare MCP23017 I/O expansion board on the same I2C bus as the NS2009
+// Waveshare MCP23017 I/O expansion board on the same I2C bus as the selected
 // touch controller. With A0/A1/A2 all open, Waveshare pulls all three address
 // bits high and the board responds at 0x27.
 constexpr uint8_t MCP23017_I2C_ADDRESS = 0x27;
 constexpr uint32_t MCP23017_POLL_PERIOD_MS = 5;
 constexpr uint8_t MCP23017_TEST_PORT = 0;       // PA0
 constexpr uint8_t MCP23017_TEST_CRSF_CHANNEL = 4;
-
-constexpr uint32_t TFT_SPI_FREQUENCY = 25000000;
-constexpr uint8_t NS2009_I2C_ADDRESS = 0x48;
-
-// Initial NS2009 calibration. Raw coordinates are printed over USB whenever
-// the panel is touched so these can be refined for this particular screen.
-constexpr int TOUCH_RAW_X_MIN = 200;
-constexpr int TOUCH_RAW_X_MAX = 3850;
-constexpr int TOUCH_RAW_Y_MIN = 400;
-constexpr int TOUCH_RAW_Y_MAX = 3920;
 
 // Measure these three values from the USB log with the trigger at:
 // full brake/reverse, released/neutral, and full throttle.
@@ -63,10 +43,6 @@ constexpr uint32_t ARM_NEUTRAL_TIME_MS = 1000;
 constexpr uint16_t THROTTLE_ADC_VALID_MIN = 100;
 constexpr uint16_t THROTTLE_ADC_VALID_MAX = 4090;
 constexpr uint32_t CONTROL_STALE_TIMEOUT_US = 250000; // 250 ms
-
-// The TFT35 connector used here has no exposed backlight-control input. Set
-// this to a real PWM-capable GPIO only after adding a transistor/MOSFET stage.
-constexpr int TFT_BACKLIGHT_PIN = -1;
 
 constexpr uint32_t CRSF_BAUD = 400000;
 constexpr uint32_t CRSF_FRAME_PERIOD_US = 4000; // 250 Hz initial test rate

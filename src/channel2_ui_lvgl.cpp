@@ -13,8 +13,8 @@ LV_IMG_DECLARE(hyper7_icon);
 
 namespace {
 
-constexpr int16_t kScreenWidth = 480;
-constexpr int16_t kScreenHeight = 320;
+constexpr int16_t kScreenWidth = DISPLAY_LANDSCAPE_WIDTH;
+constexpr int16_t kScreenHeight = DISPLAY_LANDSCAPE_HEIGHT;
 constexpr uint16_t kCrsfMid = 992;
 // Standard CRSF/servo travel. Values 0..2047 are representable, but 172..1811
 // maps to the conventional approximately 988..2012 us receiver PWM range.
@@ -72,8 +72,13 @@ bool uiNightMode = false;
 
 Arduino_DataBus *displayBus = new Arduino_ESP32SPI(
     TFT_DC_PIN, TFT_CS_PIN, TFT_SCK_PIN, TFT_MOSI_PIN, TFT_MISO_PIN);
+#if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+Arduino_GFX *display = new Arduino_ST7796(
+    displayBus, TFT_RESET_PIN, 3, true, 320, 480);
+#else
 Arduino_GFX *display = new Arduino_ILI9486_18bit(
     displayBus, GFX_NOT_DEFINED, 1, false);
+#endif
 SPIClass screenshotSpi(FSPI);
 
 lv_disp_draw_buf_t drawBuffer;
@@ -98,7 +103,10 @@ void screenshotCoordinate(uint16_t start, uint16_t end)
 
 lv_color_t colour(uint32_t rgb)
 {
-    uint16_t scale = uiBrightnessPercent;
+    // The BTT panel has no exposed backlight input, so its brightness setting
+    // is approximated by scaling rendered colours. The Waveshare profile uses
+    // real backlight PWM and keeps the full RGB range here.
+    uint16_t scale = DISPLAY_HAS_PWM_BACKLIGHT ? 100 : uiBrightnessPercent;
     if (uiNightMode) scale = scale * 60U / 100U;
     const uint8_t red = ((rgb >> 16) & 0xffU) * scale / 100U;
     const uint8_t green = ((rgb >> 8) & 0xffU) * scale / 100U;
@@ -318,9 +326,16 @@ bool Channel2Ui::begin()
     setToneChannel(BUZZER_LEDC_CHANNEL);
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
-    pinMode(TOUCH_IRQ_PIN, INPUT_PULLUP);
     Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
     Wire.setClock(400000);
+    const bool touchReady = initialiseTouchController();
+
+    if (DISPLAY_HAS_PWM_BACKLIGHT) {
+        ledcSetup(TFT_BACKLIGHT_LEDC_CHANNEL, TFT_BACKLIGHT_PWM_FREQUENCY,
+                  TFT_BACKLIGHT_PWM_BITS);
+        ledcAttachPin(TFT_BACKLIGHT_PIN, TFT_BACKLIGHT_LEDC_CHANNEL);
+        ledcWrite(TFT_BACKLIGHT_LEDC_CHANNEL, 0);
+    }
 
     // Initialise the shared hardware SPI handle before Arduino_GFX configures
     // the same FSPI peripheral. It is used only for explicit, synchronous LCD
@@ -328,9 +343,10 @@ bool Channel2Ui::begin()
     screenshotSpi.begin(TFT_SCK_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_CS_PIN);
     displayReady_ = display->begin(TFT_SPI_FREQUENCY);
     if (!displayReady_) {
-        Serial.println("TFT35/LVGL: display initialisation failed");
+        Serial.printf("DISPLAY: %s initialisation failed\n", DISPLAY_PROFILE_NAME);
         return false;
     }
+    applyBacklight(systemSettings_.displayBrightnessPercent);
 
     lv_init();
     lv_disp_draw_buf_init(&drawBuffer, lineBuffer, nullptr,
@@ -345,9 +361,12 @@ bool Channel2Ui::begin()
     drawDashboard();
     lastInteractionMs_ = millis();
     lv_refr_now(nullptr);
-    Serial.printf("TFT35/LVGL: %dx%d, SPI=%lu Hz, buffer=%u rows\n",
-                  kScreenWidth, kScreenHeight,
-                  static_cast<unsigned long>(TFT_SPI_FREQUENCY), 16U);
+    Serial.printf("DISPLAY: %s, %dx%d, SPI=%lu Hz, touch=%s, buffer=%u rows\n",
+                  DISPLAY_PROFILE_NAME, kScreenWidth, kScreenHeight,
+                  static_cast<unsigned long>(TFT_SPI_FREQUENCY),
+                  touchReady ? "ready" : "offline", 16U);
+    if (!touchReady)
+        Serial.println("DISPLAY: touch controller did not respond; LCD remains usable");
     playBuzzer(80);
     return true;
 }
@@ -1057,23 +1076,28 @@ void Channel2Ui::sleepDisplay()
 {
     if (!displayReady_ || displaySleeping_) return;
     displayBus->beginWrite();
-    // ILI9486 DCS Display OFF. Do not also issue Sleep IN here: on the
-    // TFT35-SPI V2.1 panel that combination leaves the powered backlight
-    // illuminating a solid white panel. Keeping this as an isolated 0x28
-    // command also lets us measure what display blanking alone saves.
+    // Standard DCS Display OFF. Do not also issue Sleep IN here: on the BTT
+    // panel that combination leaves the powered backlight illuminating a
+    // solid white panel. The Waveshare profile separately turns its exposed
+    // backlight off below.
     displayBus->writeCommand(0x28);
     displayBus->endWrite();
+    if (DISPLAY_HAS_PWM_BACKLIGHT)
+        ledcWrite(TFT_BACKLIGHT_LEDC_CHANNEL, 0);
     displaySleeping_ = true;
-    Serial.println("DISPLAY: off (0x28; touch to wake)");
+    Serial.println(DISPLAY_HAS_PWM_BACKLIGHT
+        ? "DISPLAY: off (0x28 and backlight off; touch to wake)"
+        : "DISPLAY: off (0x28; touch to wake)");
 }
 
 void Channel2Ui::wakeDisplay()
 {
     if (!displayReady_ || !displaySleeping_) return;
     displayBus->beginWrite();
-    displayBus->writeCommand(0x29); // ILI9486 DCS Display ON
+    displayBus->writeCommand(0x29); // Standard DCS Display ON
     displayBus->endWrite();
     displaySleeping_ = false;
+    applyBacklight(systemSettings_.displayBrightnessPercent);
     lastInteractionMs_ = millis();
     lv_obj_invalidate(lv_scr_act());
     lv_refr_now(nullptr);
@@ -2295,16 +2319,130 @@ void Channel2Ui::updateCalibration(uint16_t adc)
 
 uint16_t Channel2Ui::readTouchRegister(uint8_t command)
 {
+#if DISPLAY_PROFILE == DISPLAY_PROFILE_BTT_TFT35_SPI
     Wire.beginTransmission(NS2009_I2C_ADDRESS);
     Wire.write(command);
     if (Wire.endTransmission() != 0) return 0;
     if (Wire.requestFrom(NS2009_I2C_ADDRESS, static_cast<uint8_t>(2)) != 2) return 0;
     return static_cast<uint16_t>((Wire.read() << 4) | (Wire.read() >> 4));
+#else
+    (void)command;
+    return 0;
+#endif
+}
+
+bool Channel2Ui::readGt911Register(uint16_t reg, uint8_t *data, size_t length)
+{
+#if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+    Wire.beginTransmission(GT911_I2C_ADDRESS);
+    Wire.write(static_cast<uint8_t>(reg >> 8));
+    Wire.write(static_cast<uint8_t>(reg));
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom(GT911_I2C_ADDRESS, length) != length) {
+        while (Wire.available()) Wire.read();
+        return false;
+    }
+    for (size_t index = 0; index < length; ++index)
+        data[index] = static_cast<uint8_t>(Wire.read());
+    return true;
+#else
+    (void)reg; (void)data; (void)length;
+    return false;
+#endif
+}
+
+bool Channel2Ui::writeGt911Register(uint16_t reg, uint8_t value)
+{
+#if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+    Wire.beginTransmission(GT911_I2C_ADDRESS);
+    Wire.write(static_cast<uint8_t>(reg >> 8));
+    Wire.write(static_cast<uint8_t>(reg));
+    Wire.write(value);
+    return Wire.endTransmission() == 0;
+#else
+    (void)reg; (void)value;
+    return false;
+#endif
+}
+
+bool Channel2Ui::initialiseTouchController()
+{
+#if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+    // Goodix address-select/reset sequence used by Waveshare. Holding INT low
+    // when reset is released selects address 0x5d.
+    pinMode(TOUCH_IRQ_PIN, OUTPUT);
+    pinMode(TOUCH_RESET_PIN, OUTPUT);
+    digitalWrite(TOUCH_IRQ_PIN, LOW);
+    digitalWrite(TOUCH_RESET_PIN, LOW);
+    delay(11);
+    digitalWrite(TOUCH_IRQ_PIN, LOW);
+    delayMicroseconds(110);
+    digitalWrite(TOUCH_RESET_PIN, HIGH);
+    delay(6);
+    digitalWrite(TOUCH_IRQ_PIN, LOW);
+    delay(55);
+    pinMode(TOUCH_IRQ_PIN, INPUT_PULLUP);
+    delay(100);
+
+    uint8_t productId[4] = {};
+    const bool ready = readGt911Register(0x8140, productId, sizeof(productId));
+    if (ready) {
+        Serial.printf("TOUCH: GT911 address=0x%02X product=%c%c%c%c\n",
+                      GT911_I2C_ADDRESS, productId[0], productId[1],
+                      productId[2], productId[3]);
+        writeGt911Register(GT911_POINTS_INFO_REGISTER, 0);
+    }
+    return ready;
+#else
+    pinMode(TOUCH_IRQ_PIN, INPUT_PULLUP);
+    Wire.beginTransmission(NS2009_I2C_ADDRESS);
+    const bool ready = Wire.endTransmission() == 0;
+    Serial.printf("TOUCH: NS2009 address=0x%02X %s\n", NS2009_I2C_ADDRESS,
+                  ready ? "ready" : "not found");
+    return ready;
+#endif
+}
+
+void Channel2Ui::applyBacklight(uint8_t percent)
+{
+    if (!DISPLAY_HAS_PWM_BACKLIGHT || displaySleeping_) return;
+    percent = constrain(percent, 0, 100);
+    const uint8_t duty = static_cast<uint8_t>((percent * 255U + 50U) / 100U);
+    ledcWrite(TFT_BACKLIGHT_LEDC_CHANNEL, duty);
 }
 
 bool Channel2Ui::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
                            uint16_t &rawY, uint16_t &rawZ)
 {
+#if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+    uint8_t status = 0;
+    if (!readGt911Register(GT911_POINTS_INFO_REGISTER, &status, 1)) return false;
+    if ((status & 0x80U) == 0) return false;
+
+    const uint8_t touches = status & 0x0fU;
+    if (touches == 0 || touches > 5) {
+        writeGt911Register(GT911_POINTS_INFO_REGISTER, 0);
+        return false;
+    }
+
+    uint8_t point[7] = {};
+    const bool pointReady = readGt911Register(
+        GT911_FIRST_POINT_REGISTER, point, sizeof(point));
+    writeGt911Register(GT911_POINTS_INFO_REGISTER, 0);
+    if (!pointReady) return false;
+
+    rawX = static_cast<uint16_t>(point[1] | (point[2] << 8U));
+    rawY = static_cast<uint16_t>(point[3] | (point[4] << 8U));
+    rawZ = static_cast<uint16_t>(point[5] | (point[6] << 8U));
+
+    // Match the Waveshare example's rotation 3: landscape with the connector
+    // orientation used by the ST7796 display profile.
+    x = constrain(static_cast<int32_t>(kScreenWidth - 1 - rawY),
+                  0L, static_cast<int32_t>(kScreenWidth - 1));
+    y = constrain(static_cast<int32_t>(rawX),
+                  0L, static_cast<int32_t>(kScreenHeight - 1));
+    return true;
+#else
     if (digitalRead(TOUCH_IRQ_PIN) != LOW) return false;
     rawZ = readTouchRegister(kNsReadZ);
     if (rawZ <= kTouchPressureThreshold || rawZ == 0x0fff) return false;
@@ -2313,6 +2451,7 @@ bool Channel2Ui::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
     x = constrain(map(rawY, TOUCH_RAW_Y_MIN, TOUCH_RAW_Y_MAX, 0, kScreenWidth - 1), 0, kScreenWidth - 1);
     y = constrain(map(rawX, TOUCH_RAW_X_MIN, TOUCH_RAW_X_MAX, kScreenHeight - 1, 0), 0, kScreenHeight - 1);
     return true;
+#endif
 }
 
 void Channel2Ui::handleDashboardTouch(int16_t x, int16_t y)
@@ -2673,6 +2812,7 @@ void Channel2Ui::handleDisplayTouch(int16_t x, int16_t y)
             static_cast<int>(systemSettings_.displayBrightnessPercent) + direction * 10,
             20, 100);
         uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
+        applyBacklight(uiBrightnessPercent);
     } else if (row == 2) {
         systemSettings_.nightMode = !systemSettings_.nightMode;
         uiNightMode = systemSettings_.nightMode;
@@ -2850,7 +2990,14 @@ void Channel2Ui::updateTouch()
         return;
     }
     if (discardTouchUntilRelease_) {
-        if (!irqActive) {
+        bool stillTouched = irqActive;
+        if (DISPLAY_USES_GT911) {
+            int16_t discardX = 0, discardY = 0;
+            uint16_t discardRawX = 0, discardRawY = 0, discardRawZ = 0;
+            stillTouched = readTouch(discardX, discardY, discardRawX,
+                                     discardRawY, discardRawZ);
+        }
+        if (!stillTouched) {
             discardTouchUntilRelease_ = false;
             touchIgnoreUntilMs_ = now + kTouchRetriggerGuardMs;
         }
@@ -2889,7 +3036,7 @@ void Channel2Ui::updateTouch()
     }
 
     if (!touchWasDown_) return;
-    if (irqActive) {
+    if (!DISPLAY_USES_GT911 && irqActive) {
         // Pressure conversion can momentarily fail while the controller's IRQ
         // still proves the panel is being touched.
         touchReleaseSinceMs_ = 0;

@@ -6,9 +6,10 @@ sends a standard 16-channel CRSF channels frame to a RadioMaster Ranger Nano.
 
 The throttle role defaults to CRSF channel 2 but can be moved to any of the 16
 channels from the TFT. Channel 1 is reserved for future steering input by
-default; all inputs not yet implemented remain centred. The BIGTREETECH TFT35
-SPI V2.1 provides persistent role, endpoint, trim, direction, rate and
-exponential configuration.
+default; all inputs not yet implemented remain centred. A selectable display
+profile supports the Waveshare 3.5inch RPi LCD (F) by default and retains the
+BIGTREETECH TFT35 SPI V2.1 as a build-time fallback. The touchscreen UI provides
+persistent role, endpoint, trim, direction, rate and exponential configuration.
 
 The consolidated wiring and GPIO allocation is maintained in
 [`docs/hardware-pinout.md`](docs/hardware-pinout.md). The original R1 control
@@ -27,9 +28,11 @@ but cannot affect output channels until given an explicit binding.
 ## Capturing a TFT screenshot
 
 The firmware accepts `SCREENSHOT` over its native USB serial connection. It
-reads the ILI9486 display memory through the TFT35 `MISO` connection and streams
-a framed 480x320 RGB888 image without allocating a full framebuffer. Capturing
-forces throttle CUT because the main control loop pauses during the transfer.
+reads display memory through the SPI `MISO` connection and streams a framed
+480x320 RGB888 image without allocating a full framebuffer. Capturing forces
+throttle CUT because the main control loop pauses during the transfer. The
+established ILI9486 capture path remains available with the BTT profile; ST7796
+capture on the Waveshare panel must be bench-verified.
 
 Stop PlatformIO's serial monitor so the capture tool can open the port, then run:
 
@@ -180,7 +183,47 @@ ESC, confirm the USB log reaches `requested=1811` at full forward and
 armed), then teach the ESC those actual receiver endpoints according to its own
 calibration procedure.
 
-## BIGTREETECH TFT35 SPI V2.1 wiring
+## Display profiles
+
+The installed display is selected centrally in `include/display_profile.h`.
+The normal build defaults to `DISPLAY_PROFILE_WAVESHARE_RPI_35F`. To reconnect
+the original BTT panel without editing source, build or upload the dedicated
+fallback environment:
+
+```sh
+pio run -e esp32-s3-devkitc-1-btt -t upload
+```
+
+Both profiles preserve the common SPI and I2C pins. Controller type, reset,
+touch implementation and backlight behaviour are isolated behind the profile.
+
+### Waveshare 3.5inch RPi LCD (F) wiring (default)
+
+Use the panel's 13-pin 1.25 mm connector. The official ESP32-S3 example powers
+this connector from **3.3 V**. An external regulated 3.3 V supply is suitable;
+join its ground to the ESP32 ground before connecting signal wires.
+
+| LCD signal | ESP32-S3 DevKitC pin | Purpose |
+|---|---:|---|
+| `VCC` | External regulated `3.3V` | Panel power |
+| `GND` | `GND` | Common ground |
+| `LCD_MISO` | GPIO13 | LCD SPI data to ESP32 |
+| `LCD_MOSI` | GPIO11 | LCD SPI data from ESP32 |
+| `LCD_CLK` | GPIO12 | LCD SPI clock |
+| `LCD_CS` | GPIO10 | LCD chip select |
+| `LCD_DC` | GPIO9 | LCD data/command |
+| `LCD_RST` | GPIO40 | ST7796 reset |
+| `LCD_BL` | GPIO41 | Backlight PWM |
+| `TP_SDA` | GPIO8 | GT911 touch I2C data |
+| `TP_SCL` | GPIO18 | GT911 touch I2C clock |
+| `TP_INT` | GPIO16 | GT911 touch interrupt |
+| `TP_RST` | GPIO42 | GT911 reset/address select |
+
+The firmware uses ST7796 rotation 3, GT911 address `0x5D`, and real 5 kHz
+backlight PWM. Display sleep therefore turns both the controller and backlight
+off, and the brightness setting controls the physical backlight.
+
+### BIGTREETECH TFT35 SPI V2.1 wiring (fallback)
 
 The screen board takes **5 V power**, but its LCD, touch and interrupt signals
 are **3.3 V logic** and connect directly to the ESP32-S3.
@@ -198,10 +241,8 @@ are **3.3 V logic** and connect directly to the ESP32-S3.
 | `SCL` | GPIO18 | NS2009 touch I2C clock |
 | `IDRQ` | GPIO16 | NS2009 touch interrupt, active low |
 
-For the first bench test, the TFT `+5V` can use the DevKitC `5V` pin while the
-DevKitC is powered by laptop USB. If the backlight causes USB instability, use a
-separate regulated 5 V source and retain the common ground. Never connect TFT
-`+5V` to ESP32 `3V3`.
+For a bench test, use a regulated 5 V source and retain the common ground. Never
+connect TFT `+5V` to ESP32 `3V3`.
 
 The first UI constrains each endpoint to 50–100% and sub-trim to +/-20%.
 Sub-trim shifts neutral and both endpoints together instead of clipping travel
@@ -209,7 +250,7 @@ at one end. The +/-20% limit retains the normal full travel inside CRSF's
 absolute 0–2047 channel envelope. As with the original R1, endpoint positions
 should be checked again after changing sub-trim. Touch raw and mapped coordinates
 are printed over USB; use those readings to refine the four
-`TOUCH_RAW_*` calibration constants in `include/config.h` if required.
+`TOUCH_RAW_*` calibration constants in `include/display_profile.h` if required.
 
 `CHANNELS > ROLES` selects the steering and throttle CRSF channel numbers; the
 same channel cannot hold both roles. `RESPONSE`, available from the main menu or
@@ -261,13 +302,15 @@ drive demand, while travel outside it is remapped to retain both full endpoints.
 The throttle `SPEED` page configures independent forward and brake/reverse slew
 times from neutral to endpoint. Zero milliseconds means direct response.
 
-`SETUP > DISPLAY` provides timeout, software brightness, night palette and
-immediate blanking. It sends the ILI9486 `Display OFF` command (`0x28`) and
+`SETUP > DISPLAY` provides timeout, brightness, night palette and immediate
+blanking. It sends the standard DCS `Display OFF` command (`0x28`) and
 wakes with `Display ON` (`0x29`). `Sleep IN` (`0x10`) is deliberately not
 combined with blanking because that left this TFT35-SPI V2.1 panel solid white.
-Touch wakes the panel. Because the TFT35 connector does not expose backlight
-control, software dimming or blanking may not eliminate the measured backlight
-current; that needs a transistor/MOSFET-controlled backlight or 5 V rail.
+Touch wakes the panel. The Waveshare profile also switches its exposed
+backlight PWM fully off. Because the BTT connector does not expose backlight
+control, its software dimming or blanking may not eliminate the measured
+backlight current; that needs a transistor/MOSFET-controlled backlight or 5 V
+rail.
 
 The transmitter boots into a scalable main menu. `CHANNELS`, `RESPONSE`,
 `CONTROL MAP`, `DRIVE MODES`, and `SETUP` are active; deferred sections remain
@@ -324,7 +367,8 @@ does not lengthen short key clicks.
 ## Build and monitor
 
 ```sh
-pio run -t upload
+pio run -e esp32-s3-devkitc-1 -t upload       # Waveshare (default)
+pio run -e esp32-s3-devkitc-1-btt -t upload   # BTT fallback
 pio device monitor -b 115200
 ```
 

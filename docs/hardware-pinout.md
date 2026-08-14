@@ -2,8 +2,9 @@
 
 This document is the authoritative wiring reference for the JR R1 native-CRSF
 prototype. The current controller is an ESP32-S3 DevKitC-1 connected to a
-BIGTREETECH TFT35 SPI V2.1, the original R1 throttle potentiometer and buzzer,
-and a RadioMaster Ranger Nano transmitter module.
+Waveshare 3.5inch RPi LCD (F), the original R1 throttle potentiometer and buzzer,
+and a RadioMaster Ranger Nano transmitter module. A build-time profile retains
+support for the earlier BIGTREETECH TFT35 SPI V2.1.
 
 ## ESP32-S3 GPIO allocation
 
@@ -15,27 +16,30 @@ and a RadioMaster Ranger Nano transmitter module.
 | GPIO5 / ADC1_CH4 | Input | Local transmitter-pack voltage | Only through 47 kΩ/10 kΩ divider; 100 nF from GPIO5 to GND | `TX_BATTERY_ADC_PIN`; implemented, user-enabled |
 | GPIO6 | Input | Keypad `+` | Active-low contact; internal pull-up | production map |
 | GPIO7 | Input | Keypad `SELECT` | Active-low contact; internal pull-up | production map |
-| GPIO8 | Bidirectional | TFT35 NS2009 touch `SDA` | 3.3 V I²C | `TOUCH_SDA_PIN`; active |
-| GPIO9 | Output | TFT35 LCD `RS` / data-command | 3.3 V logic | `TFT_DC_PIN`; active |
-| GPIO10 | Output | TFT35 LCD `NSS` / chip select | 3.3 V logic | `TFT_CS_PIN`; active |
-| GPIO11 | Output | TFT35 LCD `MOSI` | 3.3 V SPI | `TFT_MOSI_PIN`; active |
-| GPIO12 | Output | TFT35 LCD `SCK` | 3.3 V SPI, presently 25 MHz | `TFT_SCK_PIN`; active |
-| GPIO13 | Input | TFT35 LCD `MISO` | 3.3 V SPI | `TFT_MISO_PIN`; active |
+| GPIO8 | Bidirectional | Display touch `SDA` | Shared 3.3 V I²C | `TOUCH_SDA_PIN`; active |
+| GPIO9 | Output | LCD data-command | 3.3 V logic | `TFT_DC_PIN`; active |
+| GPIO10 | Output | LCD chip select | 3.3 V logic | `TFT_CS_PIN`; active |
+| GPIO11 | Output | LCD `MOSI` | 3.3 V SPI | `TFT_MOSI_PIN`; active |
+| GPIO12 | Output | LCD `SCK` | 3.3 V SPI, presently 25 MHz | `TFT_SCK_PIN`; active |
+| GPIO13 | Input | LCD `MISO` | 3.3 V SPI | `TFT_MISO_PIN`; active |
 | GPIO14 | Input | Keypad `PAGE` | Active-low contact; internal pull-up | production map |
 | GPIO15 | Input | Keypad `CLEAR` | Active-low contact; internal pull-up | production map |
-| GPIO16 | Input | TFT35 touch `IDRQ` | Active-low, internal pull-up | `TOUCH_IRQ_PIN`; active |
+| GPIO16 | Input | Display touch interrupt | Active-low, internal pull-up | `TOUCH_IRQ_PIN`; active |
 | GPIO17 | Half-duplex UART | Ranger Nano `SIGNAL/CRSF` | Single-wire 400 kbaud 8N1 through 220–470 Ω series resistor | `CRSF_SIGNAL_PIN`; active |
-| GPIO18 | Output | TFT35 NS2009 touch `SCL` | 3.3 V I²C, presently 400 kHz | `TOUCH_SCL_PIN`; active |
+| GPIO18 | Output | Display touch `SCL` | Shared 3.3 V I²C, presently 400 kHz | `TOUCH_SCL_PIN`; active |
 | GPIO19 | Reserved | Native USB D- | Do not allocate while native USB programming/monitoring is used | reserved |
 | GPIO20 | Reserved | Native USB D+ | Do not allocate while native USB programming/monitoring is used | reserved |
 | GPIO21 | Input | Keypad `DOWN` | Active-low contact; internal pull-up | production map |
+| GPIO40 | Output | Waveshare LCD reset | Used only by the default Waveshare profile | `TFT_RESET_PIN` |
+| GPIO41 | Output/PWM | Waveshare LCD backlight | 5 kHz, 8-bit PWM; used only by Waveshare profile | `TFT_BACKLIGHT_PIN` |
+| GPIO42 | Output | Waveshare GT911 reset/address select | Used only by the default Waveshare profile | `TOUCH_RESET_PIN` |
 | GPIO47 | Input | Keypad `-` / custom | Active-low contact; internal pull-up | production map |
 | 3V3 | Power output | Throttle potentiometer reference | ESP32 3.3 V rail; do not use for TFT or Ranger power | active |
 | GND | Common | All low-voltage circuits | ESP32, TFT, Ranger, sensors and regulators require a common ground | active |
 | 5V/VIN | Power input | Regulated 5 V for ESP32 | On this DevKit it is treated as an input in the final installation | planned supply |
 
-GPIO3 and the remaining exposed higher GPIOs stay free for service, future
-hardware and any inputs added after the original R1 controls are connected.
+GPIO3 and the remaining unallocated exposed GPIOs stay free for service and
+future hardware. GPIO40/41/42 return to that pool when the BTT profile is used.
 
 ## Waveshare MCP23017 input expander
 
@@ -70,7 +74,39 @@ other contacts already produce debounced logical events and live monitor state;
 their per-model functions are deliberately unassigned until the binding editor
 is implemented.
 
-## BIGTREETECH TFT35 SPI V2.1 connector
+## Display profile selection
+
+`include/display_profile.h` is the single source of truth for panel controller,
+pins, touch controller and backlight behaviour. The normal PlatformIO
+environment uses the Waveshare profile. Environment
+`esp32-s3-devkitc-1-btt` defines the BTT fallback without requiring a source
+edit.
+
+## Waveshare 3.5inch RPi LCD (F) connector (default)
+
+| LCD signal | ESP32-S3 connection | Interface/function | Voltage |
+|---|---:|---|---:|
+| `VCC` | External regulated 3.3 V | Panel supply per official ESP32 example | 3.3 V |
+| `GND` | GND | Common reference | 0 V |
+| `LCD_MISO` | GPIO13 | LCD SPI data to ESP32 | 3.3 V logic |
+| `LCD_MOSI` | GPIO11 | LCD SPI data from ESP32 | 3.3 V logic |
+| `LCD_CLK` | GPIO12 | LCD SPI clock | 3.3 V logic |
+| `LCD_CS` | GPIO10 | LCD chip select | 3.3 V logic |
+| `LCD_DC` | GPIO9 | LCD data/command | 3.3 V logic |
+| `LCD_RST` | GPIO40 | ST7796 reset | 3.3 V logic |
+| `LCD_BL` | GPIO41 | Backlight PWM | 3.3 V logic |
+| `TP_SDA` | GPIO8 | GT911 touch I2C data | 3.3 V logic |
+| `TP_SCL` | GPIO18 | GT911 touch I2C clock | 3.3 V logic |
+| `TP_INT` | GPIO16 | GT911 touch interrupt | 3.3 V logic |
+| `TP_RST` | GPIO42 | GT911 reset/address select | 3.3 V logic |
+
+The panel uses an ST7796 at 320x480, rotated to the UI's 480x320 landscape
+orientation. The capacitive GT911 is selected at 7-bit address `0x5D`; it shares
+the I2C bus with the MCP23017 at `0x27`. Backlight PWM is 5 kHz/8-bit and permits
+real brightness control and full backlight shutdown. Join the external 3.3 V
+supply ground to ESP32 ground before connecting any signal.
+
+## BIGTREETECH TFT35 SPI V2.1 connector (fallback)
 
 | TFT35 marking | ESP32-S3 connection | Interface/function | Voltage |
 |---|---:|---|---:|
@@ -158,17 +194,17 @@ sensing disabled. Enable it only after fitting the divider, under
 main R1 power switch
     +---- raw switched pack ---------------- Ranger Nano VCC
     +---- regulated 5 V --------------------- ESP32 5V/VIN
-    |                                      +- TFT35 +5V
+    +---- regulated 3.3 V ------------------- Waveshare LCD (F) VCC
     +---- 47k/10k voltage divider ----------- ESP32 GPIO5
 
 All grounds ------------------------------------------------ common GND
 ```
 
-Confirm the final regulator current rating and noise performance before fitting
-it permanently. Keep the CRSF wire and analogue-pot wiring away from switch-mode
-regulator inductors and high-current wiring. The TFT alone has been measured at
-0.25 A from 5 V, so the final 5 V regulator must not be sized from ESP32 current
-alone.
+Confirm both regulator current ratings and noise performance before fitting
+them permanently. Keep the CRSF wire and analogue-pot wiring away from
+switch-mode regulator inductors and high-current wiring. The earlier BTT TFT
+alone measured 0.25 A from 5 V; measure the new panel before choosing the final
+3.3 V regulator.
 
 ## Physical-input capacity
 

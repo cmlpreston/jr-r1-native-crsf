@@ -143,7 +143,9 @@ bindings only when the combination is made explicit in the UI.
   now adjust the focused throttle endpoint/sub-trim, rate/expo/speed, Walk
   limit and numeric Setup fields. The assignment editor now supports complete
   keypad operation for Enabled, Target, Function/Channel, Mode/Parameter and
-  Cancel/Remove/Save. The remaining setup pages still need the same treatment.
+  Cancel/Remove/Save. Channel Roles, TX/RX Battery and Display Setup are also
+  fully focusable and adjustable from the keypad. ELRS text entry and list-page
+  bank controls remain to be completed.
 - [ ] Dashboard short/long/double-press shortcuts.
 - [x] Timer button defaults to next dashboard page for a new/erased binding
   profile; existing user-edited bindings are preserved.

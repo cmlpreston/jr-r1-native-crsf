@@ -2117,6 +2117,13 @@ void Channel2Ui::activatePageFocus()
         adjustPageFocus(1);
         return;
     }
+    if (activePage_ == UiPage::ChannelRoles ||
+        activePage_ == UiPage::TxBatterySetup ||
+        activePage_ == UiPage::RxBatterySetup ||
+        activePage_ == UiPage::DisplaySetup) {
+        adjustPageFocus(1);
+        return;
+    }
     const PageFocusTarget target = pageFocusTargets_[pageFocusIndex_];
     handleTouch(target.x + target.width / 2,
                 target.y + target.height / 2);
@@ -2147,6 +2154,14 @@ bool Channel2Ui::adjustPageFocus(int8_t direction)
             if (focused == 0) y = 106;
             else if (focused >= 1 && focused <= 3)
                 y = 145 + (focused - 1) * 39;
+            break;
+        case UiPage::ChannelRoles:
+            if (focused < 2) y = 100 + focused * 68;
+            break;
+        case UiPage::TxBatterySetup:
+        case UiPage::RxBatterySetup:
+        case UiPage::DisplaySetup:
+            if (focused < 4) y = 78 + focused * 50;
             break;
         default:
             break;
@@ -2500,14 +2515,18 @@ void Channel2Ui::drawChannelRolesPage()
     startScreen();
     resetLvglObjects();
     makeHeader("CHANNEL ROLES", "BACK");
+    beginPageFocus();
     drawChannelRoleRow(0);
+    addPageFocusTarget(18, 72, 444, 56);
     drawChannelRoleRow(1);
+    addPageFocusTarget(18, 140, 444, 56);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "Changing roles disarms throttle output.\n"
         "Steering stays centred until its pot is connected.",
         0, 222, 14, cAmber);
     lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 222);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawChannelPlaceholder()
@@ -2904,9 +2923,14 @@ void Channel2Ui::drawDisplayPage()
     startScreen();
     resetLvglObjects();
     makeHeader("DISPLAY", "BACK");
-    for (int row = 0; row < 4; ++row) drawDisplayRow(row);
+    beginPageFocus();
+    for (int row = 0; row < 4; ++row) {
+        drawDisplayRow(row);
+        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+    }
     makeLabel(lv_scr_act(), "UI dimming is visual; full backlight saving needs a BL switch.",
               20, 280, 12, cDim);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawTxBatteryRow(int row)
@@ -2967,10 +2991,15 @@ void Channel2Ui::drawTxBatteryPage()
     startScreen();
     resetLvglObjects();
     makeHeader("TX BATTERY", "BACK");
-    for (int row = 0; row < 4; ++row) drawTxBatteryRow(row);
+    beginPageFocus();
+    for (int row = 0; row < 4; ++row) {
+        drawTxBatteryRow(row);
+        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+    }
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "GPIO5 via 47k/10k divider", 0, 280, 12, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawRxBatteryRow(int row)
@@ -3012,10 +3041,15 @@ void Channel2Ui::drawRxBatteryPage()
     startScreen();
     resetLvglObjects();
     makeHeader("RX BATTERY", "BACK");
-    for (int row = 0; row < 4; ++row) drawRxBatteryRow(row);
+    beginPageFocus();
+    for (int row = 0; row < 4; ++row) {
+        drawRxBatteryRow(row);
+        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+    }
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "Voltage received from ER6G telemetry", 0, 280, 12, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawCalibrationPage()

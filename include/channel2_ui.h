@@ -168,6 +168,10 @@ private:
     void loadElrsSettings();
     void saveElrsSettings();
     void drawMainMenu();
+    void refreshMainMenuFocus();
+    void moveMainMenuFocus(int8_t direction);
+    void activateMainMenuFocus();
+    void navigateBack();
     void drawDashboard();
     void drawDashboardLive(uint16_t crsfValue,
                            OutputSafetyStatus safetyStatus,
@@ -341,6 +345,8 @@ private:
     bool channelParameterSavePending_ = false;
     uint32_t channelParameterSaveDueMs_ = 0;
     lv_obj_t *dashboardThrottleBar_ = nullptr;
+    lv_obj_t *mainMenuButtons_[8] = {};
+    uint8_t mainMenuFocusIndex_ = 1;
     lv_obj_t *dashboardChannelBars_[CRSF_CHANNEL_COUNT] = {};
     lv_obj_t *dashboardSafetyPanel_ = nullptr;
     lv_obj_t *dashboardSafetyLabel_ = nullptr;

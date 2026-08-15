@@ -51,6 +51,8 @@ proof of concept.
   sleep reduce the measured 0.25 A TFT load.
 - Add dim-before-sleep and dedicated sunlight/night palettes.
 - Add configurable dashboard widgets and quick-adjust overlays.
+- Extend the implemented main-menu keypad focus/navigation to selectable rows,
+  editors and value adjustment on every subordinate page.
 - Add touch and physical-input diagnostic/calibration pages.
 - Bind the Timer button to next-dashboard-page in the default R1 profile while
   retaining timer, momentary-channel and other actions as selectable options.

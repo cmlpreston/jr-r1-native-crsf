@@ -132,6 +132,10 @@ const char *transmitterFunctionName(TransmitterFunction function)
         case TransmitterFunction::AlarmAcknowledge: return "ACK ALARM";
         case TransmitterFunction::NextModel: return "NEXT MODEL";
         case TransmitterFunction::PreviousModel: return "PREVIOUS MODEL";
+        case TransmitterFunction::MenuPrevious: return "MENU PREVIOUS";
+        case TransmitterFunction::MenuNext: return "MENU NEXT";
+        case TransmitterFunction::MenuSelect: return "MENU SELECT";
+        case TransmitterFunction::MenuBack: return "BACK";
         case TransmitterFunction::Count: break;
     }
     return "UNKNOWN";

@@ -137,7 +137,9 @@ bindings only when the combination is made explicit in the UI.
 
 - [x] Runtime Dashboard, menu, CUT and armed context selection.
 - [ ] Make binding contexts editable on the TFT.
-- [ ] Keypad navigation consumes keypad events while a menu is open.
+- [ ] Keypad navigation consumes keypad events while a menu is open. Main-menu
+  previous/next/select plus consistent back navigation are implemented; focus
+  and value editing on subordinate pages remain.
 - [ ] Dashboard short/long/double-press shortcuts.
 - [ ] Timer button defaults to next dashboard page.
 - [ ] Touchscreen lock and display on/off actions. Display on/off is complete;

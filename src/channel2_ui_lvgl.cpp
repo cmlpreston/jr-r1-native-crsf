@@ -83,12 +83,22 @@ constexpr TransmitterFunction kEditableTransmitterFunctions[] = {
     TransmitterFunction::DisplayOnOff,
     TransmitterFunction::ToggleNightMode,
     TransmitterFunction::ArmCut,
+    TransmitterFunction::MenuPrevious,
+    TransmitterFunction::MenuNext,
+    TransmitterFunction::MenuSelect,
+    TransmitterFunction::MenuBack,
 };
 
 constexpr DriveModeSelection kEditableDriveModeSelections[] = {
     DriveModeSelection::WalkNormal,
     DriveModeSelection::CutArm,
 };
+
+constexpr bool mainMenuItemEnabled(uint8_t index)
+{
+    return index == 1 || index == 2 || index == 3 || index == 4 ||
+           index == 6 || index == 7;
+}
 
 #ifndef JR_R1_SIMULATOR
 Arduino_DataBus *displayBus = new Arduino_ESP32SPI(
@@ -494,6 +504,7 @@ bool Channel2Ui::captureScreenshot(Stream &output)
 void Channel2Ui::resetLvglObjects()
 {
     dashboardThrottleBar_ = nullptr;
+    for (lv_obj_t *&button : mainMenuButtons_) button = nullptr;
     for (lv_obj_t *&bar : dashboardChannelBars_) bar = nullptr;
     dashboardSafetyPanel_ = nullptr;
     dashboardSafetyLabel_ = nullptr;
@@ -1443,6 +1454,18 @@ bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value
             playBuzzer(80);
             if (activePage_ == UiPage::Dashboard) drawDashboard();
             return true;
+        case TransmitterFunction::MenuPrevious:
+            if (value > 0) moveMainMenuFocus(-1);
+            return true;
+        case TransmitterFunction::MenuNext:
+            if (value > 0) moveMainMenuFocus(1);
+            return true;
+        case TransmitterFunction::MenuSelect:
+            if (value > 0) activateMainMenuFocus();
+            return true;
+        case TransmitterFunction::MenuBack:
+            if (value > 0) navigateBack();
+            return true;
         default:
             // Reserved in the data model but not exposed by the first editor
             // slice until the corresponding runtime feature exists.
@@ -1765,16 +1788,87 @@ void Channel2Ui::drawMainMenu()
     static const char *labels[] = {"MODELS", "CHANNELS", "RESPONSE", "CONTROL MAP",
         "DRIVE MODES", "TIMERS", "LINK / TELEM", "SETUP"};
     for (uint8_t index = 0; index < 8; ++index) {
-        const bool enabled = index == 1 || index == 2 || index == 3 ||
-                             index == 4 || index == 6 || index == 7;
-        makeButton(10 + (index % 2) * 235, 52 + (index / 2) * 54, 225, 46,
+        const bool enabled = mainMenuItemEnabled(index);
+        mainMenuButtons_[index] = makeButton(
+                   10 + (index % 2) * 235, 52 + (index / 2) * 54, 225, 46,
                    labels[index], 16,
                    enabled ? cPanel2 : cBlack,
                    enabled ? (index == 1 ? cCyan : cWhite) : cDim,
                    enabled ? cLine : cDim);
     }
+    if (!mainMenuItemEnabled(mainMenuFocusIndex_)) mainMenuFocusIndex_ = 1;
+    refreshMainMenuFocus();
     lv_obj_t *note = makeLabel(lv_scr_act(), "DIMMED ITEMS: COMING SOON", 0, 284, 12, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 284);
+}
+
+void Channel2Ui::refreshMainMenuFocus()
+{
+    for (uint8_t index = 0; index < 8; ++index) {
+        if (mainMenuButtons_[index] == nullptr) continue;
+        const bool focused = index == mainMenuFocusIndex_ &&
+                             mainMenuItemEnabled(index);
+        lv_obj_set_style_border_color(mainMenuButtons_[index],
+            colour(focused ? cCyan : (mainMenuItemEnabled(index) ? cLine : cDim)), 0);
+        lv_obj_set_style_border_width(mainMenuButtons_[index], focused ? 3 : 1, 0);
+    }
+}
+
+void Channel2Ui::moveMainMenuFocus(int8_t direction)
+{
+    if (activePage_ != UiPage::MainMenu) return;
+    uint8_t candidate = mainMenuFocusIndex_;
+    for (uint8_t attempts = 0; attempts < 8; ++attempts) {
+        candidate = static_cast<uint8_t>(
+            (static_cast<int>(candidate) + direction + 8) % 8);
+        if (mainMenuItemEnabled(candidate)) {
+            mainMenuFocusIndex_ = candidate;
+            refreshMainMenuFocus();
+            playKeyClick();
+            return;
+        }
+    }
+}
+
+void Channel2Ui::activateMainMenuFocus()
+{
+    if (activePage_ != UiPage::MainMenu ||
+        !mainMenuItemEnabled(mainMenuFocusIndex_)) return;
+    playKeyClick();
+    switch (mainMenuFocusIndex_) {
+        case 1: drawChannelsPage(); break;
+        case 2: drawThrottleResponsePage(); break;
+        case 3: drawControlAssignmentsPage(); break;
+        case 4: drawDriveModesPage(); break;
+        case 6: drawElrsBindingPage(); break;
+        case 7: drawSetupPage(); break;
+        default: break;
+    }
+}
+
+void Channel2Ui::navigateBack()
+{
+    playKeyClick();
+    switch (activePage_) {
+        case UiPage::Dashboard: break;
+        case UiPage::MainMenu: drawDashboard(); break;
+        case UiPage::Channels: drawMainMenu(); break;
+        case UiPage::ChannelRoles: drawChannelsPage(); break;
+        case UiPage::Channel2:
+        case UiPage::ChannelPlaceholder: drawChannelsPage(); break;
+        case UiPage::ThrottleResponse: drawMainMenu(); break;
+        case UiPage::ChannelSpeed: drawThrottleResponsePage(); break;
+        case UiPage::ControlAssignments: drawMainMenu(); break;
+        case UiPage::BindingEditor:
+        case UiPage::InputMonitor: drawControlAssignmentsPage(); break;
+        case UiPage::DriveModes: drawMainMenu(); break;
+        case UiPage::Setup: drawMainMenu(); break;
+        case UiPage::TxBatterySetup:
+        case UiPage::RxBatterySetup:
+        case UiPage::DisplaySetup: drawSetupPage(); break;
+        case UiPage::ElrsBinding: drawMainMenu(); break;
+        case UiPage::Calibration: drawPage(); break;
+    }
 }
 
 void Channel2Ui::drawChannelsPage()
@@ -2801,13 +2895,9 @@ void Channel2Ui::handleMainMenuTouch(int16_t x, int16_t y)
 {
     if (x < 5 || x >= 475 || y < 52 || y >= 270) return;
     const int item = ((y - 52) / 54) * 2 + (x >= 240 ? 1 : 0);
-    playKeyClick();
-    if (item == 1) drawChannelsPage();
-    else if (item == 2) drawThrottleResponsePage();
-    else if (item == 3) drawControlAssignmentsPage();
-    else if (item == 4) drawDriveModesPage();
-    else if (item == 6) drawElrsBindingPage();
-    else if (item == 7) drawSetupPage();
+    if (item < 0 || item >= 8 || !mainMenuItemEnabled(item)) return;
+    mainMenuFocusIndex_ = static_cast<uint8_t>(item);
+    activateMainMenuFocus();
 }
 
 void Channel2Ui::handleChannelsTouch(int16_t x, int16_t y)

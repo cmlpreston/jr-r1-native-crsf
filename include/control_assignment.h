@@ -108,6 +108,10 @@ enum class TransmitterFunction : uint8_t {
     AlarmAcknowledge,
     NextModel,
     PreviousModel,
+    MenuPrevious,
+    MenuNext,
+    MenuSelect,
+    MenuBack,
     Count,
 };
 

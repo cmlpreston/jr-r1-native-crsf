@@ -41,7 +41,8 @@ proof of concept.
 
 - Generalise endpoints, trim, expo, rate and speed to every proportional input.
 - Add steering-specific turn and return speed.
-- Add optional throttle curves, ABS, 4WS, gyro gain and throttle hold.
+- Add optional throttle curves, ABS and throttle hold.
+- Defer 4WS and gyro-gain controls until there is a concrete vehicle use case.
 - Allow a physical dial to adjust the Walk-mode limit.
 - Add race-start countdown and user-defined buzzer macros.
 

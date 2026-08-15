@@ -44,12 +44,12 @@ Direct Mode shortcuts rather than additional physical inputs.
 |---|---|---|---|
 | MODE LIST | Enter/advance through function lists | None | Home/menu or enter menu |
 | UP | Previous item/increase navigation | Steering exponential | Up; long press may repeat |
-| `+` | Increase/edit value | Model Select | Increase/right |
+| `+` | Increase/edit value | Model Select | `MENU INCREASE`: increase the focused editor value |
 | SEL | Select field/channel | Throttle curve | Select/OK |
 | PAGE | Change page/field | Travel adjust | Page/back-tab |
 | CLR | Clear/reset selected value | None | Back; hold for reset-to-default confirmation |
 | DOWN | Next item/decrease navigation | Trim position | Down; long press may repeat |
-| `-` / CUSTOM | Decrease/edit value | User-selected shortcut; timer at factory default | Decrease/left; configurable long-press shortcut |
+| `-` / CUSTOM | Decrease/edit value | User-selected shortcut; timer at factory default | `MENU DECREASE`: decrease the focused editor value; configurable long-press shortcut |
 
 The touchscreen can duplicate these functions, but retaining the keypad gives
 reliable eyes-off operation and avoids making safety-critical actions dependent

@@ -112,6 +112,8 @@ enum class TransmitterFunction : uint8_t {
     MenuNext,
     MenuSelect,
     MenuBack,
+    MenuDecrease,
+    MenuIncrease,
     Count,
 };
 

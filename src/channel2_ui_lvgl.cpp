@@ -89,6 +89,8 @@ constexpr TransmitterFunction kEditableTransmitterFunctions[] = {
     TransmitterFunction::MenuNext,
     TransmitterFunction::MenuSelect,
     TransmitterFunction::MenuBack,
+    TransmitterFunction::MenuDecrease,
+    TransmitterFunction::MenuIncrease,
 };
 
 constexpr DriveModeSelection kEditableDriveModeSelections[] = {
@@ -1531,6 +1533,12 @@ bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value
         case TransmitterFunction::MenuBack:
             if (value > 0) navigateBack();
             return true;
+        case TransmitterFunction::MenuDecrease:
+            if (value > 0) adjustPageFocus(-1);
+            return true;
+        case TransmitterFunction::MenuIncrease:
+            if (value > 0) adjustPageFocus(1);
+            return true;
         default:
             // Reserved in the data model but not exposed by the first editor
             // slice until the corresponding runtime feature exists.
@@ -2106,6 +2114,45 @@ void Channel2Ui::activatePageFocus()
                 target.y + target.height / 2);
 }
 
+bool Channel2Ui::adjustPageFocus(int8_t direction)
+{
+    if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return false;
+    const uint8_t focused = pageFocusIndex_;
+    const int16_t x = direction < 0 ? 375 : 430;
+    int16_t y = -1;
+
+    switch (activePage_) {
+        case UiPage::Channel2:
+        case UiPage::ThrottleResponse:
+            if (focused < 4) y = 78 + focused * 50;
+            break;
+        case UiPage::ChannelSpeed:
+            if (focused < 2) y = 109 + focused * 76;
+            break;
+        case UiPage::DriveModes:
+            if (focused == 2) y = 185;
+            break;
+        case UiPage::Setup:
+            if (focused == 2 || focused == 3) y = 78 + focused * 50;
+            break;
+        default:
+            break;
+    }
+    if (y < 0) {
+        playBuzzer(35);
+        return false;
+    }
+
+    handleTouch(x, y);
+    // Most numeric editors redraw after a change. Restore the same selected
+    // row so repeated + / - presses continue to operate on that value.
+    if (pageFocusCount_ != 0) {
+        pageFocusIndex_ = min<uint8_t>(focused, pageFocusCount_ - 1);
+        refreshPageFocus();
+    }
+    return true;
+}
+
 void Channel2Ui::navigateBack()
 {
     playKeyClick();
@@ -2560,13 +2607,17 @@ void Channel2Ui::drawPage()
     activePage_ = UiPage::Channel2;
     startScreen();
     resetLvglObjects();
+    beginPageFocus();
     char title[24];
     snprintf(title, sizeof(title), "CH%u THROTTLE", channelRoleSettings_.throttleChannel);
     makeHeader(title);
     makeButton(190, 5, 68, 34, "RESP", 11, cPanel2, cCyan);
     makeButton(266, 5, 70, 34, "BACK", 11);
     makeButton(344, 5, 78, 34, "CAL", 11);
-    for (int row = 0; row < 4; ++row) drawSettingRow(row);
+    for (int row = 0; row < 4; ++row) {
+        drawSettingRow(row);
+        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+    }
     char channelLabel[16];
     snprintf(channelLabel, sizeof(channelLabel), "CH%u", channelRoleSettings_.throttleChannel);
     makeLabel(lv_scr_act(), channelLabel, 12, 283, 16, cCyan);
@@ -2577,6 +2628,7 @@ void Channel2Ui::drawPage()
     makeLabel(lv_scr_act(), settings_.reversed ? "FORWARD" : "BRAKE/REV", 60, 304, 12, cDim);
     makeLabel(lv_scr_act(), settings_.reversed ? "BRAKE/REV" : "FORWARD", 338, 304, 12, cDim);
     lastDisplayedCrsf_ = UINT16_MAX;
+    finishPageFocus();
 }
 
 void Channel2Ui::drawThrottleResponseRow(int row)
@@ -2615,12 +2667,17 @@ void Channel2Ui::drawThrottleResponsePage()
     activePage_ = UiPage::ThrottleResponse;
     startScreen();
     resetLvglObjects();
+    beginPageFocus();
     makeHeader("THROTTLE RESPONSE", "BACK");
     makeButton(258, 5, 78, 34, "SPEED", 11, cPanel2, cCyan);
-    for (int row = 0; row < 4; ++row) drawThrottleResponseRow(row);
+    for (int row = 0; row < 4; ++row) {
+        drawThrottleResponseRow(row);
+        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+    }
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "+EXPO = SOFTER AROUND NEUTRAL", 0, 280, 12, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawChannelSpeedRow(int row)
@@ -2643,12 +2700,16 @@ void Channel2Ui::drawChannelSpeedPage()
     activePage_ = UiPage::ChannelSpeed;
     startScreen();
     resetLvglObjects();
+    beginPageFocus();
     makeHeader("THROTTLE CHANNEL SPEED", "BACK");
     drawChannelSpeedRow(0);
+    addPageFocusTarget(14, 78, 452, 62);
     drawChannelSpeedRow(1);
+    addPageFocusTarget(14, 154, 452, 62);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "0 ms = direct. Time is neutral-to-endpoint slew.", 0, 250, 14, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 250);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawDriveModesPage()
@@ -2673,6 +2734,7 @@ void Channel2Ui::drawDriveModesPage()
     makeLabel(panel, value, 260, 20, 18);
     makeButton(358, 164, 42, 38, "-", 22);
     makeButton(410, 164, 42, 38, "+", 22);
+    addPageFocusTarget(16, 150, 448, 66);
     makeLabel(lv_scr_act(),
         "WALK limits forward only; brake/reverse stays at 100%.\nChanging mode forces CUT; release trigger before arming.",
         20, 242, 14, cAmber);
@@ -2731,6 +2793,8 @@ void Channel2Ui::drawSetupPage()
     for (int row = 0; row < 4; ++row) drawSetupRow(row);
     addPageFocusTarget(353, 60, 106, 36);
     addPageFocusTarget(353, 110, 106, 36);
+    addPageFocusTarget(10, 156, 460, 44);
+    addPageFocusTarget(10, 206, 460, 44);
     makeButton(10, 265, 88, 44, "TEST", 14, cPanel2, cAmber);
     addPageFocusTarget(10, 265, 88, 44);
     makeButton(106, 265, 110, 44, "DISPLAY", 13, cPanel2, cCyan);

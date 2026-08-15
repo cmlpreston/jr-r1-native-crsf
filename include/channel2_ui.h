@@ -179,6 +179,7 @@ private:
     void refreshPageFocus();
     void movePageFocus(int8_t direction);
     void activatePageFocus();
+    bool adjustPageFocus(int8_t direction);
     void navigateBack();
     bool navigateDashboardPage(int8_t direction);
     void drawDashboard();

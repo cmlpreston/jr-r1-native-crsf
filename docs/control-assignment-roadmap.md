@@ -139,8 +139,10 @@ bindings only when the combination is made explicit in the UI.
 - [ ] Make binding contexts editable on the TFT.
 - [ ] Keypad navigation consumes keypad events while a menu is open. Main-menu
   navigation plus reusable focus/select navigation on Channels, Assignments,
-  Drive Modes and Setup are implemented; subordinate value adjustment and the
-  remaining editor pages are still to be added.
+  Drive Modes and Setup are implemented. `MENU INCREASE` and `MENU DECREASE`
+  now adjust the focused throttle endpoint/sub-trim, rate/expo/speed, Walk
+  limit and numeric Setup fields. The remaining editor pages still need the
+  same focus/adjust treatment.
 - [ ] Dashboard short/long/double-press shortcuts.
 - [x] Timer button defaults to next dashboard page for a new/erased binding
   profile; existing user-edited bindings are preserved.

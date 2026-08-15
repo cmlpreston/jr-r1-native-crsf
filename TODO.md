@@ -51,8 +51,8 @@ proof of concept.
   sleep reduce the measured 0.25 A TFT load.
 - Add dim-before-sleep and dedicated sunlight/night palettes.
 - Add configurable dashboard widgets and quick-adjust overlays.
-- Extend the implemented main-menu keypad focus/navigation to selectable rows,
-  editors and value adjustment on every subordinate page.
+- Extend the implemented keypad focus/navigation and focused +/- adjustment
+  from the throttle, Drive Mode and Setup pages to every subordinate editor.
 - Add touch and physical-input diagnostic/calibration pages.
 - [x] Bind the Timer button to next-dashboard-page in a new default R1 profile
   while retaining existing user assignments and alternate selectable actions.

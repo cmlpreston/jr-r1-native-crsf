@@ -136,6 +136,8 @@ const char *transmitterFunctionName(TransmitterFunction function)
         case TransmitterFunction::MenuNext: return "MENU NEXT";
         case TransmitterFunction::MenuSelect: return "MENU SELECT";
         case TransmitterFunction::MenuBack: return "BACK";
+        case TransmitterFunction::MenuDecrease: return "MENU DECREASE";
+        case TransmitterFunction::MenuIncrease: return "MENU INCREASE";
         case TransmitterFunction::Count: break;
     }
     return "UNKNOWN";

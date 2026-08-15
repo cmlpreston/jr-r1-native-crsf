@@ -108,6 +108,46 @@ const char *channelParameterKindName(ChannelParameterKind kind)
     return "UNKNOWN";
 }
 
+const char *transmitterFunctionName(TransmitterFunction function)
+{
+    switch (function) {
+        case TransmitterFunction::OpenMenu: return "OPEN MENU";
+        case TransmitterFunction::Dashboard: return "DASHBOARD";
+        case TransmitterFunction::NextPage: return "NEXT PAGE";
+        case TransmitterFunction::PreviousPage: return "PREVIOUS PAGE";
+        case TransmitterFunction::QuickPanel: return "QUICK PANEL";
+        case TransmitterFunction::DisplayOnOff: return "DISPLAY ON/OFF";
+        case TransmitterFunction::DisplayWake: return "DISPLAY WAKE";
+        case TransmitterFunction::ToggleNightMode: return "NIGHT MODE";
+        case TransmitterFunction::TouchLock: return "TOUCH LOCK";
+        case TransmitterFunction::ArmCut: return "ARM / CUT";
+        case TransmitterFunction::PanicBrake: return "PANIC BRAKE";
+        case TransmitterFunction::TimerStartStop: return "TIMER START/STOP";
+        case TransmitterFunction::TimerLap: return "TIMER LAP";
+        case TransmitterFunction::TimerReset: return "TIMER RESET";
+        case TransmitterFunction::ResetMaximums: return "RESET MAXIMUMS";
+        case TransmitterFunction::ResetTrip: return "RESET TRIP";
+        case TransmitterFunction::ResetConsumedCapacity: return "RESET CAPACITY";
+        case TransmitterFunction::LoggingStartStop: return "LOG START/STOP";
+        case TransmitterFunction::AlarmAcknowledge: return "ACK ALARM";
+        case TransmitterFunction::NextModel: return "NEXT MODEL";
+        case TransmitterFunction::PreviousModel: return "PREVIOUS MODEL";
+        case TransmitterFunction::Count: break;
+    }
+    return "UNKNOWN";
+}
+
+const char *driveModeSelectionName(DriveModeSelection selection)
+{
+    switch (selection) {
+        case DriveModeSelection::CutArm: return "CUT / ARM";
+        case DriveModeSelection::WalkNormal: return "WALK / NORMAL";
+        case DriveModeSelection::ProfileAProfileB: return "PROFILE A / B";
+        case DriveModeSelection::Count: break;
+    }
+    return "UNKNOWN";
+}
+
 bool validateControlBinding(const ControlBinding &binding, const char **reason)
 {
     auto fail = [reason](const char *message) {
@@ -127,6 +167,12 @@ bool validateControlBinding(const ControlBinding &binding, const char **reason)
         return fail("CRSF channel must be 1..16");
     if (binding.target != AssignmentTarget::CrsfChannel && binding.crsfChannel != 0)
         return fail("non-channel binding has a CRSF channel");
+    if (binding.target == AssignmentTarget::TransmitterFunction &&
+        binding.targetId >= static_cast<uint16_t>(TransmitterFunction::Count))
+        return fail("invalid transmitter function");
+    if (binding.target == AssignmentTarget::DriveMode &&
+        binding.targetId >= static_cast<uint16_t>(DriveModeSelection::Count))
+        return fail("invalid drive mode selection");
     if (binding.target == AssignmentTarget::ModelParameter &&
         isChannelParameterTarget(binding.targetId)) {
         const uint8_t channel = channelParameterTargetChannel(binding.targetId);

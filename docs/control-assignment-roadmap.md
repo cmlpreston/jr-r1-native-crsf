@@ -126,17 +126,22 @@ bindings only when the combination is made explicit in the UI.
 - [x] Add momentary, toggle, pulse and switch output resolvers.
 - [x] Add trim jog, stepped and three-position output resolvers.
 - [x] Dispatch per-channel trim/subtrim actions to the live model pipeline.
-- [ ] Dispatch the remaining UI/model/drive-mode local actions.
+- [ ] Dispatch the remaining UI/model/drive-mode local actions. The first
+  usable slice is complete: menu, dashboard, Quick panel, display on/off,
+  night mode, arm/CUT and Walk/Normal can now be selected on the TFT and are
+  dispatched at runtime.
 - [x] Feed sampled physical-input events into the resolver on hardware.
 - [ ] Show live CRSF value and receiver-output mapping notes.
 
 ### Contexts and shortcuts
 
-- [ ] Dashboard, menu, CUT and armed contexts.
+- [x] Runtime Dashboard, menu, CUT and armed context selection.
+- [ ] Make binding contexts editable on the TFT.
 - [ ] Keypad navigation consumes keypad events while a menu is open.
 - [ ] Dashboard short/long/double-press shortcuts.
 - [ ] Timer button defaults to next dashboard page.
-- [ ] Touchscreen lock and display on/off actions.
+- [ ] Touchscreen lock and display on/off actions. Display on/off is complete;
+  touchscreen lock remains.
 
 ### Safety
 
@@ -155,7 +160,17 @@ bindings only when the combination is made explicit in the UI.
 - [ ] Optional BLE companion interface.
 - [ ] Multi-action macros, conditions and mixes.
 
-## TFT35-SPI display blanking
+## Display blanking
+
+The current Waveshare 3.5inch RPi LCD (F) profile has an exposed PWM backlight.
+Controller Display OFF plus backlight PWM has been verified, including guarded
+GT911 touch-to-wake. The original TFT35-SPI notes below are retained for the
+fallback display profile.
+
+- [x] Waveshare controller sleep, PWM backlight-off and fresh-touch wake.
+- [ ] Measure and record Waveshare awake/sleep current.
+
+### Original TFT35-SPI fallback
 
 The current firmware sends the ILI9486 `Display OFF` (`0x28`) command and wakes
 with `Display ON` (`0x29`). This blanks pixel drive but does not switch the

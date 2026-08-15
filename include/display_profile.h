@@ -68,7 +68,15 @@ constexpr uint16_t GT911_FIRST_POINT_REGISTER = 0x814f;
 
 constexpr int16_t DISPLAY_LANDSCAPE_WIDTH = 480;
 constexpr int16_t DISPLAY_LANDSCAPE_HEIGHT = 320;
-constexpr uint32_t TFT_SPI_FREQUENCY = 25000000;
+#ifdef JR_R1_DISPLAY_DIAGNOSTIC
+// Slow enough for a 24 Msps hobby logic analyser to resolve cleanly while
+// diagnosing the 13-pin panel cable and connector.
+constexpr uint32_t TFT_SPI_FREQUENCY = 1000000;
+#else
+// 30 MHz trial on the present jumper-wire prototype. If corruption or failed
+// panel initialisation appears, return this to the proven 20 MHz setting.
+constexpr uint32_t TFT_SPI_FREQUENCY = 30000000;
+#endif
 constexpr uint8_t TFT_BACKLIGHT_LEDC_CHANNEL = 6;
 constexpr uint32_t TFT_BACKLIGHT_PWM_FREQUENCY = 5000;
 constexpr uint8_t TFT_BACKLIGHT_PWM_BITS = 8;

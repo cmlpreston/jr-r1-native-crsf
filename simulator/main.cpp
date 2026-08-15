@@ -89,8 +89,14 @@ int main(int argc, char **argv)
             ? (ui.armRequested() ? OutputSafetyStatus::Armed : OutputSafetyStatus::Cut)
             : OutputSafetyStatus::ChannelDisabled;
 
+        CrsfChannelOutputModel channelOutputs;
+        channelOutputs.configure(ui.steeringChannel(), CRSF_CHANNEL_MID,
+                                 CRSF_CHANNEL_MID, ui.steeringEnabled());
+        channelOutputs.configure(ui.throttleChannel(), crsf, CRSF_CHANNEL_MID,
+                                 ui.throttleEnabled());
         ui.update(rawAdc, rawPermille, output, crsf, safety, telemetry,
-                  controls.transmitterVoltageDecivolts, true);
+                  controls.transmitterVoltageDecivolts, true,
+                  channelOutputs, safety == OutputSafetyStatus::Armed);
 
         ElrsManagementRequest request;
         while (ui.consumeElrsManagementRequest(request))
@@ -104,4 +110,3 @@ int main(int argc, char **argv)
     simulatorShutdown();
     return 0;
 }
-

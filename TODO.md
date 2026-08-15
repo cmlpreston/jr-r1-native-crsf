@@ -23,12 +23,12 @@ proof of concept.
 - Follow the detailed checklist in `docs/control-assignment-roadmap.md`; it is
   the source of truth for the programmable control-system feature.
 - Map the steering FPC and all original R1 buttons, toggles and trims.
-- Extend the TFT assignment editor beyond the implemented CRSF outputs and
-  per-channel trim/subtrim parameters to local actions, contexts and
-  multi-action bindings.
+- Extend the TFT assignment editor beyond the now-implemented CRSF outputs,
+  per-channel trim/subtrim, first transmitter functions and first drive-mode
+  selections to editable contexts and multi-action bindings.
 - Add configurable step/range limits for channel trim/subtrim; the first
   implementation uses +/-20% with 1% steps.
-- Feed enabled auxiliary outputs and their live values into the dashboard's
+- [x] Feed enabled auxiliary outputs and their live values into the dashboard's
   right-hand vertical channel bank; keep steering/throttle as horizontal bars.
 - Support transmitter functions, channels, modes and multi-action macros.
 - Add TFT editors for behaviour-specific range, step, initial, failsafe and

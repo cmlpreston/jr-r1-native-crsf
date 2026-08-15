@@ -30,6 +30,8 @@ constexpr uint32_t kUiUpdateMs = 80;
 constexpr uint16_t kTouchPressureThreshold = 40;
 constexpr uint32_t kTouchReleaseDebounceMs = 25;
 constexpr uint32_t kTouchRetriggerGuardMs = 100;
+constexpr uint32_t kDisplayWakeArmMs = 250;
+constexpr uint32_t kDisplayWakePollMs = 20;
 constexpr uint32_t kSettingsSaveDelayMs = 750;
 constexpr uint16_t kBindingProfileVersion = 1;
 constexpr uint16_t kChannelParameterVersion = 1;
@@ -73,6 +75,20 @@ constexpr uint32_t cSafetyFault = 0x421416;
 
 uint8_t uiBrightnessPercent = 100;
 bool uiNightMode = false;
+
+constexpr TransmitterFunction kEditableTransmitterFunctions[] = {
+    TransmitterFunction::OpenMenu,
+    TransmitterFunction::Dashboard,
+    TransmitterFunction::QuickPanel,
+    TransmitterFunction::DisplayOnOff,
+    TransmitterFunction::ToggleNightMode,
+    TransmitterFunction::ArmCut,
+};
+
+constexpr DriveModeSelection kEditableDriveModeSelections[] = {
+    DriveModeSelection::WalkNormal,
+    DriveModeSelection::CutArm,
+};
 
 #ifndef JR_R1_SIMULATOR
 Arduino_DataBus *displayBus = new Arduino_ESP32SPI(
@@ -375,6 +391,30 @@ bool Channel2Ui::begin()
     }
     applyBacklight(systemSettings_.displayBrightnessPercent);
 
+#if defined(JR_R1_DISPLAY_DIAGNOSTIC) && !defined(JR_R1_SIMULATOR)
+    // A deliberately primitive test before LVGL is involved. If these fills
+    // appear, panel power, reset, backlight and the write side of SPI work.
+    // MISO and touch are tested separately by the normal runtime.
+    applyBacklight(100);
+    Serial.println("DISPLAY TEST: RED GREEN BLUE WHITE BLACK");
+    display->fillScreen(RGB565_RED);
+    delay(800);
+    display->fillScreen(RGB565_GREEN);
+    delay(800);
+    display->fillScreen(RGB565_BLUE);
+    delay(800);
+    display->fillScreen(RGB565_WHITE);
+    delay(800);
+    display->fillScreen(RGB565_BLACK);
+    delay(800);
+
+    for (const uint8_t address : {uint8_t(0x14), uint8_t(0x5d)}) {
+        Wire.beginTransmission(address);
+        Serial.printf("DISPLAY TEST: I2C 0x%02X %s\n", address,
+                      Wire.endTransmission() == 0 ? "ACK" : "no response");
+    }
+#endif
+
     lv_init();
     lv_disp_draw_buf_init(&drawBuffer, lineBuffer, nullptr,
                           kScreenWidth * 16);
@@ -454,6 +494,7 @@ bool Channel2Ui::captureScreenshot(Stream &output)
 void Channel2Ui::resetLvglObjects()
 {
     dashboardThrottleBar_ = nullptr;
+    for (lv_obj_t *&bar : dashboardChannelBars_) bar = nullptr;
     dashboardSafetyPanel_ = nullptr;
     dashboardSafetyLabel_ = nullptr;
     dashboardLinkLabel_ = nullptr;
@@ -1038,6 +1079,40 @@ ControlBehaviour Channel2Ui::adjacentBindingBehaviour(
     return modes[next];
 }
 
+AssignmentTarget Channel2Ui::adjacentBindingTarget(
+    PhysicalControlKind kind, AssignmentTarget current, int8_t direction) const
+{
+    const AssignmentTarget buttonTargets[] = {
+        AssignmentTarget::CrsfChannel,
+        AssignmentTarget::TransmitterFunction,
+    };
+    const AssignmentTarget switchTargets[] = {
+        AssignmentTarget::CrsfChannel,
+        AssignmentTarget::DriveMode,
+        AssignmentTarget::TransmitterFunction,
+    };
+    const AssignmentTarget trimTargets[] = {
+        AssignmentTarget::CrsfChannel,
+        AssignmentTarget::ModelParameter,
+    };
+    const AssignmentTarget *targets = buttonTargets;
+    size_t count = sizeof(buttonTargets) / sizeof(buttonTargets[0]);
+    if (kind == PhysicalControlKind::MaintainedSwitch) {
+        targets = switchTargets;
+        count = sizeof(switchTargets) / sizeof(switchTargets[0]);
+    } else if (kind == PhysicalControlKind::SpringCentredTrim) {
+        targets = trimTargets;
+        count = sizeof(trimTargets) / sizeof(trimTargets[0]);
+    }
+    size_t selected = 0;
+    for (size_t index = 0; index < count; ++index)
+        if (targets[index] == current) selected = index;
+    int next = static_cast<int>(selected) + direction;
+    if (next < 0) next = static_cast<int>(count) - 1;
+    if (next >= static_cast<int>(count)) next = 0;
+    return targets[next];
+}
+
 bool Channel2Ui::bindingUsesChannel(uint8_t channel,
                                     PhysicalControlId exceptInput) const
 {
@@ -1154,6 +1229,9 @@ void Channel2Ui::sleepDisplay()
         ledcWrite(TFT_BACKLIGHT_LEDC_CHANNEL, 0);
 #endif
     displaySleeping_ = true;
+    displayWakeArmed_ = false;
+    displayWakeIdleSinceMs_ = 0;
+    nextDisplayWakePollMs_ = 0;
     Serial.println(DISPLAY_HAS_PWM_BACKLIGHT
         ? "DISPLAY: off (0x28 and backlight off; touch to wake)"
         : "DISPLAY: off (0x28; touch to wake)");
@@ -1325,6 +1403,77 @@ bool Channel2Ui::applyChannelParameterAction(uint16_t targetId, int16_t value)
     return true;
 }
 
+uint8_t Channel2Ui::activeControlContext() const
+{
+    return activePage_ == UiPage::Dashboard ? ContextDashboard : ContextMenu;
+}
+
+bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value)
+{
+    if (targetId >= static_cast<uint16_t>(TransmitterFunction::Count)) return false;
+    const TransmitterFunction function = static_cast<TransmitterFunction>(targetId);
+    switch (function) {
+        case TransmitterFunction::OpenMenu:
+            if (value > 0) { playKeyClick(); drawMainMenu(); }
+            return true;
+        case TransmitterFunction::Dashboard:
+            if (value > 0) { playKeyClick(); drawDashboard(); }
+            return true;
+        case TransmitterFunction::QuickPanel:
+            if (value > 0) { playKeyClick(); drawDriveModesPage(); }
+            return true;
+        case TransmitterFunction::DisplayOnOff:
+            if (value > 0) wakeDisplay(); else sleepDisplay();
+            return true;
+        case TransmitterFunction::DisplayWake:
+            if (value > 0) wakeDisplay();
+            return true;
+        case TransmitterFunction::ToggleNightMode:
+            if (value > 0) {
+                systemSettings_.nightMode = !systemSettings_.nightMode;
+                uiNightMode = systemSettings_.nightMode;
+                saveSystemSettings();
+                playKeyClick();
+                redrawActivePage();
+            }
+            return true;
+        case TransmitterFunction::ArmCut:
+            armRequested_ = value > 0;
+            safetyResetRequested_ = true;
+            playBuzzer(80);
+            if (activePage_ == UiPage::Dashboard) drawDashboard();
+            return true;
+        default:
+            // Reserved in the data model but not exposed by the first editor
+            // slice until the corresponding runtime feature exists.
+            return false;
+    }
+}
+
+bool Channel2Ui::applyDriveModeAction(uint16_t targetId, int16_t value)
+{
+    if (targetId >= static_cast<uint16_t>(DriveModeSelection::Count)) return false;
+    const DriveModeSelection selection = static_cast<DriveModeSelection>(targetId);
+    if (selection == DriveModeSelection::CutArm) {
+        armRequested_ = value > 0;
+        safetyResetRequested_ = true;
+    } else if (selection == DriveModeSelection::WalkNormal) {
+        const DriveMode requested = value > 0 ? DriveMode::Normal : DriveMode::Walk;
+        if (driveModeSettings_.activeMode != requested) {
+            driveModeSettings_.activeMode = requested;
+            armRequested_ = false;
+            safetyResetRequested_ = true;
+            saveDriveModeSettings();
+        }
+    } else {
+        return false;
+    }
+    playBuzzer(80);
+    if (activePage_ == UiPage::DriveModes) drawDriveModesPage();
+    else if (activePage_ == UiPage::Dashboard) drawDashboard();
+    return true;
+}
+
 int16_t Channel2Ui::applyChannelSpeed(int16_t targetPermille, uint32_t nowMs)
 {
     if (lastSlewUpdateMs_ == 0) {
@@ -1388,14 +1537,13 @@ void Channel2Ui::drawDashboard()
 
     lv_obj_t *monitor = makePanel(8, 141, 464, 99);
     makeLabel(monitor, "CHANNEL MONITOR", 10, 6, 12, cCyan);
-    uint8_t enabledChannels[16];
+    uint8_t enabledChannels[CRSF_CHANNEL_COUNT];
     uint8_t enabledCount = 0;
-    if (channelRoleSettings_.steeringEnabled)
-        enabledChannels[enabledCount++] = channelRoleSettings_.steeringChannel;
-    if (channelRoleSettings_.throttleEnabled &&
-        (!channelRoleSettings_.steeringEnabled ||
-         channelRoleSettings_.throttleChannel != channelRoleSettings_.steeringChannel))
-        enabledChannels[enabledCount++] = channelRoleSettings_.throttleChannel;
+    for (uint8_t channel = 1; channel <= CRSF_CHANNEL_COUNT; ++channel) {
+        const uint16_t bit = static_cast<uint16_t>(1U << (channel - 1));
+        if ((dashboardEnabledChannelMask_ & bit) != 0)
+            enabledChannels[enabledCount++] = channel;
+    }
 
     if (enabledCount == 0) {
         makeLabel(monitor, "NO ENABLED CHANNELS", 10, 43, 16, cDim);
@@ -1418,7 +1566,16 @@ void Channel2Ui::drawDashboard()
                 auxiliaryChannels[auxiliaryCount++] = channel;
         }
 
-        const int16_t primaryBarWidth = auxiliaryCount == 0 ? 338 : 218;
+        constexpr int16_t kAuxRightEdge = 450;
+        constexpr int16_t kAuxSlotWidth = 18;
+        constexpr int16_t kPrimaryBarX = 112;
+        constexpr int16_t kPrimaryAuxGap = 8;
+        const uint8_t visibleAuxiliaryCount = min<uint8_t>(auxiliaryCount, 6);
+        const int16_t auxBankWidth = visibleAuxiliaryCount * kAuxSlotWidth;
+        const int16_t auxBankX = kAuxRightEdge - auxBankWidth;
+        const int16_t primaryBarWidth = auxiliaryCount == 0
+            ? 338
+            : auxBankX - kPrimaryAuxGap - kPrimaryBarX;
         const int16_t firstY = primaryCount == 1 ? 46 : 29;
         for (uint8_t index = 0; index < primaryCount; ++index) {
             const uint8_t channel = primaryChannels[index];
@@ -1429,10 +1586,12 @@ void Channel2Ui::drawDashboard()
             const int16_t y = firstY + index * 34;
             makeLabel(monitor, label, 10, y - 1, 12,
                       steering ? cWhite : cCyan);
-            lv_obj_t *bar = makeBar(monitor, 112, y, primaryBarWidth, 18,
+            lv_obj_t *bar = makeBar(monitor, kPrimaryBarX, y,
+                                    primaryBarWidth, 18,
                                     kCrsfMinimum, kCrsfMaximum,
                                     steering ? cWhite : cCyan);
             lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
+            dashboardChannelBars_[channel - 1] = bar;
             if (channel == channelRoleSettings_.throttleChannel)
                 dashboardThrottleBar_ = bar;
         }
@@ -1441,16 +1600,9 @@ void Channel2Ui::drawDashboard()
             constexpr uint8_t kMaximumVisibleAuxiliaries = 6;
             const uint8_t visibleCount = min<uint8_t>(auxiliaryCount,
                                                        kMaximumVisibleAuxiliaries);
-            const int16_t bankX = 344;
-            const int16_t bankWidth = 106;
-            const int16_t slotWidth = bankWidth / visibleCount;
-            char auxHeading[12];
-            if (auxiliaryCount > visibleCount)
-                snprintf(auxHeading, sizeof(auxHeading), "AUX +%u",
-                         auxiliaryCount - visibleCount);
-            else
-                snprintf(auxHeading, sizeof(auxHeading), "AUX");
-            makeLabel(monitor, auxHeading, bankX, 6, 10, cDim);
+            const int16_t bankX = kAuxRightEdge -
+                                  visibleCount * kAuxSlotWidth;
+            const int16_t slotWidth = kAuxSlotWidth;
             for (uint8_t index = 0; index < visibleCount; ++index) {
                 const uint8_t channel = auxiliaryChannels[index];
                 const int16_t x = bankX + index * slotWidth;
@@ -1464,6 +1616,7 @@ void Channel2Ui::drawDashboard()
                     37, min<int16_t>(10, slotWidth - 2), 44,
                     kCrsfMinimum, kCrsfMaximum, cCyan);
                 lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
+                dashboardChannelBars_[channel - 1] = bar;
             }
         }
     }
@@ -1476,6 +1629,7 @@ void Channel2Ui::drawDashboard()
     makeButton(356, 249, 116, 62, mode, 13, cPanel2, cGreen);
 
     lastDisplayedCrsf_ = UINT16_MAX;
+    for (uint16_t &value : lastDashboardChannelValues_) value = UINT16_MAX;
     lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
     lastLinkValid_ = !lastLinkValid_;
     lastReceiverVoltageValid_ = !lastReceiverVoltageValid_;
@@ -1489,10 +1643,15 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
                                    bool txVoltageValid)
 {
     if (!displayReady_ || activePage_ != UiPage::Dashboard) return;
-    if (dashboardThrottleBar_ && crsfValue != lastDisplayedCrsf_) {
-        lv_bar_set_value(dashboardThrottleBar_, crsfValue, LV_ANIM_OFF);
-        lastDisplayedCrsf_ = crsfValue;
+    for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
+        if (dashboardChannelBars_[index] &&
+            dashboardChannelValues_[index] != lastDashboardChannelValues_[index]) {
+            lv_bar_set_value(dashboardChannelBars_[index],
+                             dashboardChannelValues_[index], LV_ANIM_OFF);
+            lastDashboardChannelValues_[index] = dashboardChannelValues_[index];
+        }
     }
+    lastDisplayedCrsf_ = crsfValue;
     if (dashboardSafetyLabel_ && dashboardSafetyPanel_ &&
         safetyStatus != lastSafetyStatus_) {
         const char *text = "CUT";
@@ -1708,6 +1867,16 @@ void Channel2Ui::drawControlAssignmentsPage()
                         channelParameterTargetChannel(binding.targetId),
                         channelParameterKindName(
                             channelParameterTargetKind(binding.targetId)));
+                } else if (binding.target == AssignmentTarget::TransmitterFunction) {
+                    snprintf(summary, sizeof(summary), "%s  %s",
+                             binding.enabled ? "ON" : "OFF",
+                             transmitterFunctionName(static_cast<TransmitterFunction>(
+                                 binding.targetId)));
+                } else if (binding.target == AssignmentTarget::DriveMode) {
+                    snprintf(summary, sizeof(summary), "%s  %s",
+                             binding.enabled ? "ON" : "OFF",
+                             driveModeSelectionName(static_cast<DriveModeSelection>(
+                                 binding.targetId)));
                 } else {
                     snprintf(summary, sizeof(summary), "%s CH%u  %s",
                              binding.enabled ? "ON" : "OFF", binding.crsfChannel,
@@ -1746,8 +1915,14 @@ void Channel2Ui::drawBindingEditorPage()
     makeLabel(namePanel, control.name, 12, 7, 15, cCyan);
     makeLabel(namePanel, r1InputEndpointLabel(selectedBindingInput_), 300, 9, 10, cDim);
 
+    const bool parameter = bindingDraft_.target == AssignmentTarget::ModelParameter &&
+        isChannelParameterTarget(bindingDraft_.targetId);
     const int16_t ys[] = {89, 128, 167, 206};
-    const char *labels[] = {"ENABLED", "TARGET", "CHANNEL", "MODE"};
+    const char *detailLabel =
+        bindingDraft_.target == AssignmentTarget::TransmitterFunction ? "FUNCTION" :
+        bindingDraft_.target == AssignmentTarget::DriveMode ? "SELECTION" : "CHANNEL";
+    const char *labels[] = {"ENABLED", "TARGET", detailLabel,
+                            parameter ? "PARAMETER" : "MODE"};
     for (uint8_t row = 0; row < 4; ++row) {
         lv_obj_t *panel = makePanel(12, ys[row], 456, 34);
         makeLabel(panel, labels[row], 10, 8, 12, cDim);
@@ -1756,21 +1931,26 @@ void Channel2Ui::drawBindingEditorPage()
                bindingDraft_.enabled ? cGreen : cPanel2,
                bindingDraft_.enabled ? cBlack : cWhite);
 
-    const bool parameter = bindingDraft_.target == AssignmentTarget::ModelParameter &&
-        isChannelParameterTarget(bindingDraft_.targetId);
-    makeLabel(lv_scr_act(), parameter ? "CHANNEL PARAM" : "AUX OUTPUT",
-              220, 137, 12, parameter ? cCyan : cWhite);
-    if (control.kind == PhysicalControlKind::SpringCentredTrim) {
-        makeButton(350, 130, 42, 30, "<", 20);
-        makeButton(408, 130, 42, 30, ">", 20);
-    }
+    makeLabel(lv_scr_act(), assignmentTargetName(bindingDraft_.target),
+              220, 137, 12, bindingDraft_.target == AssignmentTarget::CrsfChannel
+                  ? cWhite : cCyan);
+    makeButton(350, 130, 42, 30, "<", 20);
+    makeButton(408, 130, 42, 30, ">", 20);
 
-    const uint8_t selectedChannel = parameter
-        ? channelParameterTargetChannel(bindingDraft_.targetId)
-        : bindingDraft_.crsfChannel;
-    char channel[12];
-    snprintf(channel, sizeof(channel), "CH%u", selectedChannel);
-    makeLabel(lv_scr_act(), channel, 300, 176, 15, cWhite);
+    char detail[32];
+    if (bindingDraft_.target == AssignmentTarget::TransmitterFunction) {
+        snprintf(detail, sizeof(detail), "%s", transmitterFunctionName(
+            static_cast<TransmitterFunction>(bindingDraft_.targetId)));
+    } else if (bindingDraft_.target == AssignmentTarget::DriveMode) {
+        snprintf(detail, sizeof(detail), "%s", driveModeSelectionName(
+            static_cast<DriveModeSelection>(bindingDraft_.targetId)));
+    } else {
+        const uint8_t selectedChannel = parameter
+            ? channelParameterTargetChannel(bindingDraft_.targetId)
+            : bindingDraft_.crsfChannel;
+        snprintf(detail, sizeof(detail), "CH%u", selectedChannel);
+    }
+    makeLabel(lv_scr_act(), detail, 220, 176, 12, cWhite);
     makeButton(350, 169, 42, 30, "-", 20);
     makeButton(408, 169, 42, 30, "+", 20);
     makeLabel(lv_scr_act(), parameter
@@ -1785,7 +1965,7 @@ void Channel2Ui::drawBindingEditorPage()
         makeLabel(lv_scr_act(), bindingError_, 14, 246, 11, cRed);
     else
         makeLabel(lv_scr_act(), parameter ? "Step: 1%; edits force CUT" :
-                  "Edits force CUT and require neutral re-arm",
+                  "Assignment edits force CUT and neutral re-arm",
                   14, 246, 11, cAmber);
     makeButton(12, 274, 138, 34, "CANCEL", 13, cPanel);
     if (bindingIndexForInput(selectedBindingInput_) >= 0)
@@ -2779,20 +2959,28 @@ void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
         isChannelParameterTarget(bindingDraft_.targetId);
     if (y >= 88 && y < 124 && x >= 330) {
         bindingDraft_.enabled = !bindingDraft_.enabled;
-    } else if (y >= 127 && y < 163 && x >= 330 &&
-               kind == PhysicalControlKind::SpringCentredTrim) {
-        if (parameter) {
+    } else if (y >= 127 && y < 163 && x >= 330) {
+        const int8_t direction = x < 400 ? -1 : 1;
+        const AssignmentTarget next = adjacentBindingTarget(
+            kind, bindingDraft_.target, direction);
+        if (next == AssignmentTarget::CrsfChannel) {
             bindingDraft_.target = AssignmentTarget::CrsfChannel;
             bindingDraft_.targetId = 0;
             bindingDraft_.crsfChannel = adjacentBindingChannel(2, 1);
-            bindingDraft_.behaviour = ControlBehaviour::SpringReturnThreePosition;
+            bindingDraft_.behaviour = kind == PhysicalControlKind::MaintainedSwitch
+                ? ControlBehaviour::TwoPosition
+                : kind == PhysicalControlKind::SpringCentredTrim
+                ? ControlBehaviour::SpringReturnThreePosition
+                : ControlBehaviour::Momentary;
+            bindingDraft_.event = kind == PhysicalControlKind::SpringCentredTrim
+                ? InputEvent::PositivePress : InputEvent::Pressed;
             bindingDraft_.minimum = -1000;
             bindingDraft_.maximum = 1000;
             bindingDraft_.step = 50;
             bindingDraft_.initial = 0;
             bindingDraft_.failsafe = 0;
             bindingDraft_.persistent = false;
-        } else {
+        } else if (next == AssignmentTarget::ModelParameter) {
             const uint8_t channel = selectedBindingInput_ ==
                     PhysicalControlId::ThrottleTrim
                 ? channelRoleSettings_.throttleChannel
@@ -2812,6 +3000,33 @@ void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
                 channel, ChannelParameterKind::Trim);
             bindingDraft_.failsafe = bindingDraft_.initial;
             bindingDraft_.persistent = true;
+        } else if (next == AssignmentTarget::TransmitterFunction) {
+            bindingDraft_.target = next;
+            bindingDraft_.targetId = static_cast<uint16_t>(
+                TransmitterFunction::OpenMenu);
+            bindingDraft_.crsfChannel = 0;
+            bindingDraft_.behaviour = kind == PhysicalControlKind::MaintainedSwitch
+                ? ControlBehaviour::TwoPosition : ControlBehaviour::Momentary;
+            bindingDraft_.event = InputEvent::Pressed;
+            bindingDraft_.minimum = -1000;
+            bindingDraft_.maximum = 1000;
+            bindingDraft_.step = 50;
+            bindingDraft_.initial = -1000;
+            bindingDraft_.failsafe = -1000;
+            bindingDraft_.persistent = false;
+        } else if (next == AssignmentTarget::DriveMode) {
+            bindingDraft_.target = next;
+            bindingDraft_.targetId = static_cast<uint16_t>(
+                DriveModeSelection::WalkNormal);
+            bindingDraft_.crsfChannel = 0;
+            bindingDraft_.behaviour = ControlBehaviour::TwoPosition;
+            bindingDraft_.event = InputEvent::Pressed;
+            bindingDraft_.minimum = -1000;
+            bindingDraft_.maximum = 1000;
+            bindingDraft_.step = 50;
+            bindingDraft_.initial = -1000;
+            bindingDraft_.failsafe = -1000;
+            bindingDraft_.persistent = false;
         }
     } else if (y >= 166 && y < 202 && x >= 330) {
         const int8_t direction = x < 400 ? -1 : 1;
@@ -2825,6 +3040,44 @@ void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
                                                                    parameterKind);
             bindingDraft_.initial = channelParameterValue(channel, parameterKind);
             bindingDraft_.failsafe = bindingDraft_.initial;
+        } else if (bindingDraft_.target == AssignmentTarget::TransmitterFunction) {
+            size_t selected = 0;
+            for (size_t index = 0;
+                 index < sizeof(kEditableTransmitterFunctions) /
+                             sizeof(kEditableTransmitterFunctions[0]); ++index)
+                if (static_cast<uint16_t>(kEditableTransmitterFunctions[index]) ==
+                    bindingDraft_.targetId) selected = index;
+            const size_t count = sizeof(kEditableTransmitterFunctions) /
+                                 sizeof(kEditableTransmitterFunctions[0]);
+            selected = static_cast<size_t>((static_cast<int>(selected) + direction +
+                                            static_cast<int>(count)) %
+                                           static_cast<int>(count));
+            bindingDraft_.targetId = static_cast<uint16_t>(
+                kEditableTransmitterFunctions[selected]);
+            if (kind == PhysicalControlKind::MaintainedSwitch) {
+                bindingDraft_.behaviour = ControlBehaviour::TwoPosition;
+            } else {
+                bindingDraft_.behaviour =
+                    (kEditableTransmitterFunctions[selected] ==
+                         TransmitterFunction::DisplayOnOff ||
+                     kEditableTransmitterFunctions[selected] ==
+                         TransmitterFunction::ArmCut)
+                    ? ControlBehaviour::Toggle : ControlBehaviour::Momentary;
+            }
+        } else if (bindingDraft_.target == AssignmentTarget::DriveMode) {
+            size_t selected = 0;
+            for (size_t index = 0;
+                 index < sizeof(kEditableDriveModeSelections) /
+                             sizeof(kEditableDriveModeSelections[0]); ++index)
+                if (static_cast<uint16_t>(kEditableDriveModeSelections[index]) ==
+                    bindingDraft_.targetId) selected = index;
+            const size_t count = sizeof(kEditableDriveModeSelections) /
+                                 sizeof(kEditableDriveModeSelections[0]);
+            selected = static_cast<size_t>((static_cast<int>(selected) + direction +
+                                            static_cast<int>(count)) %
+                                           static_cast<int>(count));
+            bindingDraft_.targetId = static_cast<uint16_t>(
+                kEditableDriveModeSelections[selected]);
         } else {
             bindingDraft_.crsfChannel = adjacentBindingChannel(
                 bindingDraft_.crsfChannel, direction);
@@ -3223,12 +3476,32 @@ void Channel2Ui::updateTouch()
     const bool irqActive = digitalRead(TOUCH_IRQ_PIN) == LOW;
 #endif
     if (displaySleeping_) {
-        if (irqActive) {
+        if (static_cast<int32_t>(now - nextDisplayWakePollMs_) < 0) return;
+        nextDisplayWakePollMs_ = now + kDisplayWakePollMs;
+
+        // GT911 INT is pulse-oriented on this module, so a normal loop can
+        // miss it. Its status register remains latched until readTouch()
+        // clears it, making the register the reliable wake source.
+        int16_t wakeX = 0, wakeY = 0;
+        uint16_t wakeRawX = 0, wakeRawY = 0, wakeRawZ = 0;
+        const bool wakeTouch = readTouch(wakeX, wakeY, wakeRawX, wakeRawY,
+                                         wakeRawZ);
+        if (!wakeTouch) {
+            // The GT911 can emit a delayed IRQ pulse after the touch data has
+            // already reported release. Require a continuously idle interval
+            // so that pulse remains part of the old gesture rather than being
+            // mistaken for a new wake touch.
+            if (displayWakeIdleSinceMs_ == 0) displayWakeIdleSinceMs_ = now;
+            if (now - displayWakeIdleSinceMs_ >= kDisplayWakeArmMs)
+                displayWakeArmed_ = true;
+        } else if (displayWakeArmed_) {
             wakeDisplay();
             discardTouchUntilRelease_ = true;
             touchWasDown_ = false;
             touchReleaseSinceMs_ = 0;
             touchIgnoreUntilMs_ = now + 250;
+        } else {
+            displayWakeIdleSinceMs_ = 0;
         }
         return;
     }
@@ -3306,9 +3579,17 @@ void Channel2Ui::updateTouch()
 void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
                         uint16_t crsfValue, OutputSafetyStatus safetyStatus,
                         const CrsfTelemetryState &telemetry,
-                        uint16_t txVoltageDecivolts, bool txVoltageValid)
+                        uint16_t txVoltageDecivolts, bool txVoltageValid,
+                        const CrsfChannelOutputModel &channelOutputs,
+                        bool channelOutputsLive)
 {
     latestRawAdc_ = rawAdc;
+    const uint16_t enabledMask = channelOutputs.enabledMask();
+    channelOutputs.resolve(channelOutputsLive, dashboardChannelValues_);
+    if (enabledMask != dashboardEnabledChannelMask_) {
+        dashboardEnabledChannelMask_ = enabledMask;
+        if (activePage_ == UiPage::Dashboard) drawDashboard();
+    }
     bool redrawElrsPage = false;
     if (elrsReceiverLinkAvailable_ != telemetry.linkValid) {
         elrsReceiverLinkAvailable_ = telemetry.linkValid;

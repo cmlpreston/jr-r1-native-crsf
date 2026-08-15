@@ -4,6 +4,7 @@
 #include <lvgl.h>
 #include "control_assignment.h"
 #include "crsf_telemetry.h"
+#include "crsf_channel_output.h"
 #include "crsf_management.h"
 #include "physical_input.h"
 #include "proportional_input.h"
@@ -114,7 +115,9 @@ public:
                 int16_t outputPermille, uint16_t crsfValue,
                 OutputSafetyStatus safetyStatus,
                 const CrsfTelemetryState &telemetry,
-                uint16_t txVoltageDecivolts, bool txVoltageValid);
+                uint16_t txVoltageDecivolts, bool txVoltageValid,
+                const CrsfChannelOutputModel &channelOutputs,
+                bool channelOutputsLive);
     int16_t mapAdcToPermille(uint16_t adc) const;
     int16_t applySettings(int16_t rawInputPermille) const;
     int16_t applyDriveMode(int16_t configuredPermille,
@@ -124,6 +127,9 @@ public:
                                     int16_t inputPermille) const;
     int16_t channelNeutralPermille(uint8_t channel) const;
     bool applyChannelParameterAction(uint16_t targetId, int16_t value);
+    bool applyTransmitterFunctionAction(uint16_t targetId, int16_t value);
+    bool applyDriveModeAction(uint16_t targetId, int16_t value);
+    uint8_t activeControlContext() const;
     int16_t applyChannelSpeed(int16_t targetPermille, uint32_t nowMs);
     void resetChannelSpeed();
     bool calibrationActive() const { return triggerInput_.calibrationActive(); }
@@ -260,6 +266,9 @@ private:
     ControlBehaviour adjacentBindingBehaviour(PhysicalControlKind kind,
                                               ControlBehaviour current,
                                               int8_t direction) const;
+    AssignmentTarget adjacentBindingTarget(PhysicalControlKind kind,
+                                            AssignmentTarget current,
+                                            int8_t direction) const;
 
     Channel2Settings settings_;
     ChannelRoleSettings channelRoleSettings_;
@@ -293,6 +302,12 @@ private:
     bool bindingsChanged_ = false;
     bool armRequested_ = false;
     bool displaySleeping_ = false;
+    // A touch-triggered sleep can leave the controller IRQ asserted for the
+    // tail of the same gesture. Require an idle/released sample before that
+    // IRQ is allowed to wake the display again.
+    bool displayWakeArmed_ = false;
+    uint32_t displayWakeIdleSinceMs_ = 0;
+    uint32_t nextDisplayWakePollMs_ = 0;
     // A touch used to wake the display, or one beginning inside the post-tap
     // guard interval, must be discarded as one complete physical gesture.
     bool discardTouchUntilRelease_ = false;
@@ -307,6 +322,9 @@ private:
     int16_t lastTouchY_ = 0;
     int16_t lastMarkerX_ = -1;
     uint16_t lastDisplayedCrsf_ = UINT16_MAX;
+    uint16_t dashboardEnabledChannelMask_ = 0;
+    uint16_t dashboardChannelValues_[CRSF_CHANNEL_COUNT] = {};
+    uint16_t lastDashboardChannelValues_[CRSF_CHANNEL_COUNT] = {};
     OutputSafetyStatus lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
     bool lastLinkValid_ = false;
     bool lastReceiverVoltageValid_ = false;
@@ -323,6 +341,7 @@ private:
     bool channelParameterSavePending_ = false;
     uint32_t channelParameterSaveDueMs_ = 0;
     lv_obj_t *dashboardThrottleBar_ = nullptr;
+    lv_obj_t *dashboardChannelBars_[CRSF_CHANNEL_COUNT] = {};
     lv_obj_t *dashboardSafetyPanel_ = nullptr;
     lv_obj_t *dashboardSafetyLabel_ = nullptr;
     lv_obj_t *dashboardLinkLabel_ = nullptr;

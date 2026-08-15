@@ -598,7 +598,7 @@ void loop()
             ResolvedBindingActionBuffer actions;
             portENTER_CRITICAL(&bindingResolverMux);
             bindingResolver.processEvents(physicalInputEvents,
-                static_cast<uint8_t>(ContextAlways | ContextDashboard |
+                static_cast<uint8_t>(ContextAlways | channel2Ui.activeControlContext() |
                     (throttleArmed ? ContextArmed : ContextCut)), actions);
             portEXIT_CRITICAL(&bindingResolverMux);
             for (size_t index = 0; index < actions.size(); ++index) {
@@ -606,6 +606,12 @@ void loop()
                 if (action.target == AssignmentTarget::ModelParameter)
                     channel2Ui.applyChannelParameterAction(action.targetId,
                                                             action.value);
+                else if (action.target == AssignmentTarget::TransmitterFunction)
+                    channel2Ui.applyTransmitterFunctionAction(action.targetId,
+                                                               action.value);
+                else if (action.target == AssignmentTarget::DriveMode)
+                    channel2Ui.applyDriveModeAction(action.targetId,
+                                                    action.value);
             }
             for (size_t index = 0; index < physicalInputEvents.size(); ++index) {
                 const PhysicalInputEvent &inputEvent = physicalInputEvents[index];
@@ -636,10 +642,13 @@ void loop()
     } else {
         filteredTxBatteryAdcMv = 0;
     }
+    const SharedChannelOutputState channelOutputs = readChannelOutputs();
     channel2Ui.update(control.adc, control.rawPermille,
                       control.outputPermille,
                       control.transmittedCrsf, control.safetyStatus,
-                      telemetry, txVoltageDecivolts, txVoltageValid);
+                      telemetry, txVoltageDecivolts, txVoltageValid,
+                      channelOutputs.model,
+                      channelOutputs.live && !sharedControlStale);
     ElrsManagementRequest management;
     if (channel2Ui.consumeElrsManagementRequest(management)) {
         requestControlReset();

@@ -108,6 +108,7 @@ enum class TransmitterFunction : uint8_t {
     AlarmAcknowledge,
     NextModel,
     PreviousModel,
+    Count,
 };
 
 enum class ModelParameter : uint8_t {
@@ -164,7 +165,11 @@ enum class DriveModeSelection : uint8_t {
     CutArm,
     WalkNormal,
     ProfileAProfileB,
+    Count,
 };
+
+const char *transmitterFunctionName(TransmitterFunction function);
+const char *driveModeSelectionName(DriveModeSelection selection);
 
 struct PhysicalControlDescriptor {
     PhysicalControlId id;

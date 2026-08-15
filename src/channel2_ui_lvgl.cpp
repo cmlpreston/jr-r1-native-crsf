@@ -507,6 +507,9 @@ bool Channel2Ui::captureScreenshot(Stream &output)
 void Channel2Ui::resetLvglObjects()
 {
     dashboardThrottleBar_ = nullptr;
+    pageFocusIndicator_ = nullptr;
+    pageFocusCount_ = 0;
+    pageFocusIndex_ = 0;
     for (lv_obj_t *&button : mainMenuButtons_) button = nullptr;
     for (lv_obj_t *&bar : dashboardChannelBars_) bar = nullptr;
     dashboardSafetyPanel_ = nullptr;
@@ -1508,13 +1511,22 @@ bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value
             if (activePage_ == UiPage::Dashboard) drawDashboard();
             return true;
         case TransmitterFunction::MenuPrevious:
-            if (value > 0) moveMainMenuFocus(-1);
+            if (value > 0) {
+                if (activePage_ == UiPage::MainMenu) moveMainMenuFocus(-1);
+                else movePageFocus(-1);
+            }
             return true;
         case TransmitterFunction::MenuNext:
-            if (value > 0) moveMainMenuFocus(1);
+            if (value > 0) {
+                if (activePage_ == UiPage::MainMenu) moveMainMenuFocus(1);
+                else movePageFocus(1);
+            }
             return true;
         case TransmitterFunction::MenuSelect:
-            if (value > 0) activateMainMenuFocus();
+            if (value > 0) {
+                if (activePage_ == UiPage::MainMenu) activateMainMenuFocus();
+                else activatePageFocus();
+            }
             return true;
         case TransmitterFunction::MenuBack:
             if (value > 0) navigateBack();
@@ -2035,6 +2047,65 @@ void Channel2Ui::activateMainMenuFocus()
     }
 }
 
+void Channel2Ui::beginPageFocus()
+{
+    pageFocusCount_ = 0;
+    pageFocusIndex_ = 0;
+    pageFocusIndicator_ = nullptr;
+}
+
+void Channel2Ui::addPageFocusTarget(int16_t x, int16_t y, int16_t width,
+                                    int16_t height)
+{
+    if (pageFocusCount_ >= kMaximumPageFocusTargets) return;
+    PageFocusTarget &target = pageFocusTargets_[pageFocusCount_++];
+    target.x = x;
+    target.y = y;
+    target.width = width;
+    target.height = height;
+}
+
+void Channel2Ui::finishPageFocus()
+{
+    if (pageFocusCount_ == 0) return;
+    pageFocusIndicator_ = lv_obj_create(lv_scr_act());
+    lv_obj_set_style_bg_opa(pageFocusIndicator_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(pageFocusIndicator_, colour(cCyan), 0);
+    lv_obj_set_style_border_width(pageFocusIndicator_, 3, 0);
+    lv_obj_set_style_radius(pageFocusIndicator_, 7, 0);
+    lv_obj_set_style_pad_all(pageFocusIndicator_, 0, 0);
+    lv_obj_clear_flag(pageFocusIndicator_, LV_OBJ_FLAG_SCROLLABLE);
+    refreshPageFocus();
+}
+
+void Channel2Ui::refreshPageFocus()
+{
+    if (pageFocusIndicator_ == nullptr || pageFocusCount_ == 0) return;
+    if (pageFocusIndex_ >= pageFocusCount_) pageFocusIndex_ = 0;
+    const PageFocusTarget &target = pageFocusTargets_[pageFocusIndex_];
+    position(pageFocusIndicator_, target.x, target.y,
+             target.width, target.height);
+    lv_obj_move_foreground(pageFocusIndicator_);
+}
+
+void Channel2Ui::movePageFocus(int8_t direction)
+{
+    if (pageFocusCount_ == 0) return;
+    pageFocusIndex_ = static_cast<uint8_t>(
+        (static_cast<int>(pageFocusIndex_) + (direction < 0 ? -1 : 1) +
+         pageFocusCount_) % pageFocusCount_);
+    refreshPageFocus();
+    playKeyClick();
+}
+
+void Channel2Ui::activatePageFocus()
+{
+    if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return;
+    const PageFocusTarget target = pageFocusTargets_[pageFocusIndex_];
+    handleTouch(target.x + target.width / 2,
+                target.y + target.height / 2);
+}
+
 void Channel2Ui::navigateBack()
 {
     playKeyClick();
@@ -2074,6 +2145,7 @@ void Channel2Ui::drawChannelsPage()
     startScreen();
     resetLvglObjects();
     makeHeader("CHANNELS", "BACK");
+    beginPageFocus();
     makeButton(258, 5, 78, 34, "ROLES", 11, cPanel2, cCyan);
     const uint8_t first = channelsBank_ * 8 + 1;
     for (uint8_t index = 0; index < 8; ++index) {
@@ -2088,6 +2160,8 @@ void Channel2Ui::drawChannelsPage()
                    label, 16,
                    channel == channelRoleSettings_.throttleChannel ? cPanel2 : cPanel,
                    channel == channelRoleSettings_.throttleChannel ? cCyan : cWhite);
+        addPageFocusTarget(10 + (index % 2) * 235,
+                           52 + (index / 2) * 52, 225, 44);
     }
     makeButton(12, 270, 58, 40, "<", 24,
                channelsBank_ == 0 ? cBlack : cPanel,
@@ -2099,6 +2173,7 @@ void Channel2Ui::drawChannelsPage()
     snprintf(page, sizeof(page), "%u / 2", channelsBank_ + 1);
     lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 280, 16, cDim);
     lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 280);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawChannelRoleRow(int row)
@@ -2121,6 +2196,7 @@ void Channel2Ui::drawControlAssignmentsPage()
     startScreen();
     resetLvglObjects();
     makeHeader("ASSIGNMENTS", "BACK");
+    beginPageFocus();
 
     constexpr uint8_t kRows = 5;
     constexpr uint8_t kBanks =
@@ -2178,6 +2254,7 @@ void Channel2Ui::drawControlAssignmentsPage()
         }
         makeLabel(panel, summary, 215, 5, 11, summaryColour);
         makeLabel(panel, ">", 438, 4, 16, cDim);
+        addPageFocusTarget(10, y, 460, 35);
     }
 
     makeButton(10, 263, 50, 42, "<", 22,
@@ -2191,6 +2268,7 @@ void Channel2Ui::drawControlAssignmentsPage()
     makeButton(420, 263, 50, 42, ">", 22,
                assignmentBank_ + 1 >= kBanks ? cBlack : cPanel,
                assignmentBank_ + 1 >= kBanks ? cDim : cWhite);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawBindingEditorPage()
@@ -2579,6 +2657,7 @@ void Channel2Ui::drawDriveModesPage()
     startScreen();
     resetLvglObjects();
     makeHeader("DRIVE MODE", "BACK");
+    beginPageFocus();
     const char *labels[] = {"WALK", "NORMAL"};
     for (uint8_t index = 0; index < 2; ++index) {
         const DriveMode mode = static_cast<DriveMode>(index);
@@ -2586,6 +2665,7 @@ void Channel2Ui::drawDriveModesPage()
         makeButton(76 + index * 174, 64, 156, 62, labels[index], 18,
                    active ? cGreen : cPanel2,
                    active ? cBlack : cWhite);
+        addPageFocusTarget(76 + index * 174, 64, 156, 62);
     }
     lv_obj_t *panel = makePanel(16, 150, 448, 66);
     makeLabel(panel, "FORWARD LIMIT", 14, 20, 18, cCyan);
@@ -2596,6 +2676,7 @@ void Channel2Ui::drawDriveModesPage()
     makeLabel(lv_scr_act(),
         "WALK limits forward only; brake/reverse stays at 100%.\nChanging mode forces CUT; release trigger before arming.",
         20, 242, 14, cAmber);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawLiveIndicator(int16_t, uint16_t crsfValue)
@@ -2646,11 +2727,19 @@ void Channel2Ui::drawSetupPage()
     startScreen();
     resetLvglObjects();
     makeHeader("SYSTEM SETUP", "BACK");
+    beginPageFocus();
     for (int row = 0; row < 4; ++row) drawSetupRow(row);
+    addPageFocusTarget(353, 60, 106, 36);
+    addPageFocusTarget(353, 110, 106, 36);
     makeButton(10, 265, 88, 44, "TEST", 14, cPanel2, cAmber);
+    addPageFocusTarget(10, 265, 88, 44);
     makeButton(106, 265, 110, 44, "DISPLAY", 13, cPanel2, cCyan);
+    addPageFocusTarget(106, 265, 110, 44);
     makeButton(224, 265, 116, 44, "TX BAT", 13, cPanel2, cCyan);
+    addPageFocusTarget(224, 265, 116, 44);
     makeButton(348, 265, 122, 44, "RX BAT", 13, cPanel2, cCyan);
+    addPageFocusTarget(348, 265, 122, 44);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawElrsBindingPage()

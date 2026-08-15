@@ -138,8 +138,9 @@ bindings only when the combination is made explicit in the UI.
 - [x] Runtime Dashboard, menu, CUT and armed context selection.
 - [ ] Make binding contexts editable on the TFT.
 - [ ] Keypad navigation consumes keypad events while a menu is open. Main-menu
-  previous/next/select plus consistent back navigation are implemented; focus
-  and value editing on subordinate pages remain.
+  navigation plus reusable focus/select navigation on Channels, Assignments,
+  Drive Modes and Setup are implemented; subordinate value adjustment and the
+  remaining editor pages are still to be added.
 - [ ] Dashboard short/long/double-press shortcuts.
 - [x] Timer button defaults to next dashboard page for a new/erased binding
   profile; existing user-edited bindings are preserved.

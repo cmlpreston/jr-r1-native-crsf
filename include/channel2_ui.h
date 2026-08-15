@@ -172,6 +172,13 @@ private:
     void refreshMainMenuFocus();
     void moveMainMenuFocus(int8_t direction);
     void activateMainMenuFocus();
+    void beginPageFocus();
+    void addPageFocusTarget(int16_t x, int16_t y, int16_t width,
+                            int16_t height);
+    void finishPageFocus();
+    void refreshPageFocus();
+    void movePageFocus(int8_t direction);
+    void activatePageFocus();
     void navigateBack();
     bool navigateDashboardPage(int8_t direction);
     void drawDashboard();
@@ -356,6 +363,17 @@ private:
     lv_obj_t *dashboardThrottleBar_ = nullptr;
     lv_obj_t *mainMenuButtons_[8] = {};
     uint8_t mainMenuFocusIndex_ = 1;
+    struct PageFocusTarget {
+        int16_t x = 0;
+        int16_t y = 0;
+        int16_t width = 0;
+        int16_t height = 0;
+    };
+    static constexpr uint8_t kMaximumPageFocusTargets = 16;
+    PageFocusTarget pageFocusTargets_[kMaximumPageFocusTargets] = {};
+    uint8_t pageFocusCount_ = 0;
+    uint8_t pageFocusIndex_ = 0;
+    lv_obj_t *pageFocusIndicator_ = nullptr;
     lv_obj_t *dashboardChannelBars_[CRSF_CHANNEL_COUNT] = {};
     lv_obj_t *dashboardSafetyPanel_ = nullptr;
     lv_obj_t *dashboardSafetyLabel_ = nullptr;

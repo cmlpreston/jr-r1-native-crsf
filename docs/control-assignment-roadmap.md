@@ -141,8 +141,9 @@ bindings only when the combination is made explicit in the UI.
   navigation plus reusable focus/select navigation on Channels, Assignments,
   Drive Modes and Setup are implemented. `MENU INCREASE` and `MENU DECREASE`
   now adjust the focused throttle endpoint/sub-trim, rate/expo/speed, Walk
-  limit and numeric Setup fields. The remaining editor pages still need the
-  same focus/adjust treatment.
+  limit and numeric Setup fields. The assignment editor now supports complete
+  keypad operation for Enabled, Target, Function/Channel, Mode/Parameter and
+  Cancel/Remove/Save. The remaining setup pages still need the same treatment.
 - [ ] Dashboard short/long/double-press shortcuts.
 - [x] Timer button defaults to next dashboard page for a new/erased binding
   profile; existing user-edited bindings are preserved.

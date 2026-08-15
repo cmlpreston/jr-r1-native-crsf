@@ -2109,6 +2109,14 @@ void Channel2Ui::movePageFocus(int8_t direction)
 void Channel2Ui::activatePageFocus()
 {
     if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return;
+    // Binding editor value rows are adjusted with +/-; SEL advances them as a
+    // convenient one-handed fallback. ENABLED and the footer buttons retain
+    // their normal touch activation coordinates below.
+    if (activePage_ == UiPage::BindingEditor &&
+        pageFocusIndex_ >= 1 && pageFocusIndex_ <= 3) {
+        adjustPageFocus(1);
+        return;
+    }
     const PageFocusTarget target = pageFocusTargets_[pageFocusIndex_];
     handleTouch(target.x + target.width / 2,
                 target.y + target.height / 2);
@@ -2134,6 +2142,11 @@ bool Channel2Ui::adjustPageFocus(int8_t direction)
             break;
         case UiPage::Setup:
             if (focused == 2 || focused == 3) y = 78 + focused * 50;
+            break;
+        case UiPage::BindingEditor:
+            if (focused == 0) y = 106;
+            else if (focused >= 1 && focused <= 3)
+                y = 145 + (focused - 1) * 39;
             break;
         default:
             break;
@@ -2324,6 +2337,7 @@ void Channel2Ui::drawBindingEditorPage()
     startScreen();
     resetLvglObjects();
     makeHeader("EDIT ASSIGNMENT", "BACK");
+    beginPageFocus();
 
     const PhysicalControlDescriptor &control = physicalControlDescriptor(
         static_cast<size_t>(selectedBindingInput_));
@@ -2346,12 +2360,14 @@ void Channel2Ui::drawBindingEditorPage()
     makeButton(344, 91, 108, 30, bindingDraft_.enabled ? "ON" : "OFF", 13,
                bindingDraft_.enabled ? cGreen : cPanel2,
                bindingDraft_.enabled ? cBlack : cWhite);
+    addPageFocusTarget(344, 91, 108, 30);
 
     makeLabel(lv_scr_act(), assignmentTargetName(bindingDraft_.target),
               220, 137, 12, bindingDraft_.target == AssignmentTarget::CrsfChannel
                   ? cWhite : cCyan);
     makeButton(350, 130, 42, 30, "<", 20);
     makeButton(408, 130, 42, 30, ">", 20);
+    addPageFocusTarget(210, 128, 246, 34);
 
     char detail[32];
     if (bindingDraft_.target == AssignmentTarget::TransmitterFunction) {
@@ -2369,6 +2385,7 @@ void Channel2Ui::drawBindingEditorPage()
     makeLabel(lv_scr_act(), detail, 220, 176, 12, cWhite);
     makeButton(350, 169, 42, 30, "-", 20);
     makeButton(408, 169, 42, 30, "+", 20);
+    addPageFocusTarget(210, 167, 246, 34);
     makeLabel(lv_scr_act(), parameter
                   ? channelParameterKindName(
                         channelParameterTargetKind(bindingDraft_.targetId))
@@ -2376,6 +2393,7 @@ void Channel2Ui::drawBindingEditorPage()
               220, 215, 12, cWhite);
     makeButton(350, 208, 42, 30, "<", 20);
     makeButton(408, 208, 42, 30, ">", 20);
+    addPageFocusTarget(210, 206, 246, 34);
 
     if (bindingError_[0] != '\0')
         makeLabel(lv_scr_act(), bindingError_, 14, 246, 11, cRed);
@@ -2384,9 +2402,14 @@ void Channel2Ui::drawBindingEditorPage()
                   "Assignment edits force CUT and neutral re-arm",
                   14, 246, 11, cAmber);
     makeButton(12, 274, 138, 34, "CANCEL", 13, cPanel);
-    if (bindingIndexForInput(selectedBindingInput_) >= 0)
+    addPageFocusTarget(12, 274, 138, 34);
+    if (bindingIndexForInput(selectedBindingInput_) >= 0) {
         makeButton(160, 274, 138, 34, "REMOVE", 13, cAmber, cBlack);
+        addPageFocusTarget(160, 274, 138, 34);
+    }
     makeButton(308, 274, 160, 34, "SAVE", 13, cGreen, cBlack);
+    addPageFocusTarget(308, 274, 160, 34);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawInputMonitorPage()

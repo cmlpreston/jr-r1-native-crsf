@@ -52,7 +52,8 @@ proof of concept.
 - Add dim-before-sleep and dedicated sunlight/night palettes.
 - Add configurable dashboard widgets and quick-adjust overlays.
 - Extend the implemented keypad focus/navigation and focused +/- adjustment
-  from the throttle, Drive Mode and Setup pages to every subordinate editor.
+  from throttle, assignment, Drive Mode and Setup pages to the remaining
+  channel-role, battery, display and ELRS editors.
 - Add touch and physical-input diagnostic/calibration pages.
 - [x] Bind the Timer button to next-dashboard-page in a new default R1 profile
   while retaining existing user assignments and alternate selectable actions.

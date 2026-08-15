@@ -22,7 +22,6 @@ constexpr uint8_t BUZZER_LEDC_CHANNEL = 7;
 constexpr uint8_t MCP23017_I2C_ADDRESS = 0x27;
 constexpr uint32_t MCP23017_POLL_PERIOD_MS = 5;
 constexpr uint8_t MCP23017_TEST_PORT = 0;       // PA0
-constexpr uint8_t MCP23017_TEST_CRSF_CHANNEL = 4;
 
 // Measure these three values from the USB log with the trigger at:
 // full brake/reverse, released/neutral, and full throttle.

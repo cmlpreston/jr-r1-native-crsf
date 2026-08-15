@@ -54,8 +54,8 @@ proof of concept.
 - Extend the implemented main-menu keypad focus/navigation to selectable rows,
   editors and value adjustment on every subordinate page.
 - Add touch and physical-input diagnostic/calibration pages.
-- Bind the Timer button to next-dashboard-page in the default R1 profile while
-  retaining timer, momentary-channel and other actions as selectable options.
+- [x] Bind the Timer button to next-dashboard-page in a new default R1 profile
+  while retaining existing user assignments and alternate selectable actions.
 
 ## Telemetry and peripherals
 

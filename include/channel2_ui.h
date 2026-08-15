@@ -173,6 +173,7 @@ private:
     void moveMainMenuFocus(int8_t direction);
     void activateMainMenuFocus();
     void navigateBack();
+    bool navigateDashboardPage(int8_t direction);
     void drawDashboard();
     void drawDashboardLive(uint16_t crsfValue,
                            OutputSafetyStatus safetyStatus,

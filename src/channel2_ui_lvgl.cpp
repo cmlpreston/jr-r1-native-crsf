@@ -79,6 +79,8 @@ bool uiNightMode = false;
 constexpr TransmitterFunction kEditableTransmitterFunctions[] = {
     TransmitterFunction::OpenMenu,
     TransmitterFunction::Dashboard,
+    TransmitterFunction::NextPage,
+    TransmitterFunction::PreviousPage,
     TransmitterFunction::QuickPanel,
     TransmitterFunction::DisplayOnOff,
     TransmitterFunction::ToggleNightMode,
@@ -850,8 +852,13 @@ void Channel2Ui::restoreDefaultBindings()
 {
     bindingCount_ = 1;
     bindings_[0] = defaultBindingForInput(PhysicalControlId::TimerButton);
+    bindings_[0].target = AssignmentTarget::TransmitterFunction;
+    bindings_[0].targetId = static_cast<uint16_t>(TransmitterFunction::NextPage);
+    bindings_[0].contexts = ContextDashboard;
+    bindings_[0].event = InputEvent::Pressed;
+    bindings_[0].behaviour = ControlBehaviour::Momentary;
+    bindings_[0].crsfChannel = 0;
     bindings_[0].enabled = true;
-    bindings_[0].crsfChannel = MCP23017_TEST_CRSF_CHANNEL;
 }
 
 void Channel2Ui::loadBindings()
@@ -1433,6 +1440,29 @@ uint8_t Channel2Ui::activeControlContext() const
         ? ContextDashboard : ContextMenu;
 }
 
+bool Channel2Ui::navigateDashboardPage(int8_t direction)
+{
+    // Keep the ordered list in one place as driving pages are added. Direction
+    // is meaningful once GPS/map and power pages join this initial pair.
+    constexpr UiPage pages[] = {UiPage::Dashboard, UiPage::Telemetry};
+    constexpr size_t count = sizeof(pages) / sizeof(pages[0]);
+    size_t selected = count;
+    for (size_t index = 0; index < count; ++index) {
+        if (pages[index] == activePage_) {
+            selected = index;
+            break;
+        }
+    }
+    if (selected == count) return false;
+    const int next = (static_cast<int>(selected) +
+                      (direction < 0 ? -1 : 1) +
+                      static_cast<int>(count)) % static_cast<int>(count);
+    playKeyClick();
+    if (pages[next] == UiPage::Dashboard) drawDashboard();
+    else drawTelemetryPage();
+    return true;
+}
+
 bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value)
 {
     if (targetId >= static_cast<uint16_t>(TransmitterFunction::Count)) return false;
@@ -1444,6 +1474,10 @@ bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value
         case TransmitterFunction::Dashboard:
             if (value > 0) { playKeyClick(); drawDashboard(); }
             return true;
+        case TransmitterFunction::NextPage:
+            return value <= 0 || navigateDashboardPage(1);
+        case TransmitterFunction::PreviousPage:
+            return value <= 0 || navigateDashboardPage(-1);
         case TransmitterFunction::QuickPanel:
             if (value > 0) {
                 driveModesReturnPage_ = activePage_ == UiPage::Dashboard

@@ -141,7 +141,8 @@ bindings only when the combination is made explicit in the UI.
   previous/next/select plus consistent back navigation are implemented; focus
   and value editing on subordinate pages remain.
 - [ ] Dashboard short/long/double-press shortcuts.
-- [ ] Timer button defaults to next dashboard page.
+- [x] Timer button defaults to next dashboard page for a new/erased binding
+  profile; existing user-edited bindings are preserved.
 - [ ] Touchscreen lock and display on/off actions. Display on/off is complete;
   touchscreen lock remains.
 

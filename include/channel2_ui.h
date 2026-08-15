@@ -172,7 +172,7 @@ private:
     void refreshMainMenuFocus();
     void moveMainMenuFocus(int8_t direction);
     void activateMainMenuFocus();
-    void beginPageFocus();
+    void beginPageFocus(bool registerStandardHeader = true);
     enum class PageControlEvent : int8_t {
         Decrease = -1,
         Activate = 0,
@@ -183,6 +183,12 @@ private:
     void addPageActionTarget(int16_t x, int16_t y, int16_t width,
                              int16_t height, PageControlHandler handler,
                              uint8_t argument);
+    lv_obj_t *makePageActionButton(int16_t x, int16_t y, int16_t width,
+                                   int16_t height, const char *text,
+                                   uint8_t fontSize, uint32_t fill,
+                                   uint32_t textColour, uint32_t border,
+                                   PageControlHandler handler,
+                                   uint8_t argument);
     void addPageEditorTarget(int16_t x, int16_t y, int16_t width,
                              int16_t height,
                              int16_t decreaseX, int16_t decreaseY,
@@ -209,6 +215,12 @@ private:
     void controlThrottleSetting(uint8_t row, PageControlEvent event);
     void controlThrottleResponse(uint8_t row, PageControlEvent event);
     void controlChannelSpeed(uint8_t row, PageControlEvent event);
+    void controlDashboard(uint8_t item, PageControlEvent event);
+    void controlChannelConfig(uint8_t item, PageControlEvent event);
+    void controlInputMonitor(uint8_t item, PageControlEvent event);
+    void controlElrsBinding(uint8_t item, PageControlEvent event);
+    void controlThrottleHeader(uint8_t item, PageControlEvent event);
+    void controlNavigation(uint8_t item, PageControlEvent event);
     void navigateBack();
     bool navigateDashboardPage(int8_t direction);
     void drawDashboard();
@@ -407,10 +419,14 @@ private:
         PageControlHandler handler = nullptr;
         uint8_t argument = 0;
     };
-    static constexpr uint8_t kMaximumPageFocusTargets = 16;
+    // The ELRS on-screen keyboard is the largest current page (46 controls).
+    // Keep one shared registry large enough that new pages do not need a
+    // second, page-specific keypad implementation.
+    static constexpr uint8_t kMaximumPageFocusTargets = 64;
     PageFocusTarget pageFocusTargets_[kMaximumPageFocusTargets] = {};
     uint8_t pageFocusCount_ = 0;
     uint8_t pageFocusIndex_ = 0;
+    bool pageStandardHeaderPending_ = false;
     lv_obj_t *pageFocusIndicator_ = nullptr;
     lv_obj_t *dashboardChannelBars_[CRSF_CHANNEL_COUNT] = {};
     lv_obj_t *dashboardSafetyPanel_ = nullptr;

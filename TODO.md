@@ -55,8 +55,11 @@ proof of concept.
   control layer shared by touch, Select and +/- actions. Channels and
   Assignments include their bank controls; throttle, Drive Mode, Setup,
   channel roles, batteries, display and assignment editing are migrated.
-- Extend the registered-control layer to ELRS text entry and Input Monitor
-  paging, then add simulator navigation regression cases.
+- [x] Extend registered controls to Dashboard actions, channel configuration,
+  throttle header actions, Input Monitor paging, ELRS management actions and
+  the complete on-screen keyboard. Standard pages now gain Back/Home keypad
+  targets automatically.
+- Add simulator navigation regression cases.
 - Add touch and physical-input diagnostic/calibration pages.
 - [x] Bind the Timer button to next-dashboard-page in a new default R1 profile
   while retaining existing user assignments and alternate selectable actions.

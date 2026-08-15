@@ -1609,11 +1609,14 @@ void Channel2Ui::drawDashboard()
     activePage_ = UiPage::Dashboard;
     startScreen();
     resetLvglObjects();
+    beginPageFocus(false);
 
     lv_obj_t *header = makePanel(0, 0, 480, 40, cHeader, cHeader, 0);
     makeLabel(header, "MODEL 01", 12, 8, 20);
     makeLabel(header, "CRSF TX", 320, 10, 16, cGreen);
-    makeButton(433, 4, 39, 32, LV_SYMBOL_SETTINGS, 18);
+    makePageActionButton(433, 4, 39, 32, LV_SYMBOL_SETTINGS, 18,
+                         cPanel2, cWhite, cLine,
+                         &Channel2Ui::controlDashboard, 0);
 
     lv_obj_t *model = makePanel(8, 47, 144, 87);
     makeLabel(model, "HYPER 7", 10, 7, 12, cCyan);
@@ -1717,12 +1720,20 @@ void Channel2Ui::drawDashboard()
         }
     }
 
-    makeButton(8, 249, 108, 62, "MENU", 18);
-    makeButton(124, 249, 108, 62, "TELEMETRY", 11, cPanel2, cCyan);
-    makeButton(240, 249, 108, 62, "QUICK", 16, cPanel2, cCyan);
+    makePageActionButton(8, 249, 108, 62, "MENU", 18,
+                         cPanel2, cWhite, cLine,
+                         &Channel2Ui::controlDashboard, 1);
+    makePageActionButton(124, 249, 108, 62, "TELEMETRY", 11,
+                         cPanel2, cCyan, cLine,
+                         &Channel2Ui::controlDashboard, 2);
+    makePageActionButton(240, 249, 108, 62, "QUICK", 16,
+                         cPanel2, cCyan, cLine,
+                         &Channel2Ui::controlDashboard, 3);
     const char *mode = driveModeSettings_.activeMode == DriveMode::Walk
         ? "MODE\nWALK" : "MODE\nNORMAL";
-    makeButton(356, 249, 116, 62, mode, 13, cPanel2, cGreen);
+    makePageActionButton(356, 249, 116, 62, mode, 13,
+                         cPanel2, cGreen, cLine,
+                         &Channel2Ui::controlDashboard, 4);
 
     lastDisplayedCrsf_ = UINT16_MAX;
     for (uint16_t &value : lastDashboardChannelValues_) value = UINT16_MAX;
@@ -1730,6 +1741,7 @@ void Channel2Ui::drawDashboard()
     lastLinkValid_ = !lastLinkValid_;
     lastReceiverVoltageValid_ = !lastReceiverVoltageValid_;
     lastTxVoltageValid_ = !lastTxVoltageValid_;
+    finishPageFocus();
 }
 
 void Channel2Ui::drawTelemetryPage()
@@ -1739,6 +1751,7 @@ void Channel2Ui::drawTelemetryPage()
     startScreen();
     resetLvglObjects();
     makeHeader("TELEMETRY", "BACK");
+    beginPageFocus();
 
     lv_obj_t *link = makePanel(8, 47, 226, 126);
     makeLabel(link, "RADIO LINK", 10, 7, 12, cCyan);
@@ -1761,6 +1774,7 @@ void Channel2Ui::drawTelemetryPage()
     telemetryAgeLabel_ = makeLabel(stream, "AGE          ----", 245, 58, 15, cDim);
 
     makeLabel(lv_scr_act(), "Live receiver telemetry via Ranger Nano", 12, 293, 12, cDim);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawTelemetryLive(const CrsfTelemetryState &telemetry,
@@ -2055,11 +2069,12 @@ void Channel2Ui::activateMainMenuFocus()
     }
 }
 
-void Channel2Ui::beginPageFocus()
+void Channel2Ui::beginPageFocus(bool registerStandardHeader)
 {
     pageFocusCount_ = 0;
     pageFocusIndex_ = 0;
     pageFocusIndicator_ = nullptr;
+    pageStandardHeaderPending_ = registerStandardHeader;
 }
 
 void Channel2Ui::addPageActionTarget(int16_t x, int16_t y, int16_t width,
@@ -2077,6 +2092,18 @@ void Channel2Ui::addPageActionTarget(int16_t x, int16_t y, int16_t width,
     target.activate = target.focus;
     target.handler = handler;
     target.argument = argument;
+}
+
+lv_obj_t *Channel2Ui::makePageActionButton(
+    int16_t x, int16_t y, int16_t width, int16_t height,
+    const char *text, uint8_t fontSize, uint32_t fill,
+    uint32_t textColour, uint32_t border,
+    PageControlHandler handler, uint8_t argument)
+{
+    lv_obj_t *button = makeButton(x, y, width, height, text, fontSize,
+                                  fill, textColour, border);
+    addPageActionTarget(x, y, width, height, handler, argument);
+    return button;
 }
 
 void Channel2Ui::addPageEditorTarget(
@@ -2108,6 +2135,16 @@ void Channel2Ui::addPageEditorTarget(
 
 void Channel2Ui::finishPageFocus()
 {
+    // Append standard Back/Home navigation after page content so the first
+    // keypad focus remains the page's primary control, while every new
+    // standard-header page gets an escape route automatically.
+    if (pageStandardHeaderPending_) {
+        addPageActionTarget(344, 5, 78, 34,
+                            &Channel2Ui::controlNavigation, 0);
+        addPageActionTarget(430, 5, 42, 34,
+                            &Channel2Ui::controlNavigation, 1);
+        pageStandardHeaderPending_ = false;
+    }
     if (pageFocusCount_ == 0) return;
     pageFocusIndicator_ = lv_obj_create(lv_scr_act());
     lv_obj_set_style_bg_opa(pageFocusIndicator_, LV_OPA_TRANSP, 0);
@@ -2131,7 +2168,12 @@ void Channel2Ui::refreshPageFocus()
 
 void Channel2Ui::movePageFocus(int8_t direction)
 {
-    if (pageFocusCount_ == 0) return;
+    if (pageFocusCount_ == 0) {
+        Serial.printf("UI: page %u has no registered keypad controls\n",
+                      static_cast<unsigned>(activePage_));
+        playBuzzer(35);
+        return;
+    }
     pageFocusIndex_ = static_cast<uint8_t>(
         (static_cast<int>(pageFocusIndex_) + (direction < 0 ? -1 : 1) +
          pageFocusCount_) % pageFocusCount_);
@@ -2349,6 +2391,80 @@ void Channel2Ui::controlChannelSpeed(uint8_t row, PageControlEvent event)
     handleChannelSpeedTouch(x, 109 + row * 76);
 }
 
+void Channel2Ui::controlDashboard(uint8_t item, PageControlEvent)
+{
+    static const int16_t x[] = {452, 62, 178, 294, 414};
+    static const int16_t y[] = {20, 280, 280, 280, 280};
+    if (item >= 5) return;
+    handleDashboardTouch(x[item], y[item]);
+}
+
+void Channel2Ui::controlChannelConfig(uint8_t item, PageControlEvent event)
+{
+    if (item < 2) {
+        const int16_t x = event == PageControlEvent::Decrease ? 373 : 427;
+        handleChannelConfigTouch(x, 104 + item * 66);
+    } else if (item == 2) {
+        handleChannelConfigTouch(240, 272);
+    }
+}
+
+void Channel2Ui::controlInputMonitor(uint8_t item, PageControlEvent)
+{
+    handleInputMonitorTouch(item == 0 ? 40 : 440, 291);
+}
+
+void Channel2Ui::controlElrsBinding(uint8_t item, PageControlEvent)
+{
+    if (item < 5) {
+        handleElrsBindingTouch(8 + item * 93 + 43, 110);
+        return;
+    }
+    if (item < 43) {
+        const uint8_t lengths[] = {10, 10, 9, 9};
+        uint8_t key = item - 5;
+        for (uint8_t row = 0; row < 4; ++row) {
+            if (key < lengths[row]) {
+                constexpr int16_t width = 42;
+                const int16_t startX =
+                    (kScreenWidth - lengths[row] * width) / 2;
+                handleElrsBindingTouch(startX + key * width + width / 2,
+                                       147 + row * 38);
+                return;
+            }
+            key -= lengths[row];
+        }
+        return;
+    }
+    static const int16_t x[] = {89, 240, 391};
+    handleElrsBindingTouch(x[item - 43], 298);
+}
+
+void Channel2Ui::controlThrottleHeader(uint8_t item, PageControlEvent)
+{
+    if (activePage_ == UiPage::Channel2) {
+        if (item == 0) {
+            throttleResponseReturnPage_ = UiPage::Channel2;
+            playKeyClick(); drawThrottleResponsePage();
+        } else {
+            playKeyClick(); startCalibration(latestRawAdc_);
+        }
+    } else if (activePage_ == UiPage::ThrottleResponse) {
+        playKeyClick(); drawChannelSpeedPage();
+    }
+}
+
+void Channel2Ui::controlNavigation(uint8_t item, PageControlEvent)
+{
+    if (item == 0) navigateBack();
+    else {
+        if (triggerInput_.calibrationActive())
+            triggerInput_.cancelCalibration();
+        playKeyClick();
+        drawDashboard();
+    }
+}
+
 void Channel2Ui::navigateBack()
 {
     playKeyClick();
@@ -2378,7 +2494,7 @@ void Channel2Ui::navigateBack()
         case UiPage::RxBatterySetup:
         case UiPage::DisplaySetup: drawSetupPage(); break;
         case UiPage::ElrsBinding: drawMainMenu(); break;
-        case UiPage::Calibration: drawPage(); break;
+        case UiPage::Calibration: cancelCalibration(); break;
     }
 }
 
@@ -2627,6 +2743,7 @@ void Channel2Ui::drawInputMonitorPage()
     startScreen();
     resetLvglObjects();
     makeHeader("INPUT MONITOR", "BACK");
+    beginPageFocus();
 
     constexpr uint8_t kRowsPerBank = 5;
     constexpr uint8_t kBankCount =
@@ -2644,17 +2761,20 @@ void Channel2Ui::drawInputMonitorPage()
         inputMonitorEventLabels_[row] = makeLabel(panel, "--", 370, 6, 11, cDim);
     }
 
-    makeButton(12, 274, 58, 34, "<", 22,
-               inputMonitorBank_ == 0 ? cBlack : cPanel,
-               inputMonitorBank_ == 0 ? cDim : cWhite);
-    makeButton(410, 274, 58, 34, ">", 22,
-               inputMonitorBank_ + 1 >= kBankCount ? cBlack : cPanel,
-               inputMonitorBank_ + 1 >= kBankCount ? cDim : cWhite);
+    makePageActionButton(12, 274, 58, 34, "<", 22,
+                         inputMonitorBank_ == 0 ? cBlack : cPanel,
+                         inputMonitorBank_ == 0 ? cDim : cWhite, cLine,
+                         &Channel2Ui::controlInputMonitor, 0);
+    makePageActionButton(410, 274, 58, 34, ">", 22,
+                         inputMonitorBank_ + 1 >= kBankCount ? cBlack : cPanel,
+                         inputMonitorBank_ + 1 >= kBankCount ? cDim : cWhite,
+                         cLine, &Channel2Ui::controlInputMonitor, 1);
     char page[16];
     snprintf(page, sizeof(page), "%u / %u", inputMonitorBank_ + 1, kBankCount);
     lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 284, 14, cDim);
     lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 284);
     refreshInputMonitorRows();
+    finishPageFocus();
 }
 
 void Channel2Ui::refreshInputMonitorRows()
@@ -2732,6 +2852,7 @@ void Channel2Ui::drawChannelPlaceholder()
     activePage_ = UiPage::ChannelPlaceholder;
     startScreen();
     resetLvglObjects();
+    beginPageFocus();
     char title[20];
     snprintf(title, sizeof(title), "CHANNEL %u", selectedChannel_);
     makeHeader(title, "BACK");
@@ -2762,11 +2883,18 @@ void Channel2Ui::drawChannelPlaceholder()
         makeLabel(panel, value, 260, 31, 12, cCyan);
         makeButton(352, y + 8, 42, 40, "<", 20);
         makeButton(406, y + 8, 42, 40, ">", 20);
+        addPageEditorTarget(12, y, 456, 56,
+                            352, y + 8, 42, 40,
+                            406, y + 8, 42, 40,
+                            &Channel2Ui::controlChannelConfig, row);
     }
     makeLabel(lv_scr_act(), "A trim control can own one output or parameter",
               18, 214, 11, cAmber);
     if (selectedChannel_ == channelRoleSettings_.throttleChannel)
-        makeButton(122, 249, 236, 46, "THROTTLE SETUP", 15, cPanel2, cCyan);
+        makePageActionButton(122, 249, 236, 46, "THROTTLE SETUP", 15,
+                             cPanel2, cCyan, cLine,
+                             &Channel2Ui::controlChannelConfig, 2);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawSettingRow(int row)
@@ -2847,13 +2975,21 @@ void Channel2Ui::drawPage()
     activePage_ = UiPage::Channel2;
     startScreen();
     resetLvglObjects();
-    beginPageFocus();
+    beginPageFocus(false);
     char title[24];
     snprintf(title, sizeof(title), "CH%u THROTTLE", channelRoleSettings_.throttleChannel);
     makeHeader(title);
     makeButton(190, 5, 68, 34, "RESP", 11, cPanel2, cCyan);
     makeButton(266, 5, 70, 34, "BACK", 11);
     makeButton(344, 5, 78, 34, "CAL", 11);
+    addPageActionTarget(190, 5, 68, 34,
+                        &Channel2Ui::controlThrottleHeader, 0);
+    addPageActionTarget(266, 5, 70, 34,
+                        &Channel2Ui::controlNavigation, 0);
+    addPageActionTarget(344, 5, 78, 34,
+                        &Channel2Ui::controlThrottleHeader, 1);
+    addPageActionTarget(430, 5, 42, 34,
+                        &Channel2Ui::controlNavigation, 1);
     for (int row = 0; row < 4; ++row) {
         drawSettingRow(row);
         addPageEditorTarget(10, 56 + row * 50, 460, 44,
@@ -2913,6 +3049,8 @@ void Channel2Ui::drawThrottleResponsePage()
     beginPageFocus();
     makeHeader("THROTTLE RESPONSE", "BACK");
     makeButton(258, 5, 78, 34, "SPEED", 11, cPanel2, cCyan);
+    addPageActionTarget(258, 5, 78, 34,
+                        &Channel2Ui::controlThrottleHeader, 0);
     for (int row = 0; row < 4; ++row) {
         drawThrottleResponseRow(row);
         addPageEditorTarget(10, 56 + row * 50, 460, 44,
@@ -3075,6 +3213,7 @@ void Channel2Ui::drawElrsBindingPage()
     startScreen();
     resetLvglObjects();
     makeHeader("ELRS BINDING", "BACK");
+    beginPageFocus();
 
     lv_obj_t *phrasePanel = makePanel(8, 47, 464, 43);
     char phraseText[64];
@@ -3088,9 +3227,12 @@ void Channel2Ui::drawElrsBindingPage()
     for (uint8_t index = 0; index < 5; ++index) {
         const bool unavailable = (index == 1 || index == 3) &&
                                  !elrsReceiverLinkAvailable_;
-        makeButton(8 + index * 93, 94, 87, 32, actions[index], 11,
-                   unavailable ? cBlack : cPanel2,
-                   unavailable ? cDim : (index < 2 ? cAmber : cCyan));
+        makePageActionButton(8 + index * 93, 94, 87, 32,
+                             actions[index], 11,
+                             unavailable ? cBlack : cPanel2,
+                             unavailable ? cDim :
+                                 (index < 2 ? cAmber : cCyan),
+                             cLine, &Channel2Ui::controlElrsBinding, index);
     }
 
     const char *rows[] = {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm-_"};
@@ -3102,14 +3244,28 @@ void Channel2Ui::drawElrsBindingPage()
             char label[2] = {rows[row][column], '\0'};
             if (elrsKeyboardUppercase_ && label[0] >= 'a' && label[0] <= 'z')
                 label[0] = static_cast<char>(label[0] - 'a' + 'A');
-            makeButton(startX + column * width, 130 + row * 38,
-                       width - 3, 34, label, 14, cPanel, cWhite);
+            uint8_t keyIndex = 0;
+            for (uint8_t prior = 0; prior < row; ++prior)
+                keyIndex += lengths[prior];
+            keyIndex += column;
+            makePageActionButton(startX + column * width, 130 + row * 38,
+                                 width - 3, 34, label, 14,
+                                 cPanel, cWhite, cLine,
+                                 &Channel2Ui::controlElrsBinding,
+                                 5 + keyIndex);
         }
     }
-    makeButton(43, 282, 92, 32,
-               elrsKeyboardUppercase_ ? "lower" : "UPPER", 12);
-    makeButton(143, 282, 194, 32, "SPACE", 12);
-    makeButton(345, 282, 92, 32, "<--", 14, cPanel2, cAmber);
+    makePageActionButton(43, 282, 92, 32,
+                         elrsKeyboardUppercase_ ? "lower" : "UPPER", 12,
+                         cPanel2, cWhite, cLine,
+                         &Channel2Ui::controlElrsBinding, 43);
+    makePageActionButton(143, 282, 194, 32, "SPACE", 12,
+                         cPanel2, cWhite, cLine,
+                         &Channel2Ui::controlElrsBinding, 44);
+    makePageActionButton(345, 282, 92, 32, "<--", 14,
+                         cPanel2, cAmber, cLine,
+                         &Channel2Ui::controlElrsBinding, 45);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawDisplayRow(int row)
@@ -3302,6 +3458,7 @@ void Channel2Ui::drawCalibrationPage()
     startScreen();
     resetLvglObjects();
     makeHeader("THROTTLE CALIBRATION", "CANCEL");
+    beginPageFocus();
     makeLabel(lv_scr_act(), "1. MOVE TO FULL BRAKE", 20, 62, 16, cCyan);
     makeLabel(lv_scr_act(), "2. MOVE TO FULL FORWARD", 20, 92, 16, cCyan);
     makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 20, 122, 16, cCyan);
@@ -3317,6 +3474,7 @@ void Channel2Ui::drawCalibrationPage()
     calibrationLiveLabel_ = makeLabel(panel, "----", 168, 42, 24);
     calibrationMaximumLabel_ = makeLabel(panel, "----", 326, 42, 24);
     drawCalibrationValues(latestRawAdc_);
+    finishPageFocus();
 }
 
 void Channel2Ui::drawCalibrationValues(uint16_t adc)

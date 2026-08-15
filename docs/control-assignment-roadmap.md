@@ -144,8 +144,27 @@ bindings only when the combination is made explicit in the UI.
   Assignments (including their bank controls), Drive Modes, Setup, throttle
   endpoints/sub-trim, rate/expo/speed, Channel Roles, TX/RX Battery, Display
   Setup and the complete assignment editor use this registry.
-- [ ] Extend the same registered-control model to ELRS text entry and Input
-  Monitor paging, then add simulator navigation regression cases.
+- [x] Extend registered controls to the Dashboard, channel configuration,
+  throttle header actions, Input Monitor paging, ELRS action buttons and the
+  complete on-screen keyboard. Telemetry and Calibration register their
+  standard Back/Home controls; Main Menu retains its complete dedicated focus
+  implementation.
+- [ ] Add simulator navigation regression cases.
+
+### UI control contract
+
+New interactive pages must call `beginPageFocus()` and `finishPageFocus()`.
+The standard form automatically appends keypad-focusable Back and Home controls.
+Use `makePageActionButton()` for buttons so drawing, touch activation, keypad
+focus and Select activation are declared together. Use `addPageEditorTarget()`
+for values with decrement/increment regions. Both routes dispatch the same
+semantic callback for touch, Select, `+` and `-`; do not add page-specific
+coordinate handling to the keypad dispatcher. Custom headers may call
+`beginPageFocus(false)` but must explicitly register every header action.
+
+During development, attempting keypad navigation on a page without registered
+controls emits `UI: page ... has no registered keypad controls` on Serial and
+sounds the short error beep.
 - [ ] Dashboard short/long/double-press shortcuts.
 - [x] Timer button defaults to next dashboard page for a new/erased binding
   profile; existing user-edited bindings are preserved.

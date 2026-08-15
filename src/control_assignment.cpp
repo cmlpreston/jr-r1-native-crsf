@@ -27,7 +27,44 @@ constexpr PhysicalControlDescriptor kControls[] = {
 static_assert(sizeof(kControls) / sizeof(kControls[0]) == kPhysicalControlCount,
               "Every PhysicalControlId needs a descriptor");
 
+constexpr uint8_t kEditableContexts[] = {
+    ContextAlways,
+    ContextDashboard,
+    ContextMenu,
+    ContextCut,
+    ContextArmed,
+};
+
 } // namespace
+
+const char *controlContextName(uint8_t context)
+{
+    switch (context) {
+        case ContextAlways: return "ALWAYS";
+        case ContextDashboard: return "DASHBOARD";
+        case ContextMenu: return "MENU";
+        case ContextCut: return "CUT ONLY";
+        case ContextArmed: return "ARMED ONLY";
+    }
+    return "MULTIPLE";
+}
+
+uint8_t adjacentControlContext(uint8_t context, int8_t direction)
+{
+    constexpr size_t count = sizeof(kEditableContexts) /
+                             sizeof(kEditableContexts[0]);
+    size_t selected = 0;
+    for (size_t index = 0; index < count; ++index) {
+        if (kEditableContexts[index] == context) {
+            selected = index;
+            break;
+        }
+    }
+    selected = static_cast<size_t>((static_cast<int>(selected) + direction +
+                                    static_cast<int>(count)) %
+                                   static_cast<int>(count));
+    return kEditableContexts[selected];
+}
 
 const PhysicalControlDescriptor &physicalControlDescriptor(size_t index)
 {

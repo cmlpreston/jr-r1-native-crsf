@@ -66,6 +66,9 @@ enum ControlContext : uint8_t {
     ContextArmed = 1U << 4,
 };
 
+const char *controlContextName(uint8_t context);
+uint8_t adjacentControlContext(uint8_t context, int8_t direction);
+
 enum class ControlBehaviour : uint8_t {
     Proportional,
     Momentary,

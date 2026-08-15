@@ -136,7 +136,11 @@ bindings only when the combination is made explicit in the UI.
 ### Contexts and shortcuts
 
 - [x] Runtime Dashboard, menu, CUT and armed context selection.
-- [ ] Make binding contexts editable on the TFT.
+- [x] Make binding contexts editable on the TFT. The assignment editor exposes
+  the unambiguous single-context presets Always, Dashboard, Menu, Cut only and
+  Armed only. Context is stored with the existing per-model binding data and
+  enforced by the resolver; compound OR masks remain supported internally but
+  are intentionally not presented until their semantics can be labelled well.
 - [x] Keypad navigation consumes keypad events while a menu is open. Page
   controls now register one semantic callback plus focus, touch, decrement and
   increment hitboxes; touch and the keypad therefore invoke the same action

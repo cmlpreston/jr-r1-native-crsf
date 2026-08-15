@@ -2287,15 +2287,15 @@ void Channel2Ui::controlDisplay(uint8_t row, PageControlEvent event)
 void Channel2Ui::controlBindingEditor(uint8_t field, PageControlEvent event)
 {
     if (field == 0) {
-        handleBindingEditorTouch(400, 106);
-    } else if (field >= 1 && field <= 3) {
+        handleBindingEditorTouch(400, 101);
+    } else if (field >= 1 && field <= 4) {
         const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
-        handleBindingEditorTouch(x, 145 + (field - 1) * 39);
-    } else if (field == 4) {
-        handleBindingEditorTouch(80, 290);
+        handleBindingEditorTouch(x, 136 + (field - 1) * 34);
     } else if (field == 5) {
-        handleBindingEditorTouch(220, 290);
+        handleBindingEditorTouch(80, 290);
     } else if (field == 6) {
+        handleBindingEditorTouch(220, 290);
+    } else if (field == 7) {
         handleBindingEditorTouch(390, 290);
     }
 }
@@ -2662,29 +2662,29 @@ void Channel2Ui::drawBindingEditorPage()
 
     const bool parameter = bindingDraft_.target == AssignmentTarget::ModelParameter &&
         isChannelParameterTarget(bindingDraft_.targetId);
-    const int16_t ys[] = {89, 128, 167, 206};
+    const int16_t ys[] = {86, 120, 154, 188, 222};
     const char *detailLabel =
         bindingDraft_.target == AssignmentTarget::TransmitterFunction ? "FUNCTION" :
         bindingDraft_.target == AssignmentTarget::DriveMode ? "SELECTION" : "CHANNEL";
     const char *labels[] = {"ENABLED", "TARGET", detailLabel,
-                            parameter ? "PARAMETER" : "MODE"};
-    for (uint8_t row = 0; row < 4; ++row) {
-        lv_obj_t *panel = makePanel(12, ys[row], 456, 34);
-        makeLabel(panel, labels[row], 10, 8, 12, cDim);
+                            parameter ? "PARAMETER" : "MODE", "CONTEXT"};
+    for (uint8_t row = 0; row < 5; ++row) {
+        lv_obj_t *panel = makePanel(12, ys[row], 456, 30);
+        makeLabel(panel, labels[row], 10, 6, 12, cDim);
     }
-    makeButton(344, 91, 108, 30, bindingDraft_.enabled ? "ON" : "OFF", 13,
+    makeButton(344, 87, 108, 28, bindingDraft_.enabled ? "ON" : "OFF", 13,
                bindingDraft_.enabled ? cGreen : cPanel2,
                bindingDraft_.enabled ? cBlack : cWhite);
-    addPageActionTarget(344, 91, 108, 30,
+    addPageActionTarget(344, 87, 108, 28,
                         &Channel2Ui::controlBindingEditor, 0);
 
     makeLabel(lv_scr_act(), assignmentTargetName(bindingDraft_.target),
-              220, 137, 12, bindingDraft_.target == AssignmentTarget::CrsfChannel
+              220, 127, 12, bindingDraft_.target == AssignmentTarget::CrsfChannel
                   ? cWhite : cCyan);
-    makeButton(350, 130, 42, 30, "<", 20);
-    makeButton(408, 130, 42, 30, ">", 20);
-    addPageEditorTarget(210, 128, 246, 34,
-                        350, 130, 42, 30, 408, 130, 42, 30,
+    makeButton(350, 121, 42, 28, "<", 20);
+    makeButton(408, 121, 42, 28, ">", 20);
+    addPageEditorTarget(210, 120, 246, 30,
+                        350, 121, 42, 28, 408, 121, 42, 28,
                         &Channel2Ui::controlBindingEditor, 1);
 
     char detail[32];
@@ -2700,40 +2700,48 @@ void Channel2Ui::drawBindingEditorPage()
             : bindingDraft_.crsfChannel;
         snprintf(detail, sizeof(detail), "CH%u", selectedChannel);
     }
-    makeLabel(lv_scr_act(), detail, 220, 176, 12, cWhite);
-    makeButton(350, 169, 42, 30, "-", 20);
-    makeButton(408, 169, 42, 30, "+", 20);
-    addPageEditorTarget(210, 167, 246, 34,
-                        350, 169, 42, 30, 408, 169, 42, 30,
+    makeLabel(lv_scr_act(), detail, 220, 161, 12, cWhite);
+    makeButton(350, 155, 42, 28, "-", 20);
+    makeButton(408, 155, 42, 28, "+", 20);
+    addPageEditorTarget(210, 154, 246, 30,
+                        350, 155, 42, 28, 408, 155, 42, 28,
                         &Channel2Ui::controlBindingEditor, 2);
     makeLabel(lv_scr_act(), parameter
                   ? channelParameterKindName(
                         channelParameterTargetKind(bindingDraft_.targetId))
                   : controlBehaviourName(bindingDraft_.behaviour),
-              220, 215, 12, cWhite);
-    makeButton(350, 208, 42, 30, "<", 20);
-    makeButton(408, 208, 42, 30, ">", 20);
-    addPageEditorTarget(210, 206, 246, 34,
-                        350, 208, 42, 30, 408, 208, 42, 30,
+              220, 195, 12, cWhite);
+    makeButton(350, 189, 42, 28, "<", 20);
+    makeButton(408, 189, 42, 28, ">", 20);
+    addPageEditorTarget(210, 188, 246, 30,
+                        350, 189, 42, 28, 408, 189, 42, 28,
                         &Channel2Ui::controlBindingEditor, 3);
 
+    makeLabel(lv_scr_act(), controlContextName(bindingDraft_.contexts),
+              220, 229, 12, cWhite);
+    makeButton(350, 223, 42, 28, "<", 20);
+    makeButton(408, 223, 42, 28, ">", 20);
+    addPageEditorTarget(210, 222, 246, 30,
+                        350, 223, 42, 28, 408, 223, 42, 28,
+                        &Channel2Ui::controlBindingEditor, 4);
+
     if (bindingError_[0] != '\0')
-        makeLabel(lv_scr_act(), bindingError_, 14, 246, 11, cRed);
+        makeLabel(lv_scr_act(), bindingError_, 14, 257, 10, cRed);
     else
         makeLabel(lv_scr_act(), parameter ? "Step: 1%; edits force CUT" :
                   "Assignment edits force CUT and neutral re-arm",
-                  14, 246, 11, cAmber);
+                  14, 257, 10, cAmber);
     makeButton(12, 274, 138, 34, "CANCEL", 13, cPanel);
     addPageActionTarget(12, 274, 138, 34,
-                        &Channel2Ui::controlBindingEditor, 4);
+                        &Channel2Ui::controlBindingEditor, 5);
     if (bindingIndexForInput(selectedBindingInput_) >= 0) {
         makeButton(160, 274, 138, 34, "REMOVE", 13, cAmber, cBlack);
         addPageActionTarget(160, 274, 138, 34,
-                            &Channel2Ui::controlBindingEditor, 5);
+                            &Channel2Ui::controlBindingEditor, 6);
     }
     makeButton(308, 274, 160, 34, "SAVE", 13, cGreen, cBlack);
     addPageActionTarget(308, 274, 160, 34,
-                        &Channel2Ui::controlBindingEditor, 6);
+                        &Channel2Ui::controlBindingEditor, 7);
     finishPageFocus();
 }
 
@@ -3878,9 +3886,9 @@ void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
         static_cast<size_t>(selectedBindingInput_)).kind;
     const bool parameter = bindingDraft_.target == AssignmentTarget::ModelParameter &&
         isChannelParameterTarget(bindingDraft_.targetId);
-    if (y >= 88 && y < 124 && x >= 330) {
+    if (y >= 85 && y < 118 && x >= 330) {
         bindingDraft_.enabled = !bindingDraft_.enabled;
-    } else if (y >= 127 && y < 163 && x >= 330) {
+    } else if (y >= 119 && y < 152 && x >= 330) {
         const int8_t direction = x < 400 ? -1 : 1;
         const AssignmentTarget next = adjacentBindingTarget(
             kind, bindingDraft_.target, direction);
@@ -3949,7 +3957,7 @@ void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
             bindingDraft_.failsafe = -1000;
             bindingDraft_.persistent = false;
         }
-    } else if (y >= 166 && y < 202 && x >= 330) {
+    } else if (y >= 153 && y < 186 && x >= 330) {
         const int8_t direction = x < 400 ? -1 : 1;
         if (parameter) {
             uint8_t channel = channelParameterTargetChannel(bindingDraft_.targetId);
@@ -4003,7 +4011,7 @@ void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
             bindingDraft_.crsfChannel = adjacentBindingChannel(
                 bindingDraft_.crsfChannel, direction);
         }
-    } else if (y >= 205 && y < 241 && x >= 330) {
+    } else if (y >= 187 && y < 220 && x >= 330) {
         if (parameter) {
             const uint8_t channel = channelParameterTargetChannel(
                 bindingDraft_.targetId);
@@ -4018,6 +4026,9 @@ void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
             bindingDraft_.behaviour = adjacentBindingBehaviour(
                 kind, bindingDraft_.behaviour, x < 400 ? -1 : 1);
         }
+    } else if (y >= 221 && y < 254 && x >= 330) {
+        bindingDraft_.contexts = adjacentControlContext(
+            bindingDraft_.contexts, x < 400 ? -1 : 1);
     } else if (y >= 270 && x >= 160 && x < 300 &&
                bindingIndexForInput(selectedBindingInput_) >= 0) {
         if (removeSelectedBinding()) {

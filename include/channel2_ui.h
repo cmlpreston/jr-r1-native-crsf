@@ -58,6 +58,7 @@ struct DriveModeSettings {
 
 enum class OutputSafetyStatus : uint8_t {
     Cut,
+    StartupWarning,
     NeutralRequired,
     Armed,
     Calibration,
@@ -89,6 +90,7 @@ struct RxBatterySettings {
 
 enum class UiPage : uint8_t {
     Dashboard,
+    StartupWarning,
     Telemetry,
     MainMenu,
     Channels,
@@ -146,6 +148,7 @@ public:
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
     bool captureScreenshot(Stream &output);
     void setPhysicalInputStates(const PhysicalInputStateStore &states);
+    void setStartupPreflight(bool complete, uint32_t unsafeMask);
     size_t copyBindings(ControlBinding *destination, size_t capacity) const;
     bool consumeBindingsChanged();
     bool consumeChannelRolesChanged();
@@ -224,6 +227,7 @@ private:
     void navigateBack();
     bool navigateDashboardPage(int8_t direction);
     void drawDashboard();
+    void drawStartupWarningPage();
     void drawDashboardLive(uint16_t crsfValue,
                            OutputSafetyStatus safetyStatus,
                            const CrsfTelemetryState &telemetry,
@@ -347,6 +351,8 @@ private:
     uint32_t lastReceiverUidUpdateMs_ = 0;
     bool displayReady_ = false;
     UiPage activePage_ = UiPage::Dashboard;
+    bool startupPreflightComplete_ = false;
+    uint32_t startupWarningMask_ = 0;
     UiPage throttleResponseReturnPage_ = UiPage::MainMenu;
     UiPage driveModesReturnPage_ = UiPage::Dashboard;
     uint8_t channelsBank_ = 0;

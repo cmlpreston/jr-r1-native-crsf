@@ -339,6 +339,7 @@ const char *uiPageName(UiPage page)
 {
     switch (page) {
         case UiPage::Dashboard: return "dashboard";
+        case UiPage::StartupWarning: return "startup-warning";
         case UiPage::Telemetry: return "telemetry";
         case UiPage::MainMenu: return "main-menu";
         case UiPage::Channels: return "channels";
@@ -547,6 +548,29 @@ void Channel2Ui::setPhysicalInputStates(const PhysicalInputStateStore &states)
     for (size_t index = 0; index < kPhysicalControlCount; ++index) {
         physicalInputStates_[index] = states.state(
             static_cast<PhysicalControlId>(index));
+    }
+}
+
+void Channel2Ui::setStartupPreflight(bool complete, uint32_t unsafeMask)
+{
+    const bool changed = startupPreflightComplete_ != complete ||
+                         startupWarningMask_ != unsafeMask;
+    startupPreflightComplete_ = complete;
+    startupWarningMask_ = unsafeMask;
+    if (complete) {
+        if (activePage_ == UiPage::StartupWarning) {
+            playBuzzer(80);
+            drawDashboard();
+        }
+        return;
+    }
+    // A preflight fault is not dismissible and must never preserve an arm
+    // request made before switch positions were known.
+    armRequested_ = false;
+    safetyResetRequested_ = true;
+    if (changed || activePage_ != UiPage::StartupWarning) {
+        playBuzzer(180);
+        drawStartupWarningPage();
     }
 }
 
@@ -1294,6 +1318,7 @@ void Channel2Ui::redrawActivePage()
 {
     switch (activePage_) {
         case UiPage::Dashboard: drawDashboard(); break;
+        case UiPage::StartupWarning: drawStartupWarningPage(); break;
         case UiPage::Telemetry: drawTelemetryPage(); break;
         case UiPage::MainMenu: drawMainMenu(); break;
         case UiPage::Channels: drawChannelsPage(); break;
@@ -1472,6 +1497,13 @@ bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value
 {
     if (targetId >= static_cast<uint16_t>(TransmitterFunction::Count)) return false;
     const TransmitterFunction function = static_cast<TransmitterFunction>(targetId);
+    if (!startupPreflightComplete_) {
+        // Keep processing raw input state, but do not let a bound key or
+        // switch dismiss or bypass the non-dismissible startup check.
+        if (function == TransmitterFunction::DisplayWake && value > 0)
+            wakeDisplay();
+        return true;
+    }
     switch (function) {
         case TransmitterFunction::OpenMenu:
             if (value > 0) { playKeyClick(); drawMainMenu(); }
@@ -1744,6 +1776,45 @@ void Channel2Ui::drawDashboard()
     finishPageFocus();
 }
 
+void Channel2Ui::drawStartupWarningPage()
+{
+    activePage_ = UiPage::StartupWarning;
+    startScreen();
+    resetLvglObjects();
+    lv_obj_t *header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
+    makeLabel(header, "STARTUP SAFETY CHECK", 14, 8, 24);
+    beginPageFocus(false);
+
+    lv_obj_t *banner = makePanel(12, 54, 456, 58, cSafetyFault, cRed);
+    makeLabel(banner, startupWarningMask_ == 0
+                          ? "CHECKING CONTROLS..."
+                          : "RETURN CONTROLS TO SAFE POSITION",
+              18, 8, 16, startupWarningMask_ == 0 ? cAmber : cRed);
+    makeLabel(banner, "Output remains CUT", 18, 33, 12, cWhite);
+
+    if (startupWarningMask_ == 0) {
+        makeLabel(lv_scr_act(), "Waiting for stable input readings", 72, 154,
+                  16, cDim);
+    } else {
+        uint8_t shown = 0;
+        for (size_t index = 0; index < kPhysicalControlCount; ++index) {
+            if ((startupWarningMask_ & (uint32_t{1} << index)) == 0) continue;
+            const int16_t column = shown >= 4 ? 1 : 0;
+            const int16_t row = shown >= 4 ? shown - 4 : shown;
+            const int16_t x = 18 + column * 230;
+            const int16_t y = 126 + row * 38;
+            lv_obj_t *panel = makePanel(x, y, 214, 31, cPanel2, cAmber);
+            makeLabel(panel, physicalControlDescriptor(index).name,
+                      8, 7, 11, cWhite);
+            ++shown;
+            if (shown >= 8) break;
+        }
+    }
+    makeLabel(lv_scr_act(), "Release switches / centre trims to continue",
+              65, 286, 12, cAmber);
+    finishPageFocus();
+}
+
 void Channel2Ui::drawTelemetryPage()
 {
     if (!displayReady_) return;
@@ -1902,6 +1973,9 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
             case OutputSafetyStatus::Armed:
                 text = "LIVE"; textColour = cGreen;
                 panelColour = cSafetyArmed; borderColour = cGreen; break;
+            case OutputSafetyStatus::StartupWarning:
+                text = "SWITCH CHECK"; textColour = cRed;
+                panelColour = cSafetyFault; borderColour = cRed; break;
             case OutputSafetyStatus::NeutralRequired:
                 text = "NEUTRAL..."; panelColour = cSafetyWaiting; break;
             case OutputSafetyStatus::Calibration:
@@ -2470,6 +2544,7 @@ void Channel2Ui::navigateBack()
     playKeyClick();
     switch (activePage_) {
         case UiPage::Dashboard: break;
+        case UiPage::StartupWarning: break;
         case UiPage::Telemetry: drawDashboard(); break;
         case UiPage::MainMenu: drawDashboard(); break;
         case UiPage::Channels: drawMainMenu(); break;
@@ -4345,6 +4420,7 @@ void Channel2Ui::handleRxBatteryTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleTouch(int16_t x, int16_t y)
 {
+    if (activePage_ == UiPage::StartupWarning) return;
     if (activePage_ != UiPage::Dashboard && headerHomeTouched(x, y)) {
         if (triggerInput_.calibrationActive()) {
             triggerInput_.cancelCalibration();
@@ -4574,7 +4650,8 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
         static_cast<int32_t>(now - channelParameterSaveDueMs_) >= 0) {
         saveChannelParameters();
     }
-    if (!displaySleeping_ && systemSettings_.screenTimeoutSeconds != 0 &&
+    if (!displaySleeping_ && activePage_ != UiPage::StartupWarning &&
+        systemSettings_.screenTimeoutSeconds != 0 &&
         now - lastInteractionMs_ >=
             static_cast<uint32_t>(systemSettings_.screenTimeoutSeconds) * 1000U) {
         sleepDisplay();

@@ -21,6 +21,10 @@ public:
     const PhysicalInputState &state(PhysicalControlId input) const {
         return states_.state(input);
     }
+    // Maintained switches must start released and spring-centred trims must
+    // start centred. A faulted mapped input is also unsafe because its actual
+    // position is unknown. The bit index is PhysicalControlId.
+    uint32_t startupUnsafeMask() const;
 
 private:
     bool endpointLevel(const InputEndpoint &endpoint, uint16_t mcpLevels,

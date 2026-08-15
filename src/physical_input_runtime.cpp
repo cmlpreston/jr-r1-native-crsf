@@ -100,3 +100,23 @@ void PhysicalInputRuntime::setProportionalValue(
         events->push(input, InputEvent::ValueChanged, nowMs, value);
     states_.setValue(input, value);
 }
+
+uint32_t PhysicalInputRuntime::startupUnsafeMask() const
+{
+    uint32_t mask = 0;
+    for (size_t index = 0; index < count_; ++index) {
+        const PhysicalControlId input = bindings_[index].input;
+        const PhysicalControlKind kind = physicalControlDescriptor(
+            static_cast<size_t>(input)).kind;
+        if (kind != PhysicalControlKind::MaintainedSwitch &&
+            kind != PhysicalControlKind::SpringCentredTrim)
+            continue;
+        const PhysicalInputState &inputState = states_.state(input);
+        const bool displaced = inputState.stablePrimary ||
+            (kind == PhysicalControlKind::SpringCentredTrim &&
+             inputState.stableSecondary);
+        if (displaced || inputState.faulted)
+            mask |= uint32_t{1} << static_cast<uint8_t>(input);
+    }
+    return mask;
+}

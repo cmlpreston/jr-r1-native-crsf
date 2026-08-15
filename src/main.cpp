@@ -22,6 +22,7 @@ HardwareSerial rangerRxSerial(2);
 
 constexpr uart_port_t RANGER_UART = UART_NUM_1;
 constexpr uint32_t CONTROL_TASK_PERIOD_MS = 4;
+constexpr uint32_t STARTUP_INPUT_SETTLE_MS = 400;
 
 struct ControlStateSnapshot {
     uint16_t adc = THROTTLE_ADC_CENTER;
@@ -74,6 +75,9 @@ TaskHandle_t controlTaskHandle = nullptr;
 ControlStateSnapshot controlStateSnapshot;
 portMUX_TYPE controlStateMux = portMUX_INITIALIZER_UNLOCKED;
 volatile bool controlResetRequested = false;
+volatile bool startupPreflightComplete = false;
+uint32_t startupInputSettledAtMs = 0;
+uint32_t startupWarningMask = 0;
 char usbCommand[32];
 uint8_t usbCommandLength = 0;
 
@@ -168,6 +172,11 @@ OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
         throttleArmed = false;
         neutralSinceMs = 0;
         return OutputSafetyStatus::ChannelDisabled;
+    }
+    if (!startupPreflightComplete) {
+        throttleArmed = false;
+        neutralSinceMs = 0;
+        return OutputSafetyStatus::StartupWarning;
     }
     if (!channel2Ui.armRequested()) {
         throttleArmed = false;
@@ -535,6 +544,7 @@ void setup()
                   static_cast<unsigned>(ESP.getMaxAllocHeap()),
                   static_cast<unsigned>(ESP.getFreePsram()));
     const bool inputMapReady = physicalInputs.begin(kR1InputMap, kR1InputMapCount);
+    channel2Ui.setStartupPreflight(false, 0);
     configureDirectGpioInputs();
     Serial.printf("INPUT MAP: %u controls, one MCP23017 + six direct GPIO: %s\n",
                   static_cast<unsigned>(kR1InputMapCount),
@@ -594,6 +604,25 @@ void loop()
                               physicalInputEvents, inputExpanderReady);
         physicalInputs.setProportionalValue(PhysicalControlId::ThrottleTrigger,
                                             control.rawPermille, nowMs);
+        if (!startupPreflightComplete) {
+            if (startupInputSettledAtMs == 0)
+                startupInputSettledAtMs = nowMs;
+            if (nowMs - startupInputSettledAtMs >= STARTUP_INPUT_SETTLE_MS) {
+                const uint32_t mask = physicalInputs.startupUnsafeMask();
+                if (mask != startupWarningMask) {
+                    startupWarningMask = mask;
+                    channel2Ui.setStartupPreflight(false, mask);
+                    Serial.printf("STARTUP CHECK: unsafe mask=0x%08lX\n",
+                                  static_cast<unsigned long>(mask));
+                }
+                if (mask == 0 && inputExpanderReady) {
+                    startupPreflightComplete = true;
+                    channel2Ui.setStartupPreflight(true, 0);
+                    requestControlReset();
+                    Serial.println("STARTUP CHECK: controls safe; arm available");
+                }
+            }
+        }
         if (physicalInputEvents.size() != 0) {
             ResolvedBindingActionBuffer actions;
             portENTER_CRITICAL(&bindingResolverMux);

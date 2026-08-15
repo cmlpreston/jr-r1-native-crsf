@@ -14,7 +14,8 @@ proof of concept.
   brownout with the motor disconnected; save Saleae captures and pulse widths.
 - Add a physical throttle-cut/arm control after mapping the R1 switches.
 - Add boot self-tests for ADC plausibility, calibration, CRSF, receiver failsafe
-  configuration and selected model.
+  configuration and selected model. Startup maintained-switch/spring-trim
+  checking and its arm interlock are implemented.
 - Log input faults, stale-control cuts, brownouts and link loss.
 - Choose the ER6G throttle failsafe pulse after testing the actual ESC.
 

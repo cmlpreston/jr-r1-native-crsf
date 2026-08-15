@@ -180,7 +180,10 @@ sounds the short error beep.
 - [ ] Dedicated, exclusive arm/CUT binding.
 - [ ] CUT overrides every mix, macro and output.
 - [x] Binding edits force CUT and neutral re-arm.
-- [ ] Startup switch-position and retained-state warnings.
+- [x] Startup switch-position warning and arm interlock for maintained switches,
+  spring-centred trims and unknown/faulted MCP23017 input states. The TFT names
+  each displaced control and does not allow the warning page to be dismissed.
+  Retained output-state warnings remain part of future model/profile work.
 - [ ] Model change only while CUT and throttle-neutral.
 - [ ] Explicit initial and failsafe values for retained accessory channels.
 - [ ] Critical functions cannot share an unsafe secondary binding.

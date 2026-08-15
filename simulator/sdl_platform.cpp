@@ -129,7 +129,7 @@ void simulatorPollEvents()
                 } else if (event.key.keysym.sym == SDLK_RIGHTBRACKET) {
                     ++controls.receiverVoltageDecivolts;
                 } else if (event.key.keysym.sym == SDLK_F12) {
-                    simulatorSaveScreenshot("simulator/screenshot.bmp");
+                    simulatorSaveScreenshot("screenshot.bmp");
                 }
                 updateThrottle();
                 break;

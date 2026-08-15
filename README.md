@@ -17,6 +17,43 @@ inventory and future assignment plan is in
 [`docs/r1-control-map.md`](docs/r1-control-map.md).
 Deferred work is tracked in [`TODO.md`](TODO.md).
 
+## Desktop UI simulator
+
+The complete LVGL touchscreen UI can be built and exercised on macOS without
+the transmitter, Ranger, receiver or display connected. This is the real
+`Channel2Ui` implementation—not a separate visual mock. SDL replaces the LCD
+and touch controller, a small compatibility layer replaces Arduino NVS and
+timing, and simulated CRSF data supplies link quality and pack voltage.
+
+Install the host dependencies once, fetch the same LVGL 8.4 release used by
+PlatformIO, then build and run:
+
+```sh
+brew install sdl2 openssl@3
+cd simulator
+make bootstrap
+make run
+```
+
+Use the mouse as the touchscreen. Hold `W` for forward or `S` for brake,
+press `L` to toggle the simulated ELRS link, and use `[`/`]` to vary receiver
+voltage. `F12` saves `simulator/screenshot.bmp`; `Esc` exits. Settings are
+persisted beneath `simulator/state/`, so configuration changes survive a
+restart. Delete that ignored directory to simulate erased NVS.
+
+For automated layout checks without opening a visible window:
+
+```sh
+SDL_VIDEODRIVER=dummy ./build/jr-r1-sim \
+  --run-ms 500 --screenshot /tmp/dashboard.bmp
+```
+
+The simulator also emulates the ExpressLRS UID response used by the bindphrase
+page. It does not emulate RF timing, UART electrical behaviour, ESP32 tasks or
+receiver failsafe operation; those remain hardware-in-the-loop tests. QEMU is
+therefore unnecessary for normal UI work and would provide less useful touch
+and screenshot iteration than the shared-code SDL build.
+
 The CRSF output path maintains requested, safe and enabled state independently
 for all 16 channels. The control task publishes a complete atomic snapshot to
 the CRSF task; CUT, stale input and maintenance operations resolve the entire

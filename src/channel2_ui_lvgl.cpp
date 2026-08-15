@@ -1,9 +1,13 @@
 #include "channel2_ui.h"
 
-#include <Arduino_GFX_Library.h>
 #include <Preferences.h>
+#ifndef JR_R1_SIMULATOR
+#include <Arduino_GFX_Library.h>
 #include <SPI.h>
 #include <Wire.h>
+#else
+#include "simulator_platform.h"
+#endif
 
 #include "config.h"
 #include "binding_resolver.h"
@@ -70,6 +74,7 @@ constexpr uint32_t cSafetyFault = 0x421416;
 uint8_t uiBrightnessPercent = 100;
 bool uiNightMode = false;
 
+#ifndef JR_R1_SIMULATOR
 Arduino_DataBus *displayBus = new Arduino_ESP32SPI(
     TFT_DC_PIN, TFT_CS_PIN, TFT_SCK_PIN, TFT_MOSI_PIN, TFT_MISO_PIN);
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
@@ -100,6 +105,11 @@ void screenshotCoordinate(uint16_t start, uint16_t end)
     screenshotSpi.transfer(static_cast<uint8_t>(end >> 8));
     screenshotSpi.transfer(static_cast<uint8_t>(end));
 }
+#else
+lv_disp_draw_buf_t drawBuffer;
+lv_disp_drv_t displayDriver;
+lv_color_t lineBuffer[kScreenWidth * 16];
+#endif
 
 lv_color_t colour(uint32_t rgb)
 {
@@ -134,11 +144,15 @@ const lv_font_t *fontFor(uint8_t size)
 void flushDisplay(lv_disp_drv_t *driver, const lv_area_t *area,
                   lv_color_t *pixels)
 {
+#ifdef JR_R1_SIMULATOR
+    simulatorFlush(area, pixels);
+#else
     const int16_t width = area->x2 - area->x1 + 1;
     const int16_t height = area->y2 - area->y1 + 1;
     display->draw16bitRGBBitmap(area->x1, area->y1,
                                 reinterpret_cast<uint16_t *>(pixels),
                                 width, height);
+#endif
     lv_disp_flush_ready(driver);
 }
 
@@ -331,6 +345,7 @@ bool Channel2Ui::begin()
     loadBindings();
     uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
     uiNightMode = systemSettings_.nightMode;
+#ifndef JR_R1_SIMULATOR
     setToneChannel(BUZZER_LEDC_CHANNEL);
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
@@ -350,6 +365,10 @@ bool Channel2Ui::begin()
     // GRAM reads while LVGL is idle.
     screenshotSpi.begin(TFT_SCK_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_CS_PIN);
     displayReady_ = display->begin(TFT_SPI_FREQUENCY);
+#else
+    const bool touchReady = true;
+    displayReady_ = simulatorDisplayBegin(kScreenWidth, kScreenHeight);
+#endif
     if (!displayReady_) {
         Serial.printf("DISPLAY: %s initialisation failed\n", DISPLAY_PROFILE_NAME);
         return false;
@@ -400,6 +419,9 @@ bool Channel2Ui::captureScreenshot(Stream &output)
         static_cast<unsigned long>(payloadBytes));
     output.write(reinterpret_cast<const uint8_t *>(header), headerLength);
 
+#ifdef JR_R1_SIMULATOR
+    simulatorWriteScreenshot(output);
+#else
     const SPISettings settings(kScreenshotSpiFrequency, MSBFIRST, SPI_MODE0);
     for (uint16_t row = 0; row < kScreenHeight; ++row) {
         screenshotSpi.beginTransaction(settings);
@@ -423,6 +445,7 @@ bool Channel2Ui::captureScreenshot(Stream &output)
         output.write(screenshotRow, sizeof(screenshotRow));
         delay(0);
     }
+#endif
     output.print("\nTFTSHOT-END\n");
     output.flush();
     return true;
@@ -1092,7 +1115,12 @@ bool Channel2Ui::removeSelectedBinding()
 
 void Channel2Ui::playBuzzer(uint16_t durationMs)
 {
-    if (systemSettings_.buzzerEnabled) tone(BUZZER_PIN, systemSettings_.buzzerPitchHz, durationMs);
+    if (!systemSettings_.buzzerEnabled) return;
+#ifdef JR_R1_SIMULATOR
+    simulatorBeep(systemSettings_.buzzerPitchHz, durationMs);
+#else
+    tone(BUZZER_PIN, systemSettings_.buzzerPitchHz, durationMs);
+#endif
 }
 
 void Channel2Ui::playKeyClick()
@@ -1102,12 +1130,19 @@ void Channel2Ui::playKeyClick()
 
 void Channel2Ui::stopBuzzer()
 {
+#ifdef JR_R1_SIMULATOR
+    simulatorStopBeep();
+#else
     noTone(BUZZER_PIN);
+#endif
 }
 
 void Channel2Ui::sleepDisplay()
 {
     if (!displayReady_ || displaySleeping_) return;
+#ifdef JR_R1_SIMULATOR
+    simulatorSetDisplayEnabled(false);
+#else
     displayBus->beginWrite();
     // Standard DCS Display OFF. Do not also issue Sleep IN here: on the BTT
     // panel that combination leaves the powered backlight illuminating a
@@ -1117,6 +1152,7 @@ void Channel2Ui::sleepDisplay()
     displayBus->endWrite();
     if (DISPLAY_HAS_PWM_BACKLIGHT)
         ledcWrite(TFT_BACKLIGHT_LEDC_CHANNEL, 0);
+#endif
     displaySleeping_ = true;
     Serial.println(DISPLAY_HAS_PWM_BACKLIGHT
         ? "DISPLAY: off (0x28 and backlight off; touch to wake)"
@@ -1126,9 +1162,13 @@ void Channel2Ui::sleepDisplay()
 void Channel2Ui::wakeDisplay()
 {
     if (!displayReady_ || !displaySleeping_) return;
+#ifdef JR_R1_SIMULATOR
+    simulatorSetDisplayEnabled(true);
+#else
     displayBus->beginWrite();
     displayBus->writeCommand(0x29); // Standard DCS Display ON
     displayBus->endWrite();
+#endif
     displaySleeping_ = false;
     applyBacklight(systemSettings_.displayBrightnessPercent);
     lastInteractionMs_ = millis();
@@ -2396,6 +2436,10 @@ void Channel2Ui::updateCalibration(uint16_t adc)
 
 uint16_t Channel2Ui::readTouchRegister(uint8_t command)
 {
+#ifdef JR_R1_SIMULATOR
+    (void)command;
+    return 0;
+#else
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_BTT_TFT35_SPI
     Wire.beginTransmission(NS2009_I2C_ADDRESS);
     Wire.write(command);
@@ -2406,10 +2450,15 @@ uint16_t Channel2Ui::readTouchRegister(uint8_t command)
     (void)command;
     return 0;
 #endif
+#endif
 }
 
 bool Channel2Ui::readGt911Register(uint16_t reg, uint8_t *data, size_t length)
 {
+#ifdef JR_R1_SIMULATOR
+    (void)reg; (void)data; (void)length;
+    return false;
+#else
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
     Wire.beginTransmission(GT911_I2C_ADDRESS);
     Wire.write(static_cast<uint8_t>(reg >> 8));
@@ -2426,10 +2475,15 @@ bool Channel2Ui::readGt911Register(uint16_t reg, uint8_t *data, size_t length)
     (void)reg; (void)data; (void)length;
     return false;
 #endif
+#endif
 }
 
 bool Channel2Ui::writeGt911Register(uint16_t reg, uint8_t value)
 {
+#ifdef JR_R1_SIMULATOR
+    (void)reg; (void)value;
+    return false;
+#else
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
     Wire.beginTransmission(GT911_I2C_ADDRESS);
     Wire.write(static_cast<uint8_t>(reg >> 8));
@@ -2440,10 +2494,14 @@ bool Channel2Ui::writeGt911Register(uint16_t reg, uint8_t value)
     (void)reg; (void)value;
     return false;
 #endif
+#endif
 }
 
 bool Channel2Ui::initialiseTouchController()
 {
+#ifdef JR_R1_SIMULATOR
+    return true;
+#else
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
     // Goodix address-select/reset sequence used by Waveshare. Holding INT low
     // when reset is released selects address 0x5d.
@@ -2478,19 +2536,27 @@ bool Channel2Ui::initialiseTouchController()
                   ready ? "ready" : "not found");
     return ready;
 #endif
+#endif
 }
 
 void Channel2Ui::applyBacklight(uint8_t percent)
 {
+#ifdef JR_R1_SIMULATOR
+    simulatorSetBrightness(percent);
+#else
     if (!DISPLAY_HAS_PWM_BACKLIGHT || displaySleeping_) return;
     percent = constrain(percent, 0, 100);
     const uint8_t duty = static_cast<uint8_t>((percent * 255U + 50U) / 100U);
     ledcWrite(TFT_BACKLIGHT_LEDC_CHANNEL, duty);
+#endif
 }
 
 bool Channel2Ui::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
                            uint16_t &rawY, uint16_t &rawZ)
 {
+#ifdef JR_R1_SIMULATOR
+    return simulatorReadTouch(x, y, rawX, rawY, rawZ);
+#else
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
     uint8_t status = 0;
     if (!readGt911Register(GT911_POINTS_INFO_REGISTER, &status, 1)) return false;
@@ -2528,6 +2594,7 @@ bool Channel2Ui::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
     x = constrain(map(rawY, TOUCH_RAW_Y_MIN, TOUCH_RAW_Y_MAX, 0, kScreenWidth - 1), 0, kScreenWidth - 1);
     y = constrain(map(rawX, TOUCH_RAW_X_MIN, TOUCH_RAW_X_MAX, kScreenHeight - 1, 0), 0, kScreenHeight - 1);
     return true;
+#endif
 #endif
 }
 
@@ -3150,7 +3217,11 @@ void Channel2Ui::updateTouch()
     int16_t x = 0, y = 0;
     uint16_t rawX = 0, rawY = 0, rawZ = 0;
     const uint32_t now = millis();
+#ifdef JR_R1_SIMULATOR
+    const bool irqActive = simulatorTouchDown();
+#else
     const bool irqActive = digitalRead(TOUCH_IRQ_PIN) == LOW;
+#endif
     if (displaySleeping_) {
         if (irqActive) {
             wakeDisplay();

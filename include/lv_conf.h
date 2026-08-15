@@ -5,9 +5,13 @@
 #define LV_COLOR_16_SWAP 0
 #define LV_MEM_SIZE (96U * 1024U)
 
+#ifdef JR_R1_SIMULATOR
+#define LV_TICK_CUSTOM 0
+#else
 #define LV_TICK_CUSTOM 1
 #define LV_TICK_CUSTOM_INCLUDE "esp_timer.h"
 #define LV_TICK_CUSTOM_SYS_TIME_EXPR ((uint32_t)(esp_timer_get_time() / 1000ULL))
+#endif
 
 #define LV_FONT_MONTSERRAT_12 1
 #define LV_FONT_MONTSERRAT_14 1

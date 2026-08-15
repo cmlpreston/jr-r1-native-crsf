@@ -67,6 +67,10 @@ proof of concept.
 
 ## Release engineering
 
+- [x] Run the real LVGL UI in an SDL2 desktop simulator with mouse touch,
+  simulated control/telemetry values, file-backed settings and screenshots.
+- Add scripted navigation/layout regression cases to the SDL simulator once
+  page-level test hooks are defined.
 - Split control processing into host-testable modules.
 - Test CRSF packing, safety transitions, slew limits, assignments, modes and
   saved-settings migration automatically.

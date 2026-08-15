@@ -45,6 +45,8 @@ proof of concept.
 - Generalise endpoints, trim, expo, rate and speed to every proportional input.
 - Add steering-specific turn and return speed.
 - Add optional throttle curves, ABS and throttle hold.
+- Extend the completed live rate/expo plot into the planned editable
+  five-point steering/throttle curve editor.
 - Defer 4WS and gyro-gain controls until there is a concrete vehicle use case.
 - Allow a physical dial to adjust the Walk-mode limit.
 - Add race-start countdown and user-defined buzzer macros.

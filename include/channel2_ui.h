@@ -147,6 +147,9 @@ public:
     bool armRequested() const { return armRequested_; }
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
     bool captureScreenshot(Stream &output);
+#ifdef JR_R1_SIMULATOR
+    void showSimulatorPage(UiPage page) { activePage_ = page; redrawActivePage(); }
+#endif
     void setPhysicalInputStates(const PhysicalInputStateStore &states);
     void setStartupPreflight(bool complete, uint32_t unsafeMask);
     size_t copyBindings(ControlBinding *destination, size_t capacity) const;
@@ -244,6 +247,8 @@ private:
     void drawPage();
     void drawThrottleResponsePage();
     void drawThrottleResponseRow(int row);
+    void drawThrottleResponseGraph();
+    void refreshThrottleResponseGraph(int16_t rawInputPermille);
     void drawChannelSpeedPage();
     void drawChannelSpeedRow(int row);
     void drawControlAssignmentsPage();
@@ -456,6 +461,12 @@ private:
     lv_obj_t *channel2SettingValueLabels_[4] = {};
     lv_obj_t *channel2DirectionToggle_ = nullptr;
     lv_obj_t *channel2DirectionToggleLabel_ = nullptr;
+    static constexpr uint8_t kThrottleGraphPointCount = 33;
+    lv_point_t throttleCurvePoints_[kThrottleGraphPointCount] = {};
+    lv_point_t throttleLinearPoints_[2] = {};
+    lv_obj_t *throttleGraphCurve_ = nullptr;
+    lv_obj_t *throttleGraphMarker_ = nullptr;
+    lv_obj_t *throttleGraphLiveLabel_ = nullptr;
     lv_obj_t *calibrationMinimumLabel_ = nullptr;
     lv_obj_t *calibrationLiveLabel_ = nullptr;
     lv_obj_t *calibrationMaximumLabel_ = nullptr;

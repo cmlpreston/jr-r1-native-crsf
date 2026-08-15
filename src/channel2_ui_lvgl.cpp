@@ -536,6 +536,9 @@ void Channel2Ui::resetLvglObjects()
     for (lv_obj_t *&label : channel2SettingValueLabels_) label = nullptr;
     channel2DirectionToggle_ = nullptr;
     channel2DirectionToggleLabel_ = nullptr;
+    throttleGraphCurve_ = nullptr;
+    throttleGraphMarker_ = nullptr;
+    throttleGraphLiveLabel_ = nullptr;
     calibrationMinimumLabel_ = nullptr;
     calibrationLiveLabel_ = nullptr;
     calibrationMaximumLabel_ = nullptr;
@@ -3096,32 +3099,134 @@ void Channel2Ui::drawPage()
 void Channel2Ui::drawThrottleResponseRow(int row)
 {
     static const char *labels[] = {
-        "FORWARD RATE", "FORWARD EXPO", "BRAKE/REV RATE", "BRAKE/REV EXPO"
+        "FWD RATE", "FWD EXPO", "BRAKE RATE", "BRAKE EXPO"
     };
-    const int16_t y = 56 + row * 50;
-    lv_obj_t *panel = makePanel(10, y, 460, 44);
-    makeLabel(panel, labels[row], 12, 12, 16, cCyan);
+    const int16_t y = 52 + row * 62;
+    lv_obj_t *panel = makePanel(288, y, 184, 54);
+    makeLabel(panel, labels[row], 9, 7, 12, cCyan);
     char value[20];
     if (row == 0) snprintf(value, sizeof(value), "%u%%", settings_.forwardRatePercent);
     else if (row == 1) snprintf(value, sizeof(value), "%+d%%", settings_.forwardExpoPercent);
     else if (row == 2) snprintf(value, sizeof(value), "%u%%", settings_.brakeRatePercent);
     else snprintf(value, sizeof(value), "%+d%%", settings_.brakeExpoPercent);
-    makeLabel(panel, value, 222, 12, 16, cWhite);
+    makeLabel(panel, value, 103, 7, 13, cWhite);
 
-    lv_obj_t *minus = lv_obj_create(panel); position(minus, 343, 3, 48, 36);
+    lv_obj_t *minus = lv_obj_create(panel); position(minus, 105, 27, 31, 23);
     lv_obj_set_style_bg_color(minus, colour(cPanel2), 0);
     lv_obj_set_style_border_color(minus, colour(cLine), 0);
     lv_obj_set_style_border_width(minus, 1, 0);
     lv_obj_set_style_radius(minus, 5, 0);
     lv_obj_set_style_pad_all(minus, 0, 0);
-    lv_obj_t *ml = makeLabel(minus, "-", 0, 0, 24); lv_obj_center(ml);
-    lv_obj_t *plus = lv_obj_create(panel); position(plus, 401, 3, 48, 36);
+    lv_obj_t *ml = makeLabel(minus, "-", 0, 0, 18); lv_obj_center(ml);
+    lv_obj_t *plus = lv_obj_create(panel); position(plus, 143, 27, 31, 23);
     lv_obj_set_style_bg_color(plus, colour(cPanel2), 0);
     lv_obj_set_style_border_color(plus, colour(cLine), 0);
     lv_obj_set_style_border_width(plus, 1, 0);
     lv_obj_set_style_radius(plus, 5, 0);
     lv_obj_set_style_pad_all(plus, 0, 0);
-    lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 24); lv_obj_center(pl);
+    lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 18); lv_obj_center(pl);
+}
+
+void Channel2Ui::drawThrottleResponseGraph()
+{
+    constexpr int16_t graphX = 23;
+    constexpr int16_t graphY = 26;
+    constexpr int16_t graphWidth = 236;
+    constexpr int16_t graphHeight = 188;
+    lv_obj_t *panel = makePanel(8, 52, 272, 250);
+    makeLabel(panel, "LIVE RESPONSE", 10, 7, 12, cCyan);
+
+    // A restrained grid is easier to read than the original monochrome plot,
+    // while retaining its instantly recognisable input/output relationship.
+    for (uint8_t division = 0; division <= 4; ++division) {
+        const int16_t x = graphX + division * graphWidth / 4;
+        const int16_t y = graphY + division * graphHeight / 4;
+        lv_obj_t *vertical = lv_obj_create(panel);
+        position(vertical, x, graphY, 1, graphHeight + 1);
+        lv_obj_set_style_bg_color(vertical, colour(division == 2 ? cDim : cLine), 0);
+        lv_obj_set_style_border_width(vertical, 0, 0);
+        lv_obj_set_style_pad_all(vertical, 0, 0);
+        lv_obj_t *horizontal = lv_obj_create(panel);
+        position(horizontal, graphX, y, graphWidth + 1, 1);
+        lv_obj_set_style_bg_color(horizontal, colour(division == 2 ? cDim : cLine), 0);
+        lv_obj_set_style_border_width(horizontal, 0, 0);
+        lv_obj_set_style_pad_all(horizontal, 0, 0);
+    }
+
+    throttleLinearPoints_[0] = {graphX, static_cast<lv_coord_t>(graphY + graphHeight)};
+    throttleLinearPoints_[1] = {static_cast<lv_coord_t>(graphX + graphWidth), graphY};
+    lv_obj_t *linear = lv_line_create(panel);
+    lv_line_set_points(linear, throttleLinearPoints_, 2);
+    lv_obj_set_style_line_color(linear, colour(cDim), 0);
+    lv_obj_set_style_line_width(linear, 1, 0);
+    lv_obj_set_style_line_dash_width(linear, 4, 0);
+    lv_obj_set_style_line_dash_gap(linear, 4, 0);
+
+    for (uint8_t index = 0; index < kThrottleGraphPointCount; ++index) {
+        const int16_t input = static_cast<int16_t>(-1000 +
+            static_cast<int32_t>(index) * 2000 /
+            (kThrottleGraphPointCount - 1));
+        const bool braking = input < 0;
+        const int8_t expo = braking ? settings_.brakeExpoPercent
+                                    : settings_.forwardExpoPercent;
+        const uint8_t rate = braking ? settings_.brakeRatePercent
+                                     : settings_.forwardRatePercent;
+        const int16_t output = static_cast<int16_t>(
+            applyExpo(input, expo) * static_cast<int32_t>(rate) / 100);
+        throttleCurvePoints_[index].x = static_cast<lv_coord_t>(
+            graphX + static_cast<int32_t>(input + 1000) * graphWidth / 2000);
+        throttleCurvePoints_[index].y = static_cast<lv_coord_t>(
+            graphY + graphHeight -
+            static_cast<int32_t>(output + 1000) * graphHeight / 2000);
+    }
+    throttleGraphCurve_ = lv_line_create(panel);
+    lv_line_set_points(throttleGraphCurve_, throttleCurvePoints_,
+                       kThrottleGraphPointCount);
+    lv_obj_set_style_line_color(throttleGraphCurve_, colour(cCyan), 0);
+    lv_obj_set_style_line_width(throttleGraphCurve_, 3, 0);
+    lv_obj_set_style_line_rounded(throttleGraphCurve_, true, 0);
+
+    throttleGraphMarker_ = lv_obj_create(panel);
+    position(throttleGraphMarker_, graphX + graphWidth / 2 - 5,
+             graphY + graphHeight / 2 - 5, 11, 11);
+    lv_obj_set_style_radius(throttleGraphMarker_, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(throttleGraphMarker_, colour(cAmber), 0);
+    lv_obj_set_style_border_color(throttleGraphMarker_, colour(cWhite), 0);
+    lv_obj_set_style_border_width(throttleGraphMarker_, 2, 0);
+    lv_obj_set_style_pad_all(throttleGraphMarker_, 0, 0);
+
+    makeLabel(panel, "BRAKE", graphX, 220, 10, cDim);
+    lv_obj_t *neutral = makeLabel(panel, "N", 0, 220, 10, cDim);
+    lv_obj_align(neutral, LV_ALIGN_TOP_MID, 0, 220);
+    makeLabel(panel, "FWD", graphX + graphWidth - 25, 220, 10, cDim);
+    throttleGraphLiveLabel_ = makeLabel(panel, "IN +0%  OUT +0%",
+                                        111, 6, 9, cWhite);
+    refreshThrottleResponseGraph(mapAdcToPermille(latestRawAdc_));
+}
+
+void Channel2Ui::refreshThrottleResponseGraph(int16_t rawInputPermille)
+{
+    if (!throttleGraphMarker_ || !throttleGraphLiveLabel_) return;
+    constexpr int16_t graphX = 23;
+    constexpr int16_t graphY = 26;
+    constexpr int16_t graphWidth = 236;
+    constexpr int16_t graphHeight = 188;
+    rawInputPermille = static_cast<int16_t>(constrain(rawInputPermille,
+                                                      -1000, 1000));
+    const bool braking = rawInputPermille < 0;
+    const int8_t expo = braking ? settings_.brakeExpoPercent
+                                : settings_.forwardExpoPercent;
+    const uint8_t rate = braking ? settings_.brakeRatePercent
+                                 : settings_.forwardRatePercent;
+    const int16_t output = static_cast<int16_t>(
+        applyExpo(rawInputPermille, expo) * static_cast<int32_t>(rate) / 100);
+    const int16_t x = graphX + static_cast<int32_t>(rawInputPermille + 1000) *
+                      graphWidth / 2000;
+    const int16_t y = graphY + graphHeight -
+                      static_cast<int32_t>(output + 1000) * graphHeight / 2000;
+    lv_obj_set_pos(throttleGraphMarker_, x - 5, y - 5);
+    lv_label_set_text_fmt(throttleGraphLiveLabel_, "IN %+d%%  OUT %+d%%",
+                          rawInputPermille / 10, output / 10);
 }
 
 void Channel2Ui::drawThrottleResponsePage()
@@ -3134,16 +3239,14 @@ void Channel2Ui::drawThrottleResponsePage()
     makeButton(258, 5, 78, 34, "SPEED", 11, cPanel2, cCyan);
     addPageActionTarget(258, 5, 78, 34,
                         &Channel2Ui::controlThrottleHeader, 0);
+    drawThrottleResponseGraph();
     for (int row = 0; row < 4; ++row) {
         drawThrottleResponseRow(row);
-        addPageEditorTarget(10, 56 + row * 50, 460, 44,
-                            353, 59 + row * 50, 48, 36,
-                            411, 59 + row * 50, 48, 36,
+        addPageEditorTarget(288, 52 + row * 62, 184, 54,
+                            393, 79 + row * 62, 31, 23,
+                            431, 79 + row * 62, 31, 23,
                             &Channel2Ui::controlThrottleResponse, row);
     }
-    lv_obj_t *note = makeLabel(lv_scr_act(),
-        "+EXPO = SOFTER AROUND NEUTRAL", 0, 280, 12, cDim);
-    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
     finishPageFocus();
 }
 
@@ -4594,7 +4697,8 @@ void Channel2Ui::updateTouch()
     handleTouch(releasedX, releasedY);
 }
 
-void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
+void Channel2Ui::update(uint16_t rawAdc, int16_t rawInputPermille,
+                        int16_t outputPermille,
                         uint16_t crsfValue, OutputSafetyStatus safetyStatus,
                         const CrsfTelemetryState &telemetry,
                         uint16_t txVoltageDecivolts, bool txVoltageValid,
@@ -4667,6 +4771,8 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
             drawTelemetryLive(telemetry, txVoltageDecivolts, txVoltageValid);
         }
         else if (activePage_ == UiPage::Channel2) drawLiveIndicator(outputPermille, crsfValue);
+        else if (activePage_ == UiPage::ThrottleResponse)
+            refreshThrottleResponseGraph(rawInputPermille);
         else if (activePage_ == UiPage::InputMonitor) refreshInputMonitorRows();
     }
     lv_timer_handler();

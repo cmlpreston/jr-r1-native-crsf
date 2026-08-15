@@ -1431,7 +1431,12 @@ bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value
             if (value > 0) { playKeyClick(); drawDashboard(); }
             return true;
         case TransmitterFunction::QuickPanel:
-            if (value > 0) { playKeyClick(); drawDriveModesPage(); }
+            if (value > 0) {
+                driveModesReturnPage_ = activePage_ == UiPage::Dashboard
+                    ? UiPage::Dashboard : UiPage::MainMenu;
+                playKeyClick();
+                drawDriveModesPage();
+            }
             return true;
         case TransmitterFunction::DisplayOnOff:
             if (value > 0) wakeDisplay(); else sleepDisplay();
@@ -1837,9 +1842,15 @@ void Channel2Ui::activateMainMenuFocus()
     playKeyClick();
     switch (mainMenuFocusIndex_) {
         case 1: drawChannelsPage(); break;
-        case 2: drawThrottleResponsePage(); break;
+        case 2:
+            throttleResponseReturnPage_ = UiPage::MainMenu;
+            drawThrottleResponsePage();
+            break;
         case 3: drawControlAssignmentsPage(); break;
-        case 4: drawDriveModesPage(); break;
+        case 4:
+            driveModesReturnPage_ = UiPage::MainMenu;
+            drawDriveModesPage();
+            break;
         case 6: drawElrsBindingPage(); break;
         case 7: drawSetupPage(); break;
         default: break;
@@ -1856,12 +1867,19 @@ void Channel2Ui::navigateBack()
         case UiPage::ChannelRoles: drawChannelsPage(); break;
         case UiPage::Channel2:
         case UiPage::ChannelPlaceholder: drawChannelsPage(); break;
-        case UiPage::ThrottleResponse: drawMainMenu(); break;
+        case UiPage::ThrottleResponse:
+            if (throttleResponseReturnPage_ == UiPage::Channel2) drawPage();
+            else if (throttleResponseReturnPage_ == UiPage::Dashboard) drawDashboard();
+            else drawMainMenu();
+            break;
         case UiPage::ChannelSpeed: drawThrottleResponsePage(); break;
         case UiPage::ControlAssignments: drawMainMenu(); break;
         case UiPage::BindingEditor:
         case UiPage::InputMonitor: drawControlAssignmentsPage(); break;
-        case UiPage::DriveModes: drawMainMenu(); break;
+        case UiPage::DriveModes:
+            if (driveModesReturnPage_ == UiPage::Dashboard) drawDashboard();
+            else drawMainMenu();
+            break;
         case UiPage::Setup: drawMainMenu(); break;
         case UiPage::TxBatterySetup:
         case UiPage::RxBatterySetup:
@@ -2876,11 +2894,18 @@ void Channel2Ui::handleDashboardTouch(int16_t x, int16_t y)
 {
     if ((y < 45 && x >= 415) || (y >= 245 && x < 120)) { playKeyClick(); drawMainMenu(); }
     else if (y >= 245 && x >= 120 && x < 236) { playKeyClick(); drawChannelsPage(); }
-    else if (y >= 245 && x >= 236 && x < 352) { playKeyClick(); drawThrottleResponsePage(); }
-    else if (y >= 245 && x >= 352) { playKeyClick(); drawDriveModesPage(); }
+    else if (y >= 245 && x >= 236 && x < 352) {
+        driveModesReturnPage_ = UiPage::Dashboard;
+        playKeyClick(); drawDriveModesPage();
+    }
+    else if (y >= 245 && x >= 352) {
+        driveModesReturnPage_ = UiPage::Dashboard;
+        playKeyClick(); drawDriveModesPage();
+    }
     else if (x >= 310 && y >= 45 && y < 140) {
         if (!channelRoleSettings_.throttleEnabled) {
             playKeyClick();
+            driveModesReturnPage_ = UiPage::Dashboard;
             drawDriveModesPage();
         } else {
             armRequested_ = !armRequested_;
@@ -2965,7 +2990,13 @@ void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
 {
-    if (headerActionTouched(x, y)) { playKeyClick(); drawPage(); return; }
+    if (headerActionTouched(x, y)) {
+        playKeyClick();
+        if (throttleResponseReturnPage_ == UiPage::Channel2) drawPage();
+        else if (throttleResponseReturnPage_ == UiPage::Dashboard) drawDashboard();
+        else drawMainMenu();
+        return;
+    }
     if (y < 48 && x >= 250 && x < 340) { playKeyClick(); drawChannelSpeedPage(); return; }
     if (y < 56 || y >= 256 || x < 340) return;
     const int row = (y - 56) / 50;
@@ -3228,7 +3259,12 @@ void Channel2Ui::handleInputMonitorTouch(int16_t x, int16_t y)
 
 void Channel2Ui::handleDriveModesTouch(int16_t x, int16_t y)
 {
-    if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
+    if (headerActionTouched(x, y)) {
+        playKeyClick();
+        if (driveModesReturnPage_ == UiPage::Dashboard) drawDashboard();
+        else drawMainMenu();
+        return;
+    }
     if (y >= 60 && y < 132) {
         if (x < 70 || x >= 415) return;
         const uint8_t index = x < 245 ? 0 : 1;
@@ -3531,7 +3567,10 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::RxBatterySetup) { handleRxBatteryTouch(x, y); return; }
     if (activePage_ == UiPage::DisplaySetup) { handleDisplayTouch(x, y); return; }
     if (activePage_ == UiPage::ElrsBinding) { handleElrsBindingTouch(x, y); return; }
-    if (y < 48 && x >= 186 && x < 262) { playKeyClick(); drawThrottleResponsePage(); return; }
+    if (y < 48 && x >= 186 && x < 262) {
+        throttleResponseReturnPage_ = UiPage::Channel2;
+        playKeyClick(); drawThrottleResponsePage(); return;
+    }
     if (y < 48 && x >= 262 && x < 340) { playKeyClick(); drawChannelsPage(); return; }
     if (headerActionTouched(x, y)) { playKeyClick(); startCalibration(latestRawAdc_); return; }
     if (y < 56 || y >= 256) return;

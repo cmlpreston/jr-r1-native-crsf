@@ -291,6 +291,8 @@ private:
     uint32_t lastReceiverUidUpdateMs_ = 0;
     bool displayReady_ = false;
     UiPage activePage_ = UiPage::Dashboard;
+    UiPage throttleResponseReturnPage_ = UiPage::MainMenu;
+    UiPage driveModesReturnPage_ = UiPage::Dashboard;
     uint8_t channelsBank_ = 0;
     uint8_t selectedChannel_ = 2;
     uint8_t inputMonitorBank_ = 0;

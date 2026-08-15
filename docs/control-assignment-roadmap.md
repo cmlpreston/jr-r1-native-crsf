@@ -188,6 +188,35 @@ sounds the short error beep.
 - [ ] Explicit initial and failsafe values for retained accessory channels.
 - [ ] Critical functions cannot share an unsafe secondary binding.
 
+### Driving-control implementation order
+
+Implement these in order so steering and throttle share one deterministic,
+testable signal path rather than accumulating channel-specific exceptions:
+
+1. [ ] Introduce a per-proportional-axis profile containing calibration,
+   reverse, deadband, sub-trim, endpoints, rate, expo and speed. Migrate the
+   existing CH2 settings without changing the transmitted throttle response.
+2. [ ] Connect the steering ADC to the same pipeline and expose independent
+   steering settings. Steering adds separate turn and return speed; throttle
+   retains separate forward and brake settings.
+3. [ ] Add optional editable response curves. Begin with a five-point curve,
+   monotonic validation and a live raw-versus-output graph. Forward and brake
+   throttle halves remain independently configurable.
+4. [ ] Add assignable throttle hold. It must command the configured neutral,
+   override drive demand, indicate HOLD prominently and require neutral before
+   release can resume drive.
+5. [ ] Add optional ABS on the physical brake side only, with configurable
+   activation point, depth and frequency. CUT, hold, stale-input and failsafe
+   handling always take priority over ABS modulation.
+6. [ ] Allow a physical dial or digital-trim binding to adjust the Walk-mode
+   forward limit while preserving full configured brake authority.
+
+Every stage must preserve the 250 Hz CRSF control task, avoid LVGL work in the
+control path, save settings per model, and include live monitor values before
+the next stage starts. Defer 4WS and gyro-gain controls until there is a
+concrete vehicle use case. Race-start countdown and user-defined buzzer macros
+remain later enhancements.
+
 ### Later configuration and interchange
 
 - [ ] Versioned profile export/import.

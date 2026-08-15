@@ -40,6 +40,8 @@ proof of concept.
 
 ## Driving functions
 
+- Follow the staged proportional-axis/curves/hold/ABS implementation plan in
+  `docs/control-assignment-roadmap.md`.
 - Generalise endpoints, trim, expo, rate and speed to every proportional input.
 - Add steering-specific turn and return speed.
 - Add optional throttle curves, ABS and throttle hold.

@@ -59,6 +59,15 @@ proof of concept.
 
 ## Telemetry and peripherals
 
+- [x] Add a dedicated live telemetry page for ELRS link state, LQ, RSSI, SNR,
+  antenna/RF fields, TX/RX voltage and CRSF stream diagnostics.
+- Extend the CRSF parser for standard GPS and battery/current telemetry frames.
+- Add a driving telemetry page with speed, maximum speed, RPM, main-pack
+  voltage, current, consumed mAh and motor/ESC/battery temperatures.
+- Add a GPS/map page with position, heading, track history and offline
+  OpenStreetMap tiles for selected driving areas and zoom levels.
+- Define the vehicle-side telemetry bridge for GPS, RPM, ESC/current and
+  temperature sources, including FrSky S.Port/i-BUS conversion into CRSF.
 - Add run time, trip distance, odometer, maximum speed and consumed capacity.
 - Add motor, ESC, battery and servo temperatures plus RPM/wheel speed.
 - Add maintenance reminders based on run time or distance.

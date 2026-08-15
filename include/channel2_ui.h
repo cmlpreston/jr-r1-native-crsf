@@ -173,13 +173,42 @@ private:
     void moveMainMenuFocus(int8_t direction);
     void activateMainMenuFocus();
     void beginPageFocus();
-    void addPageFocusTarget(int16_t x, int16_t y, int16_t width,
-                            int16_t height);
+    enum class PageControlEvent : int8_t {
+        Decrease = -1,
+        Activate = 0,
+        Increase = 1,
+    };
+    using PageControlHandler = void (Channel2Ui::*)(uint8_t,
+                                                     PageControlEvent);
+    void addPageActionTarget(int16_t x, int16_t y, int16_t width,
+                             int16_t height, PageControlHandler handler,
+                             uint8_t argument);
+    void addPageEditorTarget(int16_t x, int16_t y, int16_t width,
+                             int16_t height,
+                             int16_t decreaseX, int16_t decreaseY,
+                             int16_t decreaseWidth, int16_t decreaseHeight,
+                             int16_t increaseX, int16_t increaseY,
+                             int16_t increaseWidth, int16_t increaseHeight,
+                             PageControlHandler handler, uint8_t argument);
     void finishPageFocus();
     void refreshPageFocus();
     void movePageFocus(int8_t direction);
     void activatePageFocus();
     bool adjustPageFocus(int8_t direction);
+    bool dispatchPageControlTouch(int16_t x, int16_t y);
+    bool dispatchPageControl(uint8_t index, PageControlEvent event);
+    void controlChannelRoles(uint8_t row, PageControlEvent event);
+    void controlTxBattery(uint8_t row, PageControlEvent event);
+    void controlRxBattery(uint8_t row, PageControlEvent event);
+    void controlDisplay(uint8_t row, PageControlEvent event);
+    void controlBindingEditor(uint8_t field, PageControlEvent event);
+    void controlChannels(uint8_t item, PageControlEvent event);
+    void controlAssignments(uint8_t item, PageControlEvent event);
+    void controlDriveMode(uint8_t item, PageControlEvent event);
+    void controlSetup(uint8_t item, PageControlEvent event);
+    void controlThrottleSetting(uint8_t row, PageControlEvent event);
+    void controlThrottleResponse(uint8_t row, PageControlEvent event);
+    void controlChannelSpeed(uint8_t row, PageControlEvent event);
     void navigateBack();
     bool navigateDashboardPage(int8_t direction);
     void drawDashboard();
@@ -365,10 +394,18 @@ private:
     lv_obj_t *mainMenuButtons_[8] = {};
     uint8_t mainMenuFocusIndex_ = 1;
     struct PageFocusTarget {
-        int16_t x = 0;
-        int16_t y = 0;
-        int16_t width = 0;
-        int16_t height = 0;
+        struct Rectangle {
+            int16_t x = 0;
+            int16_t y = 0;
+            int16_t width = 0;
+            int16_t height = 0;
+        };
+        Rectangle focus;
+        Rectangle activate;
+        Rectangle decrease;
+        Rectangle increase;
+        PageControlHandler handler = nullptr;
+        uint8_t argument = 0;
     };
     static constexpr uint8_t kMaximumPageFocusTargets = 16;
     PageFocusTarget pageFocusTargets_[kMaximumPageFocusTargets] = {};

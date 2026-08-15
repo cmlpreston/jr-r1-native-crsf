@@ -51,10 +51,12 @@ proof of concept.
   sleep reduce the measured 0.25 A TFT load.
 - Add dim-before-sleep and dedicated sunlight/night palettes.
 - Add configurable dashboard widgets and quick-adjust overlays.
-- Extend the implemented keypad focus/navigation and focused +/- adjustment
-  to ELRS text entry and the remaining list-page bank controls. Throttle,
-  assignments, Drive Mode, Setup, channel roles, batteries and display are
-  complete.
+- [x] Replace page-specific keypad coordinate emulation with a registered UI
+  control layer shared by touch, Select and +/- actions. Channels and
+  Assignments include their bank controls; throttle, Drive Mode, Setup,
+  channel roles, batteries, display and assignment editing are migrated.
+- Extend the registered-control layer to ELRS text entry and Input Monitor
+  paging, then add simulator navigation regression cases.
 - Add touch and physical-input diagnostic/calibration pages.
 - [x] Bind the Timer button to next-dashboard-page in a new default R1 profile
   while retaining existing user assignments and alternate selectable actions.

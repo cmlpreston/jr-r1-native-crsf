@@ -2062,15 +2062,48 @@ void Channel2Ui::beginPageFocus()
     pageFocusIndicator_ = nullptr;
 }
 
-void Channel2Ui::addPageFocusTarget(int16_t x, int16_t y, int16_t width,
-                                    int16_t height)
+void Channel2Ui::addPageActionTarget(int16_t x, int16_t y, int16_t width,
+                                     int16_t height,
+                                     PageControlHandler handler,
+                                     uint8_t argument)
 {
     if (pageFocusCount_ >= kMaximumPageFocusTargets) return;
     PageFocusTarget &target = pageFocusTargets_[pageFocusCount_++];
-    target.x = x;
-    target.y = y;
-    target.width = width;
-    target.height = height;
+    target = PageFocusTarget{};
+    target.focus.x = x;
+    target.focus.y = y;
+    target.focus.width = width;
+    target.focus.height = height;
+    target.activate = target.focus;
+    target.handler = handler;
+    target.argument = argument;
+}
+
+void Channel2Ui::addPageEditorTarget(
+    int16_t x, int16_t y, int16_t width, int16_t height,
+    int16_t decreaseX, int16_t decreaseY,
+    int16_t decreaseWidth, int16_t decreaseHeight,
+    int16_t increaseX, int16_t increaseY,
+    int16_t increaseWidth, int16_t increaseHeight,
+    PageControlHandler handler, uint8_t argument)
+{
+    if (pageFocusCount_ >= kMaximumPageFocusTargets) return;
+    PageFocusTarget &target = pageFocusTargets_[pageFocusCount_++];
+    target = PageFocusTarget{};
+    target.focus.x = x;
+    target.focus.y = y;
+    target.focus.width = width;
+    target.focus.height = height;
+    target.decrease.x = decreaseX;
+    target.decrease.y = decreaseY;
+    target.decrease.width = decreaseWidth;
+    target.decrease.height = decreaseHeight;
+    target.increase.x = increaseX;
+    target.increase.y = increaseY;
+    target.increase.width = increaseWidth;
+    target.increase.height = increaseHeight;
+    target.handler = handler;
+    target.argument = argument;
 }
 
 void Channel2Ui::finishPageFocus()
@@ -2091,8 +2124,8 @@ void Channel2Ui::refreshPageFocus()
     if (pageFocusIndicator_ == nullptr || pageFocusCount_ == 0) return;
     if (pageFocusIndex_ >= pageFocusCount_) pageFocusIndex_ = 0;
     const PageFocusTarget &target = pageFocusTargets_[pageFocusIndex_];
-    position(pageFocusIndicator_, target.x, target.y,
-             target.width, target.height);
+    position(pageFocusIndicator_, target.focus.x, target.focus.y,
+             target.focus.width, target.focus.height);
     lv_obj_move_foreground(pageFocusIndicator_);
 }
 
@@ -2109,76 +2142,211 @@ void Channel2Ui::movePageFocus(int8_t direction)
 void Channel2Ui::activatePageFocus()
 {
     if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return;
-    // Binding editor value rows are adjusted with +/-; SEL advances them as a
-    // convenient one-handed fallback. ENABLED and the footer buttons retain
-    // their normal touch activation coordinates below.
-    if (activePage_ == UiPage::BindingEditor &&
-        pageFocusIndex_ >= 1 && pageFocusIndex_ <= 3) {
-        adjustPageFocus(1);
-        return;
-    }
-    if (activePage_ == UiPage::ChannelRoles ||
-        activePage_ == UiPage::TxBatterySetup ||
-        activePage_ == UiPage::RxBatterySetup ||
-        activePage_ == UiPage::DisplaySetup) {
-        adjustPageFocus(1);
-        return;
-    }
-    const PageFocusTarget target = pageFocusTargets_[pageFocusIndex_];
-    handleTouch(target.x + target.width / 2,
-                target.y + target.height / 2);
+    if (dispatchPageControl(pageFocusIndex_, PageControlEvent::Activate)) return;
+    playBuzzer(35);
 }
 
 bool Channel2Ui::adjustPageFocus(int8_t direction)
 {
     if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return false;
+    if (dispatchPageControl(pageFocusIndex_, direction < 0
+            ? PageControlEvent::Decrease : PageControlEvent::Increase))
+        return true;
+    playBuzzer(35);
+    return false;
+}
+
+bool Channel2Ui::dispatchPageControl(uint8_t index, PageControlEvent event)
+{
+    if (index >= pageFocusCount_) return false;
+    const PageFocusTarget target = pageFocusTargets_[index];
+    if (target.handler == nullptr) return false;
     const uint8_t focused = pageFocusIndex_;
-    const int16_t x = direction < 0 ? 375 : 430;
-    int16_t y = -1;
-
-    switch (activePage_) {
-        case UiPage::Channel2:
-        case UiPage::ThrottleResponse:
-            if (focused < 4) y = 78 + focused * 50;
-            break;
-        case UiPage::ChannelSpeed:
-            if (focused < 2) y = 109 + focused * 76;
-            break;
-        case UiPage::DriveModes:
-            if (focused == 2) y = 185;
-            break;
-        case UiPage::Setup:
-            if (focused == 2 || focused == 3) y = 78 + focused * 50;
-            break;
-        case UiPage::BindingEditor:
-            if (focused == 0) y = 106;
-            else if (focused >= 1 && focused <= 3)
-                y = 145 + (focused - 1) * 39;
-            break;
-        case UiPage::ChannelRoles:
-            if (focused < 2) y = 100 + focused * 68;
-            break;
-        case UiPage::TxBatterySetup:
-        case UiPage::RxBatterySetup:
-        case UiPage::DisplaySetup:
-            if (focused < 4) y = 78 + focused * 50;
-            break;
-        default:
-            break;
-    }
-    if (y < 0) {
-        playBuzzer(35);
-        return false;
-    }
-
-    handleTouch(x, y);
-    // Most numeric editors redraw after a change. Restore the same selected
-    // row so repeated + / - presses continue to operate on that value.
+    (this->*target.handler)(target.argument, event);
     if (pageFocusCount_ != 0) {
         pageFocusIndex_ = min<uint8_t>(focused, pageFocusCount_ - 1);
         refreshPageFocus();
     }
     return true;
+}
+
+bool Channel2Ui::dispatchPageControlTouch(int16_t x, int16_t y)
+{
+    const auto contains = [x, y](const PageFocusTarget::Rectangle &rectangle) {
+        return rectangle.width > 0 && rectangle.height > 0 &&
+               x >= rectangle.x && x < rectangle.x + rectangle.width &&
+               y >= rectangle.y && y < rectangle.y + rectangle.height;
+    };
+    for (uint8_t index = 0; index < pageFocusCount_; ++index) {
+        const PageFocusTarget &target = pageFocusTargets_[index];
+        if (target.handler == nullptr) continue;
+        PageControlEvent event;
+        if (contains(target.decrease)) event = PageControlEvent::Decrease;
+        else if (contains(target.increase)) event = PageControlEvent::Increase;
+        else if (contains(target.activate)) event = PageControlEvent::Activate;
+        else continue;
+        pageFocusIndex_ = index;
+        refreshPageFocus();
+        return dispatchPageControl(index, event);
+    }
+    return false;
+}
+
+void Channel2Ui::controlChannelRoles(uint8_t row, PageControlEvent event)
+{
+    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
+    handleChannelRolesTouch(x, 100 + row * 68);
+}
+
+void Channel2Ui::controlTxBattery(uint8_t row, PageControlEvent event)
+{
+    if (row == 0 && event == PageControlEvent::Decrease) {
+        uint8_t chemistry = static_cast<uint8_t>(txBatterySettings_.chemistry);
+        chemistry = static_cast<uint8_t>((chemistry + 3) % 4);
+        txBatterySettings_.chemistry = static_cast<BatteryChemistry>(chemistry);
+        txBatterySettings_.cellCount = min(txBatterySettings_.cellCount,
+            maximumCellsFor(txBatterySettings_.chemistry));
+        txBatterySettings_.lowAlarmDecivolts = defaultLowAlarmDecivolts(
+            txBatterySettings_.chemistry, txBatterySettings_.cellCount);
+        saveTxBatterySettings();
+        playKeyClick();
+        drawTxBatteryPage();
+        return;
+    }
+    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
+    handleTxBatteryTouch(x, 78 + row * 50);
+}
+
+void Channel2Ui::controlRxBattery(uint8_t row, PageControlEvent event)
+{
+    if (row == 0 && event == PageControlEvent::Decrease) {
+        uint8_t chemistry = static_cast<uint8_t>(rxBatterySettings_.chemistry);
+        chemistry = static_cast<uint8_t>((chemistry + 3) % 4);
+        rxBatterySettings_.chemistry = static_cast<BatteryChemistry>(chemistry);
+        rxBatterySettings_.cellCount = min(rxBatterySettings_.cellCount,
+            maximumCellsFor(rxBatterySettings_.chemistry));
+        rxBatterySettings_.lowAlarmDecivolts = defaultLowAlarmDecivolts(
+            rxBatterySettings_.chemistry, rxBatterySettings_.cellCount);
+        saveRxBatterySettings();
+        playKeyClick();
+        drawRxBatteryPage();
+        return;
+    }
+    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
+    handleRxBatteryTouch(x, 78 + row * 50);
+}
+
+void Channel2Ui::controlDisplay(uint8_t row, PageControlEvent event)
+{
+    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
+    handleDisplayTouch(x, 78 + row * 50);
+}
+
+void Channel2Ui::controlBindingEditor(uint8_t field, PageControlEvent event)
+{
+    if (field == 0) {
+        handleBindingEditorTouch(400, 106);
+    } else if (field >= 1 && field <= 3) {
+        const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
+        handleBindingEditorTouch(x, 145 + (field - 1) * 39);
+    } else if (field == 4) {
+        handleBindingEditorTouch(80, 290);
+    } else if (field == 5) {
+        handleBindingEditorTouch(220, 290);
+    } else if (field == 6) {
+        handleBindingEditorTouch(390, 290);
+    }
+}
+
+void Channel2Ui::controlChannels(uint8_t item, PageControlEvent)
+{
+    if (item < 8) {
+        selectedChannel_ = channelsBank_ * 8 + item + 1;
+        playKeyClick();
+        drawChannelPlaceholder();
+    } else if (item == 8 && channelsBank_ > 0) {
+        --channelsBank_; playKeyClick(); drawChannelsPage();
+    } else if (item == 9 && channelsBank_ < 1) {
+        ++channelsBank_; playKeyClick(); drawChannelsPage();
+    } else if (item == 10) {
+        playKeyClick(); drawChannelRolesPage();
+    } else playBuzzer(35);
+}
+
+void Channel2Ui::controlAssignments(uint8_t item, PageControlEvent)
+{
+    constexpr uint8_t kRows = 5;
+    constexpr uint8_t kBanks = (kPhysicalControlCount + kRows - 1) / kRows;
+    if (item < kRows) {
+        handleControlAssignmentsTouch(240, 50 + item * 40 + 17);
+    } else if (item == 5 && assignmentBank_ > 0) {
+        --assignmentBank_; playKeyClick(); drawControlAssignmentsPage();
+    } else if (item == 6) {
+        playKeyClick(); drawChannelRolesPage();
+    } else if (item == 7) {
+        inputMonitorBank_ = 0; playKeyClick(); drawInputMonitorPage();
+    } else if (item == 8 && assignmentBank_ + 1 < kBanks) {
+        ++assignmentBank_; playKeyClick(); drawControlAssignmentsPage();
+    } else playBuzzer(35);
+}
+
+void Channel2Ui::controlDriveMode(uint8_t item, PageControlEvent event)
+{
+    if (item < 2) {
+        handleDriveModesTouch(item == 0 ? 150 : 330, 95);
+        return;
+    }
+    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
+    handleDriveModesTouch(x, 185);
+}
+
+void Channel2Ui::controlSetup(uint8_t item, PageControlEvent event)
+{
+    if (item < 4) {
+        const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
+        handleSetupTouch(x, 78 + item * 50);
+    } else {
+        static const int16_t x[] = {54, 160, 282, 408};
+        handleSetupTouch(x[item - 4], 287);
+    }
+}
+
+void Channel2Ui::controlThrottleSetting(uint8_t row, PageControlEvent event)
+{
+    const int8_t direction = event == PageControlEvent::Decrease ? -1 : 1;
+    bool changed = false;
+    if (row == 0) {
+        settings_.brakeEndpointPercent = constrain(
+            static_cast<int>(settings_.brakeEndpointPercent) + direction, 50, 100);
+        changed = true;
+    } else if (row == 1) {
+        settings_.subtrimPercent = constrain(
+            static_cast<int>(settings_.subtrimPercent) + direction, -20, 20);
+        changed = true;
+    } else if (row == 2) {
+        settings_.forwardEndpointPercent = constrain(
+            static_cast<int>(settings_.forwardEndpointPercent) + direction, 50, 100);
+        changed = true;
+    } else if (row == 3) {
+        settings_.reversed = !settings_.reversed;
+        changed = true;
+    }
+    if (!changed) return;
+    playKeyClick();
+    scheduleSettingsSave();
+    refreshSettingRowValue(row);
+}
+
+void Channel2Ui::controlThrottleResponse(uint8_t row, PageControlEvent event)
+{
+    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
+    handleThrottleResponseTouch(x, 78 + row * 50);
+}
+
+void Channel2Ui::controlChannelSpeed(uint8_t row, PageControlEvent event)
+{
+    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
+    handleChannelSpeedTouch(x, 109 + row * 76);
 }
 
 void Channel2Ui::navigateBack()
@@ -2222,6 +2390,8 @@ void Channel2Ui::drawChannelsPage()
     makeHeader("CHANNELS", "BACK");
     beginPageFocus();
     makeButton(258, 5, 78, 34, "ROLES", 11, cPanel2, cCyan);
+    addPageActionTarget(258, 5, 78, 34,
+                        &Channel2Ui::controlChannels, 10);
     const uint8_t first = channelsBank_ * 8 + 1;
     for (uint8_t index = 0; index < 8; ++index) {
         const uint8_t channel = first + index;
@@ -2235,15 +2405,20 @@ void Channel2Ui::drawChannelsPage()
                    label, 16,
                    channel == channelRoleSettings_.throttleChannel ? cPanel2 : cPanel,
                    channel == channelRoleSettings_.throttleChannel ? cCyan : cWhite);
-        addPageFocusTarget(10 + (index % 2) * 235,
-                           52 + (index / 2) * 52, 225, 44);
+        addPageActionTarget(10 + (index % 2) * 235,
+                            52 + (index / 2) * 52, 225, 44,
+                            &Channel2Ui::controlChannels, index);
     }
     makeButton(12, 270, 58, 40, "<", 24,
                channelsBank_ == 0 ? cBlack : cPanel,
                channelsBank_ == 0 ? cDim : cWhite);
+    addPageActionTarget(12, 270, 58, 40,
+                        &Channel2Ui::controlChannels, 8);
     makeButton(410, 270, 58, 40, ">", 24,
                channelsBank_ == 1 ? cBlack : cPanel,
                channelsBank_ == 1 ? cDim : cWhite);
+    addPageActionTarget(410, 270, 58, 40,
+                        &Channel2Ui::controlChannels, 9);
     char page[8];
     snprintf(page, sizeof(page), "%u / 2", channelsBank_ + 1);
     lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 280, 16, cDim);
@@ -2329,20 +2504,29 @@ void Channel2Ui::drawControlAssignmentsPage()
         }
         makeLabel(panel, summary, 215, 5, 11, summaryColour);
         makeLabel(panel, ">", 438, 4, 16, cDim);
-        addPageFocusTarget(10, y, 460, 35);
+        addPageActionTarget(10, y, 460, 35,
+                            &Channel2Ui::controlAssignments, row);
     }
 
     makeButton(10, 263, 50, 42, "<", 22,
                assignmentBank_ == 0 ? cBlack : cPanel,
                assignmentBank_ == 0 ? cDim : cWhite);
+    addPageActionTarget(10, 263, 50, 42,
+                        &Channel2Ui::controlAssignments, 5);
     makeButton(70, 263, 94, 42, "ROLES", 12, cPanel2, cCyan);
+    addPageActionTarget(70, 263, 94, 42,
+                        &Channel2Ui::controlAssignments, 6);
     makeButton(174, 263, 132, 42, "INPUT MON", 12, cPanel2, cCyan);
+    addPageActionTarget(174, 263, 132, 42,
+                        &Channel2Ui::controlAssignments, 7);
     char page[12];
     snprintf(page, sizeof(page), "%u/%u", assignmentBank_ + 1, kBanks);
     makeLabel(lv_scr_act(), page, 329, 276, 12, cDim);
     makeButton(420, 263, 50, 42, ">", 22,
                assignmentBank_ + 1 >= kBanks ? cBlack : cPanel,
                assignmentBank_ + 1 >= kBanks ? cDim : cWhite);
+    addPageActionTarget(420, 263, 50, 42,
+                        &Channel2Ui::controlAssignments, 8);
     finishPageFocus();
 }
 
@@ -2375,14 +2559,17 @@ void Channel2Ui::drawBindingEditorPage()
     makeButton(344, 91, 108, 30, bindingDraft_.enabled ? "ON" : "OFF", 13,
                bindingDraft_.enabled ? cGreen : cPanel2,
                bindingDraft_.enabled ? cBlack : cWhite);
-    addPageFocusTarget(344, 91, 108, 30);
+    addPageActionTarget(344, 91, 108, 30,
+                        &Channel2Ui::controlBindingEditor, 0);
 
     makeLabel(lv_scr_act(), assignmentTargetName(bindingDraft_.target),
               220, 137, 12, bindingDraft_.target == AssignmentTarget::CrsfChannel
                   ? cWhite : cCyan);
     makeButton(350, 130, 42, 30, "<", 20);
     makeButton(408, 130, 42, 30, ">", 20);
-    addPageFocusTarget(210, 128, 246, 34);
+    addPageEditorTarget(210, 128, 246, 34,
+                        350, 130, 42, 30, 408, 130, 42, 30,
+                        &Channel2Ui::controlBindingEditor, 1);
 
     char detail[32];
     if (bindingDraft_.target == AssignmentTarget::TransmitterFunction) {
@@ -2400,7 +2587,9 @@ void Channel2Ui::drawBindingEditorPage()
     makeLabel(lv_scr_act(), detail, 220, 176, 12, cWhite);
     makeButton(350, 169, 42, 30, "-", 20);
     makeButton(408, 169, 42, 30, "+", 20);
-    addPageFocusTarget(210, 167, 246, 34);
+    addPageEditorTarget(210, 167, 246, 34,
+                        350, 169, 42, 30, 408, 169, 42, 30,
+                        &Channel2Ui::controlBindingEditor, 2);
     makeLabel(lv_scr_act(), parameter
                   ? channelParameterKindName(
                         channelParameterTargetKind(bindingDraft_.targetId))
@@ -2408,7 +2597,9 @@ void Channel2Ui::drawBindingEditorPage()
               220, 215, 12, cWhite);
     makeButton(350, 208, 42, 30, "<", 20);
     makeButton(408, 208, 42, 30, ">", 20);
-    addPageFocusTarget(210, 206, 246, 34);
+    addPageEditorTarget(210, 206, 246, 34,
+                        350, 208, 42, 30, 408, 208, 42, 30,
+                        &Channel2Ui::controlBindingEditor, 3);
 
     if (bindingError_[0] != '\0')
         makeLabel(lv_scr_act(), bindingError_, 14, 246, 11, cRed);
@@ -2417,13 +2608,16 @@ void Channel2Ui::drawBindingEditorPage()
                   "Assignment edits force CUT and neutral re-arm",
                   14, 246, 11, cAmber);
     makeButton(12, 274, 138, 34, "CANCEL", 13, cPanel);
-    addPageFocusTarget(12, 274, 138, 34);
+    addPageActionTarget(12, 274, 138, 34,
+                        &Channel2Ui::controlBindingEditor, 4);
     if (bindingIndexForInput(selectedBindingInput_) >= 0) {
         makeButton(160, 274, 138, 34, "REMOVE", 13, cAmber, cBlack);
-        addPageFocusTarget(160, 274, 138, 34);
+        addPageActionTarget(160, 274, 138, 34,
+                            &Channel2Ui::controlBindingEditor, 5);
     }
     makeButton(308, 274, 160, 34, "SAVE", 13, cGreen, cBlack);
-    addPageFocusTarget(308, 274, 160, 34);
+    addPageActionTarget(308, 274, 160, 34,
+                        &Channel2Ui::controlBindingEditor, 6);
     finishPageFocus();
 }
 
@@ -2517,9 +2711,13 @@ void Channel2Ui::drawChannelRolesPage()
     makeHeader("CHANNEL ROLES", "BACK");
     beginPageFocus();
     drawChannelRoleRow(0);
-    addPageFocusTarget(18, 72, 444, 56);
+    addPageEditorTarget(18, 72, 444, 56,
+                        350, 80, 44, 40, 404, 80, 44, 40,
+                        &Channel2Ui::controlChannelRoles, 0);
     drawChannelRoleRow(1);
-    addPageFocusTarget(18, 140, 444, 56);
+    addPageEditorTarget(18, 140, 444, 56,
+                        350, 148, 44, 40, 404, 148, 44, 40,
+                        &Channel2Ui::controlChannelRoles, 1);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "Changing roles disarms throttle output.\n"
         "Steering stays centred until its pot is connected.",
@@ -2658,7 +2856,10 @@ void Channel2Ui::drawPage()
     makeButton(344, 5, 78, 34, "CAL", 11);
     for (int row = 0; row < 4; ++row) {
         drawSettingRow(row);
-        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+        addPageEditorTarget(10, 56 + row * 50, 460, 44,
+                            353, 59 + row * 50, 48, 36,
+                            411, 59 + row * 50, 48, 36,
+                            &Channel2Ui::controlThrottleSetting, row);
     }
     char channelLabel[16];
     snprintf(channelLabel, sizeof(channelLabel), "CH%u", channelRoleSettings_.throttleChannel);
@@ -2714,7 +2915,10 @@ void Channel2Ui::drawThrottleResponsePage()
     makeButton(258, 5, 78, 34, "SPEED", 11, cPanel2, cCyan);
     for (int row = 0; row < 4; ++row) {
         drawThrottleResponseRow(row);
-        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+        addPageEditorTarget(10, 56 + row * 50, 460, 44,
+                            353, 59 + row * 50, 48, 36,
+                            411, 59 + row * 50, 48, 36,
+                            &Channel2Ui::controlThrottleResponse, row);
     }
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "+EXPO = SOFTER AROUND NEUTRAL", 0, 280, 12, cDim);
@@ -2745,9 +2949,13 @@ void Channel2Ui::drawChannelSpeedPage()
     beginPageFocus();
     makeHeader("THROTTLE CHANNEL SPEED", "BACK");
     drawChannelSpeedRow(0);
-    addPageFocusTarget(14, 78, 452, 62);
+    addPageEditorTarget(14, 78, 452, 62,
+                        350, 98, 42, 34, 402, 98, 42, 34,
+                        &Channel2Ui::controlChannelSpeed, 0);
     drawChannelSpeedRow(1);
-    addPageFocusTarget(14, 154, 452, 62);
+    addPageEditorTarget(14, 154, 452, 62,
+                        350, 174, 42, 34, 402, 174, 42, 34,
+                        &Channel2Ui::controlChannelSpeed, 1);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "0 ms = direct. Time is neutral-to-endpoint slew.", 0, 250, 14, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 250);
@@ -2768,7 +2976,8 @@ void Channel2Ui::drawDriveModesPage()
         makeButton(76 + index * 174, 64, 156, 62, labels[index], 18,
                    active ? cGreen : cPanel2,
                    active ? cBlack : cWhite);
-        addPageFocusTarget(76 + index * 174, 64, 156, 62);
+        addPageActionTarget(76 + index * 174, 64, 156, 62,
+                            &Channel2Ui::controlDriveMode, index);
     }
     lv_obj_t *panel = makePanel(16, 150, 448, 66);
     makeLabel(panel, "FORWARD LIMIT", 14, 20, 18, cCyan);
@@ -2776,7 +2985,9 @@ void Channel2Ui::drawDriveModesPage()
     makeLabel(panel, value, 260, 20, 18);
     makeButton(358, 164, 42, 38, "-", 22);
     makeButton(410, 164, 42, 38, "+", 22);
-    addPageFocusTarget(16, 150, 448, 66);
+    addPageEditorTarget(16, 150, 448, 66,
+                        358, 164, 42, 38, 410, 164, 42, 38,
+                        &Channel2Ui::controlDriveMode, 2);
     makeLabel(lv_scr_act(),
         "WALK limits forward only; brake/reverse stays at 100%.\nChanging mode forces CUT; release trigger before arming.",
         20, 242, 14, cAmber);
@@ -2833,18 +3044,28 @@ void Channel2Ui::drawSetupPage()
     makeHeader("SYSTEM SETUP", "BACK");
     beginPageFocus();
     for (int row = 0; row < 4; ++row) drawSetupRow(row);
-    addPageFocusTarget(353, 60, 106, 36);
-    addPageFocusTarget(353, 110, 106, 36);
-    addPageFocusTarget(10, 156, 460, 44);
-    addPageFocusTarget(10, 206, 460, 44);
+    addPageActionTarget(353, 60, 106, 36,
+                        &Channel2Ui::controlSetup, 0);
+    addPageActionTarget(353, 110, 106, 36,
+                        &Channel2Ui::controlSetup, 1);
+    addPageEditorTarget(10, 156, 460, 44,
+                        353, 159, 48, 36, 411, 159, 48, 36,
+                        &Channel2Ui::controlSetup, 2);
+    addPageEditorTarget(10, 206, 460, 44,
+                        353, 209, 48, 36, 411, 209, 48, 36,
+                        &Channel2Ui::controlSetup, 3);
     makeButton(10, 265, 88, 44, "TEST", 14, cPanel2, cAmber);
-    addPageFocusTarget(10, 265, 88, 44);
+    addPageActionTarget(10, 265, 88, 44,
+                        &Channel2Ui::controlSetup, 4);
     makeButton(106, 265, 110, 44, "DISPLAY", 13, cPanel2, cCyan);
-    addPageFocusTarget(106, 265, 110, 44);
+    addPageActionTarget(106, 265, 110, 44,
+                        &Channel2Ui::controlSetup, 5);
     makeButton(224, 265, 116, 44, "TX BAT", 13, cPanel2, cCyan);
-    addPageFocusTarget(224, 265, 116, 44);
+    addPageActionTarget(224, 265, 116, 44,
+                        &Channel2Ui::controlSetup, 6);
     makeButton(348, 265, 122, 44, "RX BAT", 13, cPanel2, cCyan);
-    addPageFocusTarget(348, 265, 122, 44);
+    addPageActionTarget(348, 265, 122, 44,
+                        &Channel2Ui::controlSetup, 7);
     finishPageFocus();
 }
 
@@ -2926,7 +3147,15 @@ void Channel2Ui::drawDisplayPage()
     beginPageFocus();
     for (int row = 0; row < 4; ++row) {
         drawDisplayRow(row);
-        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+        if (row < 2) {
+            addPageEditorTarget(10, 56 + row * 50, 460, 44,
+                                353, 60 + row * 50, 48, 36,
+                                411, 60 + row * 50, 48, 36,
+                                &Channel2Ui::controlDisplay, row);
+        } else {
+            addPageActionTarget(10, 56 + row * 50, 460, 44,
+                                &Channel2Ui::controlDisplay, row);
+        }
     }
     makeLabel(lv_scr_act(), "UI dimming is visual; full backlight saving needs a BL switch.",
               20, 280, 12, cDim);
@@ -2994,7 +3223,15 @@ void Channel2Ui::drawTxBatteryPage()
     beginPageFocus();
     for (int row = 0; row < 4; ++row) {
         drawTxBatteryRow(row);
-        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+        if (row == 1 || row == 2) {
+            addPageEditorTarget(10, 56 + row * 50, 460, 44,
+                                343, 59 + row * 50, 48, 36,
+                                401, 59 + row * 50, 48, 36,
+                                &Channel2Ui::controlTxBattery, row);
+        } else {
+            addPageActionTarget(343, 59 + row * 50, 106, 36,
+                                &Channel2Ui::controlTxBattery, row);
+        }
     }
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "GPIO5 via 47k/10k divider", 0, 280, 12, cDim);
@@ -3044,7 +3281,15 @@ void Channel2Ui::drawRxBatteryPage()
     beginPageFocus();
     for (int row = 0; row < 4; ++row) {
         drawRxBatteryRow(row);
-        addPageFocusTarget(10, 56 + row * 50, 460, 44);
+        if (row == 1 || row == 2) {
+            addPageEditorTarget(10, 56 + row * 50, 460, 44,
+                                353, 60 + row * 50, 48, 36,
+                                411, 60 + row * 50, 48, 36,
+                                &Channel2Ui::controlRxBattery, row);
+        } else {
+            addPageActionTarget(353, 60 + row * 50, 106, 36,
+                                &Channel2Ui::controlRxBattery, row);
+        }
     }
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "Voltage received from ER6G telemetry", 0, 280, 12, cDim);
@@ -3946,6 +4191,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
         if (headerActionTouched(x, y)) cancelCalibration();
         return;
     }
+    if (dispatchPageControlTouch(x, y)) return;
     if (activePage_ == UiPage::Dashboard) { handleDashboardTouch(x, y); return; }
     if (activePage_ == UiPage::Telemetry) { handleTelemetryTouch(x, y); return; }
     if (activePage_ == UiPage::MainMenu) { handleMainMenuTouch(x, y); return; }

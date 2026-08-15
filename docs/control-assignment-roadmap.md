@@ -137,15 +137,15 @@ bindings only when the combination is made explicit in the UI.
 
 - [x] Runtime Dashboard, menu, CUT and armed context selection.
 - [ ] Make binding contexts editable on the TFT.
-- [ ] Keypad navigation consumes keypad events while a menu is open. Main-menu
-  navigation plus reusable focus/select navigation on Channels, Assignments,
-  Drive Modes and Setup are implemented. `MENU INCREASE` and `MENU DECREASE`
-  now adjust the focused throttle endpoint/sub-trim, rate/expo/speed, Walk
-  limit and numeric Setup fields. The assignment editor now supports complete
-  keypad operation for Enabled, Target, Function/Channel, Mode/Parameter and
-  Cancel/Remove/Save. Channel Roles, TX/RX Battery and Display Setup are also
-  fully focusable and adjustable from the keypad. ELRS text entry and list-page
-  bank controls remain to be completed.
+- [x] Keypad navigation consumes keypad events while a menu is open. Page
+  controls now register one semantic callback plus focus, touch, decrement and
+  increment hitboxes; touch and the keypad therefore invoke the same action
+  instead of duplicating page-specific coordinate switches. Channels,
+  Assignments (including their bank controls), Drive Modes, Setup, throttle
+  endpoints/sub-trim, rate/expo/speed, Channel Roles, TX/RX Battery, Display
+  Setup and the complete assignment editor use this registry.
+- [ ] Extend the same registered-control model to ELRS text entry and Input
+  Monitor paging, then add simulator navigation regression cases.
 - [ ] Dashboard short/long/double-press shortcuts.
 - [x] Timer button defaults to next dashboard page for a new/erased binding
   profile; existing user-edited bindings are preserved.

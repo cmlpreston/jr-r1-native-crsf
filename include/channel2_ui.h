@@ -89,6 +89,7 @@ struct RxBatterySettings {
 
 enum class UiPage : uint8_t {
     Dashboard,
+    Telemetry,
     MainMenu,
     Channels,
     ChannelRoles,
@@ -178,6 +179,10 @@ private:
                            const CrsfTelemetryState &telemetry,
                            uint16_t txVoltageDecivolts,
                            bool txVoltageValid);
+    void drawTelemetryPage();
+    void drawTelemetryLive(const CrsfTelemetryState &telemetry,
+                           uint16_t txVoltageDecivolts,
+                           bool txVoltageValid);
     void drawChannelsPage();
     void drawChannelRolesPage();
     void drawChannelRoleRow(int row);
@@ -210,6 +215,7 @@ private:
     void handleTouch(int16_t x, int16_t y);
     void handleMainMenuTouch(int16_t x, int16_t y);
     void handleDashboardTouch(int16_t x, int16_t y);
+    void handleTelemetryTouch(int16_t x, int16_t y);
     void handleChannelsTouch(int16_t x, int16_t y);
     void handleChannelRolesTouch(int16_t x, int16_t y);
     void handleChannelConfigTouch(int16_t x, int16_t y);
@@ -355,6 +361,17 @@ private:
     lv_obj_t *dashboardLinkLabel_ = nullptr;
     lv_obj_t *dashboardRxVoltageLabel_ = nullptr;
     lv_obj_t *dashboardTxVoltageLabel_ = nullptr;
+    lv_obj_t *telemetryLinkStateLabel_ = nullptr;
+    lv_obj_t *telemetryLinkQualityLabel_ = nullptr;
+    lv_obj_t *telemetryRssiLabel_ = nullptr;
+    lv_obj_t *telemetrySnrLabel_ = nullptr;
+    lv_obj_t *telemetryRadioLabel_ = nullptr;
+    lv_obj_t *telemetryTxVoltageLabel_ = nullptr;
+    lv_obj_t *telemetryRxVoltageLabel_ = nullptr;
+    lv_obj_t *telemetryFramesLabel_ = nullptr;
+    lv_obj_t *telemetryCrcLabel_ = nullptr;
+    lv_obj_t *telemetryBytesLabel_ = nullptr;
+    lv_obj_t *telemetryAgeLabel_ = nullptr;
     lv_obj_t *channel2LiveBar_ = nullptr;
     lv_obj_t *channel2ValueLabel_ = nullptr;
     lv_obj_t *channel2SettingValueLabels_[4] = {};

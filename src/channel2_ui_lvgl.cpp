@@ -335,6 +335,7 @@ const char *uiPageName(UiPage page)
 {
     switch (page) {
         case UiPage::Dashboard: return "dashboard";
+        case UiPage::Telemetry: return "telemetry";
         case UiPage::MainMenu: return "main-menu";
         case UiPage::Channels: return "channels";
         case UiPage::ChannelRoles: return "channel-roles";
@@ -511,6 +512,17 @@ void Channel2Ui::resetLvglObjects()
     dashboardLinkLabel_ = nullptr;
     dashboardRxVoltageLabel_ = nullptr;
     dashboardTxVoltageLabel_ = nullptr;
+    telemetryLinkStateLabel_ = nullptr;
+    telemetryLinkQualityLabel_ = nullptr;
+    telemetryRssiLabel_ = nullptr;
+    telemetrySnrLabel_ = nullptr;
+    telemetryRadioLabel_ = nullptr;
+    telemetryTxVoltageLabel_ = nullptr;
+    telemetryRxVoltageLabel_ = nullptr;
+    telemetryFramesLabel_ = nullptr;
+    telemetryCrcLabel_ = nullptr;
+    telemetryBytesLabel_ = nullptr;
+    telemetryAgeLabel_ = nullptr;
     channel2LiveBar_ = nullptr;
     channel2ValueLabel_ = nullptr;
     for (lv_obj_t *&label : channel2SettingValueLabels_) label = nullptr;
@@ -1270,6 +1282,7 @@ void Channel2Ui::redrawActivePage()
 {
     switch (activePage_) {
         case UiPage::Dashboard: drawDashboard(); break;
+        case UiPage::Telemetry: drawTelemetryPage(); break;
         case UiPage::MainMenu: drawMainMenu(); break;
         case UiPage::Channels: drawChannelsPage(); break;
         case UiPage::ChannelRoles: drawChannelRolesPage(); break;
@@ -1416,7 +1429,8 @@ bool Channel2Ui::applyChannelParameterAction(uint16_t targetId, int16_t value)
 
 uint8_t Channel2Ui::activeControlContext() const
 {
-    return activePage_ == UiPage::Dashboard ? ContextDashboard : ContextMenu;
+    return (activePage_ == UiPage::Dashboard || activePage_ == UiPage::Telemetry)
+        ? ContextDashboard : ContextMenu;
 }
 
 bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value)
@@ -1650,7 +1664,7 @@ void Channel2Ui::drawDashboard()
     }
 
     makeButton(8, 249, 108, 62, "MENU", 18);
-    makeButton(124, 249, 108, 62, "CHANNELS", 12, cPanel2, cCyan);
+    makeButton(124, 249, 108, 62, "TELEMETRY", 11, cPanel2, cCyan);
     makeButton(240, 249, 108, 62, "QUICK", 16, cPanel2, cCyan);
     const char *mode = driveModeSettings_.activeMode == DriveMode::Walk
         ? "MODE\nWALK" : "MODE\nNORMAL";
@@ -1662,6 +1676,136 @@ void Channel2Ui::drawDashboard()
     lastLinkValid_ = !lastLinkValid_;
     lastReceiverVoltageValid_ = !lastReceiverVoltageValid_;
     lastTxVoltageValid_ = !lastTxVoltageValid_;
+}
+
+void Channel2Ui::drawTelemetryPage()
+{
+    if (!displayReady_) return;
+    activePage_ = UiPage::Telemetry;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("TELEMETRY", "BACK");
+
+    lv_obj_t *link = makePanel(8, 47, 226, 126);
+    makeLabel(link, "RADIO LINK", 10, 7, 12, cCyan);
+    telemetryLinkStateLabel_ = makeLabel(link, "NO LINK", 10, 27, 20, cRed);
+    telemetryLinkQualityLabel_ = makeLabel(link, "LQ   ---%", 10, 56, 17, cDim);
+    telemetryRssiLabel_ = makeLabel(link, "RSSI --- dBm", 10, 80, 15, cDim);
+    telemetrySnrLabel_ = makeLabel(link, "SNR  -- dB", 10, 101, 13, cDim);
+
+    lv_obj_t *power = makePanel(246, 47, 226, 126);
+    makeLabel(power, "POWER / RF", 10, 7, 12, cCyan);
+    telemetryTxVoltageLabel_ = makeLabel(power, "TX  --.- V", 10, 31, 18, cDim);
+    telemetryRxVoltageLabel_ = makeLabel(power, "RX  --.- V", 10, 59, 18, cDim);
+    telemetryRadioLabel_ = makeLabel(power, "ANT -   MODE -   PWR -", 10, 94, 12, cDim);
+
+    lv_obj_t *stream = makePanel(8, 181, 464, 98);
+    makeLabel(stream, "CRSF STREAM", 10, 7, 12, cCyan);
+    telemetryFramesLabel_ = makeLabel(stream, "FRAMES          0", 10, 31, 15, cWhite);
+    telemetryCrcLabel_ = makeLabel(stream, "CRC ERR         0", 245, 31, 15, cWhite);
+    telemetryBytesLabel_ = makeLabel(stream, "BYTES           0", 10, 58, 15, cWhite);
+    telemetryAgeLabel_ = makeLabel(stream, "AGE          ----", 245, 58, 15, cDim);
+
+    makeLabel(lv_scr_act(), "Live receiver telemetry via Ranger Nano", 12, 293, 12, cDim);
+}
+
+void Channel2Ui::drawTelemetryLive(const CrsfTelemetryState &telemetry,
+                                   uint16_t txVoltageDecivolts,
+                                   bool txVoltageValid)
+{
+    if (!displayReady_ || activePage_ != UiPage::Telemetry) return;
+
+    if (telemetryLinkStateLabel_) {
+        lv_label_set_text(telemetryLinkStateLabel_,
+                          telemetry.linkValid ? "LINK OK" : "NO LINK");
+        lv_obj_set_style_text_color(telemetryLinkStateLabel_,
+            colour(telemetry.linkValid ? cGreen : cRed), 0);
+    }
+    if (telemetryLinkQualityLabel_) {
+        if (telemetry.linkValid) {
+            lv_label_set_text_fmt(telemetryLinkQualityLabel_, "LQ   %3u%%",
+                                  telemetry.uplinkLinkQuality);
+            lv_obj_set_style_text_color(telemetryLinkQualityLabel_,
+                colour(telemetry.uplinkLinkQuality >= 80 ? cGreen : cAmber), 0);
+        } else {
+            lv_label_set_text(telemetryLinkQualityLabel_, "LQ   ---%");
+            lv_obj_set_style_text_color(telemetryLinkQualityLabel_, colour(cDim), 0);
+        }
+    }
+    if (telemetryRssiLabel_) {
+        if (telemetry.linkValid)
+            lv_label_set_text_fmt(telemetryRssiLabel_, "RSSI %4d dBm",
+                                  telemetry.uplinkRssiDbm);
+        else lv_label_set_text(telemetryRssiLabel_, "RSSI --- dBm");
+        lv_obj_set_style_text_color(telemetryRssiLabel_,
+            colour(telemetry.linkValid ? cWhite : cDim), 0);
+    }
+    if (telemetrySnrLabel_) {
+        if (telemetry.linkValid)
+            lv_label_set_text_fmt(telemetrySnrLabel_, "SNR  %3d dB",
+                                  telemetry.uplinkSnrDb);
+        else lv_label_set_text(telemetrySnrLabel_, "SNR  -- dB");
+        lv_obj_set_style_text_color(telemetrySnrLabel_,
+            colour(telemetry.linkValid ? cWhite : cDim), 0);
+    }
+    if (telemetryRadioLabel_) {
+        if (telemetry.linkValid)
+            lv_label_set_text_fmt(telemetryRadioLabel_, "ANT %u   MODE %u   PWR %u",
+                                  telemetry.activeAntenna + 1,
+                                  telemetry.rfMode, telemetry.txPowerCode);
+        else lv_label_set_text(telemetryRadioLabel_, "ANT -   MODE -   PWR -");
+    }
+    if (telemetryTxVoltageLabel_) {
+        if (txVoltageValid) {
+            const bool low = txVoltageDecivolts <= txBatterySettings_.lowAlarmDecivolts;
+            lv_label_set_text_fmt(telemetryTxVoltageLabel_, "TX  %u.%u V",
+                                  txVoltageDecivolts / 10,
+                                  txVoltageDecivolts % 10);
+            lv_obj_set_style_text_color(telemetryTxVoltageLabel_,
+                                        colour(low ? cRed : cGreen), 0);
+        } else {
+            lv_label_set_text(telemetryTxVoltageLabel_, "TX  --.- V");
+            lv_obj_set_style_text_color(telemetryTxVoltageLabel_, colour(cDim), 0);
+        }
+    }
+    if (telemetryRxVoltageLabel_) {
+        if (telemetry.receiverVoltageValid) {
+            const bool low = rxBatterySettings_.alarmEnabled &&
+                telemetry.receiverVoltageDecivolts <= rxBatterySettings_.lowAlarmDecivolts;
+            lv_label_set_text_fmt(telemetryRxVoltageLabel_, "RX  %u.%u V",
+                                  telemetry.receiverVoltageDecivolts / 10,
+                                  telemetry.receiverVoltageDecivolts % 10);
+            lv_obj_set_style_text_color(telemetryRxVoltageLabel_,
+                                        colour(low ? cRed : cGreen), 0);
+        } else {
+            lv_label_set_text(telemetryRxVoltageLabel_, "RX  --.- V");
+            lv_obj_set_style_text_color(telemetryRxVoltageLabel_, colour(cDim), 0);
+        }
+    }
+    if (telemetryFramesLabel_)
+        lv_label_set_text_fmt(telemetryFramesLabel_, "FRAMES %10lu",
+                              static_cast<unsigned long>(telemetry.validFrames));
+    if (telemetryCrcLabel_) {
+        lv_label_set_text_fmt(telemetryCrcLabel_, "CRC ERR %8lu",
+                              static_cast<unsigned long>(telemetry.crcErrors));
+        lv_obj_set_style_text_color(telemetryCrcLabel_,
+            colour(telemetry.crcErrors == 0 ? cWhite : cAmber), 0);
+    }
+    if (telemetryBytesLabel_)
+        lv_label_set_text_fmt(telemetryBytesLabel_, "BYTES  %10lu",
+                              static_cast<unsigned long>(telemetry.rawBytes));
+    if (telemetryAgeLabel_) {
+        if (telemetry.linkUpdatedMs != 0) {
+            const uint32_t age = millis() - telemetry.linkUpdatedMs;
+            lv_label_set_text_fmt(telemetryAgeLabel_, "AGE %9lu ms",
+                                  static_cast<unsigned long>(age));
+            lv_obj_set_style_text_color(telemetryAgeLabel_,
+                                        colour(age <= 1000 ? cGreen : cAmber), 0);
+        } else {
+            lv_label_set_text(telemetryAgeLabel_, "AGE          ----");
+            lv_obj_set_style_text_color(telemetryAgeLabel_, colour(cDim), 0);
+        }
+    }
 }
 
 void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
@@ -1862,6 +2006,7 @@ void Channel2Ui::navigateBack()
     playKeyClick();
     switch (activePage_) {
         case UiPage::Dashboard: break;
+        case UiPage::Telemetry: drawDashboard(); break;
         case UiPage::MainMenu: drawDashboard(); break;
         case UiPage::Channels: drawMainMenu(); break;
         case UiPage::ChannelRoles: drawChannelsPage(); break;
@@ -2893,7 +3038,7 @@ bool Channel2Ui::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
 void Channel2Ui::handleDashboardTouch(int16_t x, int16_t y)
 {
     if ((y < 45 && x >= 415) || (y >= 245 && x < 120)) { playKeyClick(); drawMainMenu(); }
-    else if (y >= 245 && x >= 120 && x < 236) { playKeyClick(); drawChannelsPage(); }
+    else if (y >= 245 && x >= 120 && x < 236) { playKeyClick(); drawTelemetryPage(); }
     else if (y >= 245 && x >= 236 && x < 352) {
         driveModesReturnPage_ = UiPage::Dashboard;
         playKeyClick(); drawDriveModesPage();
@@ -2913,6 +3058,14 @@ void Channel2Ui::handleDashboardTouch(int16_t x, int16_t y)
             playBuzzer(armRequested_ ? 80 : 180);
             lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
         }
+    }
+}
+
+void Channel2Ui::handleTelemetryTouch(int16_t x, int16_t y)
+{
+    if (headerActionTouched(x, y)) {
+        playKeyClick();
+        drawDashboard();
     }
 }
 
@@ -3550,6 +3703,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
         return;
     }
     if (activePage_ == UiPage::Dashboard) { handleDashboardTouch(x, y); return; }
+    if (activePage_ == UiPage::Telemetry) { handleTelemetryTouch(x, y); return; }
     if (activePage_ == UiPage::MainMenu) { handleMainMenuTouch(x, y); return; }
     if (activePage_ == UiPage::Channels) { handleChannelsTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelRoles) { handleChannelRolesTouch(x, y); return; }
@@ -3772,6 +3926,9 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t, int16_t outputPermille,
         else if (activePage_ == UiPage::Dashboard) {
             drawDashboardLive(crsfValue, safetyStatus, telemetry,
                               txVoltageDecivolts, txVoltageValid);
+        }
+        else if (activePage_ == UiPage::Telemetry) {
+            drawTelemetryLive(telemetry, txVoltageDecivolts, txVoltageValid);
         }
         else if (activePage_ == UiPage::Channel2) drawLiveIndicator(outputPermille, crsfValue);
         else if (activePage_ == UiPage::InputMonitor) refreshInputMonitorRows();

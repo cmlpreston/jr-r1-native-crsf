@@ -310,18 +310,23 @@ are printed over USB; use those readings to refine the four
 `TOUCH_RAW_*` calibration constants in `include/display_profile.h` if required.
 
 `CHANNELS > ROLES` selects the steering and throttle CRSF channel numbers; the
-same channel cannot hold both roles. `RESPONSE`, available from the main menu or
-the throttle page, provides independent forward and brake/reverse endpoints,
-rate and expo, plus throttle sub-trim. Its live graph shows the unmodified
-linear response in grey, the effective configured response in cyan, endpoint
-rails and the translated sub-trim neutral in amber, and the current input/output
-point. The output axis spans +/-120% so retained travel after sub-trim remains
-visible instead of being clipped at the ordinary +/-100% bounds.
+same channel cannot hold both roles. Every channel fed by an assigned
+proportional control exposes its own persistent `RESPONSE / RAMP` editor from
+the channel page. The main-menu `RESPONSE` shortcut opens the assigned throttle
+channel. Each profile provides independent positive/negative endpoints, rate,
+expo and ramp, plus sub-trim and direction. Labels follow the assigned role:
+steering uses right/left, throttle uses forward/brake-reverse, and other
+proportional channels use positive/negative. The live graph shows the
+unmodified linear response in grey, the effective configured response in cyan,
+endpoint rails and the translated sub-trim neutral in amber, and the current
+input/output point. The output axis spans +/-120% so retained travel after
+sub-trim remains visible instead of being clipped at the ordinary +/-100%
+bounds.
 Rate is 0–100%. Expo is -100% to +100%; positive expo softens response around
 neutral, while negative expo makes it more aggressive. Processing order is:
 
 ```text
-physical trigger side -> expo -> rate -> endpoint -> direction reverse -> sub-trim
+physical input side -> expo -> rate -> endpoint -> direction reverse -> sub-trim
 ```
 
 This ordering is deliberate: `FORWARD` and `BRAKE/REV` always describe the
@@ -361,8 +366,11 @@ The neutral-interlock ADC window is also the throttle output deadband. Normal
 spring-return/pot variation inside that window therefore produces exactly zero
 drive demand, while travel outside it is remapped to retain both full endpoints.
 
-The throttle `SPEED` page configures independent forward and brake/reverse slew
-times from neutral to endpoint. Zero milliseconds means direct response.
+The per-channel `RAMP` page configures independent positive and negative
+neutral-to-endpoint slew times for any assigned proportional channel. A value
+of `0 ms` is direct response. Labels follow the assigned role (`RIGHT/LEFT` for
+steering and `FORWARD/BRAKE-REV` for throttle), while other proportional AUX
+channels use `POSITIVE/NEGATIVE`.
 
 `SETUP > DISPLAY` provides timeout, brightness, night palette and immediate
 blanking. It sends the standard DCS `Display OFF` command (`0x28`) and

@@ -386,11 +386,16 @@ void controlTask(void *)
         bindingActions.clear();
         portENTER_CRITICAL(&bindingResolverMux);
         bindingResolver.update(millis(), bindingActions);
-        bindingResolver.applyChannelOutputs(outputs,
-            static_cast<uint16_t>(
-                (1U << (channel2Ui.throttleChannel() - 1)) |
-                (1U << (channel2Ui.steeringChannel() - 1))));
+        const uint16_t roleOwnedChannels = static_cast<uint16_t>(
+            (1U << (channel2Ui.throttleChannel() - 1)) |
+            (1U << (channel2Ui.steeringChannel() - 1)));
+        bindingResolver.applyChannelOutputs(outputs, roleOwnedChannels);
         portEXIT_CRITICAL(&bindingResolverMux);
+        // Proportional AUX assignments pass through the same per-channel
+        // response profile as steering and throttle. Role-owned channels are
+        // completed by their dedicated input/safety paths below.
+        channel2Ui.applyProportionalProfiles(outputs, millis(),
+                                             roleOwnedChannels);
         // Steering is centred until its 5 kOhm pot is connected, but channel
         // trim/subtrim already operate through the same role-owned pipeline.
         outputs.configure(channel2Ui.steeringChannel(),

@@ -9,6 +9,9 @@
 #include "physical_input.h"
 #include "proportional_input.h"
 
+// Response profile attached to one CRSF output channel. The historical name is
+// retained for source/storage compatibility while the UI migrates from a
+// CH2-only implementation to per-channel proportional profiles.
 struct Channel2Settings {
     uint8_t brakeEndpointPercent = 100;
     uint8_t forwardEndpointPercent = 100;
@@ -123,6 +126,8 @@ public:
                 bool channelOutputsLive);
     int16_t mapAdcToPermille(uint16_t adc) const;
     int16_t applySettings(int16_t rawInputPermille) const;
+    int16_t applyResponseSettings(uint8_t channel,
+                                  int16_t rawInputPermille) const;
     int16_t applyDriveMode(int16_t configuredPermille,
                            int16_t rawInputPermille) const;
     int16_t neutralOutputPermille() const;
@@ -134,10 +139,15 @@ public:
     bool applyDriveModeAction(uint16_t targetId, int16_t value);
     uint8_t activeControlContext() const;
     int16_t applyChannelSpeed(int16_t targetPermille, uint32_t nowMs);
+    int16_t applyChannelSpeed(uint8_t channel, int16_t targetPermille,
+                              uint32_t nowMs);
+    void applyProportionalProfiles(CrsfChannelOutputModel &outputs,
+                                   uint32_t nowMs,
+                                   uint16_t reservedChannels = 0);
     void resetChannelSpeed();
     bool calibrationActive() const { return triggerInput_.calibrationActive(); }
     uint16_t throttleCentreAdc() const { return triggerInput_.centre(); }
-    const Channel2Settings &settings() const { return settings_; }
+    const Channel2Settings &settings() const { return throttleProfile(); }
     const ProportionalCalibration &calibration() const { return triggerInput_.calibration(); }
     bool txVoltageSenseEnabled() const { return txBatterySettings_.voltageSenseEnabled; }
     uint8_t steeringChannel() const { return channelRoleSettings_.steeringChannel; }
@@ -149,6 +159,10 @@ public:
     bool captureScreenshot(Stream &output);
 #ifdef JR_R1_SIMULATOR
     void showSimulatorPage(UiPage page) { activePage_ = page; redrawActivePage(); }
+    void selectSimulatorChannel(uint8_t channel) {
+        selectedChannel_ = channel >= 1 && channel <= CRSF_CHANNEL_COUNT
+            ? channel : selectedChannel_;
+    }
 #endif
     void setPhysicalInputStates(const PhysicalInputStateStore &states);
     void setStartupPreflight(bool complete, uint32_t unsafeMask);
@@ -159,6 +173,15 @@ public:
     bool consumeElrsManagementRequest(ElrsManagementRequest &request);
 
 private:
+    Channel2Settings &profileForChannel(uint8_t channel);
+    const Channel2Settings &profileForChannel(uint8_t channel) const;
+    Channel2Settings &throttleProfile();
+    const Channel2Settings &throttleProfile() const;
+    Channel2Settings &selectedResponseProfile();
+    const Channel2Settings &selectedResponseProfile() const;
+    bool channelHasProportionalControl(uint8_t channel) const;
+    int16_t proportionalInputValue(uint8_t channel,
+                                   int16_t throttleFallback) const;
     void loadSettings();
     void saveSettings();
     void saveCalibration();
@@ -339,7 +362,7 @@ private:
                                             AssignmentTarget current,
                                             int8_t direction) const;
 
-    Channel2Settings settings_;
+    Channel2Settings channelProfiles_[CRSF_CHANNEL_COUNT] = {};
     ChannelRoleSettings channelRoleSettings_;
     ProportionalInput triggerInput_;
     SystemSettings systemSettings_;
@@ -384,8 +407,8 @@ private:
     // A touch used to wake the display, or one beginning inside the post-tap
     // guard interval, must be discarded as one complete physical gesture.
     bool discardTouchUntilRelease_ = false;
-    int16_t slewedThrottlePermille_ = 0;
-    uint32_t lastSlewUpdateMs_ = 0;
+    int16_t slewedChannelPermille_[CRSF_CHANNEL_COUNT] = {};
+    uint32_t lastSlewUpdateMs_[CRSF_CHANNEL_COUNT] = {};
     uint32_t lastInteractionMs_ = 0;
     uint16_t latestRawAdc_ = 0;
     bool touchWasDown_ = false;

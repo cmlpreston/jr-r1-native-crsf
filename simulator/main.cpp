@@ -51,20 +51,26 @@ int main(int argc, char **argv)
 {
     std::string screenshotPath;
     std::string initialPage;
+    uint8_t initialChannel = 2;
     uint32_t runForMs = 0;
     for (int index = 1; index < argc; ++index) {
         if (std::strcmp(argv[index], "--screenshot") == 0 && index + 1 < argc)
             screenshotPath = argv[++index];
         else if (std::strcmp(argv[index], "--page") == 0 && index + 1 < argc)
             initialPage = argv[++index];
+        else if (std::strcmp(argv[index], "--channel") == 0 && index + 1 < argc)
+            initialChannel = static_cast<uint8_t>(std::strtoul(argv[++index], nullptr, 10));
         else if (std::strcmp(argv[index], "--run-ms") == 0 && index + 1 < argc)
             runForMs = static_cast<uint32_t>(std::strtoul(argv[++index], nullptr, 10));
     }
 
     Channel2Ui ui;
     if (!ui.begin()) return 1;
+    ui.selectSimulatorChannel(initialChannel);
     if (initialPage == "response")
         ui.showSimulatorPage(UiPage::ThrottleResponse);
+    else if (initialPage == "ramp")
+        ui.showSimulatorPage(UiPage::ChannelSpeed);
 
     CrsfTelemetryState telemetry;
     uint32_t previousMs = millis();

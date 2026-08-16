@@ -42,7 +42,9 @@ proof of concept.
 
 - Follow the staged proportional-axis/curves/hold/ABS implementation plan in
   `docs/control-assignment-roadmap.md`.
-- Generalise endpoints, trim, expo, rate and speed to every proportional input.
+- [x] Generalise endpoints, response sub-trim, reverse, expo, rate and output
+  ramp to every CRSF channel assigned to a proportional input.
+- Generalise proportional calibration and deadband beyond the throttle trigger.
 - Add steering-specific turn and return speed.
 - Add optional throttle curves, ABS and throttle hold.
 - Extend the completed live rate/expo plot into the planned editable

@@ -311,7 +311,12 @@ are printed over USB; use those readings to refine the four
 
 `CHANNELS > ROLES` selects the steering and throttle CRSF channel numbers; the
 same channel cannot hold both roles. `RESPONSE`, available from the main menu or
-the throttle page, provides independent forward and brake/reverse rate and expo.
+the throttle page, provides independent forward and brake/reverse endpoints,
+rate and expo, plus throttle sub-trim. Its live graph shows the unmodified
+linear response in grey, the effective configured response in cyan, endpoint
+rails and the translated sub-trim neutral in amber, and the current input/output
+point. The output axis spans +/-120% so retained travel after sub-trim remains
+visible instead of being clipped at the ordinary +/-100% bounds.
 Rate is 0–100%. Expo is -100% to +100%; positive expo softens response around
 neutral, while negative expo makes it more aggressive. Processing order is:
 

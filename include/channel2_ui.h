@@ -464,6 +464,9 @@ private:
     static constexpr uint8_t kThrottleGraphPointCount = 33;
     lv_point_t throttleCurvePoints_[kThrottleGraphPointCount] = {};
     lv_point_t throttleLinearPoints_[2] = {};
+    lv_point_t throttleBrakeEndpointPoints_[2] = {};
+    lv_point_t throttleForwardEndpointPoints_[2] = {};
+    lv_point_t throttleSubtrimPoints_[2] = {};
     lv_obj_t *throttleGraphCurve_ = nullptr;
     lv_obj_t *throttleGraphMarker_ = nullptr;
     lv_obj_t *throttleGraphLiveLabel_ = nullptr;

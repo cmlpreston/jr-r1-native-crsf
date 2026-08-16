@@ -50,6 +50,8 @@ constexpr uint16_t kBatteryMaximumAlarmDecivolts = 168;
 constexpr uint32_t kLowBatteryRepeatMs = 10000;
 constexpr uint8_t kResponseRateStepPercent = 5;
 constexpr int8_t kResponseExpoStepPercent = 5;
+constexpr uint8_t kResponseEndpointStepPercent = 1;
+constexpr int8_t kResponseSubtrimStepPercent = 1;
 constexpr uint16_t kChannelSpeedStepMs = 50;
 constexpr uint16_t kChannelSpeedMaximumMs = 2000;
 constexpr uint32_t kScreenshotSpiFrequency = 4000000;
@@ -2458,8 +2460,8 @@ void Channel2Ui::controlThrottleSetting(uint8_t row, PageControlEvent event)
 
 void Channel2Ui::controlThrottleResponse(uint8_t row, PageControlEvent event)
 {
-    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
-    handleThrottleResponseTouch(x, 78 + row * 50);
+    const int16_t x = event == PageControlEvent::Decrease ? 405 : 447;
+    handleThrottleResponseTouch(x, 66 + row * 35);
 }
 
 void Channel2Ui::controlChannelSpeed(uint8_t row, PageControlEvent event)
@@ -3099,32 +3101,36 @@ void Channel2Ui::drawPage()
 void Channel2Ui::drawThrottleResponseRow(int row)
 {
     static const char *labels[] = {
-        "FWD RATE", "FWD EXPO", "BRAKE RATE", "BRAKE EXPO"
+        "SUB-TRIM", "FWD END", "FWD RATE", "FWD EXPO",
+        "BRK END", "BRK RATE", "BRK EXPO"
     };
-    const int16_t y = 52 + row * 62;
-    lv_obj_t *panel = makePanel(288, y, 184, 54);
-    makeLabel(panel, labels[row], 9, 7, 12, cCyan);
+    const int16_t y = 52 + row * 35;
+    lv_obj_t *panel = makePanel(288, y, 184, 32);
+    makeLabel(panel, labels[row], 7, 4, 10, cCyan);
     char value[20];
-    if (row == 0) snprintf(value, sizeof(value), "%u%%", settings_.forwardRatePercent);
-    else if (row == 1) snprintf(value, sizeof(value), "%+d%%", settings_.forwardExpoPercent);
-    else if (row == 2) snprintf(value, sizeof(value), "%u%%", settings_.brakeRatePercent);
+    if (row == 0) snprintf(value, sizeof(value), "%+d%%", settings_.subtrimPercent);
+    else if (row == 1) snprintf(value, sizeof(value), "%u%%", settings_.forwardEndpointPercent);
+    else if (row == 2) snprintf(value, sizeof(value), "%u%%", settings_.forwardRatePercent);
+    else if (row == 3) snprintf(value, sizeof(value), "%+d%%", settings_.forwardExpoPercent);
+    else if (row == 4) snprintf(value, sizeof(value), "%u%%", settings_.brakeEndpointPercent);
+    else if (row == 5) snprintf(value, sizeof(value), "%u%%", settings_.brakeRatePercent);
     else snprintf(value, sizeof(value), "%+d%%", settings_.brakeExpoPercent);
-    makeLabel(panel, value, 103, 7, 13, cWhite);
+    makeLabel(panel, value, 101, 4, 10, cWhite);
 
-    lv_obj_t *minus = lv_obj_create(panel); position(minus, 105, 27, 31, 23);
+    lv_obj_t *minus = lv_obj_create(panel); position(minus, 105, 14, 31, 15);
     lv_obj_set_style_bg_color(minus, colour(cPanel2), 0);
     lv_obj_set_style_border_color(minus, colour(cLine), 0);
     lv_obj_set_style_border_width(minus, 1, 0);
     lv_obj_set_style_radius(minus, 5, 0);
     lv_obj_set_style_pad_all(minus, 0, 0);
-    lv_obj_t *ml = makeLabel(minus, "-", 0, 0, 18); lv_obj_center(ml);
-    lv_obj_t *plus = lv_obj_create(panel); position(plus, 143, 27, 31, 23);
+    lv_obj_t *ml = makeLabel(minus, "-", 0, 0, 13); lv_obj_center(ml);
+    lv_obj_t *plus = lv_obj_create(panel); position(plus, 143, 14, 31, 15);
     lv_obj_set_style_bg_color(plus, colour(cPanel2), 0);
     lv_obj_set_style_border_color(plus, colour(cLine), 0);
     lv_obj_set_style_border_width(plus, 1, 0);
     lv_obj_set_style_radius(plus, 5, 0);
     lv_obj_set_style_pad_all(plus, 0, 0);
-    lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 18); lv_obj_center(pl);
+    lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 13); lv_obj_center(pl);
 }
 
 void Channel2Ui::drawThrottleResponseGraph()
@@ -3153,8 +3159,18 @@ void Channel2Ui::drawThrottleResponseGraph()
         lv_obj_set_style_pad_all(horizontal, 0, 0);
     }
 
-    throttleLinearPoints_[0] = {graphX, static_cast<lv_coord_t>(graphY + graphHeight)};
-    throttleLinearPoints_[1] = {static_cast<lv_coord_t>(graphX + graphWidth), graphY};
+    // The output axis includes the transmitter's +/-120% extended travel so
+    // sub-trim can translate the whole response without visually clipping it.
+    const auto outputY = [&](int16_t outputPermille) -> lv_coord_t {
+        outputPermille = static_cast<int16_t>(constrain(
+            outputPermille, -kExtendedTravelPermille, kExtendedTravelPermille));
+        return static_cast<lv_coord_t>(graphY + graphHeight -
+            static_cast<int32_t>(outputPermille + kExtendedTravelPermille) *
+            graphHeight / (2 * kExtendedTravelPermille));
+    };
+    throttleLinearPoints_[0] = {graphX, outputY(-1000)};
+    throttleLinearPoints_[1] = {
+        static_cast<lv_coord_t>(graphX + graphWidth), outputY(1000)};
     lv_obj_t *linear = lv_line_create(panel);
     lv_line_set_points(linear, throttleLinearPoints_, 2);
     lv_obj_set_style_line_color(linear, colour(cDim), 0);
@@ -3162,22 +3178,51 @@ void Channel2Ui::drawThrottleResponseGraph()
     lv_obj_set_style_line_dash_width(linear, 4, 0);
     lv_obj_set_style_line_dash_gap(linear, 4, 0);
 
+    const int16_t subtrim = static_cast<int16_t>(settings_.subtrimPercent) * 10;
+    int16_t brakeLimit = -static_cast<int16_t>(settings_.brakeEndpointPercent) * 10;
+    int16_t forwardLimit = static_cast<int16_t>(settings_.forwardEndpointPercent) * 10;
+    if (settings_.reversed) {
+        brakeLimit = -brakeLimit;
+        forwardLimit = -forwardLimit;
+    }
+    const int16_t neutralY = outputY(subtrim);
+    const int16_t brakeEndpointY = outputY(brakeLimit + subtrim);
+    const int16_t forwardEndpointY = outputY(forwardLimit + subtrim);
+
+    throttleSubtrimPoints_[0] = {graphX, static_cast<lv_coord_t>(neutralY)};
+    throttleSubtrimPoints_[1] = {
+        static_cast<lv_coord_t>(graphX + graphWidth),
+        static_cast<lv_coord_t>(neutralY)};
+    lv_obj_t *subtrimLine = lv_line_create(panel);
+    lv_line_set_points(subtrimLine, throttleSubtrimPoints_, 2);
+    lv_obj_set_style_line_color(subtrimLine, colour(cAmber), 0);
+    lv_obj_set_style_line_width(subtrimLine, 1, 0);
+    lv_obj_set_style_line_dash_width(subtrimLine, 5, 0);
+    lv_obj_set_style_line_dash_gap(subtrimLine, 4, 0);
+
+    throttleBrakeEndpointPoints_[0] = {graphX, static_cast<lv_coord_t>(neutralY)};
+    throttleBrakeEndpointPoints_[1] = {graphX, brakeEndpointY};
+    lv_obj_t *brakeEndpoint = lv_line_create(panel);
+    lv_line_set_points(brakeEndpoint, throttleBrakeEndpointPoints_, 2);
+    lv_obj_set_style_line_color(brakeEndpoint, colour(cAmber), 0);
+    lv_obj_set_style_line_width(brakeEndpoint, 4, 0);
+    throttleForwardEndpointPoints_[0] = {
+        static_cast<lv_coord_t>(graphX + graphWidth), neutralY};
+    throttleForwardEndpointPoints_[1] = {
+        static_cast<lv_coord_t>(graphX + graphWidth), forwardEndpointY};
+    lv_obj_t *forwardEndpoint = lv_line_create(panel);
+    lv_line_set_points(forwardEndpoint, throttleForwardEndpointPoints_, 2);
+    lv_obj_set_style_line_color(forwardEndpoint, colour(cAmber), 0);
+    lv_obj_set_style_line_width(forwardEndpoint, 4, 0);
+
     for (uint8_t index = 0; index < kThrottleGraphPointCount; ++index) {
         const int16_t input = static_cast<int16_t>(-1000 +
             static_cast<int32_t>(index) * 2000 /
             (kThrottleGraphPointCount - 1));
-        const bool braking = input < 0;
-        const int8_t expo = braking ? settings_.brakeExpoPercent
-                                    : settings_.forwardExpoPercent;
-        const uint8_t rate = braking ? settings_.brakeRatePercent
-                                     : settings_.forwardRatePercent;
-        const int16_t output = static_cast<int16_t>(
-            applyExpo(input, expo) * static_cast<int32_t>(rate) / 100);
+        const int16_t output = applySettings(input);
         throttleCurvePoints_[index].x = static_cast<lv_coord_t>(
             graphX + static_cast<int32_t>(input + 1000) * graphWidth / 2000);
-        throttleCurvePoints_[index].y = static_cast<lv_coord_t>(
-            graphY + graphHeight -
-            static_cast<int32_t>(output + 1000) * graphHeight / 2000);
+        throttleCurvePoints_[index].y = outputY(output);
     }
     throttleGraphCurve_ = lv_line_create(panel);
     lv_line_set_points(throttleGraphCurve_, throttleCurvePoints_,
@@ -3188,7 +3233,7 @@ void Channel2Ui::drawThrottleResponseGraph()
 
     throttleGraphMarker_ = lv_obj_create(panel);
     position(throttleGraphMarker_, graphX + graphWidth / 2 - 5,
-             graphY + graphHeight / 2 - 5, 11, 11);
+             neutralY - 5, 11, 11);
     lv_obj_set_style_radius(throttleGraphMarker_, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(throttleGraphMarker_, colour(cAmber), 0);
     lv_obj_set_style_border_color(throttleGraphMarker_, colour(cWhite), 0);
@@ -3213,17 +3258,12 @@ void Channel2Ui::refreshThrottleResponseGraph(int16_t rawInputPermille)
     constexpr int16_t graphHeight = 188;
     rawInputPermille = static_cast<int16_t>(constrain(rawInputPermille,
                                                       -1000, 1000));
-    const bool braking = rawInputPermille < 0;
-    const int8_t expo = braking ? settings_.brakeExpoPercent
-                                : settings_.forwardExpoPercent;
-    const uint8_t rate = braking ? settings_.brakeRatePercent
-                                 : settings_.forwardRatePercent;
-    const int16_t output = static_cast<int16_t>(
-        applyExpo(rawInputPermille, expo) * static_cast<int32_t>(rate) / 100);
+    const int16_t output = applySettings(rawInputPermille);
     const int16_t x = graphX + static_cast<int32_t>(rawInputPermille + 1000) *
                       graphWidth / 2000;
     const int16_t y = graphY + graphHeight -
-                      static_cast<int32_t>(output + 1000) * graphHeight / 2000;
+        static_cast<int32_t>(output + kExtendedTravelPermille) * graphHeight /
+        (2 * kExtendedTravelPermille);
     lv_obj_set_pos(throttleGraphMarker_, x - 5, y - 5);
     lv_label_set_text_fmt(throttleGraphLiveLabel_, "IN %+d%%  OUT %+d%%",
                           rawInputPermille / 10, output / 10);
@@ -3240,11 +3280,11 @@ void Channel2Ui::drawThrottleResponsePage()
     addPageActionTarget(258, 5, 78, 34,
                         &Channel2Ui::controlThrottleHeader, 0);
     drawThrottleResponseGraph();
-    for (int row = 0; row < 4; ++row) {
+    for (int row = 0; row < 7; ++row) {
         drawThrottleResponseRow(row);
-        addPageEditorTarget(288, 52 + row * 62, 184, 54,
-                            393, 79 + row * 62, 31, 23,
-                            431, 79 + row * 62, 31, 23,
+        addPageEditorTarget(288, 52 + row * 35, 184, 32,
+                            393, 66 + row * 35, 31, 15,
+                            431, 66 + row * 35, 31, 15,
                             &Channel2Ui::controlThrottleResponse, row);
     }
     finishPageFocus();
@@ -3984,20 +4024,35 @@ void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
         return;
     }
     if (y < 48 && x >= 250 && x < 340) { playKeyClick(); drawChannelSpeedPage(); return; }
-    if (y < 56 || y >= 256 || x < 340) return;
-    const int row = (y - 56) / 50;
-    const int8_t direction = x < 400 ? -1 : 1;
+    if (y < 52 || y >= 297 || x < 288) return;
+    const int row = (y - 52) / 35;
+    const int8_t direction = x < 424 ? -1 : 1;
     bool changed = false;
     if (row == 0) {
+        const int value = settings_.subtrimPercent +
+                          direction * kResponseSubtrimStepPercent;
+        settings_.subtrimPercent = constrain(value, -20, 20);
+        changed = true;
+    } else if (row == 1) {
+        const int value = settings_.forwardEndpointPercent +
+                          direction * kResponseEndpointStepPercent;
+        settings_.forwardEndpointPercent = constrain(value, 50, 100);
+        changed = true;
+    } else if (row == 2) {
         const int value = settings_.forwardRatePercent + direction * kResponseRateStepPercent;
         settings_.forwardRatePercent = constrain(value, 0, 100); changed = true;
-    } else if (row == 1) {
+    } else if (row == 3) {
         const int value = settings_.forwardExpoPercent + direction * kResponseExpoStepPercent;
         settings_.forwardExpoPercent = constrain(value, -100, 100); changed = true;
-    } else if (row == 2) {
+    } else if (row == 4) {
+        const int value = settings_.brakeEndpointPercent +
+                          direction * kResponseEndpointStepPercent;
+        settings_.brakeEndpointPercent = constrain(value, 50, 100);
+        changed = true;
+    } else if (row == 5) {
         const int value = settings_.brakeRatePercent + direction * kResponseRateStepPercent;
         settings_.brakeRatePercent = constrain(value, 0, 100); changed = true;
-    } else if (row == 3) {
+    } else if (row == 6) {
         const int value = settings_.brakeExpoPercent + direction * kResponseExpoStepPercent;
         settings_.brakeExpoPercent = constrain(value, -100, 100); changed = true;
     }

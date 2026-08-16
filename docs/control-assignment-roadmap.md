@@ -203,7 +203,10 @@ testable signal path rather than accumulating channel-specific exceptions:
    monotonic validation and a live raw-versus-output graph. Forward and brake
    throttle halves remain independently configurable.
    The existing rate/expo editor now has the live bipolar graph foundation:
-   linear reference, configured response and live input/output marker.
+   linear reference, configured response and live input/output marker. It also
+   edits and plots forward/brake endpoint rails plus a translated sub-trim
+   neutral line on a +/-120% output scale. The remaining work in this item is
+   the optional five-point custom-curve editor and its monotonic validation.
 4. [ ] Add assignable throttle hold. It must command the configured neutral,
    override drive demand, indicate HOLD prominently and require neutral before
    release can resume drive.

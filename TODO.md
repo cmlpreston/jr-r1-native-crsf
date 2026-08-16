@@ -1,104 +1,141 @@
-# JR R1 controller backlog
+# JR R1 controller consolidated backlog
 
-This is the maintained backlog for ideas deliberately deferred from the current
-proof of concept.
+This is the single high-level backlog for the project. Detailed programmable
+input/control work is tracked in
+[`docs/control-assignment-roadmap.md`](docs/control-assignment-roadmap.md) and
+must not be duplicated here. Items are ordered roughly by implementation and
+safety priority.
 
-## Safety and validation
+## Current milestone: complete the two primary controls
 
-- Bench-test the implemented ExpressLRS 4.1 `SET TX`/`UID TX` flow against the
-  Ranger Nano and save a logic-analyser request/response capture.
-- Once a receiver is linked on 4.1, test receiver-first `SET RX`, then `SET TX`,
-  and verify that both returned UIDs match the locally calculated phrase UID.
+- [ ] Generalise proportional-input calibration and deadband beyond the
+  throttle trigger. Calibration belongs to the physical input; response
+  settings belong to the assigned CRSF output channel.
+- [ ] Map and connect the 5 kOhm steering pot from the FPC to its reserved ADC
+  input and give it the same sampling, filtering and fault detection as the
+  throttle trigger.
+- [ ] Route steering through the existing per-channel reverse, sub-trim,
+  endpoint, rate, expo and ramp profile.
+- [ ] Add steering-specific turn and return ramp controls.
+- [ ] Verify throttle and steering simultaneously at the 250 Hz CRSF control
+  rate, including rapid TFT interaction and telemetry traffic.
 
-- Bench-test ER6G PWM output during boot, TX loss, RX reboot and deliberate
+## Safety before driving the electric buggy
+
+- [ ] Map and require a dedicated, exclusive physical arm/CUT control.
+- [ ] Guarantee CUT overrides every channel binding, future mix, macro, hold
+  and ABS output.
+- [ ] Bench-test receiver PWM during TX loss, receiver reboot and deliberate
   brownout with the motor disconnected; save Saleae captures and pulse widths.
-- Add a physical throttle-cut/arm control after mapping the R1 switches.
-- Add boot self-tests for ADC plausibility, calibration, CRSF, receiver failsafe
-  configuration and selected model. Startup maintained-switch/spring-trim
-  checking and its arm interlock are implemented.
-- Log input faults, stale-control cuts, brownouts and link loss.
-- Choose the ER6G throttle failsafe pulse after testing the actual ESC.
+- [ ] Select and verify the ESC throttle failsafe pulse and receiver failsafe
+  configuration.
+- [ ] Add boot self-tests for ADC plausibility, calibration validity, CRSF
+  output, receiver failsafe configuration and selected model.
+- [ ] Add explicit startup and failsafe values for retained accessory channels.
+- [ ] Prevent safety-critical functions from sharing unsafe secondary bindings.
+- [ ] Log ADC/input faults, stale-control cuts, receiver link loss and
+  brownouts.
 
-## Inputs, assignments and models
+## Finish the physical R1 input hardware
 
-- Follow the detailed checklist in `docs/control-assignment-roadmap.md`; it is
-  the source of truth for the programmable control-system feature.
-- Map the steering FPC and all original R1 buttons, toggles and trims.
-- Extend the TFT assignment editor beyond the now-implemented CRSF outputs,
-  per-channel trim/subtrim, first transmitter functions and first drive-mode
-  selections to editable contexts and multi-action bindings.
-- Add configurable step/range limits for channel trim/subtrim; the first
-  implementation uses +/-20% with 1% steps.
-- [x] Feed enabled auxiliary outputs and their live values into the dashboard's
-  right-hand vertical channel bank; keep steering/throttle as horizontal bars.
-- Support transmitter functions, channels, modes and multi-action macros.
-- Add TFT editors for behaviour-specific range, step, initial, failsafe and
-  pulse-duration values (the resolver already supports them).
-- Add model select/name/copy/reset and safe switching through neutral.
-- Export/import versioned JSON profiles through a Wi-Fi web interface.
-- Add general multi-input/output mixes with direction, weight and offset.
+- [ ] Trace and document all twelve steering FPC conductors.
+- [ ] Connect and verify every original button, maintained switch,
+  spring-return trim and grip trim through direct GPIO or the MCP23017.
+- [ ] Add a physical-input diagnostic/calibration page for raw ADC/GPIO,
+  debounced state and detected faults.
+- [ ] Document the final interface PCB, connectors, filtering, protection,
+  power rails and BOM.
 
-## Driving functions
+## Assignment system and models
 
-- Follow the staged proportional-axis/curves/hold/ABS implementation plan in
-  `docs/control-assignment-roadmap.md`.
-- [x] Generalise endpoints, response sub-trim, reverse, expo, rate and output
-  ramp to every CRSF channel assigned to a proportional input.
-- Generalise proportional calibration and deadband beyond the throttle trigger.
-- Add steering-specific turn and return speed.
-- Add optional throttle curves, ABS and throttle hold.
-- Extend the completed live rate/expo plot into the planned editable
-  five-point steering/throttle curve editor.
-- Defer 4WS and gyro-gain controls until there is a concrete vehicle use case.
-- Allow a physical dial to adjust the Walk-mode limit.
-- Add race-start countdown and user-defined buzzer macros.
+See the detailed roadmap for individual binding features.
+
+- [ ] Dispatch the remaining transmitter, model-parameter and drive-mode
+  actions exposed by the assignment model.
+- [ ] Add TFT editors for binding step, range, initial value, failsafe value,
+  pulse duration and retained-state behaviour.
+- [ ] Add configurable trim/sub-trim ranges and step sizes; the current fixed
+  implementation is +/-20% in 1% steps.
+- [ ] Add restore-default-control-profile.
+- [ ] Add model select, name, copy and reset, with model changes allowed only
+  while CUT and throttle-neutral.
+- [ ] Move bindings and response settings into versioned per-model profiles.
+- [ ] Add versioned JSON profile import/export and a Wi-Fi configuration UI.
+- [ ] Later: multi-action macros, conditions and general mixes with direction,
+  weight and offset.
+
+## Driving controls
+
+Complete these after steering shares the generic proportional pipeline:
+
+- [ ] Add an optional five-point response curve with monotonic validation and
+  editing on the existing live response graph.
+- [ ] Add assignable throttle hold, commanding configured neutral and requiring
+  neutral before release resumes drive.
+- [ ] Add brake-side ABS with configurable activation point, depth and
+  frequency; CUT, failsafe and hold always take priority.
+- [ ] Allow a physical dial or digital trim to adjust the Walk-mode forward
+  limit while retaining full brake authority.
+- [ ] Later: race-start countdown and user-defined buzzer macros.
+- [ ] Deferred until there is a vehicle use case: 4WS and gyro-gain controls.
 
 ## Display and interaction
 
-- Add a MOSFET-controlled TFT backlight or switched 5 V rail so brightness and
-  sleep reduce the measured 0.25 A TFT load.
-- Add dim-before-sleep and dedicated sunlight/night palettes.
-- Add configurable dashboard widgets and quick-adjust overlays.
-- [x] Replace page-specific keypad coordinate emulation with a registered UI
-  control layer shared by touch, Select and +/- actions. Channels and
-  Assignments include their bank controls; throttle, Drive Mode, Setup,
-  channel roles, batteries, display and assignment editing are migrated.
-- [x] Extend registered controls to Dashboard actions, channel configuration,
-  throttle header actions, Input Monitor paging, ELRS management actions and
-  the complete on-screen keyboard. Standard pages now gain Back/Home keypad
-  targets automatically.
-- Add simulator navigation regression cases.
-- Add touch and physical-input diagnostic/calibration pages.
-- [x] Bind the Timer button to next-dashboard-page in a new default R1 profile
-  while retaining existing user assignments and alternate selectable actions.
+- [ ] Add simulator navigation and layout regression tests for every page.
+- [ ] Add touchscreen lock and dashboard short/long/double-press shortcuts.
+- [ ] Add dim-before-sleep plus dedicated sunlight and night palettes.
+- [ ] Add configurable dashboard widgets and quick-adjust overlays.
+- [ ] Measure and record Waveshare awake, controller-off and backlight-off
+  current.
+- [ ] Decide whether the production interface needs a MOSFET-controlled
+  backlight or switched TFT 5 V rail.
 
-## Telemetry and peripherals
+## Telemetry and vehicle peripherals
 
-- [x] Add a dedicated live telemetry page for ELRS link state, LQ, RSSI, SNR,
-  antenna/RF fields, TX/RX voltage and CRSF stream diagnostics.
-- Extend the CRSF parser for standard GPS and battery/current telemetry frames.
-- Add a driving telemetry page with speed, maximum speed, RPM, main-pack
-  voltage, current, consumed mAh and motor/ESC/battery temperatures.
-- Add a GPS/map page with position, heading, track history and offline
-  OpenStreetMap tiles for selected driving areas and zoom levels.
-- Define the vehicle-side telemetry bridge for GPS, RPM, ESC/current and
-  temperature sources, including FrSky S.Port/i-BUS conversion into CRSF.
-- Add run time, trip distance, odometer, maximum speed and consumed capacity.
-- Add motor, ESC, battery and servo temperatures plus RPM/wheel speed.
-- Add maintenance reminders based on run time or distance.
-- Log telemetry and export it over Wi-Fi/BLE.
-- Investigate ER6G serial sensors and safe remote ESC configuration.
-- Suggest battery cell count, requiring explicit user confirmation.
-- Investigate camera control and external trainer/wheel/pedal inputs.
+- [ ] Extend the CRSF parser for standard GPS and battery/current telemetry.
+- [ ] Define and prototype the vehicle-side bridge for GPS, RPM, current,
+  voltage and temperature sources, including any required S.Port/i-BUS to CRSF
+  conversion.
+- [ ] Build the driving telemetry page: speed/max speed, RPM, pack voltage,
+  current, consumed mAh, receiver voltage and temperatures.
+- [ ] Add runtime, trip distance, odometer and consumed-capacity accumulation.
+- [ ] Add the GPS/map page with heading, track history and offline OpenStreetMap
+  tiles for selected driving areas and zoom levels.
+- [ ] Log telemetry and export it over Wi-Fi/BLE.
+- [ ] Investigate ER6G/ELRS serial sensors and safe remote ESC configuration.
+- [ ] Later: maintenance reminders, battery-cell-count suggestion with user
+  confirmation, camera control and external trainer/wheel/pedal inputs.
 
-## Release engineering
+## ExpressLRS management validation
 
-- [x] Run the real LVGL UI in an SDL2 desktop simulator with mouse touch,
-  simulated control/telemetry values, file-backed settings and screenshots.
-- Add scripted navigation/layout regression cases to the SDL simulator once
-  page-level test hooks are defined.
-- Split control processing into host-testable modules.
-- Test CRSF packing, safety transitions, slew limits, assignments, modes and
-  saved-settings migration automatically.
-- Document an interface PCB, BOM, enclosure and reproducible build.
-- Decide which portions can be released publicly and under which licence.
+- [ ] Bench-test the implemented ExpressLRS 4.1 `SET TX`/`UID TX` flow against
+  the Ranger Nano and save a logic-analyser request/response capture.
+- [ ] With a linked 4.1 receiver, test receiver-first `SET RX`, then `SET TX`,
+  and verify both returned UIDs against the locally calculated bindphrase UID.
+
+## Automated testing and release engineering
+
+- [ ] Split more safety and response processing into host-testable modules.
+- [ ] Add automated tests for response profiles, slew limits, safety
+  transitions, assignments, drive modes and saved-settings migration.
+- [ ] Add scripted SDL screenshot/layout comparisons.
+- [ ] Produce a reproducible hardware/firmware build guide.
+- [ ] Decide public-release scope and licence.
+
+## Completed foundation
+
+- [x] Native CRSF transmission with a 16-channel output model.
+- [x] Independent 250 Hz control processing and TFT/telemetry tasks.
+- [x] Throttle sampling, filtering, calibration, neutral interlock and CUT.
+- [x] Per-channel reverse, response sub-trim, endpoints, rate, expo and output
+  ramp for assigned proportional controls.
+- [x] MCP23017/direct-GPIO input layer, debounce, event generation and Input
+  Monitor.
+- [x] Persistent editable bindings for CRSF channels, trim/sub-trim, initial TX
+  functions, drive modes and contexts.
+- [x] Shared semantic touch/keypad navigation and editing across current pages.
+- [x] Startup maintained-switch/spring-trim warning and arm interlock.
+- [x] Dashboard, enabled-channel monitor and basic ELRS link telemetry page.
+- [x] Waveshare display profile, controller/backlight blanking and guarded
+  touch-to-wake.
+- [x] SDL2 simulator with persistent settings and screenshot capture.

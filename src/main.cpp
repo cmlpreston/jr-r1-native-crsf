@@ -615,6 +615,13 @@ bool consumeScreenshotCommand()
 
 void setup()
 {
+#if defined(RGB_BUILTIN)
+    // The DevKitC addressable RGB LED can latch an arbitrary colour during a
+    // power-up or flashing transient. Give it a deterministic initial state;
+    // it is not currently used as a status or load indicator.
+    neopixelWrite(RGB_BUILTIN, 0, 0, 0);
+#endif
+
     // Establish the inverted CRSF bus idle level immediately, before USB/UI
     // startup work. The Ranger can remain powered across an S3 reset, so a
     // deliberate quiet interval gives its handset UART watchdog a clean
@@ -645,7 +652,7 @@ void setup()
     analogSetPinAttenuation(THROTTLE_ADC_PIN, ADC_11db);
     analogSetPinAttenuation(TX_BATTERY_ADC_PIN, ADC_11db);
 
-    // UART1 remains installed with both RX and TX assigned to the one-wire
+    // UART0 remains installed with both RX and TX assigned to the one-wire
     // CRSF pin. The GPIO matrix functions above alternate ownership without
     // stopping/restarting the driver, matching the half-duplex strategy used
     // by ExpressLRS itself. Allocate the larger RX buffer before begin().

@@ -632,13 +632,14 @@ void setup()
                   static_cast<unsigned>(esp_reset_reason()),
                   static_cast<unsigned>(ESP.getFreeHeap()));
     Serial.printf("MEMORY: heap=%u free=%u min_free=%u largest=%u "
-                  "psram=%u free_psram=%u\n",
+                  "psram=%u free_psram=%u flash=%u\n",
                   static_cast<unsigned>(ESP.getHeapSize()),
                   static_cast<unsigned>(ESP.getFreeHeap()),
                   static_cast<unsigned>(ESP.getMinFreeHeap()),
                   static_cast<unsigned>(ESP.getMaxAllocHeap()),
                   static_cast<unsigned>(ESP.getPsramSize()),
-                  static_cast<unsigned>(ESP.getFreePsram()));
+                  static_cast<unsigned>(ESP.getFreePsram()),
+                  static_cast<unsigned>(ESP.getFlashChipSize()));
     Serial.println("WARNING: disconnect the motor / raise the wheels for first test");
 
     analogReadResolution(12);

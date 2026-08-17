@@ -448,20 +448,21 @@ pio run -e esp32-s3-devkitc-1-btt -t upload   # BTT fallback
 pio device monitor -b 115200
 ```
 
-The current ESP32-S3 build uses 142,488 of 327,680 bytes of statically allocated
-internal RAM (43.5%) and 800,613 of 3,342,336 application-flash bytes (24.0%).
+The current ESP32-S3 build uses 145,864 of 327,680 bytes of statically allocated
+internal RAM (44.5%) and 822,937 of 6,553,600 application-flash bytes (12.6%).
 The editable nineteen-input binding table is small compared with LVGL and its
 display buffers, so assignments do not create a practical memory risk. Boot
-logging reports total/free/minimum/largest heap, PSRAM size and the heap consumed
-by UI initialisation for ongoing runtime monitoring. On the flashed prototype,
-the initialised UI used 7,932 heap bytes and left 227,544 bytes free, with a
-204,788-byte largest contiguous allocation. The selected PlatformIO
-board target is currently the N8 `No PSRAM` configuration, even though the
-attached chip is detected by the flashing tool as containing 8 MB embedded
-PSRAM; firmware therefore does not depend on PSRAM yet.
+logging reports total/free/minimum/largest heap, flash size, PSRAM size and the
+heap consumed by UI initialisation for ongoing runtime monitoring. The project-
+local `esp32-s3-devkitc-1-n16r8` PlatformIO board definition matches the fitted
+ESP32-S3-WROOM-1-N16R8: 16 MB quad flash, the standard 16 MB OTA partition table,
+and 8 MB octal PSRAM. A flashed-board check reported 16,777,216 flash bytes and
+8,386,295 usable PSRAM bytes. The firmware detects PSRAM but does not yet depend
+on it.
 
-UART1 transmits channel frames and UART2 listens continuously on the same GPIO.
-The listener sees harmless echoes of the outgoing channel frames plus Ranger
-return traffic. The firmware currently decodes CRSF link statistics (RSSI and
-link quality) and receiver/battery voltage. A bench capture confirmed LQ 100%,
-roughly -35 dBm RSSI, and 6.6 V from the bound ER6G.
+UART0 operates the Ranger connection as a single-wire half-duplex CRSF bus on
+GPIO17. Firmware alternates the GPIO matrix between transmit and receive while
+leaving the UART driver installed, closely matching the handset transport used
+by ExpressLRS. It currently decodes CRSF link statistics (RSSI and link quality)
+and receiver/battery voltage. A bench capture confirmed LQ 100%, roughly -35 dBm
+RSSI, and 6.6 V from the bound ER6G.

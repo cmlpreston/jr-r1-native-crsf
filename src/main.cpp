@@ -615,8 +615,17 @@ bool consumeScreenshotCommand()
 
 void setup()
 {
+    // Establish the inverted CRSF bus idle level immediately, before USB/UI
+    // startup work. The Ranger can remain powered across an S3 reset, so a
+    // deliberate quiet interval gives its handset UART watchdog a clean
+    // opportunity to resynchronise before our first channel frame.
+    gpio_reset_pin(CRSF_SIGNAL_PIN);
+    gpio_set_direction(CRSF_SIGNAL_PIN, GPIO_MODE_INPUT);
+    gpio_pulldown_en(CRSF_SIGNAL_PIN);
+    gpio_pullup_dis(CRSF_SIGNAL_PIN);
+
     Serial.begin(115200);
-    delay(700);
+    delay(CRSF_STARTUP_BUS_QUIET_MS);
     Serial.println();
     Serial.println("JR R1 native CRSF throttle test");
     Serial.printf("BOOT: reset_reason=%u free_heap=%u bytes\n",
@@ -645,6 +654,7 @@ void setup()
                        CRSF_SIGNAL_PIN, CRSF_SIGNAL_PIN, false);
     rangerSerial.setTimeout(0);
     setCrsfBusReceive();
+    uart_flush_input(RANGER_UART);
     Serial.printf("CRSF TRANSPORT: UART0 single-wire half-duplex on GPIO%u\n",
                   static_cast<unsigned>(CRSF_SIGNAL_PIN));
     // Do not attach a CHANGE interrupt to the CRSF signal. At 400 kbaud that

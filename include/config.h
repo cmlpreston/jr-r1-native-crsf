@@ -51,6 +51,12 @@ constexpr uint32_t CONTROL_STALE_TIMEOUT_US = 250000; // 250 ms
 
 constexpr uint32_t CRSF_BAUD = 400000;
 constexpr uint32_t CRSF_FRAME_PERIOD_US = 4000; // 250 Hz initial test rate
+// A warm ESP32 reset leaves the separately powered Ranger Nano running. Hold
+// its inverted one-wire handset bus at physical idle-low for longer than the
+// ExpressLRS handset UART watchdog before UART0 starts sending again. This
+// lets the module abandon any partial frame/autobaud state just as a full S3
+// power disconnect does, without requiring the Ranger itself to be reset.
+constexpr uint32_t CRSF_STARTUP_BUS_QUIET_MS = 1500;
 constexpr uint32_t USB_LOG_PERIOD_MS = 250;
 // The long 4 Hz diagnostic line is useful during timing investigations, but
 // USB CDC output on this S3 can disturb the single-wire CRSF task when a host

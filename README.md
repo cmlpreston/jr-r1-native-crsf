@@ -140,6 +140,8 @@ The module-bay interface is a single-wire, half-duplex CRSF bus at 400 kbaud.
 A Saleae connected to the physical signal wire decodes it as ordinary
 non-inverted 8N1 UART. On this ESP32-S3 implementation, both UART directions
 use the GPIO-matrix inversion flag to reproduce/read that measured waveform.
+The receive setting has also been checked experimentally: removing its matrix
+inversion produces no valid Ranger return frames.
 
 ```text
 ESP32-S3 GPIO17 -- 220–470 Ω -- Ranger Nano SIGNAL / CRSF

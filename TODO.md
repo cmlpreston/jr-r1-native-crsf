@@ -6,6 +6,11 @@ input/control work is tracked in
 must not be duplicated here. Items are ordered roughly by implementation and
 safety priority.
 
+The authoritative architecture-refactor execution order is recorded under
+`Agreed execution order` in
+[`docs/architecture-review.md`](docs/architecture-review.md). Follow that order
+before beginning later driving-control features.
+
 ## Current milestone: complete the two primary controls
 
 - [ ] Generalise proportional-input calibration and deadband beyond the

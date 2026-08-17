@@ -36,6 +36,12 @@ constexpr uint16_t THROTTLE_ADC_MAX = 4015;
 // and this same ADC region maps to exactly zero command while running.
 constexpr uint16_t ARM_NEUTRAL_ADC_WINDOW = 80;
 constexpr uint32_t ARM_NEUTRAL_TIME_MS = 1000;
+// Before a CUT -> LIVE transition, require fresh returned link statistics and
+// a useful RF link continuously for this dwell. This is deliberately only a
+// pre-arm interlock: a brief telemetry outage after arming must not command an
+// unexpected throttle cut; receiver-side failsafe remains responsible then.
+constexpr uint8_t ARM_MIN_LINK_QUALITY = 50;
+constexpr uint32_t ARM_LINK_STABLE_TIME_MS = 500;
 // Plausibility and freshness limits used by the independent CRSF task. A
 // disconnected ADC or a stalled control loop can never leave a live throttle
 // value latched on the radio link.
@@ -46,3 +52,8 @@ constexpr uint32_t CONTROL_STALE_TIMEOUT_US = 250000; // 250 ms
 constexpr uint32_t CRSF_BAUD = 400000;
 constexpr uint32_t CRSF_FRAME_PERIOD_US = 4000; // 250 Hz initial test rate
 constexpr uint32_t USB_LOG_PERIOD_MS = 250;
+// The long 4 Hz diagnostic line is useful during timing investigations, but
+// USB CDC output on this S3 can disturb the single-wire CRSF task when a host
+// opens the monitor. Keep transition/fault messages, but make the continuous
+// stream an explicit diagnostic build option.
+constexpr bool ENABLE_PERIODIC_USB_DIAGNOSTICS = false;

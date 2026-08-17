@@ -1440,7 +1440,9 @@ ProportionalInputProfile Channel2Ui::throttleInputProfile() const
     profile.deadbandAdc = ARM_NEUTRAL_ADC_WINDOW;
     profile.validMinimumAdc = THROTTLE_ADC_VALID_MIN;
     profile.validMaximumAdc = THROTTLE_ADC_VALID_MAX;
-    profile.filterShift = 3;
+    // A 1/4 EMA at the 4 ms control period rejects ADC chatter without
+    // noticeably softening deliberate fast steering/throttle movement.
+    profile.filterShift = 2;
     return profile;
 }
 
@@ -1940,7 +1942,7 @@ void Channel2Ui::drawTelemetryPage()
 
     lv_obj_t *link = makePanel(8, 47, 226, 126);
     makeLabel(link, "RADIO LINK", 10, 7, 12, cCyan);
-    telemetryLinkStateLabel_ = makeLabel(link, "NO LINK", 10, 27, 20, cRed);
+    telemetryLinkStateLabel_ = makeLabel(link, "NO DATA", 10, 27, 20, cDim);
     telemetryLinkQualityLabel_ = makeLabel(link, "LQ   ---%", 10, 56, 17, cDim);
     telemetryRssiLabel_ = makeLabel(link, "RSSI --- dBm", 10, 80, 15, cDim);
     telemetrySnrLabel_ = makeLabel(link, "SNR  -- dB", 10, 101, 13, cDim);
@@ -1969,10 +1971,17 @@ void Channel2Ui::drawTelemetryLive(const CrsfTelemetryState &telemetry,
     if (!displayReady_ || activePage_ != UiPage::Telemetry) return;
 
     if (telemetryLinkStateLabel_) {
-        lv_label_set_text(telemetryLinkStateLabel_,
-                          telemetry.linkValid ? "LINK OK" : "NO LINK");
+        const bool everReceived = telemetry.linkUpdatedMs != 0;
+        const bool explicitLoss = telemetry.linkValid &&
+                                  telemetry.uplinkLinkQuality == 0;
+        const char *stateText = !everReceived ? "NO DATA" :
+            (!telemetry.linkValid ? "TELEM STALE" :
+             (explicitLoss ? "NO LINK" : "LINK OK"));
+        const uint32_t stateColour = !everReceived || !telemetry.linkValid
+            ? cDim : (explicitLoss ? cRed : cGreen);
+        lv_label_set_text(telemetryLinkStateLabel_, stateText);
         lv_obj_set_style_text_color(telemetryLinkStateLabel_,
-            colour(telemetry.linkValid ? cGreen : cRed), 0);
+                                    colour(stateColour), 0);
     }
     if (telemetryLinkQualityLabel_) {
         if (telemetry.linkValid) {
@@ -1980,8 +1989,12 @@ void Channel2Ui::drawTelemetryLive(const CrsfTelemetryState &telemetry,
                                   telemetry.uplinkLinkQuality);
             lv_obj_set_style_text_color(telemetryLinkQualityLabel_,
                 colour(telemetry.uplinkLinkQuality >= 80 ? cGreen : cAmber), 0);
-        } else {
+        } else if (telemetry.linkUpdatedMs == 0) {
             lv_label_set_text(telemetryLinkQualityLabel_, "LQ   ---%");
+            lv_obj_set_style_text_color(telemetryLinkQualityLabel_, colour(cDim), 0);
+        } else {
+            lv_label_set_text_fmt(telemetryLinkQualityLabel_, "LQ*  %3u%%",
+                                  telemetry.uplinkLinkQuality);
             lv_obj_set_style_text_color(telemetryLinkQualityLabel_, colour(cDim), 0);
         }
     }
@@ -2090,6 +2103,9 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
             case OutputSafetyStatus::StartupWarning:
                 text = "SWITCH CHECK"; textColour = cRed;
                 panelColour = cSafetyFault; borderColour = cRed; break;
+            case OutputSafetyStatus::LinkRequired:
+                text = "LINK WAIT"; textColour = cAmber;
+                panelColour = cSafetyWaiting; borderColour = cAmber; break;
             case OutputSafetyStatus::NeutralRequired:
                 text = "NEUTRAL..."; panelColour = cSafetyWaiting; break;
             case OutputSafetyStatus::Calibration:
@@ -2120,9 +2136,16 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
                                   telemetry.uplinkRssiDbm);
             lv_obj_set_style_text_color(dashboardLinkLabel_,
                 colour(telemetry.uplinkLinkQuality >= 80 ? cGreen : cAmber), 0);
+        } else if (telemetry.linkUpdatedMs == 0) {
+            lv_label_set_text(dashboardLinkLabel_, "NO DATA");
+            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cDim), 0);
         } else {
-            lv_label_set_text(dashboardLinkLabel_, "NO LINK");
-            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cRed), 0);
+            // A missing return packet is not proof that the RF downlink has
+            // failed. Preserve the last decoded LQ but mark it stale; reserve
+            // NO LINK for an explicit, fresh LQ=0 report.
+            lv_label_set_text_fmt(dashboardLinkLabel_, "LQ* %u%%",
+                                  telemetry.uplinkLinkQuality);
+            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cDim), 0);
         }
         lastLinkValid_ = telemetry.linkValid;
         lastLinkQuality_ = telemetry.uplinkLinkQuality;

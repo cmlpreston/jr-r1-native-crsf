@@ -41,7 +41,7 @@ struct ProportionalInputProfile {
     uint16_t deadbandAdc = 0;
     uint16_t validMinimumAdc = 0;
     uint16_t validMaximumAdc = 4095;
-    uint8_t filterShift = 3; // EMA alpha = 1 / 2^filterShift; zero is direct.
+    uint8_t filterShift = 2; // EMA alpha = 1 / 2^filterShift; zero is direct.
 
     bool valid() const;
 };

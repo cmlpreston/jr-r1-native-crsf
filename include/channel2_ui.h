@@ -110,6 +110,7 @@ public:
                 const CrsfChannelOutputModel &channelOutputs,
                 bool channelOutputsLive);
     int16_t mapAdcToPermille(uint16_t adc) const;
+    ProportionalInputProfile throttleInputProfile() const;
     int16_t applySettings(int16_t rawInputPermille) const;
     int16_t applyResponseSettings(uint8_t channel,
                                   int16_t rawInputPermille) const;

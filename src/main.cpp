@@ -41,7 +41,7 @@ struct SharedChannelOutputState {
     uint32_t updatedUs = 0;
 };
 
-uint16_t filteredAdc = THROTTLE_ADC_CENTER;
+ProportionalInputRuntime throttleInputRuntime;
 uint32_t filteredTxBatteryAdcMv = 0;
 uint32_t nextTxBatterySampleMs = 0;
 bool throttleArmed = false;
@@ -357,15 +357,20 @@ void controlTask(void *)
             channel2Ui.resetChannelSpeed();
         }
 
-        const uint16_t sample = analogRead(THROTTLE_ADC_PIN);
-        filteredAdc = static_cast<uint16_t>((filteredAdc * 7U + sample) / 8U);
+        // Refresh persistent policy without disturbing live filter state. A
+        // calibration accepted by the UI therefore takes effect on the next
+        // control sample; coherent model snapshots will replace this read in
+        // the next architecture stage.
+        throttleInputRuntime.setProfile(channel2Ui.throttleInputProfile());
+        const ProportionalInputState throttleInput =
+            throttleInputRuntime.update(analogRead(THROTTLE_ADC_PIN));
+        const uint16_t filteredAdc = throttleInput.filteredAdc;
         const bool calibrating = channel2Ui.calibrationActive();
-        const bool inputValid = filteredAdc >= THROTTLE_ADC_VALID_MIN &&
-                                filteredAdc <= THROTTLE_ADC_VALID_MAX;
+        const bool inputValid = throttleInput.valid;
         const OutputSafetyStatus safetyStatus = updateTriggerSafety(
             filteredAdc, calibrating, inputValid);
 
-        const int16_t rawThrottle = channel2Ui.mapAdcToPermille(filteredAdc);
+        const int16_t rawThrottle = throttleInput.normalisedPermille;
         const int16_t responseThrottle = channel2Ui.applySettings(rawThrottle);
         const int16_t modeThrottle = channel2Ui.applyDriveMode(
             responseThrottle, rawThrottle);
@@ -562,7 +567,8 @@ void setup()
     Serial.printf("MCP23017: address=0x%02X %s; PA0 is Timer button\n",
                   MCP23017_I2C_ADDRESS,
                   inputExpanderReady ? "ONLINE" : "NOT FOUND");
-    filteredAdc = analogRead(THROTTLE_ADC_PIN);
+    throttleInputRuntime.setProfile(channel2Ui.throttleInputProfile());
+    throttleInputRuntime.reset(analogRead(THROTTLE_ADC_PIN));
     publishControlState(ControlStateSnapshot());
     xTaskCreatePinnedToCore(controlTask, "control-input", 4096, nullptr, 5,
                             &controlTaskHandle, 1);

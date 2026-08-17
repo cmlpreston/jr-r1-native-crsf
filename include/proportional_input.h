@@ -33,6 +33,52 @@ struct ProportionalCalibrationProgress {
           sawMinimum(minimumSeen), sawMaximum(maximumSeen) {}
 };
 
+// Persistent conditioning policy for one physical proportional control. This
+// belongs to the input (for example the throttle trigger), not to whichever
+// CRSF output channel or logical role currently consumes it.
+struct ProportionalInputProfile {
+    ProportionalCalibration calibration;
+    uint16_t deadbandAdc = 0;
+    uint16_t validMinimumAdc = 0;
+    uint16_t validMaximumAdc = 4095;
+    uint8_t filterShift = 3; // EMA alpha = 1 / 2^filterShift; zero is direct.
+
+    bool valid() const;
+};
+
+struct ProportionalInputState {
+    uint16_t rawAdc = 0;
+    uint16_t filteredAdc = 0;
+    int16_t normalisedPermille = 0;
+    bool valid = false;
+};
+
+// Map one already-filtered ADC sample through a profile. Values inside the
+// centre deadband produce exact zero; the remaining two spans are remapped so
+// calibrated endpoints still produce -1000 and +1000.
+int16_t mapProportionalInputToPermille(const ProportionalInputProfile &profile,
+                                       uint16_t filteredAdc);
+
+// Live filter and validity state for a physical proportional input. Keeping
+// this separate from the profile lets the control task own all rapidly
+// changing state while model/UI code edits persistent policy.
+class ProportionalInputRuntime {
+public:
+    explicit ProportionalInputRuntime(
+        const ProportionalInputProfile &profile = {});
+
+    void setProfile(const ProportionalInputProfile &profile);
+    const ProportionalInputProfile &profile() const { return profile_; }
+    void reset(uint16_t initialSample);
+    ProportionalInputState update(uint16_t rawSample);
+    const ProportionalInputState &state() const { return state_; }
+
+private:
+    ProportionalInputProfile profile_;
+    ProportionalInputState state_;
+    bool initialised_ = false;
+};
+
 // Calibration and normalisation for any centre-returning proportional input.
 // It deliberately knows nothing about steering, throttle, CRSF channel numbers,
 // persistence, or the display that initiated calibration.

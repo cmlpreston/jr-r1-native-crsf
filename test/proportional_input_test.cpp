@@ -5,6 +5,84 @@
 
 namespace {
 
+ProportionalInputProfile throttleLikeProfile()
+{
+    ProportionalInputProfile profile;
+    profile.calibration = {1447, 1970, 4015};
+    profile.deadbandAdc = 80;
+    profile.validMinimumAdc = 100;
+    profile.validMaximumAdc = 4090;
+    profile.filterShift = 3;
+    return profile;
+}
+
+void testRuntimeRetainsExistingIntegerEma()
+{
+    ProportionalInputRuntime runtime(throttleLikeProfile());
+    runtime.reset(1970);
+    const ProportionalInputState state = runtime.update(4015);
+    assert(state.rawAdc == 4015);
+    assert(state.filteredAdc == 2225);
+    assert(state.normalisedPermille == 89);
+    assert(state.valid);
+}
+
+void testDeadbandIsZeroAndEndpointsRetainFullTravel()
+{
+    const ProportionalInputProfile profile = throttleLikeProfile();
+    assert(mapProportionalInputToPermille(profile, 1447) == -1000);
+    assert(mapProportionalInputToPermille(profile, 1889) < 0);
+    assert(mapProportionalInputToPermille(profile, 1890) == 0);
+    assert(mapProportionalInputToPermille(profile, 1970) == 0);
+    assert(mapProportionalInputToPermille(profile, 2050) == 0);
+    // The first count outside the positive deadband still rounds to zero with
+    // the historical integer mapping; the second count is the first non-zero.
+    assert(mapProportionalInputToPermille(profile, 2051) == 0);
+    assert(mapProportionalInputToPermille(profile, 2052) > 0);
+    assert(mapProportionalInputToPermille(profile, 4015) == 1000);
+}
+
+void testRuntimeValidityUsesFilteredSample()
+{
+    ProportionalInputProfile profile = throttleLikeProfile();
+    profile.filterShift = 0;
+    ProportionalInputRuntime runtime(profile);
+    assert(runtime.update(99).valid == false);
+    assert(runtime.update(100).valid == true);
+    assert(runtime.update(4090).valid == true);
+    assert(runtime.update(4091).valid == false);
+}
+
+void testRuntimeMatchesLegacyThrottlePipelineAcrossSequence()
+{
+    const ProportionalInputProfile profile = throttleLikeProfile();
+    ProportionalInputRuntime runtime(profile);
+    uint16_t legacyFiltered = 1970;
+    runtime.reset(legacyFiltered);
+    const uint16_t samples[] = {
+        1970, 1988, 2100, 4015, 4015, 3500, 1970, 1500, 1447, 1970,
+    };
+    for (uint16_t sample : samples) {
+        legacyFiltered = static_cast<uint16_t>(
+            (legacyFiltered * 7U + sample) / 8U);
+        const ProportionalInputState state = runtime.update(sample);
+        assert(state.filteredAdc == legacyFiltered);
+        assert(state.normalisedPermille ==
+               mapProportionalInputToPermille(profile, legacyFiltered));
+    }
+}
+
+void testInvalidProfileFailsSafeWithoutInvalidShift()
+{
+    ProportionalInputProfile profile = throttleLikeProfile();
+    profile.deadbandAdc = 3000;
+    profile.filterShift = 255;
+    ProportionalInputRuntime runtime(profile);
+    const ProportionalInputState state = runtime.update(1970);
+    assert(!state.valid);
+    assert(state.normalisedPermille == 0);
+}
+
 void testCalibrationRejectsSingleSampleSpike()
 {
     ProportionalInput input({1000, 2000, 3000});
@@ -101,6 +179,11 @@ void testHeldEndpointIsRunningMeanNotLiveTracker()
 
 int main()
 {
+    testRuntimeRetainsExistingIntegerEma();
+    testDeadbandIsZeroAndEndpointsRetainFullTravel();
+    testRuntimeValidityUsesFilteredSample();
+    testRuntimeMatchesLegacyThrottlePipelineAcrossSequence();
+    testInvalidProfileFailsSafeWithoutInvalidShift();
     testCalibrationRejectsSingleSampleSpike();
     testCalibrationSavesFilteredEndpointsAndCentre();
     testSlowReleaseDoesNotPullEndpointTowardCentre();

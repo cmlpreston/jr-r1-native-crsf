@@ -183,13 +183,20 @@ Every refactor and new feature must demonstrate:
 
 ### B. Generic proportional inputs
 
-- [ ] Define `ProportionalInputProfile` containing calibration, filter and
+- [x] Define `ProportionalInputProfile` containing calibration, filter and
   deadband policy, keyed by physical input ID.
-- [ ] Define `ProportionalInputRuntime` containing only live filter, validity
+- [x] Define `ProportionalInputRuntime` containing only live filter, validity
   and calibration state.
-- [ ] Move throttle conditioning out of `Channel2Ui` and `main.cpp` into that
-  runtime without changing output samples.
-- [ ] Instantiate the same path for steering.
+- [x] Move throttle filtering, validity and normalisation out of
+  `Channel2Ui`/ad-hoc `main.cpp` code into that runtime without changing output
+  samples. The interactive calibration session remains temporarily in the UI
+  controller and publishes its accepted calibration through the profile.
+- [ ] Move the interactive calibration-session owner out of `Channel2Ui`.
+- [ ] Publish input profiles to the control task through the coherent model
+  snapshot introduced in Stage C; the current per-cycle profile copy preserves
+  the pre-existing settings race until that boundary is available.
+- [ ] Instantiate the same conditioning path for steering after its hardware
+  calibration is available.
 
 ### C. Coherent model configuration
 
@@ -219,4 +226,3 @@ Every refactor and new feature must demonstrate:
 Each extraction must add characterization tests before the old implementation
 is removed. Hardware and SDL builds remain required because they validate the
 Arduino/LVGL integration that host tests intentionally exclude.
-

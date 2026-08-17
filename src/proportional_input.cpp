@@ -9,6 +9,90 @@ bool ProportionalCalibration::valid(uint16_t minimumHalfSpan) const
            centre + minimumHalfSpan < maximum;
 }
 
+bool ProportionalInputProfile::valid() const
+{
+    return calibration.valid() &&
+           validMinimumAdc <= validMaximumAdc &&
+           deadbandAdc < calibration.centre - calibration.minimum &&
+           deadbandAdc < calibration.maximum - calibration.centre &&
+           filterShift <= 15;
+}
+
+int16_t mapProportionalInputToPermille(const ProportionalInputProfile &profile,
+                                       uint16_t filteredAdc)
+{
+    const ProportionalCalibration &calibration = profile.calibration;
+    if (!calibration.valid()) return 0;
+
+    const uint16_t neutralLow = std::max<uint16_t>(
+        calibration.minimum + 1,
+        calibration.centre > profile.deadbandAdc
+            ? calibration.centre - profile.deadbandAdc
+            : calibration.minimum + 1);
+    const uint16_t neutralHigh = std::min<uint16_t>(
+        calibration.maximum - 1,
+        static_cast<uint16_t>(std::min<uint32_t>(
+            calibration.maximum,
+            static_cast<uint32_t>(calibration.centre) + profile.deadbandAdc)));
+
+    if (filteredAdc >= neutralLow && filteredAdc <= neutralHigh) return 0;
+    if (filteredAdc < neutralLow) {
+        filteredAdc = std::max(filteredAdc, calibration.minimum);
+        return static_cast<int16_t>(-
+            static_cast<int32_t>(neutralLow - filteredAdc) * 1000 /
+            (neutralLow - calibration.minimum));
+    }
+    filteredAdc = std::min(filteredAdc, calibration.maximum);
+    return static_cast<int16_t>(
+        static_cast<uint32_t>(filteredAdc - neutralHigh) * 1000 /
+        (calibration.maximum - neutralHigh));
+}
+
+ProportionalInputRuntime::ProportionalInputRuntime(
+    const ProportionalInputProfile &profile)
+    : profile_(profile)
+{
+}
+
+void ProportionalInputRuntime::setProfile(
+    const ProportionalInputProfile &profile)
+{
+    profile_ = profile;
+}
+
+void ProportionalInputRuntime::reset(uint16_t initialSample)
+{
+    state_.rawAdc = initialSample;
+    state_.filteredAdc = initialSample;
+    state_.normalisedPermille = mapProportionalInputToPermille(
+        profile_, initialSample);
+    state_.valid = profile_.valid() &&
+                   initialSample >= profile_.validMinimumAdc &&
+                   initialSample <= profile_.validMaximumAdc;
+    initialised_ = true;
+}
+
+ProportionalInputState ProportionalInputRuntime::update(uint16_t rawSample)
+{
+    if (!initialised_) reset(rawSample);
+    state_.rawAdc = rawSample;
+    const uint8_t filterShift = std::min<uint8_t>(profile_.filterShift, 15);
+    if (filterShift == 0) {
+        state_.filteredAdc = rawSample;
+    } else {
+        const uint32_t weight = (uint32_t{1} << filterShift) - 1U;
+        state_.filteredAdc = static_cast<uint16_t>(
+            (static_cast<uint32_t>(state_.filteredAdc) * weight + rawSample) /
+            (weight + 1U));
+    }
+    state_.normalisedPermille = mapProportionalInputToPermille(
+        profile_, state_.filteredAdc);
+    state_.valid = profile_.valid() &&
+                   state_.filteredAdc >= profile_.validMinimumAdc &&
+                   state_.filteredAdc <= profile_.validMaximumAdc;
+    return state_;
+}
+
 ProportionalInput::ProportionalInput(const ProportionalCalibration &calibration)
     : calibration_(calibration)
 {

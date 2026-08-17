@@ -177,10 +177,10 @@ The following is the authoritative order for subsequent refactor work. Do not
 skip ahead where a later stage depends on an unfinished ownership or timing
 boundary:
 
-1. Validate and checkpoint the bulk telemetry-UART read fix.
-2. Replace the dual-UART CRSF bus with a single-UART, deadline-driven
+1. [x] Validate and checkpoint the bulk telemetry-UART read fix.
+2. [x] Replace the dual-UART CRSF bus with a single-UART, deadline-driven
    half-duplex transport modelled on ExpressLRS.
-3. Extract and host-test per-channel ramp/slew state.
+3. [x] Extract and host-test per-channel ramp/slew state.
 4. Introduce an immutable, coherently published control-configuration
    snapshot.
 5. Connect steering through the generic proportional-input runtime.
@@ -205,7 +205,7 @@ not wait for LVGL, touch, NVS, I2C, USB logging or telemetry parsing.
   layout.
 - [x] Add host characterization tests for linear response, asymmetric sides,
   expo, reverse, sub-trim, extended clamp and persisted-value sanitisation.
-- [ ] Extract per-channel ramp state and test time-step/wrap behaviour.
+- [x] Extract per-channel ramp state and test time-step/wrap behaviour.
 
 ### B. Generic proportional inputs
 

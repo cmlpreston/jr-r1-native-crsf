@@ -1684,40 +1684,16 @@ int16_t Channel2Ui::applyChannelSpeed(uint8_t channel,
 {
     if (channel < 1 || channel > CRSF_CHANNEL_COUNT) return targetPermille;
     const size_t index = channel - 1;
-    int16_t &slewed = slewedChannelPermille_[index];
-    uint32_t &lastUpdateMs = lastSlewUpdateMs_[index];
-    if (lastUpdateMs == 0) {
-        lastUpdateMs = nowMs;
-        slewed = 0;
-    }
-    const uint32_t elapsedMs = min<uint32_t>(nowMs - lastUpdateMs, 100U);
-    lastUpdateMs = nowMs;
-
-    const bool forwardSide = targetPermille > 0 ||
-        (targetPermille == 0 && slewed > 0);
     const ChannelResponseProfile &profile = profileForChannel(channel);
-    const uint16_t travelMs = forwardSide ? profile.positiveRampMs
-                                          : profile.negativeRampMs;
-    if (travelMs == 0 || elapsedMs == 0) {
-        slewed = targetPermille;
-        return targetPermille;
-    }
-
-    const int32_t maximumStep = max<int32_t>(1,
-        (1000L * static_cast<int32_t>(elapsedMs) + travelMs - 1) / travelMs);
-    const int32_t delta = static_cast<int32_t>(targetPermille) -
-                          slewed;
-    slewed += static_cast<int16_t>(
-        constrain(delta, -maximumStep, maximumStep));
-    return slewed;
+    return channelRampRuntime_[index].update(
+        targetPermille, nowMs, profile.negativeRampMs, profile.positiveRampMs);
 }
 
 void Channel2Ui::resetChannelSpeed()
 {
     const uint32_t now = millis();
     for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
-        slewedChannelPermille_[index] = 0;
-        lastSlewUpdateMs_[index] = now;
+        channelRampRuntime_[index].reset(0, now);
     }
 }
 

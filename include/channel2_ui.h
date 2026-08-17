@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <lvgl.h>
+#include "channel_ramp.h"
 #include "channel_response.h"
 #include "control_assignment.h"
 #include "crsf_telemetry.h"
@@ -394,8 +395,7 @@ private:
     // A touch used to wake the display, or one beginning inside the post-tap
     // guard interval, must be discarded as one complete physical gesture.
     bool discardTouchUntilRelease_ = false;
-    int16_t slewedChannelPermille_[CRSF_CHANNEL_COUNT] = {};
-    uint32_t lastSlewUpdateMs_[CRSF_CHANNEL_COUNT] = {};
+    ChannelRampRuntime channelRampRuntime_[CRSF_CHANNEL_COUNT];
     uint32_t lastInteractionMs_ = 0;
     uint16_t latestRawAdc_ = 0;
     bool touchWasDown_ = false;

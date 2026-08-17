@@ -27,6 +27,9 @@ before beginning later driving-control features.
 
 ## Safety before driving the electric buggy
 
+- [ ] Complete a multi-hour single-UART CRSF soak/glitch test with the full
+  transmitter, Ranger Nano and receiver hardware connected; retain the Saleae
+  capture and note firmware versions, packet rate and any observed excursions.
 - [ ] Map and require a dedicated, exclusive physical arm/CUT control.
 - [ ] Guarantee CUT overrides every channel binding, future mix, macro, hold
   and ABS output.

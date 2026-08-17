@@ -6,6 +6,7 @@ CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
   channel_response_test \
+  channel_ramp_test \
   proportional_input_test \
   crsf_channel_output_test \
   physical_input_test \
@@ -20,6 +21,10 @@ run: all
 	@set -e; for test in $(TESTS); do ./$(BUILD)/$$test; done
 
 $(BUILD)/channel_response_test: channel_response_test.cpp $(ROOT)/src/channel_response.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
+
+$(BUILD)/channel_ramp_test: channel_ramp_test.cpp $(ROOT)/src/channel_ramp.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
@@ -50,4 +55,3 @@ $(BUILD)/binding_resolver_test: binding_resolver_test.cpp \
 
 clean:
 	rm -rf $(BUILD)
-

@@ -1,5 +1,9 @@
 # JR R1 native CRSF controller
 
+The current control/channel architecture, invariants and staged refactor are
+documented in [`docs/architecture-review.md`](docs/architecture-review.md).
+Pure host-side modules can be checked with `make -C test run`.
+
 This is the first, deliberately small firmware scaffold for replacing the JR R1
 computer with an ESP32-S3 DevKitC-1. It reads the original 5 kΩ throttle pot and
 sends a standard 16-channel CRSF channels frame to a RadioMaster Ranger Nano.

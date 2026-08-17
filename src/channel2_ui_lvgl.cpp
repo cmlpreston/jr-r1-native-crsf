@@ -284,34 +284,6 @@ int16_t clampExtendedTravel(int32_t value)
                                           kExtendedTravelPermille));
 }
 
-int16_t applyExpo(int16_t value, int8_t expoPercent)
-{
-    const int32_t sign = value < 0 ? -1 : 1;
-    const int32_t magnitude = abs(static_cast<int32_t>(value));
-    const int32_t cubic = magnitude * magnitude * magnitude / 1000000L;
-    const int32_t shaped = magnitude +
-        static_cast<int32_t>(expoPercent) * (cubic - magnitude) / 100;
-    return static_cast<int16_t>(sign * constrain(shaped, 0L, 1000L));
-}
-
-int16_t applyResponseProfile(const Channel2Settings &profile,
-                             int16_t rawInputPermille)
-{
-    const bool negative = rawInputPermille < 0;
-    const int8_t expo = negative ? profile.brakeExpoPercent
-                                 : profile.forwardExpoPercent;
-    const uint8_t rate = negative ? profile.brakeRatePercent
-                                  : profile.forwardRatePercent;
-    const uint8_t endpoint = negative ? profile.brakeEndpointPercent
-                                      : profile.forwardEndpointPercent;
-    int32_t value = applyExpo(rawInputPermille, expo);
-    value = value * rate / 100;
-    value = value * endpoint / 100;
-    if (profile.reversed) value = -value;
-    value += static_cast<int32_t>(profile.subtrimPercent) * 10;
-    return clampExtendedTravel(value);
-}
-
 int16_t permilleFromCrsfValue(uint16_t value)
 {
     value = constrain(value, CRSF_CHANNEL_MIN, CRSF_CHANNEL_MAX);
@@ -487,34 +459,34 @@ bool Channel2Ui::begin()
     return true;
 }
 
-Channel2Settings &Channel2Ui::profileForChannel(uint8_t channel)
+ChannelResponseProfile &Channel2Ui::profileForChannel(uint8_t channel)
 {
     channel = constrain(channel, 1, static_cast<int>(CRSF_CHANNEL_COUNT));
     return channelProfiles_[channel - 1];
 }
 
-const Channel2Settings &Channel2Ui::profileForChannel(uint8_t channel) const
+const ChannelResponseProfile &Channel2Ui::profileForChannel(uint8_t channel) const
 {
     channel = constrain(channel, 1, static_cast<int>(CRSF_CHANNEL_COUNT));
     return channelProfiles_[channel - 1];
 }
 
-Channel2Settings &Channel2Ui::throttleProfile()
+ChannelResponseProfile &Channel2Ui::throttleProfile()
 {
     return profileForChannel(channelRoleSettings_.throttleChannel);
 }
 
-const Channel2Settings &Channel2Ui::throttleProfile() const
+const ChannelResponseProfile &Channel2Ui::throttleProfile() const
 {
     return profileForChannel(channelRoleSettings_.throttleChannel);
 }
 
-Channel2Settings &Channel2Ui::selectedResponseProfile()
+ChannelResponseProfile &Channel2Ui::selectedResponseProfile()
 {
     return profileForChannel(selectedChannel_);
 }
 
-const Channel2Settings &Channel2Ui::selectedResponseProfile() const
+const ChannelResponseProfile &Channel2Ui::selectedResponseProfile() const
 {
     return profileForChannel(selectedChannel_);
 }
@@ -684,14 +656,14 @@ void Channel2Ui::loadSettings()
 {
     Preferences preferences;
     preferences.begin("jr-r1-ch2", true);
-    throttleProfile().brakeEndpointPercent = preferences.getUChar("brake_ep", 100);
-    throttleProfile().forwardEndpointPercent = preferences.getUChar("throt_ep", 100);
-    throttleProfile().brakeRatePercent = preferences.getUChar("brk_rate", 100);
-    throttleProfile().forwardRatePercent = preferences.getUChar("fwd_rate", 100);
-    throttleProfile().brakeExpoPercent = preferences.getChar("brk_expo", 0);
-    throttleProfile().forwardExpoPercent = preferences.getChar("fwd_expo", 0);
-    throttleProfile().brakeSpeedMs = preferences.getUShort("brk_speed", 0);
-    throttleProfile().forwardSpeedMs = preferences.getUShort("fwd_speed", 0);
+    throttleProfile().negativeEndpointPercent = preferences.getUChar("brake_ep", 100);
+    throttleProfile().positiveEndpointPercent = preferences.getUChar("throt_ep", 100);
+    throttleProfile().negativeRatePercent = preferences.getUChar("brk_rate", 100);
+    throttleProfile().positiveRatePercent = preferences.getUChar("fwd_rate", 100);
+    throttleProfile().negativeExpoPercent = preferences.getChar("brk_expo", 0);
+    throttleProfile().positiveExpoPercent = preferences.getChar("fwd_expo", 0);
+    throttleProfile().negativeRampMs = preferences.getUShort("brk_speed", 0);
+    throttleProfile().positiveRampMs = preferences.getUShort("fwd_speed", 0);
     throttleProfile().subtrimPercent = preferences.getChar("trim", 0);
     throttleProfile().reversed = preferences.getBool("reverse", false);
     // Read the old channel-scoped keys as migration defaults. Calibration is
@@ -723,17 +695,8 @@ void Channel2Ui::loadSettings()
     };
     preferences.end();
 
-    for (Channel2Settings &profile : channelProfiles_) {
-        profile.brakeEndpointPercent = constrain(profile.brakeEndpointPercent, 50, 100);
-        profile.forwardEndpointPercent = constrain(profile.forwardEndpointPercent, 50, 100);
-        profile.brakeRatePercent = constrain(profile.brakeRatePercent, 0, 100);
-        profile.forwardRatePercent = constrain(profile.forwardRatePercent, 0, 100);
-        profile.brakeExpoPercent = constrain(profile.brakeExpoPercent, -100, 100);
-        profile.forwardExpoPercent = constrain(profile.forwardExpoPercent, -100, 100);
-        profile.brakeSpeedMs = constrain(profile.brakeSpeedMs, 0, kChannelSpeedMaximumMs);
-        profile.forwardSpeedMs = constrain(profile.forwardSpeedMs, 0, kChannelSpeedMaximumMs);
-        profile.subtrimPercent = constrain(profile.subtrimPercent, -20, 20);
-    }
+    for (ChannelResponseProfile &profile : channelProfiles_)
+        sanitizeChannelResponseProfile(profile);
     if (!calibration.valid()) {
         calibration = {THROTTLE_ADC_MIN, THROTTLE_ADC_CENTER, THROTTLE_ADC_MAX};
     }
@@ -744,14 +707,14 @@ void Channel2Ui::saveSettings()
 {
     Preferences preferences;
     preferences.begin("jr-r1-ch2", false);
-    preferences.putUChar("brake_ep", throttleProfile().brakeEndpointPercent);
-    preferences.putUChar("throt_ep", throttleProfile().forwardEndpointPercent);
-    preferences.putUChar("brk_rate", throttleProfile().brakeRatePercent);
-    preferences.putUChar("fwd_rate", throttleProfile().forwardRatePercent);
-    preferences.putChar("brk_expo", throttleProfile().brakeExpoPercent);
-    preferences.putChar("fwd_expo", throttleProfile().forwardExpoPercent);
-    preferences.putUShort("brk_speed", throttleProfile().brakeSpeedMs);
-    preferences.putUShort("fwd_speed", throttleProfile().forwardSpeedMs);
+    preferences.putUChar("brake_ep", throttleProfile().negativeEndpointPercent);
+    preferences.putUChar("throt_ep", throttleProfile().positiveEndpointPercent);
+    preferences.putUChar("brk_rate", throttleProfile().negativeRatePercent);
+    preferences.putUChar("fwd_rate", throttleProfile().positiveRatePercent);
+    preferences.putChar("brk_expo", throttleProfile().negativeExpoPercent);
+    preferences.putChar("fwd_expo", throttleProfile().positiveExpoPercent);
+    preferences.putUShort("brk_speed", throttleProfile().negativeRampMs);
+    preferences.putUShort("fwd_speed", throttleProfile().positiveRampMs);
     preferences.putChar("trim", throttleProfile().subtrimPercent);
     preferences.putBool("reverse", throttleProfile().reversed);
     preferences.end();
@@ -1499,13 +1462,13 @@ int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const
 {
     // Keep physical trigger semantics independent of output direction:
     // negative input is always brake/reverse; positive is always forward.
-    return applyResponseProfile(throttleProfile(), rawInputPermille);
+    return applyChannelResponse(throttleProfile(), rawInputPermille);
 }
 
 int16_t Channel2Ui::applyResponseSettings(uint8_t channel,
                                           int16_t rawInputPermille) const
 {
-    return applyResponseProfile(profileForChannel(channel), rawInputPermille);
+    return applyChannelResponse(profileForChannel(channel), rawInputPermille);
 }
 
 int16_t Channel2Ui::applyDriveMode(int16_t configuredPermille,
@@ -1744,9 +1707,9 @@ int16_t Channel2Ui::applyChannelSpeed(uint8_t channel,
 
     const bool forwardSide = targetPermille > 0 ||
         (targetPermille == 0 && slewed > 0);
-    const Channel2Settings &profile = profileForChannel(channel);
-    const uint16_t travelMs = forwardSide ? profile.forwardSpeedMs
-                                          : profile.brakeSpeedMs;
+    const ChannelResponseProfile &profile = profileForChannel(channel);
+    const uint16_t travelMs = forwardSide ? profile.positiveRampMs
+                                          : profile.negativeRampMs;
     if (travelMs == 0 || elapsedMs == 0) {
         slewed = targetPermille;
         return targetPermille;
@@ -2598,16 +2561,16 @@ void Channel2Ui::controlThrottleSetting(uint8_t row, PageControlEvent event)
     const int8_t direction = event == PageControlEvent::Decrease ? -1 : 1;
     bool changed = false;
     if (row == 0) {
-        throttleProfile().brakeEndpointPercent = constrain(
-            static_cast<int>(throttleProfile().brakeEndpointPercent) + direction, 50, 100);
+        throttleProfile().negativeEndpointPercent = constrain(
+            static_cast<int>(throttleProfile().negativeEndpointPercent) + direction, 50, 100);
         changed = true;
     } else if (row == 1) {
         throttleProfile().subtrimPercent = constrain(
             static_cast<int>(throttleProfile().subtrimPercent) + direction, -20, 20);
         changed = true;
     } else if (row == 2) {
-        throttleProfile().forwardEndpointPercent = constrain(
-            static_cast<int>(throttleProfile().forwardEndpointPercent) + direction, 50, 100);
+        throttleProfile().positiveEndpointPercent = constrain(
+            static_cast<int>(throttleProfile().positiveEndpointPercent) + direction, 50, 100);
         changed = true;
     } else if (row == 3) {
         throttleProfile().reversed = !throttleProfile().reversed;
@@ -3165,9 +3128,9 @@ void Channel2Ui::drawSettingRow(int row)
     lv_obj_t *panel = makePanel(10, y, 460, 44);
     makeLabel(panel, labels[row], 12, 12, 16, cCyan);
     char value[20];
-    if (row == 0) snprintf(value, sizeof(value), "%u%%", throttleProfile().brakeEndpointPercent);
+    if (row == 0) snprintf(value, sizeof(value), "%u%%", throttleProfile().negativeEndpointPercent);
     else if (row == 1) snprintf(value, sizeof(value), "%+d%%", throttleProfile().subtrimPercent);
-    else if (row == 2) snprintf(value, sizeof(value), "%u%%", throttleProfile().forwardEndpointPercent);
+    else if (row == 2) snprintf(value, sizeof(value), "%u%%", throttleProfile().positiveEndpointPercent);
     else snprintf(value, sizeof(value), "%s", throttleProfile().reversed ? "REVERSE" : "NORMAL");
     channel2SettingValueLabels_[row] = makeLabel(
         panel, value, 212, 12, 16,
@@ -3210,13 +3173,13 @@ void Channel2Ui::refreshSettingRowValue(uint8_t row)
     if (row >= 4 || channel2SettingValueLabels_[row] == nullptr) return;
     if (row == 0)
         lv_label_set_text_fmt(channel2SettingValueLabels_[row], "%u%%",
-                              throttleProfile().brakeEndpointPercent);
+                              throttleProfile().negativeEndpointPercent);
     else if (row == 1)
         lv_label_set_text_fmt(channel2SettingValueLabels_[row], "%+d%%",
                               throttleProfile().subtrimPercent);
     else if (row == 2)
         lv_label_set_text_fmt(channel2SettingValueLabels_[row], "%u%%",
-                              throttleProfile().forwardEndpointPercent);
+                              throttleProfile().positiveEndpointPercent);
     else {
         lv_label_set_text(channel2SettingValueLabels_[row],
                           throttleProfile().reversed ? "REVERSE" : "NORMAL");
@@ -3285,18 +3248,18 @@ void Channel2Ui::drawThrottleResponseRow(int row)
     snprintf(labels[4], sizeof(labels[4]), "%s END", negative);
     snprintf(labels[5], sizeof(labels[5]), "%s RATE", negative);
     snprintf(labels[6], sizeof(labels[6]), "%s EXPO", negative);
-    const Channel2Settings &profile = selectedResponseProfile();
+    const ChannelResponseProfile &profile = selectedResponseProfile();
     const int16_t y = 52 + row * 35;
     lv_obj_t *panel = makePanel(288, y, 184, 32);
     makeLabel(panel, labels[row], 7, 4, 10, cCyan);
     char value[20];
     if (row == 0) snprintf(value, sizeof(value), "%+d%%", profile.subtrimPercent);
-    else if (row == 1) snprintf(value, sizeof(value), "%u%%", profile.forwardEndpointPercent);
-    else if (row == 2) snprintf(value, sizeof(value), "%u%%", profile.forwardRatePercent);
-    else if (row == 3) snprintf(value, sizeof(value), "%+d%%", profile.forwardExpoPercent);
-    else if (row == 4) snprintf(value, sizeof(value), "%u%%", profile.brakeEndpointPercent);
-    else if (row == 5) snprintf(value, sizeof(value), "%u%%", profile.brakeRatePercent);
-    else snprintf(value, sizeof(value), "%+d%%", profile.brakeExpoPercent);
+    else if (row == 1) snprintf(value, sizeof(value), "%u%%", profile.positiveEndpointPercent);
+    else if (row == 2) snprintf(value, sizeof(value), "%u%%", profile.positiveRatePercent);
+    else if (row == 3) snprintf(value, sizeof(value), "%+d%%", profile.positiveExpoPercent);
+    else if (row == 4) snprintf(value, sizeof(value), "%u%%", profile.negativeEndpointPercent);
+    else if (row == 5) snprintf(value, sizeof(value), "%u%%", profile.negativeRatePercent);
+    else snprintf(value, sizeof(value), "%+d%%", profile.negativeExpoPercent);
     makeLabel(panel, value, 101, 4, 10, cWhite);
 
     lv_obj_t *minus = lv_obj_create(panel); position(minus, 105, 14, 31, 15);
@@ -3317,7 +3280,7 @@ void Channel2Ui::drawThrottleResponseRow(int row)
 
 void Channel2Ui::drawThrottleResponseGraph()
 {
-    const Channel2Settings &profile = selectedResponseProfile();
+    const ChannelResponseProfile &profile = selectedResponseProfile();
     constexpr int16_t graphX = 23;
     constexpr int16_t graphY = 26;
     constexpr int16_t graphWidth = 236;
@@ -3362,8 +3325,8 @@ void Channel2Ui::drawThrottleResponseGraph()
     lv_obj_set_style_line_dash_gap(linear, 4, 0);
 
     const int16_t subtrim = static_cast<int16_t>(profile.subtrimPercent) * 10;
-    int16_t brakeLimit = -static_cast<int16_t>(profile.brakeEndpointPercent) * 10;
-    int16_t forwardLimit = static_cast<int16_t>(profile.forwardEndpointPercent) * 10;
+    int16_t brakeLimit = -static_cast<int16_t>(profile.negativeEndpointPercent) * 10;
+    int16_t forwardLimit = static_cast<int16_t>(profile.positiveEndpointPercent) * 10;
     if (profile.reversed) {
         brakeLimit = -brakeLimit;
         forwardLimit = -forwardLimit;
@@ -3402,7 +3365,7 @@ void Channel2Ui::drawThrottleResponseGraph()
         const int16_t input = static_cast<int16_t>(-1000 +
             static_cast<int32_t>(index) * 2000 /
             (kThrottleGraphPointCount - 1));
-        const int16_t output = applyResponseProfile(profile, input);
+        const int16_t output = applyChannelResponse(profile, input);
         throttleCurvePoints_[index].x = static_cast<lv_coord_t>(
             graphX + static_cast<int32_t>(input + 1000) * graphWidth / 2000);
         throttleCurvePoints_[index].y = outputY(output);
@@ -3446,7 +3409,7 @@ void Channel2Ui::refreshThrottleResponseGraph(int16_t rawInputPermille)
     rawInputPermille = static_cast<int16_t>(constrain(rawInputPermille,
                                                       -1000, 1000));
     rawInputPermille = proportionalInputValue(selectedChannel_, rawInputPermille);
-    const int16_t output = applyResponseProfile(selectedResponseProfile(),
+    const int16_t output = applyChannelResponse(selectedResponseProfile(),
                                                 rawInputPermille);
     const int16_t x = graphX + static_cast<int32_t>(rawInputPermille + 1000) *
                       graphWidth / 2000;
@@ -3483,7 +3446,7 @@ void Channel2Ui::drawThrottleResponsePage()
 
 void Channel2Ui::drawChannelSpeedRow(int row)
 {
-    const Channel2Settings &profile = selectedResponseProfile();
+    const ChannelResponseProfile &profile = selectedResponseProfile();
     const bool throttle = selectedChannel_ == channelRoleSettings_.throttleChannel;
     const bool steering = selectedChannel_ == channelRoleSettings_.steeringChannel;
     const char *positive = throttle ? "FORWARD" : steering ? "RIGHT" : "POSITIVE";
@@ -3493,7 +3456,7 @@ void Channel2Ui::drawChannelSpeedRow(int row)
     char label[28];
     snprintf(label, sizeof(label), "%s RAMP TIME", row == 0 ? positive : negative);
     makeLabel(panel, label, 12, 10, 16, cCyan);
-    const uint16_t value = row == 0 ? profile.forwardSpeedMs : profile.brakeSpeedMs;
+    const uint16_t value = row == 0 ? profile.positiveRampMs : profile.negativeRampMs;
     char text[20];
     if (value == 0) snprintf(text, sizeof(text), "DIRECT");
     else snprintf(text, sizeof(text), "%u ms", value);
@@ -4236,7 +4199,7 @@ void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
     if (y < 52 || y >= 297 || x < 288) return;
     const int row = (y - 52) / 35;
     const int8_t direction = x < 424 ? -1 : 1;
-    Channel2Settings &profile = selectedResponseProfile();
+    ChannelResponseProfile &profile = selectedResponseProfile();
     bool changed = false;
     if (row == 0) {
         const int value = profile.subtrimPercent +
@@ -4244,27 +4207,27 @@ void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
         profile.subtrimPercent = constrain(value, -20, 20);
         changed = true;
     } else if (row == 1) {
-        const int value = profile.forwardEndpointPercent +
+        const int value = profile.positiveEndpointPercent +
                           direction * kResponseEndpointStepPercent;
-        profile.forwardEndpointPercent = constrain(value, 50, 100);
+        profile.positiveEndpointPercent = constrain(value, 50, 100);
         changed = true;
     } else if (row == 2) {
-        const int value = profile.forwardRatePercent + direction * kResponseRateStepPercent;
-        profile.forwardRatePercent = constrain(value, 0, 100); changed = true;
+        const int value = profile.positiveRatePercent + direction * kResponseRateStepPercent;
+        profile.positiveRatePercent = constrain(value, 0, 100); changed = true;
     } else if (row == 3) {
-        const int value = profile.forwardExpoPercent + direction * kResponseExpoStepPercent;
-        profile.forwardExpoPercent = constrain(value, -100, 100); changed = true;
+        const int value = profile.positiveExpoPercent + direction * kResponseExpoStepPercent;
+        profile.positiveExpoPercent = constrain(value, -100, 100); changed = true;
     } else if (row == 4) {
-        const int value = profile.brakeEndpointPercent +
+        const int value = profile.negativeEndpointPercent +
                           direction * kResponseEndpointStepPercent;
-        profile.brakeEndpointPercent = constrain(value, 50, 100);
+        profile.negativeEndpointPercent = constrain(value, 50, 100);
         changed = true;
     } else if (row == 5) {
-        const int value = profile.brakeRatePercent + direction * kResponseRateStepPercent;
-        profile.brakeRatePercent = constrain(value, 0, 100); changed = true;
+        const int value = profile.negativeRatePercent + direction * kResponseRateStepPercent;
+        profile.negativeRatePercent = constrain(value, 0, 100); changed = true;
     } else if (row == 6) {
-        const int value = profile.brakeExpoPercent + direction * kResponseExpoStepPercent;
-        profile.brakeExpoPercent = constrain(value, -100, 100); changed = true;
+        const int value = profile.negativeExpoPercent + direction * kResponseExpoStepPercent;
+        profile.negativeExpoPercent = constrain(value, -100, 100); changed = true;
     }
     if (changed) { saveSettings(); playKeyClick(); drawThrottleResponsePage(); }
 }
@@ -4275,8 +4238,8 @@ void Channel2Ui::handleChannelSpeedTouch(int16_t x, int16_t y)
     if (x < 340 || y < 78 || y >= 230) return;
     const uint8_t row = (y - 78) / 76;
     const int16_t direction = x < 400 ? -1 : 1;
-    Channel2Settings &profile = selectedResponseProfile();
-    uint16_t &value = row == 0 ? profile.forwardSpeedMs : profile.brakeSpeedMs;
+    ChannelResponseProfile &profile = selectedResponseProfile();
+    uint16_t &value = row == 0 ? profile.positiveRampMs : profile.negativeRampMs;
     const int32_t changed = static_cast<int32_t>(value) +
                             direction * kChannelSpeedStepMs;
     value = constrain(changed, 0L, static_cast<long>(kChannelSpeedMaximumMs));
@@ -4836,14 +4799,14 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     const int row = (y - 56) / 50;
     bool changed = false;
     if (row < 3 && x >= 354 && x < 404) {
-        if (row == 0 && throttleProfile().brakeEndpointPercent > 50) --throttleProfile().brakeEndpointPercent;
+        if (row == 0 && throttleProfile().negativeEndpointPercent > 50) --throttleProfile().negativeEndpointPercent;
         if (row == 1 && throttleProfile().subtrimPercent > -20) --throttleProfile().subtrimPercent;
-        if (row == 2 && throttleProfile().forwardEndpointPercent > 50) --throttleProfile().forwardEndpointPercent;
+        if (row == 2 && throttleProfile().positiveEndpointPercent > 50) --throttleProfile().positiveEndpointPercent;
         changed = true;
     } else if (row < 3 && x >= 408 && x < 470) {
-        if (row == 0 && throttleProfile().brakeEndpointPercent < 100) ++throttleProfile().brakeEndpointPercent;
+        if (row == 0 && throttleProfile().negativeEndpointPercent < 100) ++throttleProfile().negativeEndpointPercent;
         if (row == 1 && throttleProfile().subtrimPercent < 20) ++throttleProfile().subtrimPercent;
-        if (row == 2 && throttleProfile().forwardEndpointPercent < 100) ++throttleProfile().forwardEndpointPercent;
+        if (row == 2 && throttleProfile().positiveEndpointPercent < 100) ++throttleProfile().positiveEndpointPercent;
         changed = true;
     } else if (row == 3 && x >= 340) { throttleProfile().reversed = !throttleProfile().reversed; changed = true; }
     if (changed) {

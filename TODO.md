@@ -124,6 +124,10 @@ Complete these after steering shares the generic proportional pipeline:
 
 ## Completed foundation
 
+- [x] Initial holistic control/channel architecture audit, ownership matrix and
+  staged behaviour-preserving refactor plan.
+- [x] Extract pure channel-response processing and add a unified host-test
+  runner with characterization coverage.
 - [x] Native CRSF transmission with a 16-channel output model.
 - [x] Independent 250 Hz control processing and TFT/telemetry tasks.
 - [x] Throttle sampling, filtering, calibration, neutral interlock and CUT.

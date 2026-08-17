@@ -23,6 +23,7 @@ APP_CPP := \
   main.cpp sdl_platform.cpp arduino_compat.cpp preferences.cpp \
   crsf_management_native.cpp \
   $(ROOT)/src/channel2_ui_lvgl.cpp \
+  $(ROOT)/src/channel_response.cpp \
   $(ROOT)/src/proportional_input.cpp \
   $(ROOT)/src/control_assignment.cpp \
   $(ROOT)/src/binding_resolver.cpp \

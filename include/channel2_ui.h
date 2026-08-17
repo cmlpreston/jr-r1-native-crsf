@@ -2,28 +2,13 @@
 
 #include <Arduino.h>
 #include <lvgl.h>
+#include "channel_response.h"
 #include "control_assignment.h"
 #include "crsf_telemetry.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
 #include "physical_input.h"
 #include "proportional_input.h"
-
-// Response profile attached to one CRSF output channel. The historical name is
-// retained for source/storage compatibility while the UI migrates from a
-// CH2-only implementation to per-channel proportional profiles.
-struct Channel2Settings {
-    uint8_t brakeEndpointPercent = 100;
-    uint8_t forwardEndpointPercent = 100;
-    uint8_t brakeRatePercent = 100;
-    uint8_t forwardRatePercent = 100;
-    int8_t brakeExpoPercent = 0;
-    int8_t forwardExpoPercent = 0;
-    uint16_t brakeSpeedMs = 0;
-    uint16_t forwardSpeedMs = 0;
-    int8_t subtrimPercent = 0;
-    bool reversed = false;
-};
 
 struct ChannelRoleSettings {
     uint8_t steeringChannel = 1;
@@ -147,7 +132,7 @@ public:
     void resetChannelSpeed();
     bool calibrationActive() const { return triggerInput_.calibrationActive(); }
     uint16_t throttleCentreAdc() const { return triggerInput_.centre(); }
-    const Channel2Settings &settings() const { return throttleProfile(); }
+    const ChannelResponseProfile &settings() const { return throttleProfile(); }
     const ProportionalCalibration &calibration() const { return triggerInput_.calibration(); }
     bool txVoltageSenseEnabled() const { return txBatterySettings_.voltageSenseEnabled; }
     uint8_t steeringChannel() const { return channelRoleSettings_.steeringChannel; }
@@ -173,12 +158,12 @@ public:
     bool consumeElrsManagementRequest(ElrsManagementRequest &request);
 
 private:
-    Channel2Settings &profileForChannel(uint8_t channel);
-    const Channel2Settings &profileForChannel(uint8_t channel) const;
-    Channel2Settings &throttleProfile();
-    const Channel2Settings &throttleProfile() const;
-    Channel2Settings &selectedResponseProfile();
-    const Channel2Settings &selectedResponseProfile() const;
+    ChannelResponseProfile &profileForChannel(uint8_t channel);
+    const ChannelResponseProfile &profileForChannel(uint8_t channel) const;
+    ChannelResponseProfile &throttleProfile();
+    const ChannelResponseProfile &throttleProfile() const;
+    ChannelResponseProfile &selectedResponseProfile();
+    const ChannelResponseProfile &selectedResponseProfile() const;
     bool channelHasProportionalControl(uint8_t channel) const;
     int16_t proportionalInputValue(uint8_t channel,
                                    int16_t throttleFallback) const;
@@ -362,7 +347,7 @@ private:
                                             AssignmentTarget current,
                                             int8_t direction) const;
 
-    Channel2Settings channelProfiles_[CRSF_CHANNEL_COUNT] = {};
+    ChannelResponseProfile channelProfiles_[CRSF_CHANNEL_COUNT] = {};
     ChannelRoleSettings channelRoleSettings_;
     ProportionalInput triggerInput_;
     SystemSettings systemSettings_;

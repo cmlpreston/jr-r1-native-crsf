@@ -171,6 +171,32 @@ Every refactor and new feature must demonstrate:
 
 ## Incremental refactor plan
 
+### Agreed execution order
+
+The following is the authoritative order for subsequent refactor work. Do not
+skip ahead where a later stage depends on an unfinished ownership or timing
+boundary:
+
+1. Validate and checkpoint the bulk telemetry-UART read fix.
+2. Replace the dual-UART CRSF bus with a single-UART, deadline-driven
+   half-duplex transport modelled on ExpressLRS.
+3. Extract and host-test per-channel ramp/slew state.
+4. Introduce an immutable, coherently published control-configuration
+   snapshot.
+5. Connect steering through the generic proportional-input runtime.
+6. Route steering, throttle and proportional AUX inputs through one channel
+   processing pipeline.
+7. Introduce one final output-safety arbiter after all bindings, modifiers and
+   channel processing.
+8. Move settings into versioned per-model persistence with explicit migration.
+9. Decompose `Channel2Ui` into model/controller, display and focused page
+   modules.
+10. Add custom curves, throttle hold and ABS only after the shared pipeline and
+    safety arbiter are established.
+
+At every stage, CRSF channel publication must remain deterministic and must
+not wait for LVGL, touch, NVS, I2C, USB logging or telemetry parsing.
+
 ### A. Pure channel response — started
 
 - [x] Extract `ChannelResponseProfile`, sanitisation and response math from

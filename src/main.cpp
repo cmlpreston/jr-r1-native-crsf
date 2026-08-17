@@ -2,6 +2,7 @@
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include <hal/uart_ll.h>
+#include <soc/gpio_pins.h>
 #include <soc/gpio_sig_map.h>
 #include <esp_system.h>
 
@@ -17,14 +18,17 @@
 
 namespace {
 
-HardwareSerial rangerSerial(1);
-HardwareSerial rangerRxSerial(2);
+// Native USB CDC owns the debug console, leaving UART0 available for the
+// latency-sensitive single-wire CRSF handset connection. ExpressLRS uses the
+// same UART on ESP32 targets for its proven half-duplex implementation.
+HardwareSerial rangerSerial(0);
 
-constexpr uart_port_t RANGER_UART = UART_NUM_1;
+constexpr uart_port_t RANGER_UART = UART_NUM_0;
 constexpr uint32_t CONTROL_TASK_PERIOD_MS = 4;
 constexpr uint32_t STARTUP_INPUT_SETTLE_MS = 400;
 
 struct ControlStateSnapshot {
+    uint16_t rawAdc = THROTTLE_ADC_CENTER;
     uint16_t adc = THROTTLE_ADC_CENTER;
     int16_t rawPermille = 0;
     int16_t outputPermille = 0;
@@ -33,6 +37,7 @@ struct ControlStateSnapshot {
     OutputSafetyStatus safetyStatus = OutputSafetyStatus::Cut;
     bool calibrating = false;
     bool inputValid = true;
+    uint32_t maximumTaskGapUs = 0;
 };
 
 struct SharedChannelOutputState {
@@ -47,6 +52,7 @@ uint32_t nextTxBatterySampleMs = 0;
 bool throttleArmed = false;
 bool wasCalibrating = false;
 uint32_t neutralSinceMs = 0;
+uint32_t linkReadySinceMs = 0;
 uint32_t nextFrameUs = 0;
 uint32_t nextLogMs = 0;
 Channel2Ui channel2Ui;
@@ -61,7 +67,10 @@ uint32_t nextExpanderPollMs = 0;
 uint32_t nextExpanderProbeMs = 0;
 uint16_t expanderPorts = 0xffff;
 bool inputExpanderReady = false;
-volatile uint32_t crsfBusEdges = 0;
+volatile uint32_t crsfChannelFramesSent = 0;
+volatile uint32_t crsfTransmitTimeouts = 0;
+volatile uint32_t crsfMaximumTransmitWaitUs = 0;
+volatile uint32_t crsfMaximumTaskGapUs = 0;
 volatile bool sharedControlStale = true;
 SharedChannelOutputState sharedChannelOutputs;
 portMUX_TYPE channelOutputMux = portMUX_INITIALIZER_UNLOCKED;
@@ -80,6 +89,22 @@ uint32_t startupInputSettledAtMs = 0;
 uint32_t startupWarningMask = 0;
 char usbCommand[32];
 uint8_t usbCommandLength = 0;
+
+const char *safetyStatusName(OutputSafetyStatus status)
+{
+    switch (status) {
+        case OutputSafetyStatus::Cut: return "CUT";
+        case OutputSafetyStatus::StartupWarning: return "STARTUP";
+        case OutputSafetyStatus::LinkRequired: return "LINK_WAIT";
+        case OutputSafetyStatus::NeutralRequired: return "NEUTRAL";
+        case OutputSafetyStatus::Armed: return "LIVE";
+        case OutputSafetyStatus::Calibration: return "CAL";
+        case OutputSafetyStatus::InputFault: return "INPUT_FAULT";
+        case OutputSafetyStatus::ControlStale: return "STALE";
+        case OutputSafetyStatus::ChannelDisabled: return "CH_OFF";
+    }
+    return "UNKNOWN";
+}
 
 uint64_t readDirectGpioLevels()
 {
@@ -122,11 +147,6 @@ BindingLoadResult installUiBindings()
     return result;
 }
 
-void IRAM_ATTR countCrsfBusEdge()
-{
-    ++crsfBusEdges;
-}
-
 void updateNeutralInterlock(uint16_t adc)
 {
     if (throttleArmed) {
@@ -147,8 +167,28 @@ void updateNeutralInterlock(uint16_t adc)
     }
 }
 
+bool updateLinkInterlock(const CrsfTelemetryState &telemetry)
+{
+    // Once armed, link telemetry is advisory only. Dropping the transmitted
+    // command merely because a return packet was delayed would itself create
+    // a hazardous control transient; RF-loss behaviour belongs in the RX
+    // failsafe configuration.
+    if (throttleArmed) return true;
+
+    const uint32_t now = millis();
+    const bool acceptable = telemetry.linkValid &&
+                            telemetry.uplinkLinkQuality >= ARM_MIN_LINK_QUALITY;
+    if (!acceptable) {
+        linkReadySinceMs = 0;
+        return false;
+    }
+    if (linkReadySinceMs == 0) linkReadySinceMs = now;
+    return now - linkReadySinceMs >= ARM_LINK_STABLE_TIME_MS;
+}
+
 OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
-                                      bool inputValid)
+                                      bool inputValid,
+                                      const CrsfTelemetryState &telemetry)
 {
     // Calibration is handled by ProportionalInput. This is only the output
     // safety policy: never arm during calibration and require neutral again
@@ -156,32 +196,44 @@ OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
     if (wasCalibrating && !calibrationActive) {
         throttleArmed = false;
         neutralSinceMs = 0;
+        linkReadySinceMs = 0;
     }
     wasCalibrating = calibrationActive;
     if (calibrationActive) {
         throttleArmed = false;
         neutralSinceMs = 0;
+        linkReadySinceMs = 0;
         return OutputSafetyStatus::Calibration;
     }
     if (!inputValid) {
         throttleArmed = false;
         neutralSinceMs = 0;
+        linkReadySinceMs = 0;
         return OutputSafetyStatus::InputFault;
     }
     if (!channel2Ui.throttleEnabled()) {
         throttleArmed = false;
         neutralSinceMs = 0;
+        linkReadySinceMs = 0;
         return OutputSafetyStatus::ChannelDisabled;
     }
     if (!startupPreflightComplete) {
         throttleArmed = false;
         neutralSinceMs = 0;
+        linkReadySinceMs = 0;
         return OutputSafetyStatus::StartupWarning;
     }
     if (!channel2Ui.armRequested()) {
         throttleArmed = false;
         neutralSinceMs = 0;
+        linkReadySinceMs = 0;
         return OutputSafetyStatus::Cut;
+    }
+    if (!updateLinkInterlock(telemetry)) {
+        // Neutral qualification starts only after the returned RF link has
+        // remained acceptable for its complete dwell period.
+        neutralSinceMs = 0;
+        return OutputSafetyStatus::LinkRequired;
     }
     updateNeutralInterlock(adc);
     return throttleArmed ? OutputSafetyStatus::Armed
@@ -190,25 +242,28 @@ OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
 
 void setCrsfBusReceive()
 {
-    // The Saleae capture of the actual Nano-adapter bus decodes as ordinary
-    // non-inverted 400 kbaud UART (idle high, falling start bit). Release the
-    // output driver and attach that physical polarity directly to UART RX.
+    // One UART owns both directions of the Ranger Nano's single-wire CRSF
+    // connection. As in ExpressLRS, leave the UART TX matrix mapping in place
+    // and release the physical driver by changing the shared GPIO to input.
+    // The UART driver and its RX ring buffer remain installed continuously.
     gpio_set_direction(CRSF_SIGNAL_PIN, GPIO_MODE_INPUT);
-    gpio_matrix_in(CRSF_SIGNAL_PIN, U2RXD_IN_IDX, true);
-    gpio_pullup_en(CRSF_SIGNAL_PIN);
-    gpio_pulldown_dis(CRSF_SIGNAL_PIN);
+    // Match ExpressLRS CRSFHandset::duplex_set_RX() for an inverted
+    // single-wire handset bus: matrix inversion plus a physical pull-down.
+    gpio_matrix_in(CRSF_SIGNAL_PIN, U0RXD_IN_IDX, true);
+    gpio_pulldown_en(CRSF_SIGNAL_PIN);
+    gpio_pullup_dis(CRSF_SIGNAL_PIN);
 }
 
 void setCrsfBusTransmit()
 {
-    // UART2 remains attached as a passive listener. It receives a clean echo
-    // of our outbound frame as well as the Nano's replies; the parser safely
-    // ignores outbound frame types. Keeping it attached avoids losing the
-    // beginning of a fast Nano response during a GPIO-matrix handover.
+    // Stop UART0 receiving before its transmitter owns the half-duplex wire.
+    // Match ExpressLRS CRSFHandset::duplex_set_TX(): disconnect RX by routing
+    // a constant physical low without matrix inversion while TX owns the bus.
+    gpio_matrix_in(GPIO_MATRIX_CONST_ZERO_INPUT, U0RXD_IN_IDX, false);
     gpio_set_pull_mode(CRSF_SIGNAL_PIN, GPIO_FLOATING);
     gpio_set_level(CRSF_SIGNAL_PIN, 0);
     gpio_set_direction(CRSF_SIGNAL_PIN, GPIO_MODE_OUTPUT);
-    gpio_matrix_out(CRSF_SIGNAL_PIN, U1TXD_OUT_IDX, true, false);
+    gpio_matrix_out(CRSF_SIGNAL_PIN, U0TXD_OUT_IDX, true, false);
 }
 
 void transmitCrsfFrame(const uint8_t *frame, size_t length)
@@ -218,8 +273,15 @@ void transmitCrsfFrame(const uint8_t *frame, size_t length)
     // Poll the hardware directly. Waiting through the UART driver's event path
     // leaves the line driven for too long and can hide the Nano's immediate
     // half-duplex response.
-    while (!uart_ll_is_tx_idle(UART_LL_GET_HW(RANGER_UART))) {
+    const uint32_t waitStartedUs = micros();
+    while (!uart_ll_is_tx_idle(UART_LL_GET_HW(RANGER_UART)) &&
+           static_cast<uint32_t>(micros() - waitStartedUs) < 2000) {
     }
+    const uint32_t waitedUs = micros() - waitStartedUs;
+    if (waitedUs > crsfMaximumTransmitWaitUs)
+        crsfMaximumTransmitWaitUs = waitedUs;
+    if (!uart_ll_is_tx_idle(UART_LL_GET_HW(RANGER_UART)))
+        ++crsfTransmitTimeouts;
     setCrsfBusReceive();
 }
 
@@ -228,6 +290,7 @@ void sendChannelsFrame(const CrsfChannelOutputModel &model, bool live)
     uint8_t frame[CRSF_FRAME_BYTES];
     buildCrsfChannelsFrame(model, live, frame);
     transmitCrsfFrame(frame, sizeof(frame));
+    ++crsfChannelFramesSent;
 }
 
 bool queueManagementRequest(const ElrsManagementRequest &request)
@@ -270,13 +333,23 @@ void sendManagementRequest(const ElrsManagementRequest &request)
 
 void readReturnedTelemetry()
 {
-    // This runs in the dedicated CRSF task. A generous bound prevents a bad
-    // electrical stream from monopolising Core 0 while still draining normal
-    // channel echoes and module telemetry faster than they can arrive.
-    uint16_t budget = 2048;
-    while (budget-- > 0 && rangerRxSerial.available() > 0) {
-        const uint8_t value = static_cast<uint8_t>(rangerRxSerial.read());
-        telemetryParser.feed(value);
+    // Keep returned telemetry subordinate to the next channel deadline. A
+    // noisy one-wire bus can otherwise keep available() permanently non-zero
+    // and make one invocation spend milliseconds draining the UART FIFO.
+    // At 400 kbaud only about 40 bytes arrive per millisecond, so 128 bytes per
+    // pass still drains a healthy stream faster than real time.
+    // Do not call HardwareSerial::read() once per byte here. On a noisy or
+    // self-echoing half-duplex line each call enters the UART driver and takes
+    // its lock; draining 128 bytes that way has produced measured ~129 ms
+    // CRSF task stalls. One non-blocking driver read keeps this work bounded.
+    uint8_t bytes[128];
+    size_t buffered = 0;
+    if (uart_get_buffered_data_len(RANGER_UART, &buffered) == ESP_OK &&
+        buffered != 0) {
+        const size_t wanted = buffered < sizeof(bytes) ? buffered : sizeof(bytes);
+        const int received = uart_read_bytes(RANGER_UART, bytes, wanted, 0);
+        for (int index = 0; index < received; ++index)
+            telemetryParser.feed(bytes[index]);
     }
     telemetryParser.updateFreshness();
 }
@@ -349,11 +422,19 @@ ControlStateSnapshot readControlState()
 void controlTask(void *)
 {
     TickType_t nextWake = xTaskGetTickCount();
+    uint32_t previousCycleUs = micros();
+    uint32_t maximumTaskGapUs = 0;
+    OutputSafetyStatus previousSafetyStatus = OutputSafetyStatus::ControlStale;
     for (;;) {
+        const uint32_t cycleUs = micros();
+        const uint32_t taskGapUs = cycleUs - previousCycleUs;
+        previousCycleUs = cycleUs;
+        if (taskGapUs > maximumTaskGapUs) maximumTaskGapUs = taskGapUs;
         if (controlResetRequested) {
             controlResetRequested = false;
             throttleArmed = false;
             neutralSinceMs = 0;
+            linkReadySinceMs = 0;
             channel2Ui.resetChannelSpeed();
         }
 
@@ -367,8 +448,21 @@ void controlTask(void *)
         const uint16_t filteredAdc = throttleInput.filteredAdc;
         const bool calibrating = channel2Ui.calibrationActive();
         const bool inputValid = throttleInput.valid;
+        const CrsfTelemetryState telemetry = readTelemetrySnapshot();
         const OutputSafetyStatus safetyStatus = updateTriggerSafety(
-            filteredAdc, calibrating, inputValid);
+            filteredAdc, calibrating, inputValid, telemetry);
+        if (safetyStatus != previousSafetyStatus) {
+            Serial.printf("SAFETY t=%lums %s -> %s arm_request=%s raw=%u filtered=%u centre=%u delta=%+d\n",
+                          static_cast<unsigned long>(millis()),
+                          safetyStatusName(previousSafetyStatus),
+                          safetyStatusName(safetyStatus),
+                          channel2Ui.armRequested() ? "yes" : "no",
+                          throttleInput.rawAdc, filteredAdc,
+                          channel2Ui.throttleCentreAdc(),
+                          static_cast<int>(filteredAdc) -
+                              static_cast<int>(channel2Ui.throttleCentreAdc()));
+            previousSafetyStatus = safetyStatus;
+        }
 
         const int16_t rawThrottle = throttleInput.normalisedPermille;
         const int16_t responseThrottle = channel2Ui.applySettings(rawThrottle);
@@ -419,6 +513,7 @@ void controlTask(void *)
                               controlUpdateUs);
 
         ControlStateSnapshot snapshot;
+        snapshot.rawAdc = throttleInput.rawAdc;
         snapshot.adc = filteredAdc;
         snapshot.rawPermille = rawThrottle;
         snapshot.outputPermille = throttleArmed
@@ -429,6 +524,7 @@ void controlTask(void *)
         snapshot.safetyStatus = safetyStatus;
         snapshot.calibrating = calibrating;
         snapshot.inputValid = inputValid;
+        snapshot.maximumTaskGapUs = maximumTaskGapUs;
         publishControlState(snapshot);
 
         vTaskDelayUntil(&nextWake, pdMS_TO_TICKS(CONTROL_TASK_PERIOD_MS));
@@ -438,16 +534,26 @@ void controlTask(void *)
 void crsfTask(void *)
 {
     nextFrameUs = micros();
+    uint32_t previousTaskCycleUs = nextFrameUs;
     uint32_t nextSnapshotMs = millis();
     bool uidFollowupPending = false;
     uint32_t uidFollowupDueMs = 0;
     ElrsManagementTarget uidFollowupTarget = ElrsManagementTarget::Transmitter;
     for (;;) {
         const uint32_t nowUs = micros();
+        const uint32_t taskGapUs = nowUs - previousTaskCycleUs;
+        previousTaskCycleUs = nowUs;
+        if (taskGapUs > crsfMaximumTaskGapUs)
+            crsfMaximumTaskGapUs = taskGapUs;
         if (static_cast<int32_t>(nowUs - nextFrameUs) >= 0) {
-            // Do not send a burst after a scheduling hiccup; resume at the
-            // current 250 Hz phase with the latest requested channel value.
-            nextFrameUs = nowUs + CRSF_FRAME_PERIOD_US;
+            // Preserve the 250 Hz phase when a normal task iteration reaches
+            // the deadline slightly late. Reset only after a genuinely missed
+            // complete period, preventing both long-term drift toward ~220 Hz
+            // and catch-up bursts after an exceptional scheduling hiccup.
+            const uint32_t latenessUs = nowUs - nextFrameUs;
+            nextFrameUs = latenessUs >= CRSF_FRAME_PERIOD_US
+                ? nowUs + CRSF_FRAME_PERIOD_US
+                : nextFrameUs + CRSF_FRAME_PERIOD_US;
             const SharedChannelOutputState outputs = readChannelOutputs();
             const uint32_t lastControlUs = outputs.updatedUs;
             const bool stale = lastControlUs == 0 ||
@@ -509,40 +615,58 @@ bool consumeScreenshotCommand()
 
 void setup()
 {
+    // Establish the inverted CRSF bus idle level immediately, before USB/UI
+    // startup work. The Ranger can remain powered across an S3 reset, so a
+    // deliberate quiet interval gives its handset UART watchdog a clean
+    // opportunity to resynchronise before our first channel frame.
+    gpio_reset_pin(CRSF_SIGNAL_PIN);
+    gpio_set_direction(CRSF_SIGNAL_PIN, GPIO_MODE_INPUT);
+    gpio_pulldown_en(CRSF_SIGNAL_PIN);
+    gpio_pullup_dis(CRSF_SIGNAL_PIN);
+
     Serial.begin(115200);
-    delay(700);
+    delay(CRSF_STARTUP_BUS_QUIET_MS);
     Serial.println();
     Serial.println("JR R1 native CRSF throttle test");
     Serial.printf("BOOT: reset_reason=%u free_heap=%u bytes\n",
                   static_cast<unsigned>(esp_reset_reason()),
                   static_cast<unsigned>(ESP.getFreeHeap()));
     Serial.printf("MEMORY: heap=%u free=%u min_free=%u largest=%u "
-                  "psram=%u free_psram=%u\n",
+                  "psram=%u free_psram=%u flash=%u\n",
                   static_cast<unsigned>(ESP.getHeapSize()),
                   static_cast<unsigned>(ESP.getFreeHeap()),
                   static_cast<unsigned>(ESP.getMinFreeHeap()),
                   static_cast<unsigned>(ESP.getMaxAllocHeap()),
                   static_cast<unsigned>(ESP.getPsramSize()),
-                  static_cast<unsigned>(ESP.getFreePsram()));
+                  static_cast<unsigned>(ESP.getFreePsram()),
+                  static_cast<unsigned>(ESP.getFlashChipSize()));
     Serial.println("WARNING: disconnect the motor / raise the wheels for first test");
 
     analogReadResolution(12);
     analogSetPinAttenuation(THROTTLE_ADC_PIN, ADC_11db);
     analogSetPinAttenuation(TX_BATTERY_ADC_PIN, ADC_11db);
 
-    // UART1 drives the one-wire CRSF bus. UART2 passively samples the same pin;
-    // separating TX and RX avoids remapping a live UART input at every 250 Hz
-    // direction change.
-    rangerSerial.begin(CRSF_BAUD, SERIAL_8N1, -1, CRSF_SIGNAL_PIN, false);
+    // UART0 remains installed with both RX and TX assigned to the one-wire
+    // CRSF pin. The GPIO matrix functions above alternate ownership without
+    // stopping/restarting the driver, matching the half-duplex strategy used
+    // by ExpressLRS itself. Allocate the larger RX buffer before begin().
+    rangerSerial.setRxBufferSize(2048);
+    rangerSerial.begin(CRSF_BAUD, SERIAL_8N1,
+                       CRSF_SIGNAL_PIN, CRSF_SIGNAL_PIN, false);
     rangerSerial.setTimeout(0);
-    rangerRxSerial.setRxBufferSize(2048);
-    rangerRxSerial.begin(CRSF_BAUD, SERIAL_8N1, CRSF_SIGNAL_PIN, -1, false);
-    rangerRxSerial.setTimeout(0);
     setCrsfBusReceive();
-    attachInterrupt(digitalPinToInterrupt(CRSF_SIGNAL_PIN), countCrsfBusEdge, CHANGE);
+    uart_flush_input(RANGER_UART);
+    Serial.printf("CRSF TRANSPORT: UART0 single-wire half-duplex on GPIO%u\n",
+                  static_cast<unsigned>(CRSF_SIGNAL_PIN));
+    // Do not attach a CHANGE interrupt to the CRSF signal. At 400 kbaud that
+    // diagnostic generated hundreds of thousands of interrupts per second and
+    // competed with the UART/CRSF task for no operational benefit.
 
-    xTaskCreatePinnedToCore(crsfTask, "crsf-link", 4096, nullptr, 4,
-                            &crsfTaskHandle, 0);
+    // HardwareSerial installs its UART drivers from setup() on Core 1. Keep
+    // the CRSF owner on that core too, above control sampling and far above
+    // the Arduino/LVGL loop, so display/system work cannot create radio gaps.
+    xTaskCreatePinnedToCore(crsfTask, "crsf-link", 4096, nullptr, 6,
+                            &crsfTaskHandle, 1);
 
     const uint32_t heapBeforeUi = ESP.getFreeHeap();
     channel2Ui.begin();
@@ -718,14 +842,18 @@ void loop()
         Serial.println("SAFE: mode/assignment/arm state changed; output reset to neutral");
     }
 
-    if (static_cast<int32_t>(nowMs - nextLogMs) >= 0) {
+    if (ENABLE_PERIODIC_USB_DIAGNOSTICS &&
+        static_cast<int32_t>(nowMs - nextLogMs) >= 0) {
         nextLogMs += USB_LOG_PERIOD_MS;
         const int neutralDelta = static_cast<int>(control.adc) -
                                  static_cast<int>(channel2Ui.throttleCentreAdc());
-        Serial.printf("adc=%4u ctr=%4u delta=%+4d cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s stale=%s drive=%s TIMER=%s MCP=%s link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV edges=%lu bytes=%lu frames=%lu crc=%lu\n",
+        Serial.printf("raw=%4u adc=%4u ctr=%4u delta=%+4d safety=%s armReq=%s cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s stale=%s ctrlGap=%luus txFrames=%lu crsfGap=%luus txWait=%luus txTO=%lu drive=%s TIMER=%s MCP=%s link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV bytes=%lu frames=%lu crc=%lu\n",
+                      control.rawAdc,
                       control.adc,
                       channel2Ui.throttleCentreAdc(),
                       neutralDelta,
+                      safetyStatusName(control.safetyStatus),
+                      channel2Ui.armRequested() ? "yes" : "no",
                       control.calibrating ? "yes" : "no",
                       static_cast<unsigned long>(neutralSinceMs == 0 ? 0 : nowMs - neutralSinceMs),
                       channel2Ui.throttleChannel(),
@@ -733,6 +861,11 @@ void loop()
                       control.transmittedCrsf,
                       throttleArmed ? "yes" : "NO",
                       sharedControlStale ? "YES" : "no",
+                      static_cast<unsigned long>(control.maximumTaskGapUs),
+                      static_cast<unsigned long>(crsfChannelFramesSent),
+                      static_cast<unsigned long>(crsfMaximumTaskGapUs),
+                      static_cast<unsigned long>(crsfMaximumTransmitWaitUs),
+                      static_cast<unsigned long>(crsfTransmitTimeouts),
                       channel2Ui.driveMode() == DriveMode::Walk ? "WALK" : "NORMAL",
                       physicalInputs.state(PhysicalControlId::TimerButton).stablePrimary
                           ? "ON" : "off",
@@ -746,7 +879,6 @@ void loop()
                       telemetry.receiverVoltageValid ? "" : "--/",
                       telemetry.receiverVoltageDecivolts / 10,
                       telemetry.receiverVoltageDecivolts % 10,
-                      static_cast<unsigned long>(crsfBusEdges),
                       static_cast<unsigned long>(telemetry.rawBytes),
                       static_cast<unsigned long>(telemetry.validFrames),
                       static_cast<unsigned long>(telemetry.crcErrors));

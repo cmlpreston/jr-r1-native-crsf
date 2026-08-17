@@ -47,6 +47,7 @@ struct DriveModeSettings {
 enum class OutputSafetyStatus : uint8_t {
     Cut,
     StartupWarning,
+    LinkRequired,
     NeutralRequired,
     Armed,
     Calibration,

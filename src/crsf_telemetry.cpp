@@ -16,6 +16,7 @@ constexpr uint32_t kLinkFreshMs = 3000;
 // packets. Retain the last valid voltage between reports without making a
 // disconnected receiver appear live indefinitely.
 constexpr uint32_t kBatteryFreshMs = 30000;
+constexpr uint16_t kMaximumPlausibleReceiverDecivolts = 600; // 60 V
 
 int16_t decodeRssiDbm(uint8_t raw)
 {
@@ -87,7 +88,8 @@ void CrsfTelemetryParser::processFrame()
     const uint8_t payloadLength = frame_[1] - 2;
     const uint8_t *payload = &frame_[3];
 
-    if (frameType == kFrameTypeLinkStatistics && payloadLength >= 10) {
+    if (frameType == kFrameTypeLinkStatistics && payloadLength == 10 &&
+        payload[2] <= 100 && payload[4] <= 1) {
         state_.activeAntenna = payload[4];
         state_.uplinkRssiDbm =
             decodeRssiDbm(payload[state_.activeAntenna == 1 ? 1 : 0]);
@@ -100,10 +102,14 @@ void CrsfTelemetryParser::processFrame()
         return;
     }
 
-    if (frameType == kFrameTypeBatterySensor && payloadLength >= 8) {
-        state_.receiverVoltageDecivolts =
+    if (frameType == kFrameTypeBatterySensor && payloadLength == 8) {
+        const uint16_t voltageDecivolts =
             static_cast<uint16_t>((payload[0] << 8) | payload[1]);
-        state_.receiverVoltageValid = state_.receiverVoltageDecivolts != 0;
+        if (voltageDecivolts == 0 ||
+            voltageDecivolts > kMaximumPlausibleReceiverDecivolts)
+            return;
+        state_.receiverVoltageDecivolts = voltageDecivolts;
+        state_.receiverVoltageValid = true;
         state_.batteryUpdatedMs = millis();
         return;
     }

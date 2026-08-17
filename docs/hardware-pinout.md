@@ -1,7 +1,8 @@
 # Hardware and pin assignment reference
 
 This document is the authoritative wiring reference for the JR R1 native-CRSF
-prototype. The current controller is an ESP32-S3 DevKitC-1 connected to a
+prototype. The current controller is an ESP32-S3 DevKitC-1 fitted with an
+ESP32-S3-WROOM-1-N16R8 module (16 MB flash and 8 MB octal PSRAM), connected to a
 Waveshare 3.5inch RPi LCD (F), the original R1 throttle potentiometer and buzzer,
 and a RadioMaster Ranger Nano transmitter module. A build-time profile retains
 support for the earlier BIGTREETECH TFT35 SPI V2.1.
@@ -20,7 +21,7 @@ support for the earlier BIGTREETECH TFT35 SPI V2.1.
 | GPIO9 | Output | LCD data-command | 3.3 V logic | `TFT_DC_PIN`; active |
 | GPIO10 | Output | LCD chip select | 3.3 V logic | `TFT_CS_PIN`; active |
 | GPIO11 | Output | LCD `MOSI` | 3.3 V SPI | `TFT_MOSI_PIN`; active |
-| GPIO12 | Output | LCD `SCK` | 3.3 V SPI, presently 25 MHz | `TFT_SCK_PIN`; active |
+| GPIO12 | Output | LCD `SCK` | 3.3 V SPI, presently 30 MHz | `TFT_SCK_PIN`; active |
 | GPIO13 | Input | LCD `MISO` | 3.3 V SPI | `TFT_MISO_PIN`; active |
 | GPIO14 | Input | Keypad `PAGE` | Active-low contact; internal pull-up | production map |
 | GPIO15 | Input | Keypad `CLEAR` | Active-low contact; internal pull-up | production map |

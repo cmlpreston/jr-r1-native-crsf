@@ -615,13 +615,6 @@ bool consumeScreenshotCommand()
 
 void setup()
 {
-#if defined(RGB_BUILTIN)
-    // The DevKitC addressable RGB LED can latch an arbitrary colour during a
-    // power-up or flashing transient. Give it a deterministic initial state;
-    // it is not currently used as a status or load indicator.
-    neopixelWrite(RGB_BUILTIN, 0, 0, 0);
-#endif
-
     // Establish the inverted CRSF bus idle level immediately, before USB/UI
     // startup work. The Ranger can remain powered across an S3 reset, so a
     // deliberate quiet interval gives its handset UART watchdog a clean

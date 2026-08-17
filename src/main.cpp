@@ -18,9 +18,12 @@
 
 namespace {
 
-HardwareSerial rangerSerial(1);
+// Native USB CDC owns the debug console, leaving UART0 available for the
+// latency-sensitive single-wire CRSF handset connection. ExpressLRS uses the
+// same UART on ESP32 targets for its proven half-duplex implementation.
+HardwareSerial rangerSerial(0);
 
-constexpr uart_port_t RANGER_UART = UART_NUM_1;
+constexpr uart_port_t RANGER_UART = UART_NUM_0;
 constexpr uint32_t CONTROL_TASK_PERIOD_MS = 4;
 constexpr uint32_t STARTUP_INPUT_SETTLE_MS = 400;
 
@@ -240,30 +243,27 @@ OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
 void setCrsfBusReceive()
 {
     // One UART owns both directions of the Ranger Nano's single-wire CRSF
-    // connection. Disconnect its TX output before releasing the GPIO, then
-    // attach UART1 RX. This changes only the GPIO matrix routing: the UART
-    // driver and its RX ring buffer remain installed continuously.
-    gpio_matrix_out(CRSF_SIGNAL_PIN, SIG_GPIO_OUT_IDX, false, false);
+    // connection. As in ExpressLRS, leave the UART TX matrix mapping in place
+    // and release the physical driver by changing the shared GPIO to input.
+    // The UART driver and its RX ring buffer remain installed continuously.
     gpio_set_direction(CRSF_SIGNAL_PIN, GPIO_MODE_INPUT);
-    // The Ranger adapter path is empirically decoded through the GPIO-matrix
-    // inversion. Disabling this produces no valid return frames, even though
-    // the waveform observed outside the adapter is conventional idle-high
-    // UART; retain the proven setting here.
-    gpio_matrix_in(CRSF_SIGNAL_PIN, U1RXD_IN_IDX, true);
-    gpio_pullup_en(CRSF_SIGNAL_PIN);
-    gpio_pulldown_dis(CRSF_SIGNAL_PIN);
+    // Match ExpressLRS CRSFHandset::duplex_set_RX() for an inverted
+    // single-wire handset bus: matrix inversion plus a physical pull-down.
+    gpio_matrix_in(CRSF_SIGNAL_PIN, U0RXD_IN_IDX, true);
+    gpio_pulldown_en(CRSF_SIGNAL_PIN);
+    gpio_pullup_dis(CRSF_SIGNAL_PIN);
 }
 
 void setCrsfBusTransmit()
 {
-    // Stop UART1 receiving before its transmitter owns the half-duplex wire.
-    // Constant zero plus input inversion presents the detached receiver with
-    // idle-high, preventing self-echo and framing-error traffic in its FIFO.
-    gpio_matrix_in(GPIO_MATRIX_CONST_ZERO_INPUT, U1RXD_IN_IDX, true);
+    // Stop UART0 receiving before its transmitter owns the half-duplex wire.
+    // Match ExpressLRS CRSFHandset::duplex_set_TX(): disconnect RX by routing
+    // a constant physical low without matrix inversion while TX owns the bus.
+    gpio_matrix_in(GPIO_MATRIX_CONST_ZERO_INPUT, U0RXD_IN_IDX, false);
     gpio_set_pull_mode(CRSF_SIGNAL_PIN, GPIO_FLOATING);
     gpio_set_level(CRSF_SIGNAL_PIN, 0);
     gpio_set_direction(CRSF_SIGNAL_PIN, GPIO_MODE_OUTPUT);
-    gpio_matrix_out(CRSF_SIGNAL_PIN, U1TXD_OUT_IDX, true, false);
+    gpio_matrix_out(CRSF_SIGNAL_PIN, U0TXD_OUT_IDX, true, false);
 }
 
 void transmitCrsfFrame(const uint8_t *frame, size_t length)
@@ -645,7 +645,7 @@ void setup()
                        CRSF_SIGNAL_PIN, CRSF_SIGNAL_PIN, false);
     rangerSerial.setTimeout(0);
     setCrsfBusReceive();
-    Serial.printf("CRSF TRANSPORT: UART1 single-wire half-duplex on GPIO%u\n",
+    Serial.printf("CRSF TRANSPORT: UART0 single-wire half-duplex on GPIO%u\n",
                   static_cast<unsigned>(CRSF_SIGNAL_PIN));
     // Do not attach a CHANGE interrupt to the CRSF signal. At 400 kbaud that
     // diagnostic generated hundreds of thousands of interrupts per second and

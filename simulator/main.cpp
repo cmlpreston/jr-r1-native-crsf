@@ -71,6 +71,8 @@ int main(int argc, char **argv)
         ui.showSimulatorPage(UiPage::ThrottleResponse);
     else if (initialPage == "ramp")
         ui.showSimulatorPage(UiPage::ChannelSpeed);
+    else if (initialPage == "esc")
+        ui.showSimulatorPage(UiPage::EscProgramming);
 
     CrsfTelemetryState telemetry;
     uint32_t previousMs = millis();
@@ -105,7 +107,7 @@ int main(int argc, char **argv)
                                  CRSF_CHANNEL_MID, ui.steeringEnabled());
         channelOutputs.configure(ui.throttleChannel(), crsf, CRSF_CHANNEL_MID,
                                  ui.throttleEnabled());
-        ui.update(rawAdc, rawPermille, output, crsf, safety, telemetry,
+        ui.update(rawAdc, rawAdc, rawPermille, output, crsf, safety, telemetry,
                   controls.transmitterVoltageDecivolts, true,
                   channelOutputs, safety == OutputSafetyStatus::Armed);
 

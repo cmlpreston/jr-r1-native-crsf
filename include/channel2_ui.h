@@ -97,6 +97,7 @@ enum class UiPage : uint8_t {
     RxBatterySetup,
     DisplaySetup,
     ElrsBinding,
+    EscProgramming,
     Calibration,
 };
 
@@ -240,6 +241,7 @@ private:
     void controlChannelConfig(uint8_t item, PageControlEvent event);
     void controlInputMonitor(uint8_t item, PageControlEvent event);
     void controlElrsBinding(uint8_t item, PageControlEvent event);
+    void controlEscProgramming(uint8_t item, PageControlEvent event);
     void controlThrottleHeader(uint8_t item, PageControlEvent event);
     void controlNavigation(uint8_t item, PageControlEvent event);
     void navigateBack();
@@ -280,6 +282,7 @@ private:
     void drawDisplayPage();
     void drawDisplayRow(int row);
     void drawElrsBindingPage();
+    void drawEscProgrammingPage();
     void drawCalibrationPage();
     void drawCalibrationValues(uint16_t adc);
     void drawSettingRow(int row);
@@ -378,6 +381,7 @@ private:
     uint32_t startupWarningMask_ = 0;
     UiPage throttleResponseReturnPage_ = UiPage::MainMenu;
     UiPage driveModesReturnPage_ = UiPage::Dashboard;
+    uint8_t escProgrammingTab_ = 0;
     uint8_t channelsBank_ = 0;
     uint8_t selectedChannel_ = 2;
     uint8_t inputMonitorBank_ = 0;

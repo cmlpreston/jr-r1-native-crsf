@@ -104,7 +104,7 @@ constexpr DriveModeSelection kEditableDriveModeSelections[] = {
 constexpr bool mainMenuItemEnabled(uint8_t index)
 {
     return index == 1 || index == 2 || index == 3 || index == 4 ||
-           index == 6 || index == 7;
+           index == 5 || index == 6 || index == 7;
 }
 
 #ifndef JR_R1_SIMULATOR
@@ -454,6 +454,7 @@ const char *uiPageName(UiPage page)
         case UiPage::RxBatterySetup: return "rx-battery";
         case UiPage::DisplaySetup: return "display";
         case UiPage::ElrsBinding: return "elrs-binding";
+        case UiPage::EscProgramming: return "esc-programming";
         case UiPage::Calibration: return "calibration";
     }
     return "unknown";
@@ -1537,6 +1538,7 @@ void Channel2Ui::redrawActivePage()
         case UiPage::RxBatterySetup: drawRxBatteryPage(); break;
         case UiPage::DisplaySetup: drawDisplayPage(); break;
         case UiPage::ElrsBinding: drawElrsBindingPage(); break;
+        case UiPage::EscProgramming: drawEscProgrammingPage(); break;
         case UiPage::Calibration: drawCalibrationPage(); break;
     }
 }
@@ -2467,7 +2469,7 @@ void Channel2Ui::drawMainMenu()
     resetLvglObjects();
     makeHeader("JR R1 CONTROLLER");
     static const char *labels[] = {"MODELS", "CHANNELS", "RESPONSE", "CONTROL MAP",
-        "DRIVE MODES", "TIMERS", "LINK / TELEM", "SETUP"};
+        "DRIVE MODES", "ESC PROGRAM", "LINK / TELEM", "SETUP"};
     for (uint8_t index = 0; index < 8; ++index) {
         const bool enabled = mainMenuItemEnabled(index);
         mainMenuButtons_[index] = makeButton(
@@ -2528,6 +2530,7 @@ void Channel2Ui::activateMainMenuFocus()
             driveModesReturnPage_ = UiPage::MainMenu;
             drawDriveModesPage();
             break;
+        case 5: drawEscProgrammingPage(); break;
         case 6: drawElrsBindingPage(); break;
         case 7: drawSetupPage(); break;
         default: break;
@@ -2818,6 +2821,20 @@ void Channel2Ui::controlSetup(uint8_t item, PageControlEvent event)
     }
 }
 
+void Channel2Ui::controlEscProgramming(uint8_t item, PageControlEvent)
+{
+    if (item < 3) {
+        escProgrammingTab_ = item;
+        playKeyClick();
+        drawEscProgrammingPage();
+        return;
+    }
+
+    // READ and WRITE are deliberately inert until the isolated electrical
+    // interface and the selected ESC protocol have been validated.
+    playBuzzer(35);
+}
+
 void Channel2Ui::controlThrottleSetting(uint8_t row, PageControlEvent event)
 {
     const int8_t direction = event == PageControlEvent::Decrease ? -1 : 1;
@@ -2966,6 +2983,7 @@ void Channel2Ui::navigateBack()
         case UiPage::RxBatterySetup:
         case UiPage::DisplaySetup: drawSetupPage(); break;
         case UiPage::ElrsBinding: drawMainMenu(); break;
+        case UiPage::EscProgramming: drawMainMenu(); break;
         case UiPage::Calibration: cancelCalibration(); break;
     }
 }
@@ -3919,6 +3937,66 @@ void Channel2Ui::drawElrsBindingPage()
     makePageActionButton(345, 282, 92, 32, "<--", 14,
                          cPanel2, cAmber, cLine,
                          &Channel2Ui::controlElrsBinding, 45);
+    finishPageFocus();
+}
+
+void Channel2Ui::drawEscProgrammingPage()
+{
+    activePage_ = UiPage::EscProgramming;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("ESC PROGRAMMER", "BACK");
+    beginPageFocus();
+
+    lv_obj_t *status = makePanel(8, 47, 464, 34, cSafetyWaiting, cAmber);
+    makeLabel(status, LV_SYMBOL_WARNING "  NO ESC LINK - PREVIEW ONLY",
+              12, 7, 13, cAmber);
+    lv_obj_t *profile = makeLabel(status, "TS160 DRAFT", 0, 8, 11, cDim);
+    lv_obj_align(profile, LV_ALIGN_TOP_RIGHT, -10, 8);
+
+    static const char *tabs[] = {"BASIC", "BRAKE", "MOTOR"};
+    for (uint8_t tab = 0; tab < 3; ++tab) {
+        const bool selected = escProgrammingTab_ == tab;
+        makePageActionButton(8 + tab * 155, 87, 147, 32,
+                             tabs[tab], 13,
+                             selected ? cPanel2 : cBlack,
+                             selected ? cCyan : cDim,
+                             selected ? cCyan : cLine,
+                             &Channel2Ui::controlEscProgramming, tab);
+    }
+
+    static const char *labels[3][4] = {
+        {"RUN MODE", "LOW-V CUTOFF", "START / PUNCH", "BEC VOLTAGE"},
+        {"MAX BRAKE", "DRAG BRAKE", "INITIAL BRAKE", "NEUTRAL RANGE"},
+        {"ROTATION", "MOTOR TIMING", "PWM FREQUENCY", "THERMAL LIMIT"},
+    };
+    static const char *values[3][4] = {
+        {"FWD / BRK / REV", "3.4 V / CELL", "LEVEL 5", "7.4 V"},
+        {"75%", "0%", "= DRAG BRAKE", "9%"},
+        {"NORMAL", "7.5 deg", "16 kHz", "105 C"},
+    };
+
+    const uint8_t page = min<uint8_t>(escProgrammingTab_, 2);
+    for (uint8_t row = 0; row < 4; ++row) {
+        const int16_t y = 125 + row * 36;
+        lv_obj_t *panel = makePanel(8, y, 464, 31, cPanel, cLine, 5);
+        makeLabel(panel, labels[page][row], 10, 7, 12, cCyan);
+        lv_obj_t *value = makeLabel(panel, values[page][row], 0, 7, 12, cWhite);
+        lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -12, 7);
+    }
+
+    // These controls establish the intended workflow without suggesting that
+    // a value has actually been read from or written to the ESC.
+    makePageActionButton(8, 274, 168, 35, "READ ESC", 13,
+                         cBlack, cDim, cDim,
+                         &Channel2Ui::controlEscProgramming, 3);
+    makePageActionButton(184, 274, 168, 35, "WRITE ESC", 13,
+                         cBlack, cDim, cDim,
+                         &Channel2Ui::controlEscProgramming, 4);
+    lv_obj_t *comms = makePanel(360, 274, 112, 35,
+                                cSafetyWaiting, cAmber, 7);
+    lv_obj_t *commsLabel = makeLabel(comms, "NO COMMS", 0, 0, 11, cAmber);
+    lv_obj_center(commsLabel);
     finishPageFocus();
 }
 

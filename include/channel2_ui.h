@@ -458,9 +458,20 @@ private:
     uint8_t pageFocusIndex_ = 0;
     bool pageStandardHeaderPending_ = false;
     lv_obj_t *pageFocusIndicator_ = nullptr;
+    enum class DashboardChannelWidgetKind : uint8_t {
+        None,
+        HorizontalProportional,
+        VerticalProportional,
+        ToggleSwitch,
+    };
     lv_obj_t *dashboardChannelBars_[CRSF_CHANNEL_COUNT] = {};
+    lv_obj_t *dashboardChannelMarkers_[CRSF_CHANNEL_COUNT] = {};
+    DashboardChannelWidgetKind dashboardChannelWidgetKinds_[CRSF_CHANNEL_COUNT] = {};
     lv_obj_t *dashboardSafetyPanel_ = nullptr;
     lv_obj_t *dashboardSafetyLabel_ = nullptr;
+    lv_obj_t *dashboardSafetyIcon_ = nullptr;
+    lv_obj_t *dashboardSafetyLockBody_ = nullptr;
+    lv_obj_t *dashboardSafetyLockShackle_ = nullptr;
     lv_obj_t *dashboardLinkLabel_ = nullptr;
     lv_obj_t *dashboardRxVoltageLabel_ = nullptr;
     lv_obj_t *dashboardTxVoltageLabel_ = nullptr;

@@ -278,6 +278,98 @@ lv_obj_t *makeBar(lv_obj_t *parent, int16_t x, int16_t y, int16_t width,
     return bar;
 }
 
+lv_obj_t *makeMarkerTrack(lv_obj_t *parent, int16_t x, int16_t y,
+                          int16_t width, int16_t height,
+                          uint32_t markerColour, lv_obj_t **markerOut)
+{
+    lv_obj_t *track = lv_obj_create(parent);
+    position(track, x, y, width, height);
+    lv_obj_clear_flag(track, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(track, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(track, 0, 0);
+    lv_obj_set_style_bg_color(track, colour(cPanel2), 0);
+    lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(track, colour(cLine), 0);
+    lv_obj_set_style_border_width(track, 1, 0);
+    lv_obj_set_style_radius(track, 3, 0);
+
+    constexpr int16_t kMarkerWidth = 4;
+    lv_obj_t *marker = lv_obj_create(track);
+    position(marker, (width - kMarkerWidth) / 2, 2,
+             kMarkerWidth, max<int16_t>(4, height - 4));
+    lv_obj_clear_flag(marker, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(marker, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(marker, 0, 0);
+    lv_obj_set_style_bg_color(marker, colour(markerColour), 0);
+    lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(marker, 0, 0);
+    lv_obj_set_style_radius(marker, 1, 0);
+    if (markerOut != nullptr) *markerOut = marker;
+    return track;
+}
+
+lv_obj_t *makeVerticalMarkerTrack(lv_obj_t *parent, int16_t x, int16_t y,
+                                  int16_t width, int16_t height,
+                                  uint32_t markerColour,
+                                  lv_obj_t **markerOut)
+{
+    lv_obj_t *track = lv_obj_create(parent);
+    position(track, x, y, width, height);
+    lv_obj_clear_flag(track, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(track, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(track, 0, 0);
+    lv_obj_set_style_bg_color(track, colour(cPanel2), 0);
+    lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(track, colour(cLine), 0);
+    lv_obj_set_style_border_width(track, 1, 0);
+    lv_obj_set_style_radius(track, 3, 0);
+
+    constexpr int16_t kMarkerHeight = 4;
+    lv_obj_t *marker = lv_obj_create(track);
+    position(marker, 2, (height - kMarkerHeight) / 2,
+             max<int16_t>(4, width - 4), kMarkerHeight);
+    lv_obj_clear_flag(marker, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(marker, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(marker, 0, 0);
+    lv_obj_set_style_bg_color(marker, colour(markerColour), 0);
+    lv_obj_set_style_bg_opa(marker, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(marker, 0, 0);
+    lv_obj_set_style_radius(marker, 1, 0);
+    if (markerOut != nullptr) *markerOut = marker;
+    return track;
+}
+
+lv_obj_t *makeToggleTrack(lv_obj_t *parent, int16_t x, int16_t y,
+                          int16_t width, int16_t height,
+                          uint32_t markerColour, lv_obj_t **markerOut)
+{
+    lv_obj_t *track = lv_obj_create(parent);
+    position(track, x, y, width, height);
+    lv_obj_clear_flag(track, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(track, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(track, 0, 0);
+    lv_obj_set_style_bg_color(track, colour(cPanel2), 0);
+    lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(track, colour(cLine), 0);
+    lv_obj_set_style_border_width(track, 1, 0);
+    lv_obj_set_style_radius(track, max<int16_t>(3, width / 2), 0);
+
+    const int16_t thumbWidth = max<int16_t>(4, width - 4);
+    constexpr int16_t kThumbHeight = 12;
+    lv_obj_t *thumb = lv_obj_create(track);
+    position(thumb, 2, height - kThumbHeight - 2,
+             thumbWidth, kThumbHeight);
+    lv_obj_clear_flag(thumb, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(thumb, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_pad_all(thumb, 0, 0);
+    lv_obj_set_style_bg_color(thumb, colour(markerColour), 0);
+    lv_obj_set_style_bg_opa(thumb, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(thumb, 0, 0);
+    lv_obj_set_style_radius(thumb, max<int16_t>(2, thumbWidth / 2), 0);
+    if (markerOut != nullptr) *markerOut = thumb;
+    return track;
+}
+
 int16_t clampExtendedTravel(int32_t value)
 {
     return static_cast<int16_t>(constrain(value, -kExtendedTravelPermille,
@@ -590,8 +682,14 @@ void Channel2Ui::resetLvglObjects()
     pageFocusIndex_ = 0;
     for (lv_obj_t *&button : mainMenuButtons_) button = nullptr;
     for (lv_obj_t *&bar : dashboardChannelBars_) bar = nullptr;
+    for (lv_obj_t *&marker : dashboardChannelMarkers_) marker = nullptr;
+    for (DashboardChannelWidgetKind &kind : dashboardChannelWidgetKinds_)
+        kind = DashboardChannelWidgetKind::None;
     dashboardSafetyPanel_ = nullptr;
     dashboardSafetyLabel_ = nullptr;
+    dashboardSafetyIcon_ = nullptr;
+    dashboardSafetyLockBody_ = nullptr;
+    dashboardSafetyLockShackle_ = nullptr;
     dashboardLinkLabel_ = nullptr;
     dashboardRxVoltageLabel_ = nullptr;
     dashboardTxVoltageLabel_ = nullptr;
@@ -1786,14 +1884,14 @@ void Channel2Ui::drawDashboard()
     beginPageFocus(false);
 
     lv_obj_t *header = makePanel(0, 0, 480, 40, cHeader, cHeader, 0);
-    makeLabel(header, "MODEL 01", 12, 8, 20);
-    makeLabel(header, "CRSF TX", 320, 10, 16, cGreen);
+    dashboardLinkLabel_ = makeLabel(
+        header, LV_SYMBOL_WIFI "  LQ --%   --- dBm", 12, 10, 16, cDim);
     makePageActionButton(433, 4, 39, 32, LV_SYMBOL_SETTINGS, 18,
                          cPanel2, cWhite, cLine,
                          &Channel2Ui::controlDashboard, 0);
 
     lv_obj_t *model = makePanel(8, 47, 144, 87);
-    makeLabel(model, "HYPER 7", 10, 7, 12, cCyan);
+    makeLabel(model, "01  HYPER 7", 10, 7, 12, cCyan);
     lv_obj_t *buggy = lv_img_create(model);
     lv_img_set_src(buggy, &hyper7_icon);
     lv_obj_set_pos(buggy, 31, 23);
@@ -1804,9 +1902,36 @@ void Channel2Ui::drawDashboard()
     dashboardRxVoltageLabel_ = makeLabel(power, "RX  --.-V", 10, 57, 16, cDim);
 
     dashboardSafetyPanel_ = makePanel(312, 47, 160, 87, cSafetyCut, cAmber);
-    makeLabel(dashboardSafetyPanel_, "LINK / SAFETY", 10, 7, 12, cCyan);
-    dashboardLinkLabel_ = makeLabel(dashboardSafetyPanel_, "NO LINK", 10, 28, 14, cRed);
-    dashboardSafetyLabel_ = makeLabel(dashboardSafetyPanel_, "CUT", 10, 51, 22, cAmber);
+    makeLabel(dashboardSafetyPanel_, "OUTPUT SAFETY", 10, 7, 12, cCyan);
+    dashboardSafetyLabel_ = makeLabel(
+        dashboardSafetyPanel_, "", 10, 42, 18, cAmber);
+
+    // LVGL's built-in FontAwesome subset does not contain lock glyphs, so
+    // draw a small scalable lock from ordinary LVGL objects.  This also lets
+    // the open shackle communicate LIVE without depending on text or colour.
+    dashboardSafetyIcon_ = lv_obj_create(dashboardSafetyPanel_);
+    position(dashboardSafetyIcon_, 55, 28, 50, 52);
+    lv_obj_set_style_bg_opa(dashboardSafetyIcon_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(dashboardSafetyIcon_, 0, 0);
+    lv_obj_set_style_pad_all(dashboardSafetyIcon_, 0, 0);
+
+    dashboardSafetyLockBody_ = lv_obj_create(dashboardSafetyIcon_);
+    position(dashboardSafetyLockBody_, 7, 24, 36, 25);
+    lv_obj_set_style_bg_color(dashboardSafetyLockBody_, colour(cAmber), 0);
+    lv_obj_set_style_bg_opa(dashboardSafetyLockBody_, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(dashboardSafetyLockBody_, 0, 0);
+    lv_obj_set_style_radius(dashboardSafetyLockBody_, 4, 0);
+
+    dashboardSafetyLockShackle_ = lv_line_create(dashboardSafetyIcon_);
+    static lv_point_t initialLockShackle[] = {
+        {12, 25}, {12, 13}, {16, 6}, {25, 3},
+        {34, 6}, {38, 13}, {38, 25},
+    };
+    lv_line_set_points(dashboardSafetyLockShackle_, initialLockShackle,
+                       sizeof(initialLockShackle) / sizeof(initialLockShackle[0]));
+    lv_obj_set_style_line_width(dashboardSafetyLockShackle_, 5, 0);
+    lv_obj_set_style_line_rounded(dashboardSafetyLockShackle_, true, 0);
+    lv_obj_set_style_line_color(dashboardSafetyLockShackle_, colour(cAmber), 0);
 
     lv_obj_t *monitor = makePanel(8, 141, 464, 99);
     makeLabel(monitor, "CHANNEL MONITOR", 10, 6, 12, cCyan);
@@ -1858,14 +1983,14 @@ void Channel2Ui::drawDashboard()
                      steering ? "STEER" : "THROTTLE");
             const int16_t y = firstY + index * 34;
             makeLabel(monitor, label, 10, y - 1, 12, cCyan);
-            lv_obj_t *bar = makeBar(monitor, kPrimaryBarX, y,
-                                    primaryBarWidth, 18,
-                                    kCrsfMinimum, kCrsfMaximum,
-                                    cWhite);
-            lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
-            dashboardChannelBars_[channel - 1] = bar;
+            lv_obj_t *track = makeMarkerTrack(
+                monitor, kPrimaryBarX, y, primaryBarWidth, 18, cWhite,
+                &dashboardChannelMarkers_[channel - 1]);
+            dashboardChannelBars_[channel - 1] = track;
+            dashboardChannelWidgetKinds_[channel - 1] =
+                DashboardChannelWidgetKind::HorizontalProportional;
             if (channel == channelRoleSettings_.throttleChannel)
-                dashboardThrottleBar_ = bar;
+                dashboardThrottleBar_ = track;
         }
 
         if (auxiliaryCount > 0) {
@@ -1883,12 +2008,21 @@ void Channel2Ui::drawDashboard()
                 makeLabel(monitor, number,
                           x + max<int16_t>(0, (slotWidth - 12) / 2),
                           21, 10, cWhite);
-                lv_obj_t *bar = makeBar(
-                    monitor, x + max<int16_t>(1, (slotWidth - 10) / 2),
-                    37, min<int16_t>(10, slotWidth - 2), 44,
-                    kCrsfMinimum, kCrsfMaximum, cWhite);
-                lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
-                dashboardChannelBars_[channel - 1] = bar;
+                const int16_t widgetWidth = min<int16_t>(12, slotWidth - 2);
+                const int16_t widgetX = x + max<int16_t>(1,
+                    (slotWidth - widgetWidth) / 2);
+                const bool proportional = channelHasProportionalControl(channel);
+                lv_obj_t *widget = proportional
+                    ? makeVerticalMarkerTrack(
+                        monitor, widgetX, 37, widgetWidth, 44, cWhite,
+                        &dashboardChannelMarkers_[channel - 1])
+                    : makeToggleTrack(
+                        monitor, widgetX, 37, widgetWidth, 44, cWhite,
+                        &dashboardChannelMarkers_[channel - 1]);
+                dashboardChannelBars_[channel - 1] = widget;
+                dashboardChannelWidgetKinds_[channel - 1] = proportional
+                    ? DashboardChannelWidgetKind::VerticalProportional
+                    : DashboardChannelWidgetKind::ToggleSwitch;
             }
         }
     }
@@ -1908,6 +2042,11 @@ void Channel2Ui::drawDashboard()
                          cPanel2, cGreen, cLine,
                          &Channel2Ui::controlDashboard, 4);
 
+    // LVGL calculates object coordinates lazily. Resolve the new dashboard
+    // geometry before drawDashboardLive() reads track widths; otherwise its
+    // first marker-position calculation sees zero travel and parks the marker
+    // at the left edge until a later input change forces another update.
+    lv_obj_update_layout(lv_scr_act());
     lastDisplayedCrsf_ = UINT16_MAX;
     for (uint16_t &value : lastDashboardChannelValues_) value = UINT16_MAX;
     lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
@@ -2107,11 +2246,53 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
 {
     if (!displayReady_ || activePage_ != UiPage::Dashboard) return;
     for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
+        // Steering and throttle are centre-returning primary controls. While
+        // output authority is withheld, show the neutral command that the UI
+        // promises rather than a model-safe/raw value at the end of the CRSF
+        // range. AUX controls retain their configured safe-state indication.
+        const uint16_t displayedValue =
+            dashboardChannelWidgetKinds_[index] ==
+                    DashboardChannelWidgetKind::HorizontalProportional &&
+                safetyStatus != OutputSafetyStatus::Armed
+            ? kCrsfMid
+            : dashboardChannelValues_[index];
         if (dashboardChannelBars_[index] &&
-            dashboardChannelValues_[index] != lastDashboardChannelValues_[index]) {
-            lv_bar_set_value(dashboardChannelBars_[index],
-                             dashboardChannelValues_[index], LV_ANIM_OFF);
-            lastDashboardChannelValues_[index] = dashboardChannelValues_[index];
+            displayedValue != lastDashboardChannelValues_[index]) {
+            if (dashboardChannelMarkers_[index] != nullptr) {
+                lv_obj_t *track = dashboardChannelBars_[index];
+                lv_obj_t *marker = dashboardChannelMarkers_[index];
+                const int32_t value = constrain(
+                    displayedValue, kCrsfMinimum, kCrsfMaximum);
+                switch (dashboardChannelWidgetKinds_[index]) {
+                    case DashboardChannelWidgetKind::HorizontalProportional: {
+                        const int16_t travel = max<int16_t>(1,
+                            lv_obj_get_width(track) - lv_obj_get_width(marker) - 2);
+                        lv_obj_set_x(marker, 1 + static_cast<int16_t>(
+                            (value - kCrsfMinimum) * travel /
+                            (kCrsfMaximum - kCrsfMinimum)));
+                        break;
+                    }
+                    case DashboardChannelWidgetKind::VerticalProportional: {
+                        const int16_t travel = max<int16_t>(1,
+                            lv_obj_get_height(track) - lv_obj_get_height(marker) - 2);
+                        lv_obj_set_y(marker, 1 + travel - static_cast<int16_t>(
+                            (value - kCrsfMinimum) * travel /
+                            (kCrsfMaximum - kCrsfMinimum)));
+                        break;
+                    }
+                    case DashboardChannelWidgetKind::ToggleSwitch: {
+                        const int16_t lowY = lv_obj_get_height(track) -
+                                             lv_obj_get_height(marker) - 2;
+                        lv_obj_set_y(marker, value > kCrsfMid ? 2 : lowY);
+                        break;
+                    }
+                    case DashboardChannelWidgetKind::None: break;
+                }
+            } else {
+                lv_bar_set_value(dashboardChannelBars_[index],
+                                 displayedValue, LV_ANIM_OFF);
+            }
+            lastDashboardChannelValues_[index] = displayedValue;
         }
     }
     lastDisplayedCrsf_ = crsfValue;
@@ -2123,10 +2304,14 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
         // white by overriding their indicator colour after this base update.
         const uint32_t channelColour =
             safetyStatus == OutputSafetyStatus::Armed ? cCyan : cWhite;
-        for (lv_obj_t *bar : dashboardChannelBars_) {
-            if (bar != nullptr) {
+        for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
+            if (dashboardChannelMarkers_[index] != nullptr) {
+                lv_obj_set_style_bg_color(dashboardChannelMarkers_[index],
+                                          colour(channelColour), 0);
+            } else if (dashboardChannelBars_[index] != nullptr) {
                 lv_obj_set_style_bg_color(
-                    bar, colour(channelColour), LV_PART_INDICATOR);
+                    dashboardChannelBars_[index], colour(channelColour),
+                    LV_PART_INDICATOR);
             }
         }
         const char *text = "CUT";
@@ -2157,6 +2342,34 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
                 text = "CH OFF"; panelColour = cSafetyCut; break;
             case OutputSafetyStatus::Cut: break;
         }
+
+        const bool showLock = safetyStatus == OutputSafetyStatus::Cut ||
+                              safetyStatus == OutputSafetyStatus::Armed;
+        if (dashboardSafetyIcon_ && dashboardSafetyLockBody_ &&
+            dashboardSafetyLockShackle_) {
+            if (showLock) {
+                static lv_point_t lockedShackle[] = {
+                    {12, 25}, {12, 13}, {16, 6}, {25, 3},
+                    {34, 6}, {38, 13}, {38, 25},
+                };
+                static lv_point_t unlockedShackle[] = {
+                    {12, 25}, {12, 13}, {16, 6}, {25, 3},
+                    {34, 6}, {38, 13}, {38, 17},
+                };
+                lv_point_t *points = safetyStatus == OutputSafetyStatus::Armed
+                                         ? unlockedShackle : lockedShackle;
+                lv_line_set_points(dashboardSafetyLockShackle_, points, 7);
+                lv_obj_set_style_bg_color(dashboardSafetyLockBody_,
+                                          colour(textColour), 0);
+                lv_obj_set_style_line_color(dashboardSafetyLockShackle_,
+                                            colour(textColour), 0);
+                lv_obj_clear_flag(dashboardSafetyIcon_, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_add_flag(dashboardSafetyLabel_, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(dashboardSafetyIcon_, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_clear_flag(dashboardSafetyLabel_, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
         lv_label_set_text(dashboardSafetyLabel_, text);
         lv_obj_set_style_text_color(dashboardSafetyLabel_, colour(textColour), 0);
         lv_obj_set_style_bg_color(dashboardSafetyPanel_, colour(panelColour), 0);
@@ -2168,19 +2381,22 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
          telemetry.uplinkLinkQuality != lastLinkQuality_ ||
         telemetry.uplinkRssiDbm != lastRssiDbm_)) {
         if (telemetry.linkValid) {
-            lv_label_set_text_fmt(dashboardLinkLabel_, "%u%%  %d dBm",
+            lv_label_set_text_fmt(dashboardLinkLabel_,
+                                  LV_SYMBOL_WIFI "  LQ %u%%   %d dBm",
                                   telemetry.uplinkLinkQuality,
                                   telemetry.uplinkRssiDbm);
             lv_obj_set_style_text_color(dashboardLinkLabel_,
                 colour(telemetry.uplinkLinkQuality >= 80 ? cGreen : cAmber), 0);
         } else if (telemetry.linkUpdatedMs == 0) {
-            lv_label_set_text(dashboardLinkLabel_, "NO DATA");
+            lv_label_set_text(dashboardLinkLabel_,
+                              LV_SYMBOL_WIFI "  NO TELEMETRY");
             lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cDim), 0);
         } else {
             // A missing return packet is not proof that the RF downlink has
             // failed. Preserve the last decoded LQ but mark it stale; reserve
             // NO LINK for an explicit, fresh LQ=0 report.
-            lv_label_set_text_fmt(dashboardLinkLabel_, "LQ* %u%%",
+            lv_label_set_text_fmt(dashboardLinkLabel_,
+                                  LV_SYMBOL_WIFI "  LQ* %u%%",
                                   telemetry.uplinkLinkQuality);
             lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cDim), 0);
         }

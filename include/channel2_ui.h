@@ -103,7 +103,8 @@ enum class UiPage : uint8_t {
 class Channel2Ui {
 public:
     bool begin();
-    void update(uint16_t rawAdc, int16_t rawInputPermille,
+    void update(uint16_t rawAdc, uint16_t steeringRawAdc,
+                int16_t rawInputPermille,
                 int16_t outputPermille, uint16_t crsfValue,
                 OutputSafetyStatus safetyStatus,
                 const CrsfTelemetryState &telemetry,
@@ -112,6 +113,7 @@ public:
                 bool channelOutputsLive);
     int16_t mapAdcToPermille(uint16_t adc) const;
     ProportionalInputProfile throttleInputProfile() const;
+    ProportionalInputProfile steeringInputProfile() const;
     int16_t applySettings(int16_t rawInputPermille) const;
     int16_t applyResponseSettings(uint8_t channel,
                                   int16_t rawInputPermille) const;
@@ -132,7 +134,10 @@ public:
                                    uint32_t nowMs,
                                    uint16_t reservedChannels = 0);
     void resetChannelSpeed();
-    bool calibrationActive() const { return triggerInput_.calibrationActive(); }
+    bool calibrationActive() const {
+        return triggerInput_.calibrationActive() ||
+               steeringInput_.calibrationActive();
+    }
     uint16_t throttleCentreAdc() const { return triggerInput_.centre(); }
     const ChannelResponseProfile &settings() const { return throttleProfile(); }
     const ProportionalCalibration &calibration() const { return triggerInput_.calibration(); }
@@ -303,7 +308,7 @@ private:
     void queueElrsRequest(ElrsManagementAction action,
                           ElrsManagementTarget target);
     void updateTouch();
-    void startCalibration(uint16_t adc);
+    void startCalibration(uint16_t adc, bool steering = false);
     void updateCalibration(uint16_t adc);
     void cancelCalibration();
     bool readTouch(int16_t &x, int16_t &y, uint16_t &rawX, uint16_t &rawY,
@@ -352,6 +357,9 @@ private:
     ChannelResponseProfile channelProfiles_[CRSF_CHANNEL_COUNT] = {};
     ChannelRoleSettings channelRoleSettings_;
     ProportionalInput triggerInput_;
+    ProportionalInput steeringInput_;
+    bool calibratingSteering_ = false;
+    UiPage calibrationReturnPage_ = UiPage::Channel2;
     SystemSettings systemSettings_;
     TxBatterySettings txBatterySettings_;
     RxBatterySettings rxBatterySettings_;
@@ -398,6 +406,7 @@ private:
     uint32_t lastSlewUpdateMs_[CRSF_CHANNEL_COUNT] = {};
     uint32_t lastInteractionMs_ = 0;
     uint16_t latestRawAdc_ = 0;
+    uint16_t latestSteeringRawAdc_ = 0;
     bool touchWasDown_ = false;
     uint32_t touchReleaseSinceMs_ = 0;
     uint32_t touchIgnoreUntilMs_ = 0;

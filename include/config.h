@@ -30,6 +30,12 @@ constexpr uint8_t MCP23017_TEST_PORT = 0;       // PA0
 constexpr uint16_t THROTTLE_ADC_MIN = 1447;
 constexpr uint16_t THROTTLE_ADC_CENTER = 1970;
 constexpr uint16_t THROTTLE_ADC_MAX = 4015;
+// Initial steering calibration. The pot is connected between 3V3 and GND
+// with its wiper on GPIO2. A model-specific calibration can replace these
+// full-scale defaults once the physical travel has been measured.
+constexpr uint16_t STEERING_ADC_MIN = 0;
+constexpr uint16_t STEERING_ADC_CENTER = 2048;
+constexpr uint16_t STEERING_ADC_MAX = 4095;
 
 // Neutral protection and output deadband. The module receives neutral until
 // the trigger has remained close to centre for ARM_NEUTRAL_TIME_MS after boot,

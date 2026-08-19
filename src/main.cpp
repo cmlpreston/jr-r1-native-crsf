@@ -14,6 +14,7 @@
 #include "crsf_telemetry.h"
 #include "mcp23017_input.h"
 #include "physical_input_runtime.h"
+#include "proportional_input.h"
 #include "r1_input_map.h"
 
 namespace {
@@ -34,6 +35,10 @@ struct ControlStateSnapshot {
     int16_t outputPermille = 0;
     uint16_t requestedCrsf = CRSF_CHANNEL_MID;
     uint16_t transmittedCrsf = CRSF_CHANNEL_MID;
+    uint16_t steeringAdc = STEERING_ADC_CENTER;
+    int16_t steeringRawPermille = 0;
+    int16_t steeringOutputPermille = 0;
+    uint16_t steeringTransmittedCrsf = CRSF_CHANNEL_MID;
     OutputSafetyStatus safetyStatus = OutputSafetyStatus::Cut;
     bool calibrating = false;
     bool inputValid = true;
@@ -47,6 +52,7 @@ struct SharedChannelOutputState {
 };
 
 ProportionalInputRuntime throttleInputRuntime;
+ProportionalInputRuntime steeringInputRuntime;
 uint32_t filteredTxBatteryAdcMv = 0;
 uint32_t nextTxBatterySampleMs = 0;
 bool throttleArmed = false;
@@ -443,9 +449,12 @@ void controlTask(void *)
         // control sample; coherent model snapshots will replace this read in
         // the next architecture stage.
         throttleInputRuntime.setProfile(channel2Ui.throttleInputProfile());
+        steeringInputRuntime.setProfile(channel2Ui.steeringInputProfile());
         const ProportionalInputState throttleInput =
             throttleInputRuntime.update(analogRead(THROTTLE_ADC_PIN));
         const uint16_t filteredAdc = throttleInput.filteredAdc;
+        const ProportionalInputState steeringInput =
+            steeringInputRuntime.update(analogRead(STEERING_ADC_PIN));
         const bool calibrating = channel2Ui.calibrationActive();
         const bool inputValid = throttleInput.valid;
         const CrsfTelemetryState telemetry = readTelemetrySnapshot();
@@ -481,6 +490,14 @@ void controlTask(void *)
         const uint16_t requestedThrottle = crsfValueFromPermille(configuredThrottle);
         const uint16_t transmittedThrottle =
             (throttleArmed && !calibrating) ? requestedThrottle : safeNeutralThrottle;
+        const int16_t rawSteering = steeringInput.normalisedPermille;
+        const int16_t adjustedSteering = channel2Ui.applyChannelAdjustments(
+            channel2Ui.steeringChannel(), rawSteering);
+        const uint16_t requestedSteering = crsfValueFromPermille(adjustedSteering);
+        const uint16_t safeNeutralSteering = crsfValueFromPermille(
+            channel2Ui.channelNeutralPermille(channel2Ui.steeringChannel()));
+        const uint16_t transmittedSteering =
+            (throttleArmed && !calibrating) ? requestedSteering : safeNeutralSteering;
         CrsfChannelOutputModel outputs;
         bindingActions.clear();
         portENTER_CRITICAL(&bindingResolverMux);
@@ -495,13 +512,9 @@ void controlTask(void *)
         // completed by their dedicated input/safety paths below.
         channel2Ui.applyProportionalProfiles(outputs, millis(),
                                              roleOwnedChannels);
-        // Steering is centred until its 5 kOhm pot is connected, but channel
-        // trim/subtrim already operate through the same role-owned pipeline.
+        // The steering role is driven directly from its 5 kOhm pot on GPIO2.
         outputs.configure(channel2Ui.steeringChannel(),
-            crsfValueFromPermille(channel2Ui.channelNeutralPermille(
-                channel2Ui.steeringChannel())),
-            crsfValueFromPermille(channel2Ui.channelNeutralPermille(
-                channel2Ui.steeringChannel())),
+            requestedSteering, safeNeutralSteering,
             channel2Ui.steeringEnabled());
         // The dedicated safety-checked throttle path has final ownership of
         // its configured channel, even if a future profile is malformed.
@@ -521,6 +534,10 @@ void controlTask(void *)
             : channel2Ui.neutralOutputPermille();
         snapshot.requestedCrsf = requestedThrottle;
         snapshot.transmittedCrsf = transmittedThrottle;
+        snapshot.steeringAdc = steeringInput.filteredAdc;
+        snapshot.steeringRawPermille = rawSteering;
+        snapshot.steeringOutputPermille = adjustedSteering;
+        snapshot.steeringTransmittedCrsf = transmittedSteering;
         snapshot.safetyStatus = safetyStatus;
         snapshot.calibrating = calibrating;
         snapshot.inputValid = inputValid;
@@ -644,6 +661,7 @@ void setup()
 
     analogReadResolution(12);
     analogSetPinAttenuation(THROTTLE_ADC_PIN, ADC_11db);
+    analogSetPinAttenuation(STEERING_ADC_PIN, ADC_11db);
     analogSetPinAttenuation(TX_BATTERY_ADC_PIN, ADC_11db);
 
     // UART0 remains installed with both RX and TX assigned to the one-wire
@@ -693,6 +711,8 @@ void setup()
                   inputExpanderReady ? "ONLINE" : "NOT FOUND");
     throttleInputRuntime.setProfile(channel2Ui.throttleInputProfile());
     throttleInputRuntime.reset(analogRead(THROTTLE_ADC_PIN));
+    steeringInputRuntime.setProfile(channel2Ui.steeringInputProfile());
+    steeringInputRuntime.reset(analogRead(STEERING_ADC_PIN));
     publishControlState(ControlStateSnapshot());
     xTaskCreatePinnedToCore(controlTask, "control-input", 4096, nullptr, 5,
                             &controlTaskHandle, 1);
@@ -739,6 +759,8 @@ void loop()
                               physicalInputEvents, inputExpanderReady);
         physicalInputs.setProportionalValue(PhysicalControlId::ThrottleTrigger,
                                             control.rawPermille, nowMs);
+        physicalInputs.setProportionalValue(PhysicalControlId::SteeringWheel,
+                                            control.steeringRawPermille, nowMs);
         if (!startupPreflightComplete) {
             if (startupInputSettledAtMs == 0)
                 startupInputSettledAtMs = nowMs;
@@ -807,7 +829,7 @@ void loop()
         filteredTxBatteryAdcMv = 0;
     }
     const SharedChannelOutputState channelOutputs = readChannelOutputs();
-    channel2Ui.update(control.adc, control.rawPermille,
+    channel2Ui.update(control.adc, control.steeringAdc, control.rawPermille,
                       control.outputPermille,
                       control.transmittedCrsf, control.safetyStatus,
                       telemetry, txVoltageDecivolts, txVoltageValid,

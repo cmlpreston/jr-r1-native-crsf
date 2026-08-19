@@ -701,6 +701,19 @@ void Channel2Ui::loadSettings()
         calibration = {THROTTLE_ADC_MIN, THROTTLE_ADC_CENTER, THROTTLE_ADC_MAX};
     }
     triggerInput_.setCalibration(calibration);
+
+    preferences.begin("jr-r1-steering", true);
+    ProportionalCalibration steeringCalibration {
+        preferences.getUShort("adc_min", STEERING_ADC_MIN),
+        preferences.getUShort("adc_ctr", STEERING_ADC_CENTER),
+        preferences.getUShort("adc_max", STEERING_ADC_MAX),
+    };
+    preferences.end();
+    if (!steeringCalibration.valid()) {
+        steeringCalibration = {
+            STEERING_ADC_MIN, STEERING_ADC_CENTER, STEERING_ADC_MAX};
+    }
+    steeringInput_.setCalibration(steeringCalibration);
 }
 
 void Channel2Ui::saveSettings()
@@ -812,9 +825,11 @@ bool Channel2Ui::consumeElrsManagementRequest(ElrsManagementRequest &request)
 
 void Channel2Ui::saveCalibration()
 {
-    const ProportionalCalibration &calibration = triggerInput_.calibration();
+    const ProportionalCalibration &calibration = calibratingSteering_
+        ? steeringInput_.calibration() : triggerInput_.calibration();
     Preferences preferences;
-    preferences.begin("jr-r1-trigger", false);
+    preferences.begin(calibratingSteering_
+        ? "jr-r1-steering" : "jr-r1-trigger", false);
     preferences.putUShort("adc_min", calibration.minimum);
     preferences.putUShort("adc_ctr", calibration.centre);
     preferences.putUShort("adc_max", calibration.maximum);
@@ -1442,6 +1457,17 @@ ProportionalInputProfile Channel2Ui::throttleInputProfile() const
     profile.validMaximumAdc = THROTTLE_ADC_VALID_MAX;
     // A 1/4 EMA at the 4 ms control period rejects ADC chatter without
     // noticeably softening deliberate fast steering/throttle movement.
+    profile.filterShift = 2;
+    return profile;
+}
+
+ProportionalInputProfile Channel2Ui::steeringInputProfile() const
+{
+    ProportionalInputProfile profile;
+    profile.calibration = steeringInput_.calibration();
+    profile.deadbandAdc = 8;
+    profile.validMinimumAdc = 0;
+    profile.validMaximumAdc = 4095;
     profile.filterShift = 2;
     return profile;
 }
@@ -2673,8 +2699,9 @@ void Channel2Ui::controlNavigation(uint8_t item, PageControlEvent)
 {
     if (item == 0) navigateBack();
     else {
-        if (triggerInput_.calibrationActive())
-            triggerInput_.cancelCalibration();
+        if (calibrationActive())
+            (calibratingSteering_ ? steeringInput_ : triggerInput_)
+                .cancelCalibration();
         playKeyClick();
         drawDashboard();
     }
@@ -3066,7 +3093,7 @@ void Channel2Ui::drawChannelRolesPage()
                         &Channel2Ui::controlChannelRoles, 1);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "Changing roles disarms throttle output.\n"
-        "Steering stays centred until its pot is connected.",
+        "Steering uses the proportional input on GPIO2.",
         0, 222, 14, cAmber);
     lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 222);
@@ -3122,9 +3149,12 @@ void Channel2Ui::drawChannelPlaceholder()
         makePageActionButton(52, 249, 176, 46, "BASIC / CAL", 14,
                              cPanel2, cWhite, cLine,
                              &Channel2Ui::controlChannelConfig, 2);
+    else if (proportional)
+        makePageActionButton(52, 249, 176, 46, "CALIBRATE", 14,
+                             cPanel2, cWhite, cLine,
+                             &Channel2Ui::controlChannelConfig, 2);
     if (proportional)
-        makePageActionButton(throttle ? 238 : 122, 249,
-                             throttle ? 190 : 236, 46, "RESPONSE / RAMP", 14,
+        makePageActionButton(238, 249, 190, 46, "RESPONSE / RAMP", 14,
                              cPanel2, cCyan, cLine,
                              &Channel2Ui::controlChannelConfig, 3);
     finishPageFocus();
@@ -3854,14 +3884,20 @@ void Channel2Ui::drawCalibrationPage()
 {
     startScreen();
     resetLvglObjects();
-    makeHeader("THROTTLE CALIBRATION", "CANCEL");
+    makeHeader(calibratingSteering_
+        ? "STEERING CALIBRATION" : "THROTTLE CALIBRATION", "CANCEL");
     beginPageFocus();
-    makeLabel(lv_scr_act(), "1. MOVE TO FULL BRAKE", 20, 62, 16, cCyan);
-    makeLabel(lv_scr_act(), "2. MOVE TO FULL FORWARD", 20, 92, 16, cCyan);
+    makeLabel(lv_scr_act(), calibratingSteering_
+        ? "1. MOVE TO FULL LEFT" : "1. MOVE TO FULL BRAKE",
+        20, 62, 16, cCyan);
+    makeLabel(lv_scr_act(), calibratingSteering_
+        ? "2. MOVE TO FULL RIGHT" : "2. MOVE TO FULL FORWARD",
+        20, 92, 16, cCyan);
     makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 20, 122, 16, cCyan);
     char held[44];
     snprintf(held, sizeof(held), "CH%u OUTPUT HELD AT NEUTRAL",
-             channelRoleSettings_.throttleChannel);
+             calibratingSteering_ ? channelRoleSettings_.steeringChannel
+                                  : channelRoleSettings_.throttleChannel);
     makeLabel(lv_scr_act(), held, 20, 160, 16, cAmber);
     lv_obj_t *panel = makePanel(18, 202, 444, 92);
     makeLabel(panel, "MIN AVG", 16, 10, 14, cDim);
@@ -3870,16 +3906,19 @@ void Channel2Ui::drawCalibrationPage()
     calibrationMinimumLabel_ = makeLabel(panel, "----", 10, 42, 24);
     calibrationLiveLabel_ = makeLabel(panel, "----", 168, 42, 24);
     calibrationMaximumLabel_ = makeLabel(panel, "----", 326, 42, 24);
-    drawCalibrationValues(latestRawAdc_);
+    drawCalibrationValues(calibratingSteering_
+        ? latestSteeringRawAdc_ : latestRawAdc_);
     finishPageFocus();
 }
 
 void Channel2Ui::drawCalibrationValues(uint16_t adc)
 {
     (void)adc;
-    if (!triggerInput_.calibrationActive() || !calibrationLiveLabel_) return;
+    ProportionalInput &input = calibratingSteering_
+        ? steeringInput_ : triggerInput_;
+    if (!input.calibrationActive() || !calibrationLiveLabel_) return;
     const ProportionalCalibrationProgress progress =
-        triggerInput_.calibrationProgress();
+        input.calibrationProgress();
     lv_label_set_text_fmt(calibrationMinimumLabel_, "%4u", progress.minimum);
     lv_label_set_text_fmt(calibrationLiveLabel_, "%4u", progress.live);
     lv_label_set_text_fmt(calibrationMaximumLabel_, "%4u", progress.maximum);
@@ -3889,30 +3928,43 @@ void Channel2Ui::drawCalibrationValues(uint16_t adc)
         colour(progress.sawMaximum ? cGreen : cWhite), 0);
 }
 
-void Channel2Ui::startCalibration(uint16_t adc)
+void Channel2Ui::startCalibration(uint16_t adc, bool steering)
 {
+    calibratingSteering_ = steering;
+    calibrationReturnPage_ = steering
+        ? UiPage::ChannelPlaceholder : UiPage::Channel2;
     activePage_ = UiPage::Calibration;
-    triggerInput_.startCalibration(adc);
+    (steering ? steeringInput_ : triggerInput_).startCalibration(adc);
     drawCalibrationPage();
-    Serial.println("CAL: move proportional input to both ends, then release and hold neutral");
+    Serial.printf("CAL: %s; move input to both ends, then release and hold neutral\n",
+                  steering ? "steering" : "throttle");
 }
 
 void Channel2Ui::cancelCalibration()
 {
-    triggerInput_.cancelCalibration();
-    drawPage();
+    (calibratingSteering_ ? steeringInput_ : triggerInput_).cancelCalibration();
+    if (calibrationReturnPage_ == UiPage::ChannelPlaceholder)
+        drawChannelPlaceholder();
+    else
+        drawPage();
     Serial.println("CAL: cancelled; previous calibration retained");
 }
 
 void Channel2Ui::updateCalibration(uint16_t adc)
 {
-    if (!triggerInput_.updateCalibration(adc, millis())) return;
-    const ProportionalCalibration &calibration = triggerInput_.calibration();
+    ProportionalInput &input = calibratingSteering_
+        ? steeringInput_ : triggerInput_;
+    if (!input.updateCalibration(adc, millis())) return;
+    const ProportionalCalibration &calibration = input.calibration();
     saveCalibration();
-    Serial.printf("CAL: saved min=%u centre=%u max=%u\n", calibration.minimum,
-                  calibration.centre, calibration.maximum);
+    Serial.printf("CAL: saved %s min=%u centre=%u max=%u\n",
+                  calibratingSteering_ ? "steering" : "throttle",
+                  calibration.minimum, calibration.centre, calibration.maximum);
     playBuzzer(180);
-    drawPage();
+    if (calibrationReturnPage_ == UiPage::ChannelPlaceholder)
+        drawChannelPlaceholder();
+    else
+        drawPage();
 }
 
 uint16_t Channel2Ui::readTouchRegister(uint8_t command)
@@ -4149,8 +4201,14 @@ void Channel2Ui::handleChannelConfigTouch(int16_t x, int16_t y)
             x >= 42 && x < 232) {
             playKeyClick(); drawPage(); return;
         }
+        if (selectedChannel_ == channelRoleSettings_.steeringChannel &&
+            x >= 42 && x < 232) {
+            playKeyClick();
+            startCalibration(latestSteeringRawAdc_, true);
+            return;
+        }
         if (channelHasProportionalControl(selectedChannel_) &&
-            x >= (selectedChannel_ == channelRoleSettings_.throttleChannel ? 232 : 110) &&
+            x >= 232 &&
             x < 438) {
             throttleResponseReturnPage_ = UiPage::ChannelPlaceholder;
             playKeyClick(); drawThrottleResponsePage(); return;
@@ -4763,8 +4821,9 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
 {
     if (activePage_ == UiPage::StartupWarning) return;
     if (activePage_ != UiPage::Dashboard && headerHomeTouched(x, y)) {
-        if (triggerInput_.calibrationActive()) {
-            triggerInput_.cancelCalibration();
+        if (calibrationActive()) {
+            (calibratingSteering_ ? steeringInput_ : triggerInput_)
+                .cancelCalibration();
             armRequested_ = false;
             safetyResetRequested_ = true;
             Serial.println("CAL: cancelled by Home; previous calibration retained");
@@ -4773,7 +4832,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
         drawDashboard();
         return;
     }
-    if (triggerInput_.calibrationActive()) {
+    if (calibrationActive()) {
         if (headerActionTouched(x, y)) cancelCalibration();
         return;
     }
@@ -4936,7 +4995,8 @@ void Channel2Ui::updateTouch()
     handleTouch(releasedX, releasedY);
 }
 
-void Channel2Ui::update(uint16_t rawAdc, int16_t rawInputPermille,
+void Channel2Ui::update(uint16_t rawAdc, uint16_t steeringRawAdc,
+                        int16_t rawInputPermille,
                         int16_t outputPermille,
                         uint16_t crsfValue, OutputSafetyStatus safetyStatus,
                         const CrsfTelemetryState &telemetry,
@@ -4945,6 +5005,7 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t rawInputPermille,
                         bool channelOutputsLive)
 {
     latestRawAdc_ = rawAdc;
+    latestSteeringRawAdc_ = steeringRawAdc;
     const uint16_t enabledMask = channelOutputs.enabledMask();
     channelOutputs.resolve(channelOutputsLive, dashboardChannelValues_);
     if (enabledMask != dashboardEnabledChannelMask_) {
@@ -4982,7 +5043,8 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t rawInputPermille,
     }
     if (redrawElrsPage) drawElrsBindingPage();
     updateTouch();
-    if (triggerInput_.calibrationActive()) updateCalibration(rawAdc);
+    if (calibrationActive()) updateCalibration(
+        calibratingSteering_ ? steeringRawAdc : rawAdc);
 
     const uint32_t now = millis();
     if (settingsSavePending_ &&
@@ -5001,7 +5063,8 @@ void Channel2Ui::update(uint16_t rawAdc, int16_t rawInputPermille,
     }
     if (static_cast<int32_t>(now - nextDisplayUpdateMs_) >= 0) {
         nextDisplayUpdateMs_ = now + kUiUpdateMs;
-        if (triggerInput_.calibrationActive()) drawCalibrationValues(rawAdc);
+        if (calibrationActive()) drawCalibrationValues(
+            calibratingSteering_ ? steeringRawAdc : rawAdc);
         else if (activePage_ == UiPage::Dashboard) {
             drawDashboardLive(crsfValue, safetyStatus, telemetry,
                               txVoltageDecivolts, txVoltageValid);

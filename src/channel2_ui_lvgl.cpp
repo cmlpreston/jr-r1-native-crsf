@@ -1857,12 +1857,11 @@ void Channel2Ui::drawDashboard()
             snprintf(label, sizeof(label), "CH%u %s", channel,
                      steering ? "STEER" : "THROTTLE");
             const int16_t y = firstY + index * 34;
-            makeLabel(monitor, label, 10, y - 1, 12,
-                      steering ? cWhite : cCyan);
+            makeLabel(monitor, label, 10, y - 1, 12, cCyan);
             lv_obj_t *bar = makeBar(monitor, kPrimaryBarX, y,
                                     primaryBarWidth, 18,
                                     kCrsfMinimum, kCrsfMaximum,
-                                    steering ? cWhite : cCyan);
+                                    cWhite);
             lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
             dashboardChannelBars_[channel - 1] = bar;
             if (channel == channelRoleSettings_.throttleChannel)
@@ -1887,7 +1886,7 @@ void Channel2Ui::drawDashboard()
                 lv_obj_t *bar = makeBar(
                     monitor, x + max<int16_t>(1, (slotWidth - 10) / 2),
                     37, min<int16_t>(10, slotWidth - 2), 44,
-                    kCrsfMinimum, kCrsfMaximum, cCyan);
+                    kCrsfMinimum, kCrsfMaximum, cWhite);
                 lv_bar_set_value(bar, kCrsfMid, LV_ANIM_OFF);
                 dashboardChannelBars_[channel - 1] = bar;
             }
@@ -2118,6 +2117,18 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
     lastDisplayedCrsf_ = crsfValue;
     if (dashboardSafetyLabel_ && dashboardSafetyPanel_ &&
         safetyStatus != lastSafetyStatus_) {
+        // Channel colour describes output authority, not channel role:
+        // white means held/inactive; cyan means the transmitter is LIVE.
+        // A future mixer model can deliberately keep derived/mixed channels
+        // white by overriding their indicator colour after this base update.
+        const uint32_t channelColour =
+            safetyStatus == OutputSafetyStatus::Armed ? cCyan : cWhite;
+        for (lv_obj_t *bar : dashboardChannelBars_) {
+            if (bar != nullptr) {
+                lv_obj_set_style_bg_color(
+                    bar, colour(channelColour), LV_PART_INDICATOR);
+            }
+        }
         const char *text = "CUT";
         uint32_t textColour = cAmber;
         uint32_t panelColour = cSafetyCut;

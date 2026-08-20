@@ -37,6 +37,10 @@ static_assert(sizeof(kEndpointLabels) / sizeof(kEndpointLabels[0]) ==
 } // namespace
 
 const PhysicalInputHardwareBinding kR1InputMap[] = {
+    // Active breadboard/prototype map. The replacement keypad PCB instead uses
+    // PA0..PA7 for MODE, UP, PLUS, SELECT, MINUS, DOWN, CLEAR and PAGE. Keep
+    // that planned revision as a separate hardware profile; changing this
+    // table directly would misinterpret the currently connected controls.
     {PhysicalControlId::SteeringWheel, adc(STEERING_ADC_PIN), none()},
     {PhysicalControlId::ThrottleTrigger, adc(THROTTLE_ADC_PIN), none()},
     {PhysicalControlId::TimerButton, mcp(0), none()},

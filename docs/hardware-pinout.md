@@ -54,7 +54,8 @@ future hardware. GPIO40/41/42 return to that pool when the BTT profile is used.
 
 With A0/A1/A2 open, the Waveshare board is expected at `0x27`. All sixteen
 ports are configured as active-low inputs with internal pull-ups and are polled
-every 5 ms. The production allocation consumes exactly one expander:
+every 5 ms. The currently active prototype allocation consumes exactly one
+expander:
 
 | MCP contact(s) | R1 control |
 |---|---|
@@ -74,6 +75,29 @@ PA0 remains bound to CRSF CH4 while held as the current resolver proof. The
 other contacts already produce debounced logical events and live monitor state;
 their per-model functions are deliberately unassigned until the binding editor
 is implemented.
+
+### Planned keypad-PCB allocation — not active yet
+
+The replacement eight-button keypad PCB routes the complete keypad to MCP23017
+Port A. These schematic net names are the canonical mapping for that PCB:
+
+| MCP contact | Schematic net | Physical key |
+|---|---|---|
+| PA0 | `KEY_MODE` | MODE |
+| PA1 | `KEY_UP` | UP |
+| PA2 | `KEY_PLUS` | `+` |
+| PA3 | `KEY_SELECT` | SELECT |
+| PA4 | `KEY_MINUS` | `-` |
+| PA5 | `KEY_DOWN` | DOWN |
+| PA6 | `KEY_CLEAR` | CLEAR |
+| PA7 | `KEY_PAGE` | PAGE |
+
+This allocation deliberately conflicts with the active breadboard/prototype
+map above, where PA0 is Timer and PA1--PA7 are switches or trim contacts. Do
+not replace `kR1InputMap` with the keypad allocation while testing the existing
+hardware. Before the new PCB is installed, add a separately selected hardware
+profile, allocate the remaining controls across PB0--PB7 and the six available
+direct GPIO inputs, then validate every input in the Input Monitor while CUT.
 
 ## Display profile selection
 

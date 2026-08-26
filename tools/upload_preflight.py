@@ -19,9 +19,29 @@ def fail(message):
     Exit(1)
 
 
+def git_value(project_dir, fallback, *arguments):
+    result = git(project_dir, *arguments)
+    value = result.stdout.strip() if result.returncode == 0 else ""
+    return value or fallback
+
+
+project_dir = env.subst("$PROJECT_DIR")
+branch_identity = git_value(project_dir, "detached", "branch", "--show-current")
+commit_identity = git_value(project_dir, "unknown", "rev-parse", "--short=8", "HEAD")
+dirty_result = git(project_dir, "status", "--porcelain")
+git_state = "dirty" if dirty_result.returncode != 0 or dirty_result.stdout.strip() else "clean"
+
+# Embed the identity of the source state that is actually being compiled.
+env.Append(CPPDEFINES=[
+    ("JR_R1_GIT_BRANCH", '\\"%s\\"' % branch_identity),
+    ("JR_R1_GIT_COMMIT", '\\"%s\\"' % commit_identity),
+    ("JR_R1_GIT_STATE", '\\"%s\\"' % git_state),
+    ("JR_R1_BUILD_ENV", '\\"%s\\"' % env.subst("$PIOENV")),
+])
+
+
 targets = set(COMMAND_LINE_TARGETS)
 if "upload" in targets:
-    project_dir = env.subst("$PROJECT_DIR")
     pio_environment = env.subst("$PIOENV")
     board = env.subst("$BOARD")
 

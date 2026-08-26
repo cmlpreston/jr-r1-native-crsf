@@ -3,24 +3,14 @@
 #include <Arduino.h>
 #include <lvgl.h>
 #include "channel_response.h"
+#include "control_configuration.h"
 #include "control_assignment.h"
 #include "crsf_telemetry.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
+#include "output_safety.h"
 #include "physical_input.h"
 #include "proportional_input.h"
-
-struct ChannelRoleSettings {
-    uint8_t steeringChannel = 1;
-    uint8_t throttleChannel = 2;
-    bool steeringEnabled = true;
-    bool throttleEnabled = true;
-};
-
-struct ChannelParameterValues {
-    int16_t trimPermille = 0;
-    int16_t subtrimPermille = 0;
-};
 
 struct SystemSettings {
     bool buzzerEnabled = true;
@@ -28,32 +18,9 @@ struct SystemSettings {
     uint16_t buzzerPitchHz = 2400;
     uint16_t keyClickDurationMs = 40;
     uint16_t screenTimeoutSeconds = 60;
+    bool logoScreensaverEnabled = true;
     uint8_t displayBrightnessPercent = 100;
     bool nightMode = false;
-};
-
-enum class DriveMode : uint8_t {
-    Walk,
-    Normal,
-};
-
-struct DriveModeSettings {
-    // WALK limits physical forward drive only. Brake/reverse retains its full
-    // configured authority. Arm/CUT is an independent safety state.
-    DriveMode activeMode = DriveMode::Normal;
-    uint8_t walkLimitPercent = 35;
-};
-
-enum class OutputSafetyStatus : uint8_t {
-    Cut,
-    StartupWarning,
-    LinkRequired,
-    NeutralRequired,
-    Armed,
-    Calibration,
-    InputFault,
-    ControlStale,
-    ChannelDisabled,
 };
 
 enum class BatteryChemistry : uint8_t {
@@ -78,10 +45,13 @@ struct RxBatterySettings {
 };
 
 enum class UiPage : uint8_t {
+    BootSplash,
+    LogoSaver,
     Dashboard,
     StartupWarning,
     Telemetry,
     MainMenu,
+    ModelSelect,
     Channels,
     ChannelRoles,
     Channel2,
@@ -96,12 +66,13 @@ enum class UiPage : uint8_t {
     TxBatterySetup,
     RxBatterySetup,
     DisplaySetup,
+    FirmwareInfo,
     ElrsBinding,
     EscProgramming,
     Calibration,
 };
 
-class Channel2Ui {
+class TransmitterUi {
 public:
     bool begin();
     void update(uint16_t rawAdc, uint16_t steeringRawAdc,
@@ -115,26 +86,11 @@ public:
     int16_t mapAdcToPermille(uint16_t adc) const;
     ProportionalInputProfile throttleInputProfile() const;
     ProportionalInputProfile steeringInputProfile() const;
-    int16_t applySettings(int16_t rawInputPermille) const;
-    int16_t applyResponseSettings(uint8_t channel,
-                                  int16_t rawInputPermille) const;
-    int16_t applyDriveMode(int16_t configuredPermille,
-                           int16_t rawInputPermille) const;
-    int16_t neutralOutputPermille() const;
-    int16_t applyChannelAdjustments(uint8_t channel,
-                                    int16_t inputPermille) const;
-    int16_t channelNeutralPermille(uint8_t channel) const;
+    ControlConfigurationSnapshot controlConfigurationSnapshot() const;
     bool applyChannelParameterAction(uint16_t targetId, int16_t value);
     bool applyTransmitterFunctionAction(uint16_t targetId, int16_t value);
     bool applyDriveModeAction(uint16_t targetId, int16_t value);
     uint8_t activeControlContext() const;
-    int16_t applyChannelSpeed(int16_t targetPermille, uint32_t nowMs);
-    int16_t applyChannelSpeed(uint8_t channel, int16_t targetPermille,
-                              uint32_t nowMs);
-    void applyProportionalProfiles(CrsfChannelOutputModel &outputs,
-                                   uint32_t nowMs,
-                                   uint16_t reservedChannels = 0);
-    void resetChannelSpeed();
     bool calibrationActive() const {
         return triggerInput_.calibrationActive() ||
                steeringInput_.calibrationActive();
@@ -152,6 +108,10 @@ public:
     bool captureScreenshot(Stream &output);
 #ifdef JR_R1_SIMULATOR
     void showSimulatorPage(UiPage page) { activePage_ = page; redrawActivePage(); }
+    bool selectSimulatorModel(uint8_t slot) { return selectModelMemory(slot); }
+    void selectSimulatorDisplayBank(uint8_t bank) {
+        displaySetupBank_ = bank > 1 ? 1 : bank;
+    }
     void selectSimulatorChannel(uint8_t channel) {
         selectedChannel_ = channel >= 1 && channel <= CRSF_CHANNEL_COUNT
             ? channel : selectedChannel_;
@@ -177,6 +137,10 @@ private:
                                    int16_t throttleFallback) const;
     void loadSettings();
     void saveSettings();
+    void loadModelMemorySettings();
+    void saveModelMemorySettings();
+    void saveCurrentModelMemory();
+    bool selectModelMemory(uint8_t slot);
     void saveCalibration();
     void loadChannelRoleSettings();
     void saveChannelRoleSettings();
@@ -191,6 +155,11 @@ private:
     void loadElrsSettings();
     void saveElrsSettings();
     void drawMainMenu();
+    void drawModelSelectPage();
+    void drawBootSplash();
+    void drawLogoSaver();
+    void positionLogoSaver();
+    void leaveLogoSaver();
     void refreshMainMenuFocus();
     void moveMainMenuFocus(int8_t direction);
     void activateMainMenuFocus();
@@ -200,7 +169,7 @@ private:
         Activate = 0,
         Increase = 1,
     };
-    using PageControlHandler = void (Channel2Ui::*)(uint8_t,
+    using PageControlHandler = void (TransmitterUi::*)(uint8_t,
                                                      PageControlEvent);
     void addPageActionTarget(int16_t x, int16_t y, int16_t width,
                              int16_t height, PageControlHandler handler,
@@ -226,6 +195,7 @@ private:
     bool dispatchPageControlTouch(int16_t x, int16_t y);
     bool dispatchPageControl(uint8_t index, PageControlEvent event);
     void controlChannelRoles(uint8_t row, PageControlEvent event);
+    void controlModels(uint8_t item, PageControlEvent event);
     void controlTxBattery(uint8_t row, PageControlEvent event);
     void controlRxBattery(uint8_t row, PageControlEvent event);
     void controlDisplay(uint8_t row, PageControlEvent event);
@@ -280,7 +250,8 @@ private:
     void drawRxBatteryPage();
     void drawRxBatteryRow(int row);
     void drawDisplayPage();
-    void drawDisplayRow(int row);
+    void drawDisplayRow(int row, int visibleRow);
+    void drawFirmwareInfoPage();
     void drawElrsBindingPage();
     void drawEscProgrammingPage();
     void drawCalibrationPage();
@@ -291,6 +262,7 @@ private:
     void drawLiveIndicator(int16_t outputPermille, uint16_t crsfValue);
     void handleTouch(int16_t x, int16_t y);
     void handleMainMenuTouch(int16_t x, int16_t y);
+    void handleModelSelectTouch(int16_t x, int16_t y);
     void handleDashboardTouch(int16_t x, int16_t y);
     void handleTelemetryTouch(int16_t x, int16_t y);
     void handleChannelsTouch(int16_t x, int16_t y);
@@ -358,6 +330,13 @@ private:
                                             int8_t direction) const;
 
     ChannelResponseProfile channelProfiles_[CRSF_CHANNEL_COUNT] = {};
+    static constexpr uint8_t kModelMemoryCount = 10;
+    static constexpr uint8_t kModelNameCapacity = 13;
+    uint8_t activeModelSlot_ = 0;
+    uint8_t modelSelectBank_ = 0;
+    uint8_t displaySetupBank_ = 0;
+    char modelNames_[kModelMemoryCount][kModelNameCapacity] = {};
+    char modelSelectStatus_[64] = {};
     ChannelRoleSettings channelRoleSettings_;
     ProportionalInput triggerInput_;
     ProportionalInput steeringInput_;
@@ -376,7 +355,11 @@ private:
     uint32_t lastTransmitterUidUpdateMs_ = 0;
     uint32_t lastReceiverUidUpdateMs_ = 0;
     bool displayReady_ = false;
-    UiPage activePage_ = UiPage::Dashboard;
+    UiPage activePage_ = UiPage::BootSplash;
+    UiPage logoSaverReturnPage_ = UiPage::Dashboard;
+    uint32_t bootSplashStartedMs_ = 0;
+    uint32_t nextLogoSaverMoveMs_ = 0;
+    uint8_t logoSaverPosition_ = 0;
     bool startupPreflightComplete_ = false;
     uint32_t startupWarningMask_ = 0;
     UiPage throttleResponseReturnPage_ = UiPage::MainMenu;
@@ -406,8 +389,6 @@ private:
     // A touch used to wake the display, or one beginning inside the post-tap
     // guard interval, must be discarded as one complete physical gesture.
     bool discardTouchUntilRelease_ = false;
-    int16_t slewedChannelPermille_[CRSF_CHANNEL_COUNT] = {};
-    uint32_t lastSlewUpdateMs_[CRSF_CHANNEL_COUNT] = {};
     uint32_t lastInteractionMs_ = 0;
     uint16_t latestRawAdc_ = 0;
     uint16_t latestSteeringRawAdc_ = 0;
@@ -425,6 +406,7 @@ private:
     bool lastLinkValid_ = false;
     bool lastReceiverVoltageValid_ = false;
     bool lastTxVoltageValid_ = false;
+    bool dashboardPowerWarningActive_ = false;
     uint8_t lastLinkQuality_ = UINT8_MAX;
     uint8_t lastRssiDbm_ = UINT8_MAX;
     uint16_t lastReceiverVoltageDecivolts_ = UINT16_MAX;
@@ -437,6 +419,12 @@ private:
     bool channelParameterSavePending_ = false;
     uint32_t channelParameterSaveDueMs_ = 0;
     lv_obj_t *dashboardThrottleBar_ = nullptr;
+    lv_obj_t *logoSaverLogo_ = nullptr;
+    lv_obj_t *logoSaverDesignation_ = nullptr;
+    int16_t logoSaverInputValues_[kPhysicalControlCount] = {};
+    bool logoSaverInputPrimary_[kPhysicalControlCount] = {};
+    bool logoSaverInputSecondary_[kPhysicalControlCount] = {};
+    bool logoSaverInputFaulted_[kPhysicalControlCount] = {};
     lv_obj_t *mainMenuButtons_[8] = {};
     uint8_t mainMenuFocusIndex_ = 1;
     struct PageFocusTarget {
@@ -476,6 +464,7 @@ private:
     lv_obj_t *dashboardSafetyIcon_ = nullptr;
     lv_obj_t *dashboardSafetyLockBody_ = nullptr;
     lv_obj_t *dashboardSafetyLockShackle_ = nullptr;
+    lv_obj_t *dashboardHeader_ = nullptr;
     lv_obj_t *dashboardLinkLabel_ = nullptr;
     lv_obj_t *dashboardRxVoltageLabel_ = nullptr;
     lv_obj_t *dashboardTxVoltageLabel_ = nullptr;

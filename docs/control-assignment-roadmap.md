@@ -114,8 +114,11 @@ bindings only when the combination is made explicit in the UI.
   conflict checks shared with the input-centric editor.
 - [x] Persist all sixteen channels' trim/subtrim values independently of the
   physical-control binding profile.
-- [ ] Move the versioned binding store into each future model profile and add
-  migrations when the stored schema changes.
+- [x] Move the versioned binding store into each model profile. Ten model
+  memories now isolate bindings, roles, response profiles, trim/subtrim,
+  receiver-battery settings and Walk limit while preserving the legacy Model 1
+  namespaces. Stored-schema migrations beyond the current versions remain
+  future work.
 - [x] Detect duplicate/conflicting CRSF channel writers.
 - [ ] Provide restore-default-profile command.
 
@@ -178,13 +181,15 @@ sounds the short error beep.
 ### Safety
 
 - [ ] Dedicated, exclusive arm/CUT binding.
-- [ ] CUT overrides every mix, macro and output.
+- [x] The final CRSF-task safety arbiter makes CUT and stale control select the
+  complete safe model after every binding, modifier and channel processor.
 - [x] Binding edits force CUT and neutral re-arm.
 - [x] Startup switch-position warning and arm interlock for maintained switches,
   spring-centred trims and unknown/faulted MCP23017 input states. The TFT names
   each displaced control and does not allow the warning page to be dismissed.
   Retained output-state warnings remain part of future model/profile work.
-- [ ] Model change only while CUT and throttle-neutral.
+- [x] Model change only while CUT and throttle-neutral. Loading a model resets
+  the output path, reloads roles and bindings, and requires neutral re-arm.
 - [ ] Explicit initial and failsafe values for retained accessory channels.
 - [ ] Critical functions cannot share an unsafe secondary binding.
 

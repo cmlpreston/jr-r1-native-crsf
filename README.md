@@ -25,7 +25,7 @@ Deferred work is tracked in [`TODO.md`](TODO.md).
 
 The complete LVGL touchscreen UI can be built and exercised on macOS without
 the transmitter, Ranger, receiver or display connected. This is the real
-`Channel2Ui` implementation—not a separate visual mock. SDL replaces the LCD
+`TransmitterUi` implementation—not a separate visual mock. SDL replaces the LCD
 and touch controller, a small compatibility layer replaces Arduino NVS and
 timing, and simulated CRSF data supplies link quality and pack voltage.
 
@@ -60,11 +60,13 @@ and screenshot iteration than the shared-code SDL build.
 
 The CRSF output path maintains requested, safe and enabled state independently
 for all 16 channels. The control task publishes a complete atomic snapshot to
-the CRSF task; CUT, stale input and maintenance operations resolve the entire
-snapshot to its safe values. Throttle is the only fully configured proportional
-axis, while the complete 22-contact R1 digital-input layer is mapped through one
-MCP23017 plus six direct GPIOs. Unassigned controls generate diagnostic events
-but cannot affect output channels until given an explicit binding.
+the CRSF task. A final, host-tested arbiter applies stale-control precedence
+immediately before each channel frame and resolves the entire snapshot to
+requested values only while Armed. Steering, throttle and proportional AUX
+bindings share one response/adjustment/slew pipeline, while the complete
+22-contact R1 digital-input layer is mapped through one MCP23017 plus six direct
+GPIOs. Unassigned controls generate diagnostic events but cannot affect output
+channels until given an explicit binding.
 
 ## Capturing a TFT screenshot
 
@@ -102,9 +104,13 @@ configured centre for one second. Assignment, role, mode and calibration changes
 immediately publish neutral and require this process again.
 
 The CRSF task independently checks the age of the last control-loop update. If
-it exceeds 250 ms, it transmits neutral even if the UI/core has stalled.
-Implausible ADC values, calibration and a disabled throttle assignment also fail
-closed.
+it exceeds 250 ms, the final arbiter transmits the complete safe channel model
+even if the UI/core has stalled. Implausible ADC values, calibration and a
+disabled throttle assignment also fail closed. These deterministic safe frames
+are the first protection layer; if the S3 or CRSF serial stream fails entirely,
+the receiver's separately configured ExpressLRS failsafe remains the backup.
+Future model-profile persistence will make every safe position explicitly
+configurable and allow it to be matched at the receiver.
 
 Control sampling and response processing run in a dedicated 4 ms high-priority
 task, independently of LVGL rendering. Full-screen page changes therefore

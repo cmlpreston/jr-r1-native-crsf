@@ -10,9 +10,16 @@ SDL_LIBS := $(shell sdl2-config --libs)
 OPENSSL_PREFIX := $(shell brew --prefix openssl@3 2>/dev/null)
 OPENSSL_CFLAGS := -I$(OPENSSL_PREFIX)/include
 OPENSSL_LIBS := -L$(OPENSSL_PREFIX)/lib -lcrypto
+GIT_BRANCH := $(shell git branch --show-current 2>/dev/null || echo unknown)
+GIT_COMMIT := $(shell git rev-parse --short=8 HEAD 2>/dev/null || echo unknown)
+GIT_STATE := $(shell test -n "$$(git status --porcelain 2>/dev/null)" && echo dirty || echo clean)
 
 CPPFLAGS := -DJR_R1_SIMULATOR -DLV_CONF_INCLUDE_SIMPLE \
   -DJR_R1_SIM_STATE_DIR=\"$(CURDIR)/state\" \
+  -DJR_R1_GIT_BRANCH=\"$(GIT_BRANCH)\" \
+  -DJR_R1_GIT_COMMIT=\"$(GIT_COMMIT)\" \
+  -DJR_R1_GIT_STATE=\"$(GIT_STATE)\" \
+  -DJR_R1_BUILD_ENV=\"simulator\" \
   -Iinclude -I$(ROOT)/include -I$(ROOT) -I$(LVGL) \
   $(SDL_CFLAGS) $(OPENSSL_CFLAGS)
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Wno-deprecated-declarations
@@ -22,14 +29,17 @@ LDLIBS := $(SDL_LIBS) $(OPENSSL_LIBS)
 APP_CPP := \
   main.cpp sdl_platform.cpp arduino_compat.cpp preferences.cpp \
   crsf_management_native.cpp \
-  $(ROOT)/src/channel2_ui_lvgl.cpp \
+  $(ROOT)/src/transmitter_ui_lvgl.cpp \
   $(ROOT)/src/channel_response.cpp \
+  $(ROOT)/src/control_configuration.cpp \
   $(ROOT)/src/proportional_input.cpp \
   $(ROOT)/src/control_assignment.cpp \
   $(ROOT)/src/binding_resolver.cpp \
   $(ROOT)/src/physical_input.cpp \
   $(ROOT)/src/r1_input_map.cpp \
   $(ROOT)/src/crsf_channel_output.cpp \
+  $(ROOT)/src/output_safety.cpp \
+  $(ROOT)/src/jr_propo_boot_logo.cpp \
   $(ROOT)/src/hyper7_icon.cpp
 LVGL_C := $(shell test -d $(LVGL)/src && find $(LVGL)/src -name '*.c')
 APP_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(APP_CPP)))

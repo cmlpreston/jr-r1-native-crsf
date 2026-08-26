@@ -17,6 +17,19 @@ uint16_t crsfValueFromPermille(int16_t value)
     return static_cast<uint16_t>(mapped);
 }
 
+int16_t permilleFromCrsfValue(uint16_t value)
+{
+    if (value < CRSF_CHANNEL_MIN) value = CRSF_CHANNEL_MIN;
+    if (value > CRSF_CHANNEL_MAX) value = CRSF_CHANNEL_MAX;
+    if (value <= CRSF_CHANNEL_MID)
+        return static_cast<int16_t>(
+            (static_cast<int32_t>(value) - CRSF_CHANNEL_MID) * 1000 /
+            (CRSF_CHANNEL_MID - CRSF_CHANNEL_MIN));
+    return static_cast<int16_t>(
+        (static_cast<int32_t>(value) - CRSF_CHANNEL_MID) * 1000 /
+        (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MID));
+}
+
 CrsfChannelOutputModel::CrsfChannelOutputModel()
 {
     reset();

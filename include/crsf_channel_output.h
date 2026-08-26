@@ -18,6 +18,7 @@ constexpr size_t CRSF_FRAME_BYTES = 26;
 // asymmetric CRSF 172..1811 range. Values outside the normal range are
 // clamped, making this safe for user-configurable bindings.
 uint16_t crsfValueFromPermille(int16_t value);
+int16_t permilleFromCrsfValue(uint16_t value);
 
 // Requested and safe values are kept separately so CUT/stale-input handling
 // can atomically substitute all sixteen outputs without destroying the values

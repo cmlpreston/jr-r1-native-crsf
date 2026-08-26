@@ -1,4 +1,4 @@
-#include "channel2_ui.h"
+#include "transmitter_ui.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
 #include "simulator_platform.h"
@@ -9,7 +9,7 @@
 #include <string>
 
 namespace {
-uint16_t adcForPermille(const Channel2Ui &ui, int16_t permille)
+uint16_t adcForPermille(const TransmitterUi &ui, int16_t permille)
 {
     const ProportionalCalibration &calibration = ui.calibration();
     if (permille < 0) {
@@ -52,6 +52,9 @@ int main(int argc, char **argv)
     std::string screenshotPath;
     std::string initialPage;
     uint8_t initialChannel = 2;
+    int initialModel = -1;
+    bool wakeSaverControl = false;
+    int receiverVoltageOverride = -1;
     uint32_t runForMs = 0;
     for (int index = 1; index < argc; ++index) {
         if (std::strcmp(argv[index], "--screenshot") == 0 && index + 1 < argc)
@@ -60,14 +63,39 @@ int main(int argc, char **argv)
             initialPage = argv[++index];
         else if (std::strcmp(argv[index], "--channel") == 0 && index + 1 < argc)
             initialChannel = static_cast<uint8_t>(std::strtoul(argv[++index], nullptr, 10));
+        else if (std::strcmp(argv[index], "--select-model") == 0 && index + 1 < argc)
+            initialModel = static_cast<int>(std::strtol(argv[++index], nullptr, 10)) - 1;
+        else if (std::strcmp(argv[index], "--wake-saver-control") == 0)
+            wakeSaverControl = true;
+        else if (std::strcmp(argv[index], "--rx-voltage") == 0 && index + 1 < argc)
+            receiverVoltageOverride = static_cast<int>(
+                std::strtol(argv[++index], nullptr, 10));
         else if (std::strcmp(argv[index], "--run-ms") == 0 && index + 1 < argc)
             runForMs = static_cast<uint32_t>(std::strtoul(argv[++index], nullptr, 10));
     }
 
-    Channel2Ui ui;
+    TransmitterUi ui;
+    ChannelSlewRuntime channelSlew;
     if (!ui.begin()) return 1;
+    ui.setStartupPreflight(true, 0);
     ui.selectSimulatorChannel(initialChannel);
-    if (initialPage == "response")
+    if (initialPage == "boot")
+        ui.showSimulatorPage(UiPage::BootSplash);
+    else if (initialPage == "saver" || initialPage == "screensaver")
+        ui.showSimulatorPage(UiPage::LogoSaver);
+    else if (initialPage == "setup")
+        ui.showSimulatorPage(UiPage::Setup);
+    else if (initialPage == "display")
+        ui.showSimulatorPage(UiPage::DisplaySetup);
+    else if (initialPage == "display2") {
+        ui.selectSimulatorDisplayBank(1);
+        ui.showSimulatorPage(UiPage::DisplaySetup);
+    }
+    else if (initialPage == "info" || initialPage == "firmware")
+        ui.showSimulatorPage(UiPage::FirmwareInfo);
+    else if (initialPage == "models")
+        ui.showSimulatorPage(UiPage::ModelSelect);
+    else if (initialPage == "response")
         ui.showSimulatorPage(UiPage::ThrottleResponse);
     else if (initialPage == "ramp")
         ui.showSimulatorPage(UiPage::ChannelSpeed);
@@ -88,15 +116,24 @@ int main(int argc, char **argv)
         telemetry.uplinkRssiDbm = controls.uplinkRssiDbm;
         telemetry.uplinkLinkQuality = controls.linkQualityPercent;
         telemetry.receiverVoltageValid = controls.linkValid;
-        telemetry.receiverVoltageDecivolts = controls.receiverVoltageDecivolts;
+        telemetry.receiverVoltageDecivolts = receiverVoltageOverride >= 0
+            ? static_cast<uint16_t>(receiverVoltageOverride)
+            : controls.receiverVoltageDecivolts;
         telemetry.linkUpdatedMs = now;
         telemetry.batteryUpdatedMs = now;
 
         const uint16_t rawAdc = adcForPermille(ui, controls.throttlePermille);
         const int16_t rawPermille = ui.mapAdcToPermille(rawAdc);
-        const int16_t configured = ui.applySettings(rawPermille);
-        const int16_t driveLimited = ui.applyDriveMode(configured, rawPermille);
-        const int16_t output = ui.applyChannelSpeed(driveLimited, now);
+        const ControlConfigurationSnapshot configuration =
+            ui.controlConfigurationSnapshot();
+        const int16_t configured = applyConfiguredResponse(
+            configuration, configuration.throttleChannel, rawPermille);
+        const int16_t driveLimited = applyConfiguredDriveMode(
+            configuration, configured, rawPermille);
+        const int16_t adjusted = applyConfiguredChannelAdjustments(
+            configuration, configuration.throttleChannel, driveLimited);
+        const int16_t output = channelSlew.apply(
+            configuration, configuration.throttleChannel, adjusted, now);
         const uint16_t crsf = crsfValueFromPermille(output);
         const OutputSafetyStatus safety = ui.throttleEnabled()
             ? (ui.armRequested() ? OutputSafetyStatus::Armed : OutputSafetyStatus::Cut)
@@ -110,6 +147,20 @@ int main(int argc, char **argv)
         ui.update(rawAdc, rawAdc, rawPermille, output, crsf, safety, telemetry,
                   controls.transmitterVoltageDecivolts, true,
                   channelOutputs, safety == OutputSafetyStatus::Armed);
+        if (ui.consumeSafetyResetRequested()) channelSlew.reset(now);
+        if (initialModel >= 0) {
+            ui.selectSimulatorModel(static_cast<uint8_t>(initialModel));
+            initialModel = -1;
+        }
+        if (wakeSaverControl) {
+            PhysicalInputStateStore states;
+            states.setMapped(PhysicalControlId::SteeringWheel, true);
+            states.setValue(PhysicalControlId::SteeringWheel, 20);
+            ui.setPhysicalInputStates(states); // below the noise threshold
+            states.setValue(PhysicalControlId::SteeringWheel, 50);
+            ui.setPhysicalInputStates(states); // deliberate movement wakes
+            wakeSaverControl = false;
+        }
 
         ElrsManagementRequest request;
         while (ui.consumeElrsManagementRequest(request))

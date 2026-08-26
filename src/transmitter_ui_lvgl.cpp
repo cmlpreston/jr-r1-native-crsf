@@ -1,4 +1,4 @@
-#include "channel2_ui.h"
+#include "transmitter_ui.h"
 
 #include <Preferences.h>
 #ifndef JR_R1_SIMULATOR
@@ -11,9 +11,11 @@
 
 #include "config.h"
 #include "binding_resolver.h"
+#include "firmware_identity.h"
 #include "r1_input_map.h"
 
 LV_IMG_DECLARE(hyper7_icon);
+LV_IMG_DECLARE(jr_propo_boot_logo);
 
 namespace {
 
@@ -27,6 +29,10 @@ constexpr uint16_t kCrsfMinimum = 172;
 constexpr uint16_t kCrsfMaximum = 1811;
 constexpr int16_t kExtendedTravelPermille = 1200;
 constexpr uint32_t kUiUpdateMs = 80;
+constexpr uint32_t kBootSplashDurationMs = 3000;
+constexpr uint32_t kLogoSaverMoveMs = 15000;
+constexpr uint8_t kLogoSaverBrightnessPercent = 25;
+constexpr int16_t kLogoSaverProportionalWakePermille = 40;
 constexpr uint16_t kTouchPressureThreshold = 40;
 constexpr uint32_t kTouchReleaseDebounceMs = 25;
 constexpr uint32_t kTouchRetriggerGuardMs = 100;
@@ -103,8 +109,16 @@ constexpr DriveModeSelection kEditableDriveModeSelections[] = {
 
 constexpr bool mainMenuItemEnabled(uint8_t index)
 {
-    return index == 1 || index == 2 || index == 3 || index == 4 ||
+    return index == 0 || index == 1 || index == 2 || index == 3 || index == 4 ||
            index == 5 || index == 6 || index == 7;
+}
+
+const char *modelNamespace(uint8_t slot, const char *legacy,
+                           const char *suffix, char *buffer, size_t capacity)
+{
+    if (slot == 0) return legacy;
+    snprintf(buffer, capacity, "r1m%u-%s", slot + 1, suffix);
+    return buffer;
 }
 
 #ifndef JR_R1_SIMULATOR
@@ -370,24 +384,6 @@ lv_obj_t *makeToggleTrack(lv_obj_t *parent, int16_t x, int16_t y,
     return track;
 }
 
-int16_t clampExtendedTravel(int32_t value)
-{
-    return static_cast<int16_t>(constrain(value, -kExtendedTravelPermille,
-                                          kExtendedTravelPermille));
-}
-
-int16_t permilleFromCrsfValue(uint16_t value)
-{
-    value = constrain(value, CRSF_CHANNEL_MIN, CRSF_CHANNEL_MAX);
-    if (value <= CRSF_CHANNEL_MID)
-        return static_cast<int16_t>(
-            (static_cast<int32_t>(value) - CRSF_CHANNEL_MID) * 1000 /
-            (CRSF_CHANNEL_MID - CRSF_CHANNEL_MIN));
-    return static_cast<int16_t>(
-        (static_cast<int32_t>(value) - CRSF_CHANNEL_MID) * 1000 /
-        (CRSF_CHANNEL_MAX - CRSF_CHANNEL_MID));
-}
-
 uint8_t adjacentChannel(uint8_t current, int8_t direction, uint8_t unavailable)
 {
     for (uint8_t tries = 0; tries < 16; ++tries) {
@@ -435,10 +431,13 @@ void formatUid(const uint8_t *uid, char *text, size_t capacity)
 const char *uiPageName(UiPage page)
 {
     switch (page) {
+        case UiPage::BootSplash: return "boot";
+        case UiPage::LogoSaver: return "logo-saver";
         case UiPage::Dashboard: return "dashboard";
         case UiPage::StartupWarning: return "startup-warning";
         case UiPage::Telemetry: return "telemetry";
         case UiPage::MainMenu: return "main-menu";
+        case UiPage::ModelSelect: return "models";
         case UiPage::Channels: return "channels";
         case UiPage::ChannelRoles: return "channel-roles";
         case UiPage::Channel2: return "channel";
@@ -453,6 +452,7 @@ const char *uiPageName(UiPage page)
         case UiPage::TxBatterySetup: return "tx-battery";
         case UiPage::RxBatterySetup: return "rx-battery";
         case UiPage::DisplaySetup: return "display";
+        case UiPage::FirmwareInfo: return "firmware-info";
         case UiPage::ElrsBinding: return "elrs-binding";
         case UiPage::EscProgramming: return "esc-programming";
         case UiPage::Calibration: return "calibration";
@@ -462,8 +462,9 @@ const char *uiPageName(UiPage page)
 
 } // namespace
 
-bool Channel2Ui::begin()
+bool TransmitterUi::begin()
 {
+    loadModelMemorySettings();
     loadChannelRoleSettings();
     loadSettings();
     loadSystemSettings();
@@ -539,7 +540,7 @@ bool Channel2Ui::begin()
     displayDriver.draw_buf = &drawBuffer;
     lv_disp_drv_register(&displayDriver);
 
-    drawDashboard();
+    drawBootSplash();
     lastInteractionMs_ = millis();
     lv_refr_now(nullptr);
     Serial.printf("DISPLAY: %s, %dx%d, SPI=%lu Hz, touch=%s, buffer=%u rows\n",
@@ -552,39 +553,39 @@ bool Channel2Ui::begin()
     return true;
 }
 
-ChannelResponseProfile &Channel2Ui::profileForChannel(uint8_t channel)
+ChannelResponseProfile &TransmitterUi::profileForChannel(uint8_t channel)
 {
     channel = constrain(channel, 1, static_cast<int>(CRSF_CHANNEL_COUNT));
     return channelProfiles_[channel - 1];
 }
 
-const ChannelResponseProfile &Channel2Ui::profileForChannel(uint8_t channel) const
+const ChannelResponseProfile &TransmitterUi::profileForChannel(uint8_t channel) const
 {
     channel = constrain(channel, 1, static_cast<int>(CRSF_CHANNEL_COUNT));
     return channelProfiles_[channel - 1];
 }
 
-ChannelResponseProfile &Channel2Ui::throttleProfile()
+ChannelResponseProfile &TransmitterUi::throttleProfile()
 {
     return profileForChannel(channelRoleSettings_.throttleChannel);
 }
 
-const ChannelResponseProfile &Channel2Ui::throttleProfile() const
+const ChannelResponseProfile &TransmitterUi::throttleProfile() const
 {
     return profileForChannel(channelRoleSettings_.throttleChannel);
 }
 
-ChannelResponseProfile &Channel2Ui::selectedResponseProfile()
+ChannelResponseProfile &TransmitterUi::selectedResponseProfile()
 {
     return profileForChannel(selectedChannel_);
 }
 
-const ChannelResponseProfile &Channel2Ui::selectedResponseProfile() const
+const ChannelResponseProfile &TransmitterUi::selectedResponseProfile() const
 {
     return profileForChannel(selectedChannel_);
 }
 
-bool Channel2Ui::channelHasProportionalControl(uint8_t channel) const
+bool TransmitterUi::channelHasProportionalControl(uint8_t channel) const
 {
     if (channel == channelRoleSettings_.steeringChannel ||
         channel == channelRoleSettings_.throttleChannel)
@@ -601,7 +602,7 @@ bool Channel2Ui::channelHasProportionalControl(uint8_t channel) const
     return false;
 }
 
-int16_t Channel2Ui::proportionalInputValue(uint8_t channel,
+int16_t TransmitterUi::proportionalInputValue(uint8_t channel,
                                            int16_t throttleFallback) const
 {
     if (channel == channelRoleSettings_.throttleChannel)
@@ -622,7 +623,7 @@ int16_t Channel2Ui::proportionalInputValue(uint8_t channel,
     return physicalInputStates_[static_cast<size_t>(input)].value;
 }
 
-bool Channel2Ui::captureScreenshot(Stream &output)
+bool TransmitterUi::captureScreenshot(Stream &output)
 {
     if (!displayReady_) return false;
     if (displaySleeping_) wakeDisplay();
@@ -675,8 +676,10 @@ bool Channel2Ui::captureScreenshot(Stream &output)
     return true;
 }
 
-void Channel2Ui::resetLvglObjects()
+void TransmitterUi::resetLvglObjects()
 {
+    logoSaverLogo_ = nullptr;
+    logoSaverDesignation_ = nullptr;
     dashboardThrottleBar_ = nullptr;
     pageFocusIndicator_ = nullptr;
     pageFocusCount_ = 0;
@@ -691,6 +694,7 @@ void Channel2Ui::resetLvglObjects()
     dashboardSafetyIcon_ = nullptr;
     dashboardSafetyLockBody_ = nullptr;
     dashboardSafetyLockShackle_ = nullptr;
+    dashboardHeader_ = nullptr;
     dashboardLinkLabel_ = nullptr;
     dashboardRxVoltageLabel_ = nullptr;
     dashboardTxVoltageLabel_ = nullptr;
@@ -720,21 +724,39 @@ void Channel2Ui::resetLvglObjects()
     for (lv_obj_t *&label : inputMonitorEventLabels_) label = nullptr;
 }
 
-void Channel2Ui::setPhysicalInputStates(const PhysicalInputStateStore &states)
+void TransmitterUi::setPhysicalInputStates(const PhysicalInputStateStore &states)
 {
+    bool dismissLogoSaver = false;
     for (size_t index = 0; index < kPhysicalControlCount; ++index) {
-        physicalInputStates_[index] = states.state(
+        const PhysicalInputState &state = states.state(
             static_cast<PhysicalControlId>(index));
+        if (activePage_ == UiPage::LogoSaver) {
+            const PhysicalControlKind kind = physicalControlDescriptor(index).kind;
+            if (kind == PhysicalControlKind::Proportional) {
+                dismissLogoSaver = dismissLogoSaver ||
+                    abs(static_cast<int>(state.value) -
+                        static_cast<int>(logoSaverInputValues_[index])) >=
+                        kLogoSaverProportionalWakePermille;
+            } else {
+                dismissLogoSaver = dismissLogoSaver ||
+                    state.stablePrimary != logoSaverInputPrimary_[index] ||
+                    state.stableSecondary != logoSaverInputSecondary_[index] ||
+                    state.faulted != logoSaverInputFaulted_[index];
+            }
+        }
+        physicalInputStates_[index] = state;
     }
+    if (dismissLogoSaver) leaveLogoSaver();
 }
 
-void Channel2Ui::setStartupPreflight(bool complete, uint32_t unsafeMask)
+void TransmitterUi::setStartupPreflight(bool complete, uint32_t unsafeMask)
 {
     const bool changed = startupPreflightComplete_ != complete ||
                          startupWarningMask_ != unsafeMask;
     startupPreflightComplete_ = complete;
     startupWarningMask_ = unsafeMask;
     if (complete) {
+        if (activePage_ == UiPage::BootSplash) return;
         if (activePage_ == UiPage::StartupWarning) {
             playBuzzer(80);
             drawDashboard();
@@ -745,40 +767,121 @@ void Channel2Ui::setStartupPreflight(bool complete, uint32_t unsafeMask)
     // request made before switch positions were known.
     armRequested_ = false;
     safetyResetRequested_ = true;
+    if (activePage_ == UiPage::BootSplash) return;
     if (changed || activePage_ != UiPage::StartupWarning) {
         playBuzzer(180);
         drawStartupWarningPage();
     }
 }
 
-void Channel2Ui::loadSettings()
+void TransmitterUi::loadModelMemorySettings()
+{
+    for (uint8_t slot = 0; slot < kModelMemoryCount; ++slot) {
+        if (slot == 0) {
+            snprintf(modelNames_[slot], kModelNameCapacity, "HYPER 7");
+        } else {
+            snprintf(modelNames_[slot], kModelNameCapacity, "MODEL %u", slot + 1);
+        }
+    }
+    Preferences preferences;
+    preferences.begin("jr-r1-models", true);
+    activeModelSlot_ = preferences.getUChar("active", 0);
+    if (preferences.getBytesLength("names") == sizeof(modelNames_))
+        preferences.getBytes("names", modelNames_, sizeof(modelNames_));
+    preferences.end();
+    if (activeModelSlot_ >= kModelMemoryCount) activeModelSlot_ = 0;
+    for (uint8_t slot = 0; slot < kModelMemoryCount; ++slot)
+        modelNames_[slot][kModelNameCapacity - 1] = '\0';
+}
+
+void TransmitterUi::saveModelMemorySettings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-ch2", true);
-    throttleProfile().negativeEndpointPercent = preferences.getUChar("brake_ep", 100);
-    throttleProfile().positiveEndpointPercent = preferences.getUChar("throt_ep", 100);
-    throttleProfile().negativeRatePercent = preferences.getUChar("brk_rate", 100);
-    throttleProfile().positiveRatePercent = preferences.getUChar("fwd_rate", 100);
-    throttleProfile().negativeExpoPercent = preferences.getChar("brk_expo", 0);
-    throttleProfile().positiveExpoPercent = preferences.getChar("fwd_expo", 0);
-    throttleProfile().negativeRampMs = preferences.getUShort("brk_speed", 0);
-    throttleProfile().positiveRampMs = preferences.getUShort("fwd_speed", 0);
-    throttleProfile().subtrimPercent = preferences.getChar("trim", 0);
-    throttleProfile().reversed = preferences.getBool("reverse", false);
+    preferences.begin("jr-r1-models", false);
+    preferences.putUChar("active", activeModelSlot_);
+    preferences.putBytes("names", modelNames_, sizeof(modelNames_));
+    preferences.end();
+}
+
+void TransmitterUi::saveCurrentModelMemory()
+{
+    saveChannelRoleSettings();
+    saveSettings();
+    saveRxBatterySettings();
+    saveDriveModeSettings();
+    saveChannelParameters();
+    saveBindings();
+}
+
+bool TransmitterUi::selectModelMemory(uint8_t slot)
+{
+    if (slot >= kModelMemoryCount || slot == activeModelSlot_) return true;
+    const int throttleDelta = static_cast<int>(latestRawAdc_) -
+                              static_cast<int>(triggerInput_.centre());
+    if (armRequested_ || abs(throttleDelta) > ARM_NEUTRAL_ADC_WINDOW) {
+        snprintf(modelSelectStatus_, sizeof(modelSelectStatus_),
+                 "CUT and centre throttle before changing model");
+        playBuzzer(180);
+        return false;
+    }
+
+    armRequested_ = false;
+    safetyResetRequested_ = true;
+    saveCurrentModelMemory();
+    activeModelSlot_ = slot;
+    saveModelMemorySettings();
+    loadChannelRoleSettings();
+    loadSettings();
+    loadRxBatterySettings();
+    loadDriveModeSettings();
+    loadChannelParameters();
+    loadBindings();
+    selectedChannel_ = channelRoleSettings_.throttleChannel;
+    bindingsChanged_ = true;
+    channelRolesChanged_ = true;
+    snprintf(modelSelectStatus_, sizeof(modelSelectStatus_),
+             "Model %u loaded; re-arm required", activeModelSlot_ + 1);
+    Serial.printf("MODEL: selected %u '%s'; outputs CUT until re-armed\n",
+                  activeModelSlot_ + 1, modelNames_[activeModelSlot_]);
+    return true;
+}
+
+void TransmitterUi::loadSettings()
+{
+    for (ChannelResponseProfile &profile : channelProfiles_)
+        profile = ChannelResponseProfile{};
+    Preferences preferences;
+    ProportionalCalibration legacyCalibration {
+        THROTTLE_ADC_MIN, THROTTLE_ADC_CENTER, THROTTLE_ADC_MAX};
+    if (activeModelSlot_ == 0) {
+        preferences.begin("jr-r1-ch2", true);
+        throttleProfile().negativeEndpointPercent = preferences.getUChar("brake_ep", 100);
+        throttleProfile().positiveEndpointPercent = preferences.getUChar("throt_ep", 100);
+        throttleProfile().negativeRatePercent = preferences.getUChar("brk_rate", 100);
+        throttleProfile().positiveRatePercent = preferences.getUChar("fwd_rate", 100);
+        throttleProfile().negativeExpoPercent = preferences.getChar("brk_expo", 0);
+        throttleProfile().positiveExpoPercent = preferences.getChar("fwd_expo", 0);
+        throttleProfile().negativeRampMs = preferences.getUShort("brk_speed", 0);
+        throttleProfile().positiveRampMs = preferences.getUShort("fwd_speed", 0);
+        throttleProfile().subtrimPercent = preferences.getChar("trim", 0);
+        throttleProfile().reversed = preferences.getBool("reverse", false);
+        legacyCalibration = {
+            preferences.getUShort("adc_min", THROTTLE_ADC_MIN),
+            preferences.getUShort("adc_ctr", THROTTLE_ADC_CENTER),
+            preferences.getUShort("adc_max", THROTTLE_ADC_MAX),
+        };
+        preferences.end();
+    }
     // Read the old channel-scoped keys as migration defaults. Calibration is
     // now stored against the physical trigger input, not its assigned output.
-    const ProportionalCalibration legacyCalibration {
-        preferences.getUShort("adc_min", THROTTLE_ADC_MIN),
-        preferences.getUShort("adc_ctr", THROTTLE_ADC_CENTER),
-        preferences.getUShort("adc_max", THROTTLE_ADC_MAX),
-    };
-    preferences.end();
-
     // New builds keep one response profile per CRSF channel. If no versioned
     // profile block exists, the legacy CH2 settings above become the profile
     // for the currently assigned throttle channel and every other channel
     // starts linear at full travel.
-    preferences.begin("jr-r1-response", true);
+    char responseNamespace[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-response",
+                                     "response", responseNamespace,
+                                     sizeof(responseNamespace)), true);
     if (preferences.getUShort("version", 0) == kResponseProfileVersion &&
         preferences.getBytesLength("profiles") == sizeof(channelProfiles_)) {
         preferences.getBytes("profiles", channelProfiles_,
@@ -815,39 +918,46 @@ void Channel2Ui::loadSettings()
     steeringInput_.setCalibration(steeringCalibration);
 }
 
-void Channel2Ui::saveSettings()
+void TransmitterUi::saveSettings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-ch2", false);
-    preferences.putUChar("brake_ep", throttleProfile().negativeEndpointPercent);
-    preferences.putUChar("throt_ep", throttleProfile().positiveEndpointPercent);
-    preferences.putUChar("brk_rate", throttleProfile().negativeRatePercent);
-    preferences.putUChar("fwd_rate", throttleProfile().positiveRatePercent);
-    preferences.putChar("brk_expo", throttleProfile().negativeExpoPercent);
-    preferences.putChar("fwd_expo", throttleProfile().positiveExpoPercent);
-    preferences.putUShort("brk_speed", throttleProfile().negativeRampMs);
-    preferences.putUShort("fwd_speed", throttleProfile().positiveRampMs);
-    preferences.putChar("trim", throttleProfile().subtrimPercent);
-    preferences.putBool("reverse", throttleProfile().reversed);
-    preferences.end();
+    if (activeModelSlot_ == 0) {
+        preferences.begin("jr-r1-ch2", false);
+        preferences.putUChar("brake_ep", throttleProfile().negativeEndpointPercent);
+        preferences.putUChar("throt_ep", throttleProfile().positiveEndpointPercent);
+        preferences.putUChar("brk_rate", throttleProfile().negativeRatePercent);
+        preferences.putUChar("fwd_rate", throttleProfile().positiveRatePercent);
+        preferences.putChar("brk_expo", throttleProfile().negativeExpoPercent);
+        preferences.putChar("fwd_expo", throttleProfile().positiveExpoPercent);
+        preferences.putUShort("brk_speed", throttleProfile().negativeRampMs);
+        preferences.putUShort("fwd_speed", throttleProfile().positiveRampMs);
+        preferences.putChar("trim", throttleProfile().subtrimPercent);
+        preferences.putBool("reverse", throttleProfile().reversed);
+        preferences.end();
+    }
 
-    preferences.begin("jr-r1-response", false);
+    char responseNamespace[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-response",
+                                     "response", responseNamespace,
+                                     sizeof(responseNamespace)), false);
     preferences.putUShort("version", kResponseProfileVersion);
     preferences.putBytes("profiles", channelProfiles_, sizeof(channelProfiles_));
     preferences.end();
     settingsSavePending_ = false;
 }
 
-void Channel2Ui::scheduleSettingsSave()
+void TransmitterUi::scheduleSettingsSave()
 {
     settingsSavePending_ = true;
     settingsSaveDueMs_ = millis() + kSettingsSaveDelayMs;
 }
 
-void Channel2Ui::loadChannelRoleSettings()
+void TransmitterUi::loadChannelRoleSettings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-model1", true);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-model1",
+                                     "roles", name, sizeof(name)), true);
     channelRoleSettings_.steeringChannel = preferences.getUChar("steer_ch", 1);
     channelRoleSettings_.throttleChannel = preferences.getUChar("throt_ch", 2);
     channelRoleSettings_.steeringEnabled = preferences.getBool("steer_en", true);
@@ -861,10 +971,12 @@ void Channel2Ui::loadChannelRoleSettings()
     }
 }
 
-void Channel2Ui::saveChannelRoleSettings()
+void TransmitterUi::saveChannelRoleSettings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-model1", false);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-model1",
+                                     "roles", name, sizeof(name)), false);
     preferences.putUChar("steer_ch", channelRoleSettings_.steeringChannel);
     preferences.putUChar("throt_ch", channelRoleSettings_.throttleChannel);
     preferences.putBool("steer_en", channelRoleSettings_.steeringEnabled);
@@ -872,14 +984,14 @@ void Channel2Ui::saveChannelRoleSettings()
     preferences.end();
 }
 
-bool Channel2Ui::consumeChannelRolesChanged()
+bool TransmitterUi::consumeChannelRolesChanged()
 {
     const bool changed = channelRolesChanged_;
     channelRolesChanged_ = false;
     return changed;
 }
 
-size_t Channel2Ui::copyBindings(ControlBinding *destination,
+size_t TransmitterUi::copyBindings(ControlBinding *destination,
                                 size_t capacity) const
 {
     if (destination == nullptr) return 0;
@@ -900,21 +1012,21 @@ size_t Channel2Ui::copyBindings(ControlBinding *destination,
     return count;
 }
 
-bool Channel2Ui::consumeBindingsChanged()
+bool TransmitterUi::consumeBindingsChanged()
 {
     const bool changed = bindingsChanged_;
     bindingsChanged_ = false;
     return changed;
 }
 
-bool Channel2Ui::consumeSafetyResetRequested()
+bool TransmitterUi::consumeSafetyResetRequested()
 {
     const bool requested = safetyResetRequested_;
     safetyResetRequested_ = false;
     return requested;
 }
 
-bool Channel2Ui::consumeElrsManagementRequest(ElrsManagementRequest &request)
+bool TransmitterUi::consumeElrsManagementRequest(ElrsManagementRequest &request)
 {
     if (!elrsRequestPending_) return false;
     request = elrsPendingRequest_;
@@ -922,7 +1034,7 @@ bool Channel2Ui::consumeElrsManagementRequest(ElrsManagementRequest &request)
     return true;
 }
 
-void Channel2Ui::saveCalibration()
+void TransmitterUi::saveCalibration()
 {
     const ProportionalCalibration &calibration = calibratingSteering_
         ? steeringInput_.calibration() : triggerInput_.calibration();
@@ -935,7 +1047,7 @@ void Channel2Ui::saveCalibration()
     preferences.end();
 }
 
-void Channel2Ui::loadSystemSettings()
+void TransmitterUi::loadSystemSettings()
 {
     Preferences preferences;
     preferences.begin("jr-r1-system", true);
@@ -944,6 +1056,7 @@ void Channel2Ui::loadSystemSettings()
     systemSettings_.buzzerPitchHz = preferences.getUShort("pitch", 3200);
     systemSettings_.keyClickDurationMs = preferences.getUShort("click_ms", 10);
     systemSettings_.screenTimeoutSeconds = preferences.getUShort("scr_timeout", 60);
+    systemSettings_.logoScreensaverEnabled = preferences.getBool("idle_logo", true);
     systemSettings_.displayBrightnessPercent = preferences.getUChar("brightness", 100);
     systemSettings_.nightMode = preferences.getBool("night", false);
     preferences.end();
@@ -963,7 +1076,7 @@ void Channel2Ui::loadSystemSettings()
         systemSettings_.displayBrightnessPercent, 20, 100);
 }
 
-void Channel2Ui::saveSystemSettings()
+void TransmitterUi::saveSystemSettings()
 {
     Preferences preferences;
     preferences.begin("jr-r1-system", false);
@@ -972,12 +1085,13 @@ void Channel2Ui::saveSystemSettings()
     preferences.putUShort("pitch", systemSettings_.buzzerPitchHz);
     preferences.putUShort("click_ms", systemSettings_.keyClickDurationMs);
     preferences.putUShort("scr_timeout", systemSettings_.screenTimeoutSeconds);
+    preferences.putBool("idle_logo", systemSettings_.logoScreensaverEnabled);
     preferences.putUChar("brightness", systemSettings_.displayBrightnessPercent);
     preferences.putBool("night", systemSettings_.nightMode);
     preferences.end();
 }
 
-void Channel2Ui::loadTxBatterySettings()
+void TransmitterUi::loadTxBatterySettings()
 {
     Preferences preferences;
     preferences.begin("jr-r1-txbat", true);
@@ -998,7 +1112,7 @@ void Channel2Ui::loadTxBatterySettings()
         kBatteryMinimumAlarmDecivolts, kBatteryMaximumAlarmDecivolts);
 }
 
-void Channel2Ui::saveTxBatterySettings()
+void TransmitterUi::saveTxBatterySettings()
 {
     Preferences preferences;
     preferences.begin("jr-r1-txbat", false);
@@ -1009,10 +1123,12 @@ void Channel2Ui::saveTxBatterySettings()
     preferences.end();
 }
 
-void Channel2Ui::loadRxBatterySettings()
+void TransmitterUi::loadRxBatterySettings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-rxbat", true);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-rxbat",
+                                     "rxbat", name, sizeof(name)), true);
     rxBatterySettings_.chemistry = static_cast<BatteryChemistry>(
         preferences.getUChar("chem", static_cast<uint8_t>(BatteryChemistry::LiFe)));
     rxBatterySettings_.cellCount = preferences.getUChar("cells", 2);
@@ -1030,10 +1146,12 @@ void Channel2Ui::loadRxBatterySettings()
         kBatteryMinimumAlarmDecivolts, kBatteryMaximumAlarmDecivolts);
 }
 
-void Channel2Ui::saveRxBatterySettings()
+void TransmitterUi::saveRxBatterySettings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-rxbat", false);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-rxbat",
+                                     "rxbat", name, sizeof(name)), false);
     preferences.putUChar("chem", static_cast<uint8_t>(rxBatterySettings_.chemistry));
     preferences.putUChar("cells", rxBatterySettings_.cellCount);
     preferences.putUShort("low_dv", rxBatterySettings_.lowAlarmDecivolts);
@@ -1041,10 +1159,12 @@ void Channel2Ui::saveRxBatterySettings()
     preferences.end();
 }
 
-void Channel2Ui::loadDriveModeSettings()
+void TransmitterUi::loadDriveModeSettings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-drive", true);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-drive",
+                                     "drive", name, sizeof(name)), true);
     driveModeSettings_.walkLimitPercent = preferences.getUChar("walk_limit", 35);
     preferences.end();
     driveModeSettings_.walkLimitPercent = constrain(
@@ -1054,15 +1174,17 @@ void Channel2Ui::loadDriveModeSettings()
     driveModeSettings_.activeMode = DriveMode::Normal;
 }
 
-void Channel2Ui::saveDriveModeSettings()
+void TransmitterUi::saveDriveModeSettings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-drive", false);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-drive",
+                                     "drive", name, sizeof(name)), false);
     preferences.putUChar("walk_limit", driveModeSettings_.walkLimitPercent);
     preferences.end();
 }
 
-void Channel2Ui::loadElrsSettings()
+void TransmitterUi::loadElrsSettings()
 {
     Preferences preferences;
     preferences.begin("jr-r1-elrs", true);
@@ -1071,7 +1193,7 @@ void Channel2Ui::loadElrsSettings()
     phrase.toCharArray(elrsBindPhrase_, sizeof(elrsBindPhrase_));
 }
 
-void Channel2Ui::saveElrsSettings()
+void TransmitterUi::saveElrsSettings()
 {
     Preferences preferences;
     preferences.begin("jr-r1-elrs", false);
@@ -1079,7 +1201,7 @@ void Channel2Ui::saveElrsSettings()
     preferences.end();
 }
 
-void Channel2Ui::restoreDefaultBindings()
+void TransmitterUi::restoreDefaultBindings()
 {
     bindingCount_ = 1;
     bindings_[0] = defaultBindingForInput(PhysicalControlId::TimerButton);
@@ -1092,10 +1214,12 @@ void Channel2Ui::restoreDefaultBindings()
     bindings_[0].enabled = true;
 }
 
-void Channel2Ui::loadBindings()
+void TransmitterUi::loadBindings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-bind", true);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-bind",
+                                     "bind", name, sizeof(name)), true);
     const uint16_t version = preferences.getUShort("version", 0);
     const uint8_t count = preferences.getUChar("count", 0);
     const size_t storedBytes = preferences.getBytesLength("items");
@@ -1119,20 +1243,24 @@ void Channel2Ui::loadBindings()
     }
 }
 
-void Channel2Ui::saveBindings()
+void TransmitterUi::saveBindings()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-bind", false);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-bind",
+                                     "bind", name, sizeof(name)), false);
     preferences.putUShort("version", kBindingProfileVersion);
     preferences.putUChar("count", static_cast<uint8_t>(bindingCount_));
     preferences.putBytes("items", bindings_, bindingCount_ * sizeof(ControlBinding));
     preferences.end();
 }
 
-void Channel2Ui::loadChannelParameters()
+void TransmitterUi::loadChannelParameters()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-chparam", true);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-chparam",
+                                     "param", name, sizeof(name)), true);
     const uint16_t version = preferences.getUShort("version", 0);
     const size_t bytes = preferences.getBytesLength("values");
     const bool valid = version == kChannelParameterVersion &&
@@ -1151,30 +1279,32 @@ void Channel2Ui::loadChannelParameters()
     }
 }
 
-void Channel2Ui::saveChannelParameters()
+void TransmitterUi::saveChannelParameters()
 {
     Preferences preferences;
-    preferences.begin("jr-r1-chparam", false);
+    char name[16];
+    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-chparam",
+                                     "param", name, sizeof(name)), false);
     preferences.putUShort("version", kChannelParameterVersion);
     preferences.putBytes("values", channelParameters_, sizeof(channelParameters_));
     preferences.end();
     channelParameterSavePending_ = false;
 }
 
-void Channel2Ui::scheduleChannelParameterSave()
+void TransmitterUi::scheduleChannelParameterSave()
 {
     channelParameterSavePending_ = true;
     channelParameterSaveDueMs_ = millis() + kSettingsSaveDelayMs;
 }
 
-int Channel2Ui::bindingIndexForInput(PhysicalControlId input) const
+int TransmitterUi::bindingIndexForInput(PhysicalControlId input) const
 {
     for (size_t index = 0; index < bindingCount_; ++index)
         if (bindings_[index].input == input) return static_cast<int>(index);
     return -1;
 }
 
-int Channel2Ui::bindingIndexForChannelParameter(
+int TransmitterUi::bindingIndexForChannelParameter(
     uint8_t channel, ChannelParameterKind kind) const
 {
     const uint16_t targetId = encodeChannelParameterTarget(channel, kind);
@@ -1186,7 +1316,7 @@ int Channel2Ui::bindingIndexForChannelParameter(
     return -1;
 }
 
-PhysicalControlId Channel2Ui::adjacentChannelParameterControl(
+PhysicalControlId TransmitterUi::adjacentChannelParameterControl(
     uint8_t channel, ChannelParameterKind kind, int8_t direction) const
 {
     constexpr PhysicalControlId choices[] = {
@@ -1217,7 +1347,7 @@ PhysicalControlId Channel2Ui::adjacentChannelParameterControl(
     return current;
 }
 
-bool Channel2Ui::assignChannelParameterControl(
+bool TransmitterUi::assignChannelParameterControl(
     uint8_t channel, ChannelParameterKind kind, PhysicalControlId input)
 {
     ControlBinding candidate[kPhysicalControlCount];
@@ -1259,7 +1389,7 @@ bool Channel2Ui::assignChannelParameterControl(
     return true;
 }
 
-ControlBinding Channel2Ui::defaultBindingForInput(PhysicalControlId input) const
+ControlBinding TransmitterUi::defaultBindingForInput(PhysicalControlId input) const
 {
     ControlBinding binding;
     binding.input = input;
@@ -1288,7 +1418,7 @@ ControlBinding Channel2Ui::defaultBindingForInput(PhysicalControlId input) const
     return binding;
 }
 
-uint8_t Channel2Ui::adjacentBindingChannel(uint8_t current,
+uint8_t TransmitterUi::adjacentBindingChannel(uint8_t current,
                                            int8_t direction) const
 {
     uint8_t candidate = current;
@@ -1313,7 +1443,7 @@ uint8_t Channel2Ui::adjacentBindingChannel(uint8_t current,
     return current;
 }
 
-ControlBehaviour Channel2Ui::adjacentBindingBehaviour(
+ControlBehaviour TransmitterUi::adjacentBindingBehaviour(
     PhysicalControlKind kind, ControlBehaviour current, int8_t direction) const
 {
     const ControlBehaviour buttonModes[] = {
@@ -1340,7 +1470,7 @@ ControlBehaviour Channel2Ui::adjacentBindingBehaviour(
     return modes[next];
 }
 
-AssignmentTarget Channel2Ui::adjacentBindingTarget(
+AssignmentTarget TransmitterUi::adjacentBindingTarget(
     PhysicalControlKind kind, AssignmentTarget current, int8_t direction) const
 {
     const AssignmentTarget buttonTargets[] = {
@@ -1374,7 +1504,7 @@ AssignmentTarget Channel2Ui::adjacentBindingTarget(
     return targets[next];
 }
 
-bool Channel2Ui::bindingUsesChannel(uint8_t channel,
+bool TransmitterUi::bindingUsesChannel(uint8_t channel,
                                     PhysicalControlId exceptInput) const
 {
     for (size_t index = 0; index < bindingCount_; ++index) {
@@ -1387,7 +1517,7 @@ bool Channel2Ui::bindingUsesChannel(uint8_t channel,
     return false;
 }
 
-bool Channel2Ui::saveBindingDraft()
+bool TransmitterUi::saveBindingDraft()
 {
     bindingError_[0] = '\0';
     if (bindingDraft_.enabled &&
@@ -1434,7 +1564,7 @@ bool Channel2Ui::saveBindingDraft()
     return true;
 }
 
-bool Channel2Ui::removeSelectedBinding()
+bool TransmitterUi::removeSelectedBinding()
 {
     const int existing = bindingIndexForInput(selectedBindingInput_);
     if (existing < 0) return false;
@@ -1449,7 +1579,7 @@ bool Channel2Ui::removeSelectedBinding()
     return true;
 }
 
-void Channel2Ui::playBuzzer(uint16_t durationMs)
+void TransmitterUi::playBuzzer(uint16_t durationMs)
 {
     if (!systemSettings_.buzzerEnabled) return;
 #ifdef JR_R1_SIMULATOR
@@ -1459,12 +1589,12 @@ void Channel2Ui::playBuzzer(uint16_t durationMs)
 #endif
 }
 
-void Channel2Ui::playKeyClick()
+void TransmitterUi::playKeyClick()
 {
     if (systemSettings_.keyClicksEnabled) playBuzzer(systemSettings_.keyClickDurationMs);
 }
 
-void Channel2Ui::stopBuzzer()
+void TransmitterUi::stopBuzzer()
 {
 #ifdef JR_R1_SIMULATOR
     simulatorStopBeep();
@@ -1473,7 +1603,7 @@ void Channel2Ui::stopBuzzer()
 #endif
 }
 
-void Channel2Ui::sleepDisplay()
+void TransmitterUi::sleepDisplay()
 {
     if (!displayReady_ || displaySleeping_) return;
 #ifdef JR_R1_SIMULATOR
@@ -1498,7 +1628,7 @@ void Channel2Ui::sleepDisplay()
         : "DISPLAY: off (0x28; touch to wake)");
 }
 
-void Channel2Ui::wakeDisplay()
+void TransmitterUi::wakeDisplay()
 {
     if (!displayReady_ || !displaySleeping_) return;
 #ifdef JR_R1_SIMULATOR
@@ -1516,13 +1646,16 @@ void Channel2Ui::wakeDisplay()
     Serial.println("DISPLAY: awake");
 }
 
-void Channel2Ui::redrawActivePage()
+void TransmitterUi::redrawActivePage()
 {
     switch (activePage_) {
+        case UiPage::BootSplash: drawBootSplash(); break;
+        case UiPage::LogoSaver: drawLogoSaver(); break;
         case UiPage::Dashboard: drawDashboard(); break;
         case UiPage::StartupWarning: drawStartupWarningPage(); break;
         case UiPage::Telemetry: drawTelemetryPage(); break;
         case UiPage::MainMenu: drawMainMenu(); break;
+        case UiPage::ModelSelect: drawModelSelectPage(); break;
         case UiPage::Channels: drawChannelsPage(); break;
         case UiPage::ChannelRoles: drawChannelRolesPage(); break;
         case UiPage::Channel2: drawPage(); break;
@@ -1537,18 +1670,89 @@ void Channel2Ui::redrawActivePage()
         case UiPage::TxBatterySetup: drawTxBatteryPage(); break;
         case UiPage::RxBatterySetup: drawRxBatteryPage(); break;
         case UiPage::DisplaySetup: drawDisplayPage(); break;
+        case UiPage::FirmwareInfo: drawFirmwareInfoPage(); break;
         case UiPage::ElrsBinding: drawElrsBindingPage(); break;
         case UiPage::EscProgramming: drawEscProgrammingPage(); break;
         case UiPage::Calibration: drawCalibrationPage(); break;
     }
 }
 
-int16_t Channel2Ui::mapAdcToPermille(uint16_t adc) const
+void TransmitterUi::drawBootSplash()
+{
+    if (!displayReady_) return;
+    activePage_ = UiPage::BootSplash;
+    bootSplashStartedMs_ = millis();
+    startScreen();
+    resetLvglObjects();
+    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);
+
+    lv_obj_t *logo = lv_img_create(lv_scr_act());
+    lv_img_set_src(logo, &jr_propo_boot_logo);
+    lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 92);
+
+    lv_obj_t *designation = makeLabel(
+        lv_scr_act(), "R1 EVO", 0, 0, 18, 0xbec3c9);
+    lv_obj_set_style_text_letter_space(designation, 5, 0);
+    lv_obj_align(designation, LV_ALIGN_TOP_MID, 0, 204);
+}
+
+void TransmitterUi::positionLogoSaver()
+{
+    if (!logoSaverLogo_ || !logoSaverDesignation_) return;
+    static constexpr int16_t xOffsets[] = {0, -10, 10, 0};
+    static constexpr int16_t yPositions[] = {32, 92, 158, 110};
+    const uint8_t position = logoSaverPosition_ % 4;
+    lv_obj_align(logoSaverLogo_, LV_ALIGN_TOP_MID,
+                 xOffsets[position], yPositions[position]);
+    lv_obj_align(logoSaverDesignation_, LV_ALIGN_TOP_MID,
+                 xOffsets[position], yPositions[position] + 112);
+}
+
+void TransmitterUi::drawLogoSaver()
+{
+    if (!displayReady_) return;
+    activePage_ = UiPage::LogoSaver;
+    startScreen();
+    resetLvglObjects();
+    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);
+
+    logoSaverLogo_ = lv_img_create(lv_scr_act());
+    lv_img_set_src(logoSaverLogo_, &jr_propo_boot_logo);
+    logoSaverDesignation_ = makeLabel(
+        lv_scr_act(), "R1 EVO", 0, 0, 18, 0xbec3c9);
+    lv_obj_set_style_text_letter_space(logoSaverDesignation_, 5, 0);
+    logoSaverPosition_ = 0;
+    positionLogoSaver();
+    for (size_t index = 0; index < kPhysicalControlCount; ++index) {
+        logoSaverInputValues_[index] = physicalInputStates_[index].value;
+        logoSaverInputPrimary_[index] = physicalInputStates_[index].stablePrimary;
+        logoSaverInputSecondary_[index] = physicalInputStates_[index].stableSecondary;
+        logoSaverInputFaulted_[index] = physicalInputStates_[index].faulted;
+    }
+    nextLogoSaverMoveMs_ = millis() + kLogoSaverMoveMs;
+    applyBacklight(min(systemSettings_.displayBrightnessPercent,
+                       kLogoSaverBrightnessPercent));
+    Serial.println("DISPLAY: logo saver active (25% maximum brightness)");
+}
+
+void TransmitterUi::leaveLogoSaver()
+{
+    if (activePage_ != UiPage::LogoSaver) return;
+    applyBacklight(systemSettings_.displayBrightnessPercent);
+    activePage_ = (logoSaverReturnPage_ == UiPage::BootSplash ||
+                   logoSaverReturnPage_ == UiPage::LogoSaver)
+        ? UiPage::Dashboard : logoSaverReturnPage_;
+    lastInteractionMs_ = millis();
+    redrawActivePage();
+    Serial.println("DISPLAY: logo saver dismissed");
+}
+
+int16_t TransmitterUi::mapAdcToPermille(uint16_t adc) const
 {
     return mapProportionalInputToPermille(throttleInputProfile(), adc);
 }
 
-ProportionalInputProfile Channel2Ui::throttleInputProfile() const
+ProportionalInputProfile TransmitterUi::throttleInputProfile() const
 {
     ProportionalInputProfile profile;
     profile.calibration = triggerInput_.calibration();
@@ -1561,7 +1765,7 @@ ProportionalInputProfile Channel2Ui::throttleInputProfile() const
     return profile;
 }
 
-ProportionalInputProfile Channel2Ui::steeringInputProfile() const
+ProportionalInputProfile TransmitterUi::steeringInputProfile() const
 {
     ProportionalInputProfile profile;
     profile.calibration = steeringInput_.calibration();
@@ -1572,63 +1776,37 @@ ProportionalInputProfile Channel2Ui::steeringInputProfile() const
     return profile;
 }
 
-int16_t Channel2Ui::applySettings(int16_t rawInputPermille) const
+ControlConfigurationSnapshot TransmitterUi::controlConfigurationSnapshot() const
 {
-    // Keep physical trigger semantics independent of output direction:
-    // negative input is always brake/reverse; positive is always forward.
-    return applyChannelResponse(throttleProfile(), rawInputPermille);
-}
-
-int16_t Channel2Ui::applyResponseSettings(uint8_t channel,
-                                          int16_t rawInputPermille) const
-{
-    return applyChannelResponse(profileForChannel(channel), rawInputPermille);
-}
-
-int16_t Channel2Ui::applyDriveMode(int16_t configuredPermille,
-                                   int16_t rawInputPermille) const
-{
-    const int16_t trim = static_cast<int16_t>(throttleProfile().subtrimPercent) * 10;
-    int32_t driveComponent = static_cast<int32_t>(configuredPermille) - trim;
-    // Select the limited side from the physical trigger direction, not the
-    // post-reverse output sign. Reversing CH2 must not turn the brake side into
-    // the limited side. Sub-trim is a centre offset rather than drive demand,
-    // so remove it before scaling and restore it unchanged afterwards.
-    if (driveModeSettings_.activeMode == DriveMode::Walk &&
-        rawInputPermille > 0) {
-        driveComponent = driveComponent * driveModeSettings_.walkLimitPercent / 100;
+    ControlConfigurationSnapshot snapshot;
+    snapshot.throttleInput = throttleInputProfile();
+    snapshot.steeringInput = steeringInputProfile();
+    for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
+        snapshot.channelProfiles[index] = channelProfiles_[index];
+        snapshot.channelParameters[index] = channelParameters_[index];
     }
-    return clampExtendedTravel(driveComponent + trim);
+    for (size_t index = 0; index < bindingCount_; ++index) {
+        const ControlBinding &binding = bindings_[index];
+        if (!binding.enabled || binding.target != AssignmentTarget::CrsfChannel ||
+            binding.crsfChannel < 1 || binding.crsfChannel > CRSF_CHANNEL_COUNT ||
+            physicalControlDescriptor(static_cast<size_t>(binding.input)).kind !=
+                PhysicalControlKind::Proportional)
+            continue;
+        snapshot.proportionalOutputMask |= static_cast<uint16_t>(
+            1U << (binding.crsfChannel - 1));
+    }
+    snapshot.steeringChannel = channelRoleSettings_.steeringChannel;
+    snapshot.throttleChannel = channelRoleSettings_.throttleChannel;
+    snapshot.steeringEnabled = channelRoleSettings_.steeringEnabled;
+    snapshot.throttleEnabled = channelRoleSettings_.throttleEnabled;
+    snapshot.armRequested = armRequested_;
+    snapshot.calibrationActive = calibrationActive();
+    snapshot.driveMode = driveModeSettings_.activeMode;
+    snapshot.walkLimitPercent = driveModeSettings_.walkLimitPercent;
+    return snapshot;
 }
 
-int16_t Channel2Ui::neutralOutputPermille() const
-{
-    return channelNeutralPermille(channelRoleSettings_.throttleChannel);
-}
-
-int16_t Channel2Ui::applyChannelAdjustments(uint8_t channel,
-                                            int16_t inputPermille) const
-{
-    if (channel < 1 || channel > 16) return inputPermille;
-    const ChannelParameterValues &values = channelParameters_[channel - 1];
-    // Subtrim translates the full output envelope, preserving endpoint travel.
-    // Ordinary trim is then constrained to conventional travel, so using it
-    // consumes travel at one end just like a traditional transmitter trim.
-    const int16_t shifted = clampExtendedTravel(
-        static_cast<int32_t>(inputPermille) + values.subtrimPermille);
-    return static_cast<int16_t>(constrain(
-        static_cast<int32_t>(shifted) + values.trimPermille, -1000L, 1000L));
-}
-
-int16_t Channel2Ui::channelNeutralPermille(uint8_t channel) const
-{
-    int16_t base = 0;
-    if (channel == channelRoleSettings_.throttleChannel)
-        base = static_cast<int16_t>(throttleProfile().subtrimPercent) * 10;
-    return applyChannelAdjustments(channel, base);
-}
-
-int16_t Channel2Ui::channelParameterValue(uint8_t channel,
+int16_t TransmitterUi::channelParameterValue(uint8_t channel,
                                           ChannelParameterKind kind) const
 {
     if (channel < 1 || channel > 16) return 0;
@@ -1637,7 +1815,7 @@ int16_t Channel2Ui::channelParameterValue(uint8_t channel,
         ? values.subtrimPermille : values.trimPermille;
 }
 
-bool Channel2Ui::applyChannelParameterAction(uint16_t targetId, int16_t value)
+bool TransmitterUi::applyChannelParameterAction(uint16_t targetId, int16_t value)
 {
     if (!isChannelParameterTarget(targetId)) return false;
     const uint8_t channel = channelParameterTargetChannel(targetId);
@@ -1660,13 +1838,13 @@ bool Channel2Ui::applyChannelParameterAction(uint16_t targetId, int16_t value)
     return true;
 }
 
-uint8_t Channel2Ui::activeControlContext() const
+uint8_t TransmitterUi::activeControlContext() const
 {
     return (activePage_ == UiPage::Dashboard || activePage_ == UiPage::Telemetry)
         ? ContextDashboard : ContextMenu;
 }
 
-bool Channel2Ui::navigateDashboardPage(int8_t direction)
+bool TransmitterUi::navigateDashboardPage(int8_t direction)
 {
     // Keep the ordered list in one place as driving pages are added. Direction
     // is meaningful once GPS/map and power pages join this initial pair.
@@ -1689,10 +1867,15 @@ bool Channel2Ui::navigateDashboardPage(int8_t direction)
     return true;
 }
 
-bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value)
+bool TransmitterUi::applyTransmitterFunctionAction(uint16_t targetId, int16_t value)
 {
     if (targetId >= static_cast<uint16_t>(TransmitterFunction::Count)) return false;
+    if (activePage_ == UiPage::LogoSaver && value > 0) {
+        leaveLogoSaver();
+        return true;
+    }
     const TransmitterFunction function = static_cast<TransmitterFunction>(targetId);
+    if (activePage_ == UiPage::BootSplash) return true;
     if (!startupPreflightComplete_) {
         // Keep processing raw input state, but do not let a bound key or
         // switch dismiss or bypass the non-dismissible startup check.
@@ -1774,7 +1957,7 @@ bool Channel2Ui::applyTransmitterFunctionAction(uint16_t targetId, int16_t value
     }
 }
 
-bool Channel2Ui::applyDriveModeAction(uint16_t targetId, int16_t value)
+bool TransmitterUi::applyDriveModeAction(uint16_t targetId, int16_t value)
 {
     if (targetId >= static_cast<uint16_t>(DriveModeSelection::Count)) return false;
     const DriveModeSelection selection = static_cast<DriveModeSelection>(targetId);
@@ -1798,86 +1981,7 @@ bool Channel2Ui::applyDriveModeAction(uint16_t targetId, int16_t value)
     return true;
 }
 
-int16_t Channel2Ui::applyChannelSpeed(int16_t targetPermille, uint32_t nowMs)
-{
-    return applyChannelSpeed(channelRoleSettings_.throttleChannel,
-                             targetPermille, nowMs);
-}
-
-int16_t Channel2Ui::applyChannelSpeed(uint8_t channel,
-                                      int16_t targetPermille,
-                                      uint32_t nowMs)
-{
-    if (channel < 1 || channel > CRSF_CHANNEL_COUNT) return targetPermille;
-    const size_t index = channel - 1;
-    int16_t &slewed = slewedChannelPermille_[index];
-    uint32_t &lastUpdateMs = lastSlewUpdateMs_[index];
-    if (lastUpdateMs == 0) {
-        lastUpdateMs = nowMs;
-        slewed = 0;
-    }
-    const uint32_t elapsedMs = min<uint32_t>(nowMs - lastUpdateMs, 100U);
-    lastUpdateMs = nowMs;
-
-    const bool forwardSide = targetPermille > 0 ||
-        (targetPermille == 0 && slewed > 0);
-    const ChannelResponseProfile &profile = profileForChannel(channel);
-    const uint16_t travelMs = forwardSide ? profile.positiveRampMs
-                                          : profile.negativeRampMs;
-    if (travelMs == 0 || elapsedMs == 0) {
-        slewed = targetPermille;
-        return targetPermille;
-    }
-
-    const int32_t maximumStep = max<int32_t>(1,
-        (1000L * static_cast<int32_t>(elapsedMs) + travelMs - 1) / travelMs);
-    const int32_t delta = static_cast<int32_t>(targetPermille) -
-                          slewed;
-    slewed += static_cast<int16_t>(
-        constrain(delta, -maximumStep, maximumStep));
-    return slewed;
-}
-
-void Channel2Ui::resetChannelSpeed()
-{
-    const uint32_t now = millis();
-    for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
-        slewedChannelPermille_[index] = 0;
-        lastSlewUpdateMs_[index] = now;
-    }
-}
-
-void Channel2Ui::applyProportionalProfiles(CrsfChannelOutputModel &outputs,
-                                           uint32_t nowMs,
-                                           uint16_t reservedChannels)
-{
-    uint16_t processed = 0;
-    for (size_t index = 0; index < bindingCount_; ++index) {
-        const ControlBinding &binding = bindings_[index];
-        if (!binding.enabled || binding.target != AssignmentTarget::CrsfChannel ||
-            binding.crsfChannel < 1 || binding.crsfChannel > CRSF_CHANNEL_COUNT ||
-            physicalControlDescriptor(static_cast<size_t>(binding.input)).kind !=
-                PhysicalControlKind::Proportional)
-            continue;
-        const uint16_t bit = static_cast<uint16_t>(1U << (binding.crsfChannel - 1));
-        if ((reservedChannels & bit) != 0 || (processed & bit) != 0) continue;
-        processed |= bit;
-        const int16_t raw = permilleFromCrsfValue(
-            outputs.requested(binding.crsfChannel));
-        int16_t requested = applyResponseSettings(binding.crsfChannel, raw);
-        requested = applyChannelAdjustments(binding.crsfChannel, requested);
-        requested = applyChannelSpeed(binding.crsfChannel, requested, nowMs);
-        const int16_t safeRaw = permilleFromCrsfValue(
-            outputs.safe(binding.crsfChannel));
-        int16_t safe = applyResponseSettings(binding.crsfChannel, safeRaw);
-        safe = applyChannelAdjustments(binding.crsfChannel, safe);
-        outputs.setRequested(binding.crsfChannel,
-                             crsfValueFromPermille(requested));
-        outputs.setSafe(binding.crsfChannel, crsfValueFromPermille(safe));
-    }
-}
-
-void Channel2Ui::drawDashboard()
+void TransmitterUi::drawDashboard()
 {
     if (!displayReady_) return;
     activePage_ = UiPage::Dashboard;
@@ -1885,18 +1989,28 @@ void Channel2Ui::drawDashboard()
     resetLvglObjects();
     beginPageFocus(false);
 
-    lv_obj_t *header = makePanel(0, 0, 480, 40, cHeader, cHeader, 0);
+    dashboardHeader_ = makePanel(0, 0, 480, 40, cHeader, cHeader, 0);
     dashboardLinkLabel_ = makeLabel(
-        header, LV_SYMBOL_WIFI "  LQ --%   --- dBm", 12, 10, 16, cDim);
+        dashboardHeader_, LV_SYMBOL_WIFI "  LQ --%   --- dBm", 12, 10, 16, cDim);
     makePageActionButton(433, 4, 39, 32, LV_SYMBOL_SETTINGS, 18,
                          cPanel2, cWhite, cLine,
-                         &Channel2Ui::controlDashboard, 0);
+                         &TransmitterUi::controlDashboard, 0);
 
     lv_obj_t *model = makePanel(8, 47, 144, 87);
-    makeLabel(model, "01  HYPER 7", 10, 7, 12, cCyan);
-    lv_obj_t *buggy = lv_img_create(model);
-    lv_img_set_src(buggy, &hyper7_icon);
-    lv_obj_set_pos(buggy, 31, 23);
+    char modelTitle[24];
+    snprintf(modelTitle, sizeof(modelTitle), "%02u  %s",
+             activeModelSlot_ + 1, modelNames_[activeModelSlot_]);
+    makeLabel(model, modelTitle, 10, 7, 12, cCyan);
+    if (activeModelSlot_ == 0) {
+        lv_obj_t *buggy = lv_img_create(model);
+        lv_img_set_src(buggy, &hyper7_icon);
+        lv_obj_set_pos(buggy, 31, 23);
+    } else {
+        char slotLabel[12];
+        snprintf(slotLabel, sizeof(slotLabel), "MODEL %02u", activeModelSlot_ + 1);
+        lv_obj_t *slot = makeLabel(model, slotLabel, 0, 0, 20, cDim);
+        lv_obj_align(slot, LV_ALIGN_CENTER, 0, 13);
+    }
 
     lv_obj_t *power = makePanel(160, 47, 144, 87);
     makeLabel(power, "POWER", 10, 8, 12, cCyan);
@@ -2031,18 +2145,18 @@ void Channel2Ui::drawDashboard()
 
     makePageActionButton(8, 249, 108, 62, "MENU", 18,
                          cPanel2, cWhite, cLine,
-                         &Channel2Ui::controlDashboard, 1);
+                         &TransmitterUi::controlDashboard, 1);
     makePageActionButton(124, 249, 108, 62, "TELEMETRY", 11,
                          cPanel2, cCyan, cLine,
-                         &Channel2Ui::controlDashboard, 2);
+                         &TransmitterUi::controlDashboard, 2);
     makePageActionButton(240, 249, 108, 62, "QUICK", 16,
                          cPanel2, cCyan, cLine,
-                         &Channel2Ui::controlDashboard, 3);
+                         &TransmitterUi::controlDashboard, 3);
     const char *mode = driveModeSettings_.activeMode == DriveMode::Walk
         ? "MODE\nWALK" : "MODE\nNORMAL";
     makePageActionButton(356, 249, 116, 62, mode, 13,
                          cPanel2, cGreen, cLine,
-                         &Channel2Ui::controlDashboard, 4);
+                         &TransmitterUi::controlDashboard, 4);
 
     // LVGL calculates object coordinates lazily. Resolve the new dashboard
     // geometry before drawDashboardLive() reads track widths; otherwise its
@@ -2058,7 +2172,7 @@ void Channel2Ui::drawDashboard()
     finishPageFocus();
 }
 
-void Channel2Ui::drawStartupWarningPage()
+void TransmitterUi::drawStartupWarningPage()
 {
     activePage_ = UiPage::StartupWarning;
     startScreen();
@@ -2097,7 +2211,7 @@ void Channel2Ui::drawStartupWarningPage()
     finishPageFocus();
 }
 
-void Channel2Ui::drawTelemetryPage()
+void TransmitterUi::drawTelemetryPage()
 {
     if (!displayReady_) return;
     activePage_ = UiPage::Telemetry;
@@ -2130,7 +2244,7 @@ void Channel2Ui::drawTelemetryPage()
     finishPageFocus();
 }
 
-void Channel2Ui::drawTelemetryLive(const CrsfTelemetryState &telemetry,
+void TransmitterUi::drawTelemetryLive(const CrsfTelemetryState &telemetry,
                                    uint16_t txVoltageDecivolts,
                                    bool txVoltageValid)
 {
@@ -2240,13 +2354,19 @@ void Channel2Ui::drawTelemetryLive(const CrsfTelemetryState &telemetry,
     }
 }
 
-void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
+void TransmitterUi::drawDashboardLive(uint16_t crsfValue,
                                    OutputSafetyStatus safetyStatus,
                                    const CrsfTelemetryState &telemetry,
                                    uint16_t txVoltageDecivolts,
                                    bool txVoltageValid)
 {
     if (!displayReady_ || activePage_ != UiPage::Dashboard) return;
+    const bool rxVoltageLow = rxBatterySettings_.alarmEnabled &&
+        telemetry.receiverVoltageValid &&
+        telemetry.receiverVoltageDecivolts <= rxBatterySettings_.lowAlarmDecivolts;
+    const bool txVoltageLow = txVoltageValid &&
+        txVoltageDecivolts <= txBatterySettings_.lowAlarmDecivolts;
+    const bool powerWarning = rxVoltageLow || txVoltageLow;
     for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
         // Steering and throttle are centre-returning primary controls. While
         // output authority is withheld, show the neutral command that the UI
@@ -2381,8 +2501,27 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
     if (dashboardLinkLabel_ &&
         (telemetry.linkValid != lastLinkValid_ ||
          telemetry.uplinkLinkQuality != lastLinkQuality_ ||
-        telemetry.uplinkRssiDbm != lastRssiDbm_)) {
-        if (telemetry.linkValid) {
+         telemetry.uplinkRssiDbm != lastRssiDbm_ ||
+         powerWarning != dashboardPowerWarningActive_)) {
+        if (rxVoltageLow && txVoltageLow) {
+            lv_label_set_text(dashboardLinkLabel_,
+                              LV_SYMBOL_WARNING "  LOW TX + RX VOLTAGE");
+            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cBlack), 0);
+        } else if (rxVoltageLow) {
+            lv_label_set_text_fmt(dashboardLinkLabel_,
+                                  LV_SYMBOL_WARNING "  LOW RX %u.%uV   LQ %u%%",
+                                  telemetry.receiverVoltageDecivolts / 10,
+                                  telemetry.receiverVoltageDecivolts % 10,
+                                  telemetry.uplinkLinkQuality);
+            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cBlack), 0);
+        } else if (txVoltageLow) {
+            lv_label_set_text_fmt(dashboardLinkLabel_,
+                                  LV_SYMBOL_WARNING "  LOW TX %u.%uV   LQ %u%%",
+                                  txVoltageDecivolts / 10,
+                                  txVoltageDecivolts % 10,
+                                  telemetry.uplinkLinkQuality);
+            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cBlack), 0);
+        } else if (telemetry.linkValid) {
             lv_label_set_text_fmt(dashboardLinkLabel_,
                                   LV_SYMBOL_WIFI "  LQ %u%%   %d dBm",
                                   telemetry.uplinkLinkQuality,
@@ -2405,6 +2544,13 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
         lastLinkValid_ = telemetry.linkValid;
         lastLinkQuality_ = telemetry.uplinkLinkQuality;
         lastRssiDbm_ = telemetry.uplinkRssiDbm;
+        dashboardPowerWarningActive_ = powerWarning;
+    }
+    if (dashboardHeader_) {
+        lv_obj_set_style_bg_color(dashboardHeader_,
+                                  colour(powerWarning ? cAmber : cHeader), 0);
+        lv_obj_set_style_border_color(dashboardHeader_,
+                                      colour(powerWarning ? cAmber : cHeader), 0);
     }
     if (dashboardRxVoltageLabel_ &&
         (telemetry.receiverVoltageValid != lastReceiverVoltageValid_ ||
@@ -2462,7 +2608,7 @@ void Channel2Ui::drawDashboardLive(uint16_t crsfValue,
     }
 }
 
-void Channel2Ui::drawMainMenu()
+void TransmitterUi::drawMainMenu()
 {
     activePage_ = UiPage::MainMenu;
     startScreen();
@@ -2485,7 +2631,7 @@ void Channel2Ui::drawMainMenu()
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 284);
 }
 
-void Channel2Ui::refreshMainMenuFocus()
+void TransmitterUi::refreshMainMenuFocus()
 {
     for (uint8_t index = 0; index < 8; ++index) {
         if (mainMenuButtons_[index] == nullptr) continue;
@@ -2497,7 +2643,7 @@ void Channel2Ui::refreshMainMenuFocus()
     }
 }
 
-void Channel2Ui::moveMainMenuFocus(int8_t direction)
+void TransmitterUi::moveMainMenuFocus(int8_t direction)
 {
     if (activePage_ != UiPage::MainMenu) return;
     uint8_t candidate = mainMenuFocusIndex_;
@@ -2513,12 +2659,13 @@ void Channel2Ui::moveMainMenuFocus(int8_t direction)
     }
 }
 
-void Channel2Ui::activateMainMenuFocus()
+void TransmitterUi::activateMainMenuFocus()
 {
     if (activePage_ != UiPage::MainMenu ||
         !mainMenuItemEnabled(mainMenuFocusIndex_)) return;
     playKeyClick();
     switch (mainMenuFocusIndex_) {
+        case 0: drawModelSelectPage(); break;
         case 1: drawChannelsPage(); break;
         case 2:
             selectedChannel_ = channelRoleSettings_.throttleChannel;
@@ -2537,7 +2684,52 @@ void Channel2Ui::activateMainMenuFocus()
     }
 }
 
-void Channel2Ui::beginPageFocus(bool registerStandardHeader)
+void TransmitterUi::drawModelSelectPage()
+{
+    activePage_ = UiPage::ModelSelect;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("MODEL SELECT", "BACK");
+    beginPageFocus();
+    for (uint8_t row = 0; row < 5; ++row) {
+        const uint8_t slot = modelSelectBank_ * 5 + row;
+        const int16_t y = 52 + row * 41;
+        lv_obj_t *panel = makePanel(10, y, 460, 37);
+        char number[4];
+        snprintf(number, sizeof(number), "%02u", slot + 1);
+        makeLabel(panel, number, 12, 9, 14, cCyan);
+        makeLabel(panel, modelNames_[slot], 54, 9, 14,
+                  slot == activeModelSlot_ ? cGreen : cWhite);
+        if (slot == activeModelSlot_)
+            makeLabel(panel, "ACTIVE", 300, 9, 13, cGreen);
+        makeButton(382, y + 3, 77, 31,
+                   slot == activeModelSlot_ ? "CURRENT" : "LOAD", 12,
+                   slot == activeModelSlot_ ? cPanel : cPanel2,
+                   slot == activeModelSlot_ ? cDim : cWhite);
+        addPageActionTarget(10, y, 460, 37,
+                            &TransmitterUi::controlModels, row);
+    }
+    if (modelSelectStatus_[0] != '\0') {
+        makeLabel(lv_scr_act(), modelSelectStatus_, 70, 261, 12,
+                  strstr(modelSelectStatus_, "CUT") ? cAmber : cGreen);
+    } else {
+        makeLabel(lv_scr_act(), "Model changes require CUT and centred throttle.",
+                  70, 261, 12, cDim);
+    }
+    makeButton(10, 274, 50, 35, "<", 20, cPanel2,
+               modelSelectBank_ == 0 ? cDim : cWhite);
+    lv_obj_t *bankLabel = makeLabel(
+        lv_scr_act(), modelSelectBank_ == 0 ? "MODELS 1-5" : "MODELS 6-10",
+        0, 284, 13, cCyan);
+    lv_obj_align(bankLabel, LV_ALIGN_TOP_MID, 0, 284);
+    makeButton(420, 274, 50, 35, ">", 20, cPanel2,
+               modelSelectBank_ == 1 ? cDim : cWhite);
+    addPageActionTarget(10, 274, 50, 35, &TransmitterUi::controlModels, 10);
+    addPageActionTarget(420, 274, 50, 35, &TransmitterUi::controlModels, 11);
+    finishPageFocus();
+}
+
+void TransmitterUi::beginPageFocus(bool registerStandardHeader)
 {
     pageFocusCount_ = 0;
     pageFocusIndex_ = 0;
@@ -2545,7 +2737,7 @@ void Channel2Ui::beginPageFocus(bool registerStandardHeader)
     pageStandardHeaderPending_ = registerStandardHeader;
 }
 
-void Channel2Ui::addPageActionTarget(int16_t x, int16_t y, int16_t width,
+void TransmitterUi::addPageActionTarget(int16_t x, int16_t y, int16_t width,
                                      int16_t height,
                                      PageControlHandler handler,
                                      uint8_t argument)
@@ -2562,7 +2754,7 @@ void Channel2Ui::addPageActionTarget(int16_t x, int16_t y, int16_t width,
     target.argument = argument;
 }
 
-lv_obj_t *Channel2Ui::makePageActionButton(
+lv_obj_t *TransmitterUi::makePageActionButton(
     int16_t x, int16_t y, int16_t width, int16_t height,
     const char *text, uint8_t fontSize, uint32_t fill,
     uint32_t textColour, uint32_t border,
@@ -2574,7 +2766,7 @@ lv_obj_t *Channel2Ui::makePageActionButton(
     return button;
 }
 
-void Channel2Ui::addPageEditorTarget(
+void TransmitterUi::addPageEditorTarget(
     int16_t x, int16_t y, int16_t width, int16_t height,
     int16_t decreaseX, int16_t decreaseY,
     int16_t decreaseWidth, int16_t decreaseHeight,
@@ -2601,16 +2793,16 @@ void Channel2Ui::addPageEditorTarget(
     target.argument = argument;
 }
 
-void Channel2Ui::finishPageFocus()
+void TransmitterUi::finishPageFocus()
 {
     // Append standard Back/Home navigation after page content so the first
     // keypad focus remains the page's primary control, while every new
     // standard-header page gets an escape route automatically.
     if (pageStandardHeaderPending_) {
         addPageActionTarget(344, 5, 78, 34,
-                            &Channel2Ui::controlNavigation, 0);
+                            &TransmitterUi::controlNavigation, 0);
         addPageActionTarget(430, 5, 42, 34,
-                            &Channel2Ui::controlNavigation, 1);
+                            &TransmitterUi::controlNavigation, 1);
         pageStandardHeaderPending_ = false;
     }
     if (pageFocusCount_ == 0) return;
@@ -2624,7 +2816,7 @@ void Channel2Ui::finishPageFocus()
     refreshPageFocus();
 }
 
-void Channel2Ui::refreshPageFocus()
+void TransmitterUi::refreshPageFocus()
 {
     if (pageFocusIndicator_ == nullptr || pageFocusCount_ == 0) return;
     if (pageFocusIndex_ >= pageFocusCount_) pageFocusIndex_ = 0;
@@ -2634,7 +2826,7 @@ void Channel2Ui::refreshPageFocus()
     lv_obj_move_foreground(pageFocusIndicator_);
 }
 
-void Channel2Ui::movePageFocus(int8_t direction)
+void TransmitterUi::movePageFocus(int8_t direction)
 {
     if (pageFocusCount_ == 0) {
         Serial.printf("UI: page %u has no registered keypad controls\n",
@@ -2649,14 +2841,14 @@ void Channel2Ui::movePageFocus(int8_t direction)
     playKeyClick();
 }
 
-void Channel2Ui::activatePageFocus()
+void TransmitterUi::activatePageFocus()
 {
     if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return;
     if (dispatchPageControl(pageFocusIndex_, PageControlEvent::Activate)) return;
     playBuzzer(35);
 }
 
-bool Channel2Ui::adjustPageFocus(int8_t direction)
+bool TransmitterUi::adjustPageFocus(int8_t direction)
 {
     if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return false;
     if (dispatchPageControl(pageFocusIndex_, direction < 0
@@ -2666,7 +2858,7 @@ bool Channel2Ui::adjustPageFocus(int8_t direction)
     return false;
 }
 
-bool Channel2Ui::dispatchPageControl(uint8_t index, PageControlEvent event)
+bool TransmitterUi::dispatchPageControl(uint8_t index, PageControlEvent event)
 {
     if (index >= pageFocusCount_) return false;
     const PageFocusTarget target = pageFocusTargets_[index];
@@ -2680,7 +2872,7 @@ bool Channel2Ui::dispatchPageControl(uint8_t index, PageControlEvent event)
     return true;
 }
 
-bool Channel2Ui::dispatchPageControlTouch(int16_t x, int16_t y)
+bool TransmitterUi::dispatchPageControlTouch(int16_t x, int16_t y)
 {
     const auto contains = [x, y](const PageFocusTarget::Rectangle &rectangle) {
         return rectangle.width > 0 && rectangle.height > 0 &&
@@ -2702,13 +2894,13 @@ bool Channel2Ui::dispatchPageControlTouch(int16_t x, int16_t y)
     return false;
 }
 
-void Channel2Ui::controlChannelRoles(uint8_t row, PageControlEvent event)
+void TransmitterUi::controlChannelRoles(uint8_t row, PageControlEvent event)
 {
     const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
     handleChannelRolesTouch(x, 100 + row * 68);
 }
 
-void Channel2Ui::controlTxBattery(uint8_t row, PageControlEvent event)
+void TransmitterUi::controlTxBattery(uint8_t row, PageControlEvent event)
 {
     if (row == 0 && event == PageControlEvent::Decrease) {
         uint8_t chemistry = static_cast<uint8_t>(txBatterySettings_.chemistry);
@@ -2727,7 +2919,7 @@ void Channel2Ui::controlTxBattery(uint8_t row, PageControlEvent event)
     handleTxBatteryTouch(x, 78 + row * 50);
 }
 
-void Channel2Ui::controlRxBattery(uint8_t row, PageControlEvent event)
+void TransmitterUi::controlRxBattery(uint8_t row, PageControlEvent event)
 {
     if (row == 0 && event == PageControlEvent::Decrease) {
         uint8_t chemistry = static_cast<uint8_t>(rxBatterySettings_.chemistry);
@@ -2746,13 +2938,46 @@ void Channel2Ui::controlRxBattery(uint8_t row, PageControlEvent event)
     handleRxBatteryTouch(x, 78 + row * 50);
 }
 
-void Channel2Ui::controlDisplay(uint8_t row, PageControlEvent event)
+void TransmitterUi::controlDisplay(uint8_t row, PageControlEvent event)
 {
+    if (row == 10 && displaySetupBank_ > 0) {
+        --displaySetupBank_;
+        playKeyClick();
+        drawDisplayPage();
+        return;
+    }
+    if (row == 11 && displaySetupBank_ < 1) {
+        ++displaySetupBank_;
+        playKeyClick();
+        drawDisplayPage();
+        return;
+    }
     const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
-    handleDisplayTouch(x, 78 + row * 50);
+    handleDisplayTouch(x, 78 + (row % 4) * 50);
 }
 
-void Channel2Ui::controlBindingEditor(uint8_t field, PageControlEvent event)
+void TransmitterUi::controlModels(uint8_t item, PageControlEvent)
+{
+    if (item < 5) {
+        const uint8_t slot = modelSelectBank_ * 5 + item;
+        if (slot == activeModelSlot_) return;
+        playKeyClick();
+        selectModelMemory(slot);
+        drawModelSelectPage();
+    } else if (item == 10 && modelSelectBank_ > 0) {
+        --modelSelectBank_;
+        modelSelectStatus_[0] = '\0';
+        playKeyClick();
+        drawModelSelectPage();
+    } else if (item == 11 && modelSelectBank_ < 1) {
+        ++modelSelectBank_;
+        modelSelectStatus_[0] = '\0';
+        playKeyClick();
+        drawModelSelectPage();
+    }
+}
+
+void TransmitterUi::controlBindingEditor(uint8_t field, PageControlEvent event)
 {
     if (field == 0) {
         handleBindingEditorTouch(400, 101);
@@ -2768,7 +2993,7 @@ void Channel2Ui::controlBindingEditor(uint8_t field, PageControlEvent event)
     }
 }
 
-void Channel2Ui::controlChannels(uint8_t item, PageControlEvent)
+void TransmitterUi::controlChannels(uint8_t item, PageControlEvent)
 {
     if (item < 8) {
         selectedChannel_ = channelsBank_ * 8 + item + 1;
@@ -2783,7 +3008,7 @@ void Channel2Ui::controlChannels(uint8_t item, PageControlEvent)
     } else playBuzzer(35);
 }
 
-void Channel2Ui::controlAssignments(uint8_t item, PageControlEvent)
+void TransmitterUi::controlAssignments(uint8_t item, PageControlEvent)
 {
     constexpr uint8_t kRows = 5;
     constexpr uint8_t kBanks = (kPhysicalControlCount + kRows - 1) / kRows;
@@ -2800,7 +3025,7 @@ void Channel2Ui::controlAssignments(uint8_t item, PageControlEvent)
     } else playBuzzer(35);
 }
 
-void Channel2Ui::controlDriveMode(uint8_t item, PageControlEvent event)
+void TransmitterUi::controlDriveMode(uint8_t item, PageControlEvent event)
 {
     if (item < 2) {
         handleDriveModesTouch(item == 0 ? 150 : 330, 95);
@@ -2810,18 +3035,20 @@ void Channel2Ui::controlDriveMode(uint8_t item, PageControlEvent event)
     handleDriveModesTouch(x, 185);
 }
 
-void Channel2Ui::controlSetup(uint8_t item, PageControlEvent event)
+void TransmitterUi::controlSetup(uint8_t item, PageControlEvent event)
 {
     if (item < 4) {
         const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
         handleSetupTouch(x, 78 + item * 50);
-    } else {
+    } else if (item < 8) {
         static const int16_t x[] = {54, 160, 282, 408};
         handleSetupTouch(x[item - 4], 287);
-    }
+    } else if (item == 8) {
+        playKeyClick(); drawFirmwareInfoPage();
+    } else playBuzzer(35);
 }
 
-void Channel2Ui::controlEscProgramming(uint8_t item, PageControlEvent)
+void TransmitterUi::controlEscProgramming(uint8_t item, PageControlEvent)
 {
     if (item < 3) {
         escProgrammingTab_ = item;
@@ -2835,7 +3062,7 @@ void Channel2Ui::controlEscProgramming(uint8_t item, PageControlEvent)
     playBuzzer(35);
 }
 
-void Channel2Ui::controlThrottleSetting(uint8_t row, PageControlEvent event)
+void TransmitterUi::controlThrottleSetting(uint8_t row, PageControlEvent event)
 {
     const int8_t direction = event == PageControlEvent::Decrease ? -1 : 1;
     bool changed = false;
@@ -2861,19 +3088,19 @@ void Channel2Ui::controlThrottleSetting(uint8_t row, PageControlEvent event)
     refreshSettingRowValue(row);
 }
 
-void Channel2Ui::controlThrottleResponse(uint8_t row, PageControlEvent event)
+void TransmitterUi::controlThrottleResponse(uint8_t row, PageControlEvent event)
 {
     const int16_t x = event == PageControlEvent::Decrease ? 405 : 447;
     handleThrottleResponseTouch(x, 66 + row * 35);
 }
 
-void Channel2Ui::controlChannelSpeed(uint8_t row, PageControlEvent event)
+void TransmitterUi::controlChannelSpeed(uint8_t row, PageControlEvent event)
 {
     const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
     handleChannelSpeedTouch(x, 109 + row * 76);
 }
 
-void Channel2Ui::controlDashboard(uint8_t item, PageControlEvent)
+void TransmitterUi::controlDashboard(uint8_t item, PageControlEvent)
 {
     static const int16_t x[] = {452, 62, 178, 294, 414};
     static const int16_t y[] = {20, 280, 280, 280, 280};
@@ -2881,7 +3108,7 @@ void Channel2Ui::controlDashboard(uint8_t item, PageControlEvent)
     handleDashboardTouch(x[item], y[item]);
 }
 
-void Channel2Ui::controlChannelConfig(uint8_t item, PageControlEvent event)
+void TransmitterUi::controlChannelConfig(uint8_t item, PageControlEvent event)
 {
     if (item < 2) {
         const int16_t x = event == PageControlEvent::Decrease ? 373 : 427;
@@ -2893,12 +3120,12 @@ void Channel2Ui::controlChannelConfig(uint8_t item, PageControlEvent event)
     }
 }
 
-void Channel2Ui::controlInputMonitor(uint8_t item, PageControlEvent)
+void TransmitterUi::controlInputMonitor(uint8_t item, PageControlEvent)
 {
     handleInputMonitorTouch(item == 0 ? 40 : 440, 291);
 }
 
-void Channel2Ui::controlElrsBinding(uint8_t item, PageControlEvent)
+void TransmitterUi::controlElrsBinding(uint8_t item, PageControlEvent)
 {
     if (item < 5) {
         handleElrsBindingTouch(8 + item * 93 + 43, 110);
@@ -2924,7 +3151,7 @@ void Channel2Ui::controlElrsBinding(uint8_t item, PageControlEvent)
     handleElrsBindingTouch(x[item - 43], 298);
 }
 
-void Channel2Ui::controlThrottleHeader(uint8_t item, PageControlEvent)
+void TransmitterUi::controlThrottleHeader(uint8_t item, PageControlEvent)
 {
     if (activePage_ == UiPage::Channel2) {
         if (item == 0) {
@@ -2939,7 +3166,7 @@ void Channel2Ui::controlThrottleHeader(uint8_t item, PageControlEvent)
     }
 }
 
-void Channel2Ui::controlNavigation(uint8_t item, PageControlEvent)
+void TransmitterUi::controlNavigation(uint8_t item, PageControlEvent)
 {
     if (item == 0) navigateBack();
     else {
@@ -2951,14 +3178,17 @@ void Channel2Ui::controlNavigation(uint8_t item, PageControlEvent)
     }
 }
 
-void Channel2Ui::navigateBack()
+void TransmitterUi::navigateBack()
 {
     playKeyClick();
     switch (activePage_) {
+        case UiPage::BootSplash: break;
+        case UiPage::LogoSaver: leaveLogoSaver(); break;
         case UiPage::Dashboard: break;
         case UiPage::StartupWarning: break;
         case UiPage::Telemetry: drawDashboard(); break;
         case UiPage::MainMenu: drawDashboard(); break;
+        case UiPage::ModelSelect: drawMainMenu(); break;
         case UiPage::Channels: drawMainMenu(); break;
         case UiPage::ChannelRoles: drawChannelsPage(); break;
         case UiPage::Channel2:
@@ -2982,13 +3212,14 @@ void Channel2Ui::navigateBack()
         case UiPage::TxBatterySetup:
         case UiPage::RxBatterySetup:
         case UiPage::DisplaySetup: drawSetupPage(); break;
+        case UiPage::FirmwareInfo: drawSetupPage(); break;
         case UiPage::ElrsBinding: drawMainMenu(); break;
         case UiPage::EscProgramming: drawMainMenu(); break;
         case UiPage::Calibration: cancelCalibration(); break;
     }
 }
 
-void Channel2Ui::drawChannelsPage()
+void TransmitterUi::drawChannelsPage()
 {
     activePage_ = UiPage::Channels;
     startScreen();
@@ -2997,7 +3228,7 @@ void Channel2Ui::drawChannelsPage()
     beginPageFocus();
     makeButton(258, 5, 78, 34, "ROLES", 11, cPanel2, cCyan);
     addPageActionTarget(258, 5, 78, 34,
-                        &Channel2Ui::controlChannels, 10);
+                        &TransmitterUi::controlChannels, 10);
     const uint8_t first = channelsBank_ * 8 + 1;
     for (uint8_t index = 0; index < 8; ++index) {
         const uint8_t channel = first + index;
@@ -3013,18 +3244,18 @@ void Channel2Ui::drawChannelsPage()
                    channel == channelRoleSettings_.throttleChannel ? cCyan : cWhite);
         addPageActionTarget(10 + (index % 2) * 235,
                             52 + (index / 2) * 52, 225, 44,
-                            &Channel2Ui::controlChannels, index);
+                            &TransmitterUi::controlChannels, index);
     }
     makeButton(12, 270, 58, 40, "<", 24,
                channelsBank_ == 0 ? cBlack : cPanel,
                channelsBank_ == 0 ? cDim : cWhite);
     addPageActionTarget(12, 270, 58, 40,
-                        &Channel2Ui::controlChannels, 8);
+                        &TransmitterUi::controlChannels, 8);
     makeButton(410, 270, 58, 40, ">", 24,
                channelsBank_ == 1 ? cBlack : cPanel,
                channelsBank_ == 1 ? cDim : cWhite);
     addPageActionTarget(410, 270, 58, 40,
-                        &Channel2Ui::controlChannels, 9);
+                        &TransmitterUi::controlChannels, 9);
     char page[8];
     snprintf(page, sizeof(page), "%u / 2", channelsBank_ + 1);
     lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 280, 16, cDim);
@@ -3032,7 +3263,7 @@ void Channel2Ui::drawChannelsPage()
     finishPageFocus();
 }
 
-void Channel2Ui::drawChannelRoleRow(int row)
+void TransmitterUi::drawChannelRoleRow(int row)
 {
     const int16_t y = 72 + row * 68;
     lv_obj_t *panel = makePanel(18, y, 444, 56);
@@ -3046,7 +3277,7 @@ void Channel2Ui::drawChannelRoleRow(int row)
     makeButton(404, y + 8, 44, 40, "+", 22);
 }
 
-void Channel2Ui::drawControlAssignmentsPage()
+void TransmitterUi::drawControlAssignmentsPage()
 {
     activePage_ = UiPage::ControlAssignments;
     startScreen();
@@ -3111,20 +3342,20 @@ void Channel2Ui::drawControlAssignmentsPage()
         makeLabel(panel, summary, 215, 5, 11, summaryColour);
         makeLabel(panel, ">", 438, 4, 16, cDim);
         addPageActionTarget(10, y, 460, 35,
-                            &Channel2Ui::controlAssignments, row);
+                            &TransmitterUi::controlAssignments, row);
     }
 
     makeButton(10, 263, 50, 42, "<", 22,
                assignmentBank_ == 0 ? cBlack : cPanel,
                assignmentBank_ == 0 ? cDim : cWhite);
     addPageActionTarget(10, 263, 50, 42,
-                        &Channel2Ui::controlAssignments, 5);
+                        &TransmitterUi::controlAssignments, 5);
     makeButton(70, 263, 94, 42, "ROLES", 12, cPanel2, cCyan);
     addPageActionTarget(70, 263, 94, 42,
-                        &Channel2Ui::controlAssignments, 6);
+                        &TransmitterUi::controlAssignments, 6);
     makeButton(174, 263, 132, 42, "INPUT MON", 12, cPanel2, cCyan);
     addPageActionTarget(174, 263, 132, 42,
-                        &Channel2Ui::controlAssignments, 7);
+                        &TransmitterUi::controlAssignments, 7);
     char page[12];
     snprintf(page, sizeof(page), "%u/%u", assignmentBank_ + 1, kBanks);
     makeLabel(lv_scr_act(), page, 329, 276, 12, cDim);
@@ -3132,11 +3363,11 @@ void Channel2Ui::drawControlAssignmentsPage()
                assignmentBank_ + 1 >= kBanks ? cBlack : cPanel,
                assignmentBank_ + 1 >= kBanks ? cDim : cWhite);
     addPageActionTarget(420, 263, 50, 42,
-                        &Channel2Ui::controlAssignments, 8);
+                        &TransmitterUi::controlAssignments, 8);
     finishPageFocus();
 }
 
-void Channel2Ui::drawBindingEditorPage()
+void TransmitterUi::drawBindingEditorPage()
 {
     activePage_ = UiPage::BindingEditor;
     startScreen();
@@ -3166,7 +3397,7 @@ void Channel2Ui::drawBindingEditorPage()
                bindingDraft_.enabled ? cGreen : cPanel2,
                bindingDraft_.enabled ? cBlack : cWhite);
     addPageActionTarget(344, 87, 108, 28,
-                        &Channel2Ui::controlBindingEditor, 0);
+                        &TransmitterUi::controlBindingEditor, 0);
 
     makeLabel(lv_scr_act(), assignmentTargetName(bindingDraft_.target),
               220, 127, 12, bindingDraft_.target == AssignmentTarget::CrsfChannel
@@ -3175,7 +3406,7 @@ void Channel2Ui::drawBindingEditorPage()
     makeButton(408, 121, 42, 28, ">", 20);
     addPageEditorTarget(210, 120, 246, 30,
                         350, 121, 42, 28, 408, 121, 42, 28,
-                        &Channel2Ui::controlBindingEditor, 1);
+                        &TransmitterUi::controlBindingEditor, 1);
 
     char detail[32];
     if (bindingDraft_.target == AssignmentTarget::TransmitterFunction) {
@@ -3195,7 +3426,7 @@ void Channel2Ui::drawBindingEditorPage()
     makeButton(408, 155, 42, 28, "+", 20);
     addPageEditorTarget(210, 154, 246, 30,
                         350, 155, 42, 28, 408, 155, 42, 28,
-                        &Channel2Ui::controlBindingEditor, 2);
+                        &TransmitterUi::controlBindingEditor, 2);
     makeLabel(lv_scr_act(), parameter
                   ? channelParameterKindName(
                         channelParameterTargetKind(bindingDraft_.targetId))
@@ -3205,7 +3436,7 @@ void Channel2Ui::drawBindingEditorPage()
     makeButton(408, 189, 42, 28, ">", 20);
     addPageEditorTarget(210, 188, 246, 30,
                         350, 189, 42, 28, 408, 189, 42, 28,
-                        &Channel2Ui::controlBindingEditor, 3);
+                        &TransmitterUi::controlBindingEditor, 3);
 
     makeLabel(lv_scr_act(), controlContextName(bindingDraft_.contexts),
               220, 229, 12, cWhite);
@@ -3213,7 +3444,7 @@ void Channel2Ui::drawBindingEditorPage()
     makeButton(408, 223, 42, 28, ">", 20);
     addPageEditorTarget(210, 222, 246, 30,
                         350, 223, 42, 28, 408, 223, 42, 28,
-                        &Channel2Ui::controlBindingEditor, 4);
+                        &TransmitterUi::controlBindingEditor, 4);
 
     if (bindingError_[0] != '\0')
         makeLabel(lv_scr_act(), bindingError_, 14, 257, 10, cRed);
@@ -3223,19 +3454,19 @@ void Channel2Ui::drawBindingEditorPage()
                   14, 257, 10, cAmber);
     makeButton(12, 274, 138, 34, "CANCEL", 13, cPanel);
     addPageActionTarget(12, 274, 138, 34,
-                        &Channel2Ui::controlBindingEditor, 5);
+                        &TransmitterUi::controlBindingEditor, 5);
     if (bindingIndexForInput(selectedBindingInput_) >= 0) {
         makeButton(160, 274, 138, 34, "REMOVE", 13, cAmber, cBlack);
         addPageActionTarget(160, 274, 138, 34,
-                            &Channel2Ui::controlBindingEditor, 6);
+                            &TransmitterUi::controlBindingEditor, 6);
     }
     makeButton(308, 274, 160, 34, "SAVE", 13, cGreen, cBlack);
     addPageActionTarget(308, 274, 160, 34,
-                        &Channel2Ui::controlBindingEditor, 7);
+                        &TransmitterUi::controlBindingEditor, 7);
     finishPageFocus();
 }
 
-void Channel2Ui::drawInputMonitorPage()
+void TransmitterUi::drawInputMonitorPage()
 {
     activePage_ = UiPage::InputMonitor;
     startScreen();
@@ -3262,11 +3493,11 @@ void Channel2Ui::drawInputMonitorPage()
     makePageActionButton(12, 274, 58, 34, "<", 22,
                          inputMonitorBank_ == 0 ? cBlack : cPanel,
                          inputMonitorBank_ == 0 ? cDim : cWhite, cLine,
-                         &Channel2Ui::controlInputMonitor, 0);
+                         &TransmitterUi::controlInputMonitor, 0);
     makePageActionButton(410, 274, 58, 34, ">", 22,
                          inputMonitorBank_ + 1 >= kBankCount ? cBlack : cPanel,
                          inputMonitorBank_ + 1 >= kBankCount ? cDim : cWhite,
-                         cLine, &Channel2Ui::controlInputMonitor, 1);
+                         cLine, &TransmitterUi::controlInputMonitor, 1);
     char page[16];
     snprintf(page, sizeof(page), "%u / %u", inputMonitorBank_ + 1, kBankCount);
     lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 284, 14, cDim);
@@ -3275,7 +3506,7 @@ void Channel2Ui::drawInputMonitorPage()
     finishPageFocus();
 }
 
-void Channel2Ui::refreshInputMonitorRows()
+void TransmitterUi::refreshInputMonitorRows()
 {
     constexpr uint8_t kRowsPerBank = 5;
     const size_t first = inputMonitorBank_ * kRowsPerBank;
@@ -3321,7 +3552,7 @@ void Channel2Ui::refreshInputMonitorRows()
     }
 }
 
-void Channel2Ui::drawChannelRolesPage()
+void TransmitterUi::drawChannelRolesPage()
 {
     activePage_ = UiPage::ChannelRoles;
     startScreen();
@@ -3331,11 +3562,11 @@ void Channel2Ui::drawChannelRolesPage()
     drawChannelRoleRow(0);
     addPageEditorTarget(18, 72, 444, 56,
                         350, 80, 44, 40, 404, 80, 44, 40,
-                        &Channel2Ui::controlChannelRoles, 0);
+                        &TransmitterUi::controlChannelRoles, 0);
     drawChannelRoleRow(1);
     addPageEditorTarget(18, 140, 444, 56,
                         350, 148, 44, 40, 404, 148, 44, 40,
-                        &Channel2Ui::controlChannelRoles, 1);
+                        &TransmitterUi::controlChannelRoles, 1);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "Changing roles disarms throttle output.\n"
         "Steering uses the proportional input on GPIO2.",
@@ -3345,7 +3576,7 @@ void Channel2Ui::drawChannelRolesPage()
     finishPageFocus();
 }
 
-void Channel2Ui::drawChannelPlaceholder()
+void TransmitterUi::drawChannelPlaceholder()
 {
     activePage_ = UiPage::ChannelPlaceholder;
     startScreen();
@@ -3384,7 +3615,7 @@ void Channel2Ui::drawChannelPlaceholder()
         addPageEditorTarget(12, y, 456, 56,
                             352, y + 8, 42, 40,
                             406, y + 8, 42, 40,
-                            &Channel2Ui::controlChannelConfig, row);
+                            &TransmitterUi::controlChannelConfig, row);
     }
     makeLabel(lv_scr_act(), "A trim control can own one output or parameter",
               18, 214, 11, cAmber);
@@ -3393,19 +3624,19 @@ void Channel2Ui::drawChannelPlaceholder()
     if (throttle)
         makePageActionButton(52, 249, 176, 46, "BASIC / CAL", 14,
                              cPanel2, cWhite, cLine,
-                             &Channel2Ui::controlChannelConfig, 2);
+                             &TransmitterUi::controlChannelConfig, 2);
     else if (proportional)
         makePageActionButton(52, 249, 176, 46, "CALIBRATE", 14,
                              cPanel2, cWhite, cLine,
-                             &Channel2Ui::controlChannelConfig, 2);
+                             &TransmitterUi::controlChannelConfig, 2);
     if (proportional)
         makePageActionButton(238, 249, 190, 46, "RESPONSE / RAMP", 14,
                              cPanel2, cCyan, cLine,
-                             &Channel2Ui::controlChannelConfig, 3);
+                             &TransmitterUi::controlChannelConfig, 3);
     finishPageFocus();
 }
 
-void Channel2Ui::drawSettingRow(int row)
+void TransmitterUi::drawSettingRow(int row)
 {
     static const char *labels[] = {"BRAKE/REV END", "SUB-TRIM", "FORWARD END", "DIRECTION"};
     const int16_t y = 56 + row * 50;
@@ -3452,7 +3683,7 @@ void Channel2Ui::drawSettingRow(int row)
     }
 }
 
-void Channel2Ui::refreshSettingRowValue(uint8_t row)
+void TransmitterUi::refreshSettingRowValue(uint8_t row)
 {
     if (row >= 4 || channel2SettingValueLabels_[row] == nullptr) return;
     if (row == 0)
@@ -3478,7 +3709,7 @@ void Channel2Ui::refreshSettingRowValue(uint8_t row)
     }
 }
 
-void Channel2Ui::drawPage()
+void TransmitterUi::drawPage()
 {
     activePage_ = UiPage::Channel2;
     startScreen();
@@ -3491,19 +3722,19 @@ void Channel2Ui::drawPage()
     makeButton(266, 5, 70, 34, "BACK", 11);
     makeButton(344, 5, 78, 34, "CAL", 11);
     addPageActionTarget(190, 5, 68, 34,
-                        &Channel2Ui::controlThrottleHeader, 0);
+                        &TransmitterUi::controlThrottleHeader, 0);
     addPageActionTarget(266, 5, 70, 34,
-                        &Channel2Ui::controlNavigation, 0);
+                        &TransmitterUi::controlNavigation, 0);
     addPageActionTarget(344, 5, 78, 34,
-                        &Channel2Ui::controlThrottleHeader, 1);
+                        &TransmitterUi::controlThrottleHeader, 1);
     addPageActionTarget(430, 5, 42, 34,
-                        &Channel2Ui::controlNavigation, 1);
+                        &TransmitterUi::controlNavigation, 1);
     for (int row = 0; row < 4; ++row) {
         drawSettingRow(row);
         addPageEditorTarget(10, 56 + row * 50, 460, 44,
                             353, 59 + row * 50, 48, 36,
                             411, 59 + row * 50, 48, 36,
-                            &Channel2Ui::controlThrottleSetting, row);
+                            &TransmitterUi::controlThrottleSetting, row);
     }
     char channelLabel[16];
     snprintf(channelLabel, sizeof(channelLabel), "CH%u", channelRoleSettings_.throttleChannel);
@@ -3518,7 +3749,7 @@ void Channel2Ui::drawPage()
     finishPageFocus();
 }
 
-void Channel2Ui::drawThrottleResponseRow(int row)
+void TransmitterUi::drawThrottleResponseRow(int row)
 {
     const bool throttle = selectedChannel_ == channelRoleSettings_.throttleChannel;
     const bool steering = selectedChannel_ == channelRoleSettings_.steeringChannel;
@@ -3562,7 +3793,7 @@ void Channel2Ui::drawThrottleResponseRow(int row)
     lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 13); lv_obj_center(pl);
 }
 
-void Channel2Ui::drawThrottleResponseGraph()
+void TransmitterUi::drawThrottleResponseGraph()
 {
     const ChannelResponseProfile &profile = selectedResponseProfile();
     constexpr int16_t graphX = 23;
@@ -3683,7 +3914,7 @@ void Channel2Ui::drawThrottleResponseGraph()
     refreshThrottleResponseGraph(mapAdcToPermille(latestRawAdc_));
 }
 
-void Channel2Ui::refreshThrottleResponseGraph(int16_t rawInputPermille)
+void TransmitterUi::refreshThrottleResponseGraph(int16_t rawInputPermille)
 {
     if (!throttleGraphMarker_ || !throttleGraphLiveLabel_) return;
     constexpr int16_t graphX = 23;
@@ -3705,7 +3936,7 @@ void Channel2Ui::refreshThrottleResponseGraph(int16_t rawInputPermille)
                           rawInputPermille / 10, output / 10);
 }
 
-void Channel2Ui::drawThrottleResponsePage()
+void TransmitterUi::drawThrottleResponsePage()
 {
     activePage_ = UiPage::ThrottleResponse;
     startScreen();
@@ -3716,19 +3947,19 @@ void Channel2Ui::drawThrottleResponsePage()
     makeHeader(title, "BACK");
     makeButton(258, 5, 78, 34, "RAMP", 11, cPanel2, cCyan);
     addPageActionTarget(258, 5, 78, 34,
-                        &Channel2Ui::controlThrottleHeader, 0);
+                        &TransmitterUi::controlThrottleHeader, 0);
     drawThrottleResponseGraph();
     for (int row = 0; row < 7; ++row) {
         drawThrottleResponseRow(row);
         addPageEditorTarget(288, 52 + row * 35, 184, 32,
                             393, 66 + row * 35, 31, 15,
                             431, 66 + row * 35, 31, 15,
-                            &Channel2Ui::controlThrottleResponse, row);
+                            &TransmitterUi::controlThrottleResponse, row);
     }
     finishPageFocus();
 }
 
-void Channel2Ui::drawChannelSpeedRow(int row)
+void TransmitterUi::drawChannelSpeedRow(int row)
 {
     const ChannelResponseProfile &profile = selectedResponseProfile();
     const bool throttle = selectedChannel_ == channelRoleSettings_.throttleChannel;
@@ -3749,7 +3980,7 @@ void Channel2Ui::drawChannelSpeedRow(int row)
     makeButton(402, y + 20, 42, 34, "+", 22);
 }
 
-void Channel2Ui::drawChannelSpeedPage()
+void TransmitterUi::drawChannelSpeedPage()
 {
     activePage_ = UiPage::ChannelSpeed;
     startScreen();
@@ -3761,18 +3992,18 @@ void Channel2Ui::drawChannelSpeedPage()
     drawChannelSpeedRow(0);
     addPageEditorTarget(14, 78, 452, 62,
                         350, 98, 42, 34, 402, 98, 42, 34,
-                        &Channel2Ui::controlChannelSpeed, 0);
+                        &TransmitterUi::controlChannelSpeed, 0);
     drawChannelSpeedRow(1);
     addPageEditorTarget(14, 154, 452, 62,
                         350, 174, 42, 34, 402, 174, 42, 34,
-                        &Channel2Ui::controlChannelSpeed, 1);
+                        &TransmitterUi::controlChannelSpeed, 1);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "0 ms = direct. Ramp is neutral-to-endpoint time.", 0, 250, 14, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 250);
     finishPageFocus();
 }
 
-void Channel2Ui::drawDriveModesPage()
+void TransmitterUi::drawDriveModesPage()
 {
     activePage_ = UiPage::DriveModes;
     startScreen();
@@ -3787,7 +4018,7 @@ void Channel2Ui::drawDriveModesPage()
                    active ? cGreen : cPanel2,
                    active ? cBlack : cWhite);
         addPageActionTarget(76 + index * 174, 64, 156, 62,
-                            &Channel2Ui::controlDriveMode, index);
+                            &TransmitterUi::controlDriveMode, index);
     }
     lv_obj_t *panel = makePanel(16, 150, 448, 66);
     makeLabel(panel, "FORWARD LIMIT", 14, 20, 18, cCyan);
@@ -3797,14 +4028,14 @@ void Channel2Ui::drawDriveModesPage()
     makeButton(410, 164, 42, 38, "+", 22);
     addPageEditorTarget(16, 150, 448, 66,
                         358, 164, 42, 38, 410, 164, 42, 38,
-                        &Channel2Ui::controlDriveMode, 2);
+                        &TransmitterUi::controlDriveMode, 2);
     makeLabel(lv_scr_act(),
         "WALK limits forward only; brake/reverse stays at 100%.\nChanging mode forces CUT; release trigger before arming.",
         20, 242, 14, cAmber);
     finishPageFocus();
 }
 
-void Channel2Ui::drawLiveIndicator(int16_t, uint16_t crsfValue)
+void TransmitterUi::drawLiveIndicator(int16_t, uint16_t crsfValue)
 {
     if (channel2LiveBar_ && crsfValue != lastDisplayedCrsf_) {
         lv_bar_set_value(channel2LiveBar_, crsfValue, LV_ANIM_OFF);
@@ -3813,7 +4044,7 @@ void Channel2Ui::drawLiveIndicator(int16_t, uint16_t crsfValue)
     }
 }
 
-void Channel2Ui::drawSetupRow(int row)
+void TransmitterUi::drawSetupRow(int row)
 {
     static const char *labels[] = {"BUZZER", "KEY CLICKS", "PITCH", "CLICK LENGTH"};
     const int16_t y = 56 + row * 50;
@@ -3846,40 +4077,76 @@ void Channel2Ui::drawSetupRow(int row)
     }
 }
 
-void Channel2Ui::drawSetupPage()
+void TransmitterUi::drawSetupPage()
 {
     activePage_ = UiPage::Setup;
     startScreen();
     resetLvglObjects();
     makeHeader("SYSTEM SETUP", "BACK");
     beginPageFocus();
+    makeButton(258, 5, 78, 34, "INFO", 11, cPanel2, cCyan);
+    addPageActionTarget(258, 5, 78, 34,
+                        &TransmitterUi::controlSetup, 8);
     for (int row = 0; row < 4; ++row) drawSetupRow(row);
     addPageActionTarget(353, 60, 106, 36,
-                        &Channel2Ui::controlSetup, 0);
+                        &TransmitterUi::controlSetup, 0);
     addPageActionTarget(353, 110, 106, 36,
-                        &Channel2Ui::controlSetup, 1);
+                        &TransmitterUi::controlSetup, 1);
     addPageEditorTarget(10, 156, 460, 44,
                         353, 159, 48, 36, 411, 159, 48, 36,
-                        &Channel2Ui::controlSetup, 2);
+                        &TransmitterUi::controlSetup, 2);
     addPageEditorTarget(10, 206, 460, 44,
                         353, 209, 48, 36, 411, 209, 48, 36,
-                        &Channel2Ui::controlSetup, 3);
+                        &TransmitterUi::controlSetup, 3);
     makeButton(10, 265, 88, 44, "TEST", 14, cPanel2, cAmber);
     addPageActionTarget(10, 265, 88, 44,
-                        &Channel2Ui::controlSetup, 4);
+                        &TransmitterUi::controlSetup, 4);
     makeButton(106, 265, 110, 44, "DISPLAY", 13, cPanel2, cCyan);
     addPageActionTarget(106, 265, 110, 44,
-                        &Channel2Ui::controlSetup, 5);
+                        &TransmitterUi::controlSetup, 5);
     makeButton(224, 265, 116, 44, "TX BAT", 13, cPanel2, cCyan);
     addPageActionTarget(224, 265, 116, 44,
-                        &Channel2Ui::controlSetup, 6);
+                        &TransmitterUi::controlSetup, 6);
     makeButton(348, 265, 122, 44, "RX BAT", 13, cPanel2, cCyan);
     addPageActionTarget(348, 265, 122, 44,
-                        &Channel2Ui::controlSetup, 7);
+                        &TransmitterUi::controlSetup, 7);
     finishPageFocus();
 }
 
-void Channel2Ui::drawElrsBindingPage()
+void TransmitterUi::drawFirmwareInfoPage()
+{
+    activePage_ = UiPage::FirmwareInfo;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("FIRMWARE INFO", "BACK");
+    beginPageFocus();
+
+    lv_obj_t *identity = makePanel(10, 52, 460, 72);
+    makeLabel(identity, JR_R1_FIRMWARE_NAME, 14, 10, 20, cCyan);
+    char revision[80];
+    snprintf(revision, sizeof(revision), "%s @ %s  [%s]",
+             JR_R1_FIRMWARE_BRANCH, JR_R1_FIRMWARE_COMMIT,
+             JR_R1_FIRMWARE_GIT_STATE);
+    makeLabel(identity, revision, 14, 40, 14,
+              strcmp(JR_R1_FIRMWARE_GIT_STATE, "clean") == 0
+                  ? cGreen : cAmber);
+
+    lv_obj_t *build = makePanel(10, 132, 460, 82);
+    makeLabel(build, "BUILD", 14, 9, 12, cDim);
+    char builtAt[48];
+    snprintf(builtAt, sizeof(builtAt), "%s  %s",
+             JR_R1_FIRMWARE_BUILD_DATE, JR_R1_FIRMWARE_BUILD_TIME);
+    makeLabel(build, builtAt, 14, 29, 16, cWhite);
+    makeLabel(build, JR_R1_FIRMWARE_BUILD_ENV, 14, 54, 13, cCyan);
+
+    lv_obj_t *hardware = makePanel(10, 222, 460, 76);
+    makeLabel(hardware, "HARDWARE PROFILE", 14, 8, 12, cDim);
+    makeLabel(hardware, "ESP32-S3-DevKitC-1 N16R8", 14, 28, 14, cWhite);
+    makeLabel(hardware, DISPLAY_PROFILE_NAME, 14, 50, 13, cCyan);
+    finishPageFocus();
+}
+
+void TransmitterUi::drawElrsBindingPage()
 {
     activePage_ = UiPage::ElrsBinding;
     startScreen();
@@ -3904,7 +4171,7 @@ void Channel2Ui::drawElrsBindingPage()
                              unavailable ? cBlack : cPanel2,
                              unavailable ? cDim :
                                  (index < 2 ? cAmber : cCyan),
-                             cLine, &Channel2Ui::controlElrsBinding, index);
+                             cLine, &TransmitterUi::controlElrsBinding, index);
     }
 
     const char *rows[] = {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm-_"};
@@ -3923,24 +4190,24 @@ void Channel2Ui::drawElrsBindingPage()
             makePageActionButton(startX + column * width, 130 + row * 38,
                                  width - 3, 34, label, 14,
                                  cPanel, cWhite, cLine,
-                                 &Channel2Ui::controlElrsBinding,
+                                 &TransmitterUi::controlElrsBinding,
                                  5 + keyIndex);
         }
     }
     makePageActionButton(43, 282, 92, 32,
                          elrsKeyboardUppercase_ ? "lower" : "UPPER", 12,
                          cPanel2, cWhite, cLine,
-                         &Channel2Ui::controlElrsBinding, 43);
+                         &TransmitterUi::controlElrsBinding, 43);
     makePageActionButton(143, 282, 194, 32, "SPACE", 12,
                          cPanel2, cWhite, cLine,
-                         &Channel2Ui::controlElrsBinding, 44);
+                         &TransmitterUi::controlElrsBinding, 44);
     makePageActionButton(345, 282, 92, 32, "<--", 14,
                          cPanel2, cAmber, cLine,
-                         &Channel2Ui::controlElrsBinding, 45);
+                         &TransmitterUi::controlElrsBinding, 45);
     finishPageFocus();
 }
 
-void Channel2Ui::drawEscProgrammingPage()
+void TransmitterUi::drawEscProgrammingPage()
 {
     activePage_ = UiPage::EscProgramming;
     startScreen();
@@ -3962,7 +4229,7 @@ void Channel2Ui::drawEscProgrammingPage()
                              selected ? cPanel2 : cBlack,
                              selected ? cCyan : cDim,
                              selected ? cCyan : cLine,
-                             &Channel2Ui::controlEscProgramming, tab);
+                             &TransmitterUi::controlEscProgramming, tab);
     }
 
     static const char *labels[3][4] = {
@@ -3989,10 +4256,10 @@ void Channel2Ui::drawEscProgrammingPage()
     // a value has actually been read from or written to the ESC.
     makePageActionButton(8, 274, 168, 35, "READ ESC", 13,
                          cBlack, cDim, cDim,
-                         &Channel2Ui::controlEscProgramming, 3);
+                         &TransmitterUi::controlEscProgramming, 3);
     makePageActionButton(184, 274, 168, 35, "WRITE ESC", 13,
                          cBlack, cDim, cDim,
-                         &Channel2Ui::controlEscProgramming, 4);
+                         &TransmitterUi::controlEscProgramming, 4);
     lv_obj_t *comms = makePanel(360, 274, 112, 35,
                                 cSafetyWaiting, cAmber, 7);
     lv_obj_t *commsLabel = makeLabel(comms, "NO COMMS", 0, 0, 11, cAmber);
@@ -4000,10 +4267,13 @@ void Channel2Ui::drawEscProgrammingPage()
     finishPageFocus();
 }
 
-void Channel2Ui::drawDisplayRow(int row)
+void TransmitterUi::drawDisplayRow(int row, int visibleRow)
 {
-    static const char *labels[] = {"SCREEN TIMEOUT", "UI BRIGHTNESS", "NIGHT MODE", "SLEEP NOW"};
-    const int16_t y = 56 + row * 50;
+    static const char *labels[] = {
+        "SCREEN TIMEOUT", "IDLE ACTION", "UI BRIGHTNESS", "NIGHT MODE",
+        "ACTIVATE NOW"
+    };
+    const int16_t y = 56 + visibleRow * 50;
     lv_obj_t *panel = makePanel(10, y, 460, 44);
     makeLabel(panel, labels[row], 12, 12, 16, cCyan);
     char value[24];
@@ -4011,46 +4281,72 @@ void Channel2Ui::drawDisplayRow(int row)
         if (systemSettings_.screenTimeoutSeconds == 0) snprintf(value, sizeof(value), "NEVER");
         else snprintf(value, sizeof(value), "%u sec", systemSettings_.screenTimeoutSeconds);
     } else if (row == 1) {
-        snprintf(value, sizeof(value), "%u%%", systemSettings_.displayBrightnessPercent);
+        snprintf(value, sizeof(value), "%s",
+                 systemSettings_.logoScreensaverEnabled ? "LOGO SAVER" : "DISPLAY OFF");
     } else if (row == 2) {
+        snprintf(value, sizeof(value), "%u%%", systemSettings_.displayBrightnessPercent);
+    } else if (row == 3) {
         snprintf(value, sizeof(value), "%s", systemSettings_.nightMode ? "ON" : "OFF");
-    } else snprintf(value, sizeof(value), "DISPLAY OFF");
-    makeLabel(panel, value, 220, 12, 16, row == 2 && systemSettings_.nightMode ? cAmber : cWhite);
-    if (row < 2) {
+    } else {
+        snprintf(value, sizeof(value), "%s",
+                 systemSettings_.logoScreensaverEnabled ? "SHOW LOGO" : "DISPLAY OFF");
+    }
+    makeLabel(panel, value, 220, 12, 16,
+              row == 3 && systemSettings_.nightMode ? cAmber : cWhite);
+    if (row == 0 || row == 2) {
         makeButton(353, y + 4, 48, 36, "-", 24);
         makeButton(411, y + 4, 48, 36, "+", 24);
     } else {
-        makeButton(353, y + 4, 106, 36, row == 2 ? "TOGGLE" : "SLEEP", 13,
-                   row == 3 ? cAmber : cPanel2,
-                   row == 3 ? cBlack : cWhite);
+        const bool activateRow = row == 4;
+        makeButton(353, y + 4, 106, 36,
+                   activateRow
+                       ? (systemSettings_.logoScreensaverEnabled ? "START" : "SLEEP")
+                       : "TOGGLE",
+                   13, activateRow ? cAmber : cPanel2,
+                   activateRow ? cBlack : cWhite);
     }
 }
 
-void Channel2Ui::drawDisplayPage()
+void TransmitterUi::drawDisplayPage()
 {
     activePage_ = UiPage::DisplaySetup;
     startScreen();
     resetLvglObjects();
     makeHeader("DISPLAY", "BACK");
     beginPageFocus();
-    for (int row = 0; row < 4; ++row) {
-        drawDisplayRow(row);
-        if (row < 2) {
-            addPageEditorTarget(10, 56 + row * 50, 460, 44,
-                                353, 60 + row * 50, 48, 36,
-                                411, 60 + row * 50, 48, 36,
-                                &Channel2Ui::controlDisplay, row);
+    const int firstRow = displaySetupBank_ * 4;
+    const int rowCount = min(4, 5 - firstRow);
+    for (int visibleRow = 0; visibleRow < rowCount; ++visibleRow) {
+        const int row = firstRow + visibleRow;
+        drawDisplayRow(row, visibleRow);
+        if (row == 0 || row == 2) {
+            addPageEditorTarget(10, 56 + visibleRow * 50, 460, 44,
+                                353, 60 + visibleRow * 50, 48, 36,
+                                411, 60 + visibleRow * 50, 48, 36,
+                                &TransmitterUi::controlDisplay, row);
         } else {
-            addPageActionTarget(10, 56 + row * 50, 460, 44,
-                                &Channel2Ui::controlDisplay, row);
+            addPageActionTarget(10, 56 + visibleRow * 50, 460, 44,
+                                &TransmitterUi::controlDisplay, row);
         }
     }
-    makeLabel(lv_scr_act(), "UI dimming is visual; full backlight saving needs a BL switch.",
-              20, 280, 12, cDim);
+    makeLabel(lv_scr_act(), "Logo saver dims to 25%; display off saves most power.",
+              20, 258, 12, cDim);
+    makeButton(10, 274, 50, 35, "<", 20, cPanel2,
+               displaySetupBank_ == 0 ? cDim : cWhite);
+    lv_obj_t *pageLabel = makeLabel(
+        lv_scr_act(), displaySetupBank_ == 0 ? "DISPLAY 1/2" : "DISPLAY 2/2",
+        0, 284, 13, cCyan);
+    lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 284);
+    makeButton(420, 274, 50, 35, ">", 20, cPanel2,
+               displaySetupBank_ == 1 ? cDim : cWhite);
+    addPageActionTarget(10, 274, 50, 35,
+                        &TransmitterUi::controlDisplay, 10);
+    addPageActionTarget(420, 274, 50, 35,
+                        &TransmitterUi::controlDisplay, 11);
     finishPageFocus();
 }
 
-void Channel2Ui::drawTxBatteryRow(int row)
+void TransmitterUi::drawTxBatteryRow(int row)
 {
     static const char *labels[] = {"CHEMISTRY", "CELL COUNT", "LOW ALARM", "VOLT SENSE"};
     const int16_t y = 56 + row * 50;
@@ -4102,7 +4398,7 @@ void Channel2Ui::drawTxBatteryRow(int row)
     }
 }
 
-void Channel2Ui::drawTxBatteryPage()
+void TransmitterUi::drawTxBatteryPage()
 {
     activePage_ = UiPage::TxBatterySetup;
     startScreen();
@@ -4115,10 +4411,10 @@ void Channel2Ui::drawTxBatteryPage()
             addPageEditorTarget(10, 56 + row * 50, 460, 44,
                                 343, 59 + row * 50, 48, 36,
                                 401, 59 + row * 50, 48, 36,
-                                &Channel2Ui::controlTxBattery, row);
+                                &TransmitterUi::controlTxBattery, row);
         } else {
             addPageActionTarget(343, 59 + row * 50, 106, 36,
-                                &Channel2Ui::controlTxBattery, row);
+                                &TransmitterUi::controlTxBattery, row);
         }
     }
     lv_obj_t *note = makeLabel(lv_scr_act(),
@@ -4127,7 +4423,7 @@ void Channel2Ui::drawTxBatteryPage()
     finishPageFocus();
 }
 
-void Channel2Ui::drawRxBatteryRow(int row)
+void TransmitterUi::drawRxBatteryRow(int row)
 {
     static const char *labels[] = {"CHEMISTRY", "CELL COUNT", "LOW ALARM", "ALARM"};
     const int16_t y = 56 + row * 50;
@@ -4160,7 +4456,7 @@ void Channel2Ui::drawRxBatteryRow(int row)
     }
 }
 
-void Channel2Ui::drawRxBatteryPage()
+void TransmitterUi::drawRxBatteryPage()
 {
     activePage_ = UiPage::RxBatterySetup;
     startScreen();
@@ -4173,10 +4469,10 @@ void Channel2Ui::drawRxBatteryPage()
             addPageEditorTarget(10, 56 + row * 50, 460, 44,
                                 353, 60 + row * 50, 48, 36,
                                 411, 60 + row * 50, 48, 36,
-                                &Channel2Ui::controlRxBattery, row);
+                                &TransmitterUi::controlRxBattery, row);
         } else {
             addPageActionTarget(353, 60 + row * 50, 106, 36,
-                                &Channel2Ui::controlRxBattery, row);
+                                &TransmitterUi::controlRxBattery, row);
         }
     }
     lv_obj_t *note = makeLabel(lv_scr_act(),
@@ -4185,7 +4481,7 @@ void Channel2Ui::drawRxBatteryPage()
     finishPageFocus();
 }
 
-void Channel2Ui::drawCalibrationPage()
+void TransmitterUi::drawCalibrationPage()
 {
     startScreen();
     resetLvglObjects();
@@ -4216,7 +4512,7 @@ void Channel2Ui::drawCalibrationPage()
     finishPageFocus();
 }
 
-void Channel2Ui::drawCalibrationValues(uint16_t adc)
+void TransmitterUi::drawCalibrationValues(uint16_t adc)
 {
     (void)adc;
     ProportionalInput &input = calibratingSteering_
@@ -4233,7 +4529,7 @@ void Channel2Ui::drawCalibrationValues(uint16_t adc)
         colour(progress.sawMaximum ? cGreen : cWhite), 0);
 }
 
-void Channel2Ui::startCalibration(uint16_t adc, bool steering)
+void TransmitterUi::startCalibration(uint16_t adc, bool steering)
 {
     calibratingSteering_ = steering;
     calibrationReturnPage_ = steering
@@ -4245,7 +4541,7 @@ void Channel2Ui::startCalibration(uint16_t adc, bool steering)
                   steering ? "steering" : "throttle");
 }
 
-void Channel2Ui::cancelCalibration()
+void TransmitterUi::cancelCalibration()
 {
     (calibratingSteering_ ? steeringInput_ : triggerInput_).cancelCalibration();
     if (calibrationReturnPage_ == UiPage::ChannelPlaceholder)
@@ -4255,7 +4551,7 @@ void Channel2Ui::cancelCalibration()
     Serial.println("CAL: cancelled; previous calibration retained");
 }
 
-void Channel2Ui::updateCalibration(uint16_t adc)
+void TransmitterUi::updateCalibration(uint16_t adc)
 {
     ProportionalInput &input = calibratingSteering_
         ? steeringInput_ : triggerInput_;
@@ -4272,7 +4568,7 @@ void Channel2Ui::updateCalibration(uint16_t adc)
         drawPage();
 }
 
-uint16_t Channel2Ui::readTouchRegister(uint8_t command)
+uint16_t TransmitterUi::readTouchRegister(uint8_t command)
 {
 #ifdef JR_R1_SIMULATOR
     (void)command;
@@ -4291,7 +4587,7 @@ uint16_t Channel2Ui::readTouchRegister(uint8_t command)
 #endif
 }
 
-bool Channel2Ui::readGt911Register(uint16_t reg, uint8_t *data, size_t length)
+bool TransmitterUi::readGt911Register(uint16_t reg, uint8_t *data, size_t length)
 {
 #ifdef JR_R1_SIMULATOR
     (void)reg; (void)data; (void)length;
@@ -4316,7 +4612,7 @@ bool Channel2Ui::readGt911Register(uint16_t reg, uint8_t *data, size_t length)
 #endif
 }
 
-bool Channel2Ui::writeGt911Register(uint16_t reg, uint8_t value)
+bool TransmitterUi::writeGt911Register(uint16_t reg, uint8_t value)
 {
 #ifdef JR_R1_SIMULATOR
     (void)reg; (void)value;
@@ -4335,7 +4631,7 @@ bool Channel2Ui::writeGt911Register(uint16_t reg, uint8_t value)
 #endif
 }
 
-bool Channel2Ui::initialiseTouchController()
+bool TransmitterUi::initialiseTouchController()
 {
 #ifdef JR_R1_SIMULATOR
     return true;
@@ -4377,7 +4673,7 @@ bool Channel2Ui::initialiseTouchController()
 #endif
 }
 
-void Channel2Ui::applyBacklight(uint8_t percent)
+void TransmitterUi::applyBacklight(uint8_t percent)
 {
 #ifdef JR_R1_SIMULATOR
     simulatorSetBrightness(percent);
@@ -4389,7 +4685,7 @@ void Channel2Ui::applyBacklight(uint8_t percent)
 #endif
 }
 
-bool Channel2Ui::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
+bool TransmitterUi::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
                            uint16_t &rawY, uint16_t &rawZ)
 {
 #ifdef JR_R1_SIMULATOR
@@ -4436,7 +4732,7 @@ bool Channel2Ui::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
 #endif
 }
 
-void Channel2Ui::handleDashboardTouch(int16_t x, int16_t y)
+void TransmitterUi::handleDashboardTouch(int16_t x, int16_t y)
 {
     if ((y < 45 && x >= 415) || (y >= 245 && x < 120)) { playKeyClick(); drawMainMenu(); }
     else if (y >= 245 && x >= 120 && x < 236) { playKeyClick(); drawTelemetryPage(); }
@@ -4462,7 +4758,7 @@ void Channel2Ui::handleDashboardTouch(int16_t x, int16_t y)
     }
 }
 
-void Channel2Ui::handleTelemetryTouch(int16_t x, int16_t y)
+void TransmitterUi::handleTelemetryTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) {
         playKeyClick();
@@ -4470,7 +4766,7 @@ void Channel2Ui::handleTelemetryTouch(int16_t x, int16_t y)
     }
 }
 
-void Channel2Ui::handleMainMenuTouch(int16_t x, int16_t y)
+void TransmitterUi::handleMainMenuTouch(int16_t x, int16_t y)
 {
     if (x < 5 || x >= 475 || y < 52 || y >= 270) return;
     const int item = ((y - 52) / 54) * 2 + (x >= 240 ? 1 : 0);
@@ -4479,7 +4775,24 @@ void Channel2Ui::handleMainMenuTouch(int16_t x, int16_t y)
     activateMainMenuFocus();
 }
 
-void Channel2Ui::handleChannelsTouch(int16_t x, int16_t y)
+void TransmitterUi::handleModelSelectTouch(int16_t x, int16_t y)
+{
+    if (headerActionTouched(x, y)) {
+        playKeyClick();
+        drawMainMenu();
+        return;
+    }
+    if (y >= 52 && y < 257) {
+        controlModels(static_cast<uint8_t>((y - 52) / 41),
+                      PageControlEvent::Activate);
+    } else if (y >= 270 && x < 80) {
+        controlModels(10, PageControlEvent::Activate);
+    } else if (y >= 270 && x >= 400) {
+        controlModels(11, PageControlEvent::Activate);
+    }
+}
+
+void TransmitterUi::handleChannelsTouch(int16_t x, int16_t y)
 {
     if (y < 48 && x >= 250 && x < 340) {
         playKeyClick(); drawChannelRolesPage(); return;
@@ -4496,7 +4809,7 @@ void Channel2Ui::handleChannelsTouch(int16_t x, int16_t y)
     drawChannelPlaceholder();
 }
 
-void Channel2Ui::handleChannelConfigTouch(int16_t x, int16_t y)
+void TransmitterUi::handleChannelConfigTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) {
         playKeyClick(); drawChannelsPage(); return;
@@ -4534,7 +4847,7 @@ void Channel2Ui::handleChannelConfigTouch(int16_t x, int16_t y)
     }
 }
 
-void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
+void TransmitterUi::handleChannelRolesTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) { playKeyClick(); drawChannelsPage(); return; }
     if (y < 72 || y >= 196 || x < 340) return;
@@ -4556,7 +4869,7 @@ void Channel2Ui::handleChannelRolesTouch(int16_t x, int16_t y)
     drawChannelRolesPage();
 }
 
-void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
+void TransmitterUi::handleThrottleResponseTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) {
         playKeyClick();
@@ -4604,7 +4917,7 @@ void Channel2Ui::handleThrottleResponseTouch(int16_t x, int16_t y)
     if (changed) { saveSettings(); playKeyClick(); drawThrottleResponsePage(); }
 }
 
-void Channel2Ui::handleChannelSpeedTouch(int16_t x, int16_t y)
+void TransmitterUi::handleChannelSpeedTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) { playKeyClick(); drawThrottleResponsePage(); return; }
     if (x < 340 || y < 78 || y >= 230) return;
@@ -4620,7 +4933,7 @@ void Channel2Ui::handleChannelSpeedTouch(int16_t x, int16_t y)
     drawChannelSpeedPage();
 }
 
-void Channel2Ui::handleControlAssignmentsTouch(int16_t x, int16_t y)
+void TransmitterUi::handleControlAssignmentsTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
     constexpr uint8_t kRows = 5;
@@ -4656,7 +4969,7 @@ void Channel2Ui::handleControlAssignmentsTouch(int16_t x, int16_t y)
     drawBindingEditorPage();
 }
 
-void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
+void TransmitterUi::handleBindingEditorTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y) || (y >= 270 && x < 150)) {
         playKeyClick(); drawControlAssignmentsPage(); return;
@@ -4827,7 +5140,7 @@ void Channel2Ui::handleBindingEditorTouch(int16_t x, int16_t y)
     drawBindingEditorPage();
 }
 
-void Channel2Ui::handleInputMonitorTouch(int16_t x, int16_t y)
+void TransmitterUi::handleInputMonitorTouch(int16_t x, int16_t y)
 {
     constexpr uint8_t kRowsPerBank = 5;
     constexpr uint8_t kBankCount =
@@ -4847,7 +5160,7 @@ void Channel2Ui::handleInputMonitorTouch(int16_t x, int16_t y)
     }
 }
 
-void Channel2Ui::handleDriveModesTouch(int16_t x, int16_t y)
+void TransmitterUi::handleDriveModesTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) {
         playKeyClick();
@@ -4876,11 +5189,15 @@ void Channel2Ui::handleDriveModesTouch(int16_t x, int16_t y)
     }
 }
 
-void Channel2Ui::handleSetupTouch(int16_t x, int16_t y)
+void TransmitterUi::handleSetupTouch(int16_t x, int16_t y)
 {
+    if (y < 48 && x >= 254 && x < 340) {
+        playKeyClick(); drawFirmwareInfoPage(); return;
+    }
     if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
     if (y >= 265 && y < 315 && x < 102) { playBuzzer(500); return; }
     if (y >= 265 && y < 315 && x >= 102 && x < 220) {
+        displaySetupBank_ = 0;
         playKeyClick(); drawDisplayPage(); return;
     }
     if (y >= 265 && y < 315 && x >= 220 && x < 344) {
@@ -4908,7 +5225,7 @@ void Channel2Ui::handleSetupTouch(int16_t x, int16_t y)
     if (changed) { saveSystemSettings(); playKeyClick(); drawSetupPage(); }
 }
 
-void Channel2Ui::appendElrsKeyboardCharacter(char character)
+void TransmitterUi::appendElrsKeyboardCharacter(char character)
 {
     const size_t length = strlen(elrsBindPhrase_);
     if (length >= kElrsMaximumBindPhraseLength) {
@@ -4920,7 +5237,7 @@ void Channel2Ui::appendElrsKeyboardCharacter(char character)
     snprintf(elrsStatus_, sizeof(elrsStatus_), "Edited locally; not sent yet");
 }
 
-void Channel2Ui::queueElrsRequest(ElrsManagementAction action,
+void TransmitterUi::queueElrsRequest(ElrsManagementAction action,
                                   ElrsManagementTarget target)
 {
     if (target == ElrsManagementTarget::Receiver && !elrsReceiverLinkAvailable_) {
@@ -4950,7 +5267,7 @@ void Channel2Ui::queueElrsRequest(ElrsManagementAction action,
              action == ElrsManagementAction::SetBindPhrase ? "Bindphrase" : "UID read");
 }
 
-void Channel2Ui::handleElrsBindingTouch(int16_t x, int16_t y)
+void TransmitterUi::handleElrsBindingTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
     if (y >= 94 && y < 128) {
@@ -5001,11 +5318,18 @@ void Channel2Ui::handleElrsBindingTouch(int16_t x, int16_t y)
     }
 }
 
-void Channel2Ui::handleDisplayTouch(int16_t x, int16_t y)
+void TransmitterUi::handleDisplayTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) { playKeyClick(); drawSetupPage(); return; }
+    if (y >= 270) {
+        if (x < 80) controlDisplay(10, PageControlEvent::Activate);
+        else if (x >= 400) controlDisplay(11, PageControlEvent::Activate);
+        return;
+    }
     if (y < 56 || y >= 256 || x < 340) return;
-    const uint8_t row = (y - 56) / 50;
+    const uint8_t visibleRow = (y - 56) / 50;
+    const uint8_t row = displaySetupBank_ * 4 + visibleRow;
+    if (row >= 5) return;
     const int8_t direction = x < 405 ? -1 : 1;
     if (row == 0) {
         static const uint16_t values[] = {0, 30, 60, 300};
@@ -5015,17 +5339,25 @@ void Channel2Ui::handleDisplayTouch(int16_t x, int16_t y)
         index = static_cast<uint8_t>((index + (direction > 0 ? 1 : 3)) % 4);
         systemSettings_.screenTimeoutSeconds = values[index];
     } else if (row == 1) {
+        systemSettings_.logoScreensaverEnabled =
+            !systemSettings_.logoScreensaverEnabled;
+    } else if (row == 2) {
         systemSettings_.displayBrightnessPercent = constrain(
             static_cast<int>(systemSettings_.displayBrightnessPercent) + direction * 10,
             20, 100);
         uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
         applyBacklight(uiBrightnessPercent);
-    } else if (row == 2) {
+    } else if (row == 3) {
         systemSettings_.nightMode = !systemSettings_.nightMode;
         uiNightMode = systemSettings_.nightMode;
     } else {
         playKeyClick();
-        sleepDisplay();
+        if (systemSettings_.logoScreensaverEnabled) {
+            logoSaverReturnPage_ = UiPage::DisplaySetup;
+            drawLogoSaver();
+        } else {
+            sleepDisplay();
+        }
         return;
     }
     saveSystemSettings();
@@ -5033,7 +5365,7 @@ void Channel2Ui::handleDisplayTouch(int16_t x, int16_t y)
     drawDisplayPage();
 }
 
-void Channel2Ui::handleTxBatteryTouch(int16_t x, int16_t y)
+void TransmitterUi::handleTxBatteryTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) { playKeyClick(); drawSetupPage(); return; }
     if (y < 56 || y >= 256) return;
@@ -5078,7 +5410,7 @@ void Channel2Ui::handleTxBatteryTouch(int16_t x, int16_t y)
     }
 }
 
-void Channel2Ui::handleRxBatteryTouch(int16_t x, int16_t y)
+void TransmitterUi::handleRxBatteryTouch(int16_t x, int16_t y)
 {
     if (headerActionTouched(x, y)) { playKeyClick(); drawSetupPage(); return; }
     if (y < 56 || y >= 256) return;
@@ -5122,9 +5454,14 @@ void Channel2Ui::handleRxBatteryTouch(int16_t x, int16_t y)
     }
 }
 
-void Channel2Ui::handleTouch(int16_t x, int16_t y)
+void TransmitterUi::handleTouch(int16_t x, int16_t y)
 {
-    if (activePage_ == UiPage::StartupWarning) return;
+    if (activePage_ == UiPage::LogoSaver) {
+        leaveLogoSaver();
+        return;
+    }
+    if (activePage_ == UiPage::BootSplash ||
+        activePage_ == UiPage::StartupWarning) return;
     if (activePage_ != UiPage::Dashboard && headerHomeTouched(x, y)) {
         if (calibrationActive()) {
             (calibratingSteering_ ? steeringInput_ : triggerInput_)
@@ -5145,6 +5482,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::Dashboard) { handleDashboardTouch(x, y); return; }
     if (activePage_ == UiPage::Telemetry) { handleTelemetryTouch(x, y); return; }
     if (activePage_ == UiPage::MainMenu) { handleMainMenuTouch(x, y); return; }
+    if (activePage_ == UiPage::ModelSelect) { handleModelSelectTouch(x, y); return; }
     if (activePage_ == UiPage::Channels) { handleChannelsTouch(x, y); return; }
     if (activePage_ == UiPage::ChannelRoles) { handleChannelRolesTouch(x, y); return; }
     if (activePage_ == UiPage::ThrottleResponse) { handleThrottleResponseTouch(x, y); return; }
@@ -5189,7 +5527,7 @@ void Channel2Ui::handleTouch(int16_t x, int16_t y)
     }
 }
 
-void Channel2Ui::updateTouch()
+void TransmitterUi::updateTouch()
 {
     int16_t x = 0, y = 0;
     uint16_t rawX = 0, rawY = 0, rawZ = 0;
@@ -5300,7 +5638,7 @@ void Channel2Ui::updateTouch()
     handleTouch(releasedX, releasedY);
 }
 
-void Channel2Ui::update(uint16_t rawAdc, uint16_t steeringRawAdc,
+void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
                         int16_t rawInputPermille,
                         int16_t outputPermille,
                         uint16_t crsfValue, OutputSafetyStatus safetyStatus,
@@ -5352,6 +5690,17 @@ void Channel2Ui::update(uint16_t rawAdc, uint16_t steeringRawAdc,
         calibratingSteering_ ? steeringRawAdc : rawAdc);
 
     const uint32_t now = millis();
+    if (activePage_ == UiPage::BootSplash &&
+        now - bootSplashStartedMs_ >= kBootSplashDurationMs) {
+        if (startupPreflightComplete_) drawDashboard();
+        else drawStartupWarningPage();
+    }
+    if (activePage_ == UiPage::LogoSaver &&
+        static_cast<int32_t>(now - nextLogoSaverMoveMs_) >= 0) {
+        logoSaverPosition_ = static_cast<uint8_t>((logoSaverPosition_ + 1) % 4);
+        positionLogoSaver();
+        nextLogoSaverMoveMs_ = now + kLogoSaverMoveMs;
+    }
     if (settingsSavePending_ &&
         static_cast<int32_t>(now - settingsSaveDueMs_) >= 0) {
         saveSettings();
@@ -5360,11 +5709,18 @@ void Channel2Ui::update(uint16_t rawAdc, uint16_t steeringRawAdc,
         static_cast<int32_t>(now - channelParameterSaveDueMs_) >= 0) {
         saveChannelParameters();
     }
-    if (!displaySleeping_ && activePage_ != UiPage::StartupWarning &&
+    if (!displaySleeping_ && activePage_ != UiPage::BootSplash &&
+        activePage_ != UiPage::LogoSaver &&
+        activePage_ != UiPage::StartupWarning &&
         systemSettings_.screenTimeoutSeconds != 0 &&
         now - lastInteractionMs_ >=
             static_cast<uint32_t>(systemSettings_.screenTimeoutSeconds) * 1000U) {
-        sleepDisplay();
+        if (systemSettings_.logoScreensaverEnabled) {
+            logoSaverReturnPage_ = activePage_;
+            drawLogoSaver();
+        } else {
+            sleepDisplay();
+        }
     }
     if (static_cast<int32_t>(now - nextDisplayUpdateMs_) >= 0) {
         nextDisplayUpdateMs_ = now + kUiUpdateMs;

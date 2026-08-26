@@ -6,13 +6,15 @@
 #include <soc/gpio_sig_map.h>
 #include <esp_system.h>
 
-#include "channel2_ui.h"
+#include "transmitter_ui.h"
 #include "binding_resolver.h"
 #include "config.h"
+#include "control_configuration.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
 #include "crsf_telemetry.h"
 #include "mcp23017_input.h"
+#include "output_safety.h"
 #include "physical_input_runtime.h"
 #include "proportional_input.h"
 #include "r1_input_map.h"
@@ -42,26 +44,45 @@ struct ControlStateSnapshot {
     OutputSafetyStatus safetyStatus = OutputSafetyStatus::Cut;
     bool calibrating = false;
     bool inputValid = true;
+    bool armed = false;
+    uint32_t neutralSinceMs = 0;
     uint32_t maximumTaskGapUs = 0;
+};
+
+struct ControlCommandSnapshot {
+    uint32_t resetSequence = 0;
+    bool startupPreflightComplete = false;
+};
+
+struct CrsfRuntimeSnapshot {
+    uint32_t channelFramesSent = 0;
+    uint32_t transmitTimeouts = 0;
+    uint32_t maximumTransmitWaitUs = 0;
+    uint32_t maximumTaskGapUs = 0;
+    bool controlStale = true;
+    OutputSafetyStatus outputSafetyStatus = OutputSafetyStatus::ControlStale;
 };
 
 struct SharedChannelOutputState {
     CrsfChannelOutputModel model;
-    bool live = false;
+    OutputSafetyStatus controlSafetyStatus = OutputSafetyStatus::Cut;
     uint32_t updatedUs = 0;
 };
 
 ProportionalInputRuntime throttleInputRuntime;
 ProportionalInputRuntime steeringInputRuntime;
+ChannelSlewRuntime channelSlewRuntime;
 uint32_t filteredTxBatteryAdcMv = 0;
 uint32_t nextTxBatterySampleMs = 0;
-bool throttleArmed = false;
-bool wasCalibrating = false;
-uint32_t neutralSinceMs = 0;
-uint32_t linkReadySinceMs = 0;
+// Owned exclusively by the control task. Other tasks observe these values only
+// through ControlStateSnapshot.
+bool controlThrottleArmed = false;
+bool controlWasCalibrating = false;
+uint32_t controlNeutralSinceMs = 0;
+uint32_t controlLinkReadySinceMs = 0;
 uint32_t nextFrameUs = 0;
 uint32_t nextLogMs = 0;
-Channel2Ui channel2Ui;
+TransmitterUi transmitterUi;
 CrsfTelemetryParser telemetryParser;
 BindingResolver bindingResolver;
 ResolvedBindingActionBuffer bindingActions;
@@ -73,11 +94,9 @@ uint32_t nextExpanderPollMs = 0;
 uint32_t nextExpanderProbeMs = 0;
 uint16_t expanderPorts = 0xffff;
 bool inputExpanderReady = false;
-volatile uint32_t crsfChannelFramesSent = 0;
-volatile uint32_t crsfTransmitTimeouts = 0;
-volatile uint32_t crsfMaximumTransmitWaitUs = 0;
-volatile uint32_t crsfMaximumTaskGapUs = 0;
-volatile bool sharedControlStale = true;
+CrsfRuntimeSnapshot crsfRuntimeOwned;
+CrsfRuntimeSnapshot sharedCrsfRuntime;
+portMUX_TYPE crsfRuntimeMux = portMUX_INITIALIZER_UNLOCKED;
 SharedChannelOutputState sharedChannelOutputs;
 portMUX_TYPE channelOutputMux = portMUX_INITIALIZER_UNLOCKED;
 CrsfTelemetryState telemetrySnapshot;
@@ -89,8 +108,14 @@ TaskHandle_t crsfTaskHandle = nullptr;
 TaskHandle_t controlTaskHandle = nullptr;
 ControlStateSnapshot controlStateSnapshot;
 portMUX_TYPE controlStateMux = portMUX_INITIALIZER_UNLOCKED;
-volatile bool controlResetRequested = false;
-volatile bool startupPreflightComplete = false;
+ControlConfigurationSnapshot sharedControlConfiguration;
+ControlConfigurationSnapshot lastPublishedControlConfiguration;
+portMUX_TYPE controlConfigurationMux = portMUX_INITIALIZER_UNLOCKED;
+uint32_t nextControlConfigurationRevision = 1;
+bool controlConfigurationPublished = false;
+ControlCommandSnapshot sharedControlCommands;
+portMUX_TYPE controlCommandMux = portMUX_INITIALIZER_UNLOCKED;
+bool startupPreflightComplete = false; // Arduino-loop-owned startup state.
 uint32_t startupInputSettledAtMs = 0;
 uint32_t startupWarningMask = 0;
 char usbCommand[32];
@@ -146,30 +171,31 @@ void configureDirectGpioInputs()
 BindingLoadResult installUiBindings()
 {
     ControlBinding bindings[kPhysicalControlCount];
-    const size_t count = channel2Ui.copyBindings(bindings, kPhysicalControlCount);
+    const size_t count = transmitterUi.copyBindings(bindings, kPhysicalControlCount);
     portENTER_CRITICAL(&bindingResolverMux);
     const BindingLoadResult result = bindingResolver.setBindings(bindings, count);
     portEXIT_CRITICAL(&bindingResolverMux);
     return result;
 }
 
-void updateNeutralInterlock(uint16_t adc)
+void updateNeutralInterlock(uint16_t adc,
+                            const ControlConfigurationSnapshot &configuration)
 {
-    if (throttleArmed) {
+    if (controlThrottleArmed) {
         return;
     }
 
     const int delta = static_cast<int>(adc) -
-                      static_cast<int>(channel2Ui.throttleCentreAdc());
+                      static_cast<int>(configuration.throttleInput.calibration.centre);
     if (abs(delta) <= ARM_NEUTRAL_ADC_WINDOW) {
-        if (neutralSinceMs == 0) {
-            neutralSinceMs = millis();
-        } else if (millis() - neutralSinceMs >= ARM_NEUTRAL_TIME_MS) {
-            throttleArmed = true;
+        if (controlNeutralSinceMs == 0) {
+            controlNeutralSinceMs = millis();
+        } else if (millis() - controlNeutralSinceMs >= ARM_NEUTRAL_TIME_MS) {
+            controlThrottleArmed = true;
             Serial.println("ARMED: throttle input is now being transmitted");
         }
     } else {
-        neutralSinceMs = 0;
+        controlNeutralSinceMs = 0;
     }
 }
 
@@ -179,70 +205,72 @@ bool updateLinkInterlock(const CrsfTelemetryState &telemetry)
     // command merely because a return packet was delayed would itself create
     // a hazardous control transient; RF-loss behaviour belongs in the RX
     // failsafe configuration.
-    if (throttleArmed) return true;
+    if (controlThrottleArmed) return true;
 
     const uint32_t now = millis();
     const bool acceptable = telemetry.linkValid &&
                             telemetry.uplinkLinkQuality >= ARM_MIN_LINK_QUALITY;
     if (!acceptable) {
-        linkReadySinceMs = 0;
+        controlLinkReadySinceMs = 0;
         return false;
     }
-    if (linkReadySinceMs == 0) linkReadySinceMs = now;
-    return now - linkReadySinceMs >= ARM_LINK_STABLE_TIME_MS;
+    if (controlLinkReadySinceMs == 0) controlLinkReadySinceMs = now;
+    return now - controlLinkReadySinceMs >= ARM_LINK_STABLE_TIME_MS;
 }
 
 OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
                                       bool inputValid,
-                                      const CrsfTelemetryState &telemetry)
+                                      const CrsfTelemetryState &telemetry,
+                                      const ControlConfigurationSnapshot &configuration,
+                                      bool startupComplete)
 {
     // Calibration is handled by ProportionalInput. This is only the output
     // safety policy: never arm during calibration and require neutral again
     // after calibration finishes.
-    if (wasCalibrating && !calibrationActive) {
-        throttleArmed = false;
-        neutralSinceMs = 0;
-        linkReadySinceMs = 0;
+    if (controlWasCalibrating && !calibrationActive) {
+        controlThrottleArmed = false;
+        controlNeutralSinceMs = 0;
+        controlLinkReadySinceMs = 0;
     }
-    wasCalibrating = calibrationActive;
+    controlWasCalibrating = calibrationActive;
     if (calibrationActive) {
-        throttleArmed = false;
-        neutralSinceMs = 0;
-        linkReadySinceMs = 0;
+        controlThrottleArmed = false;
+        controlNeutralSinceMs = 0;
+        controlLinkReadySinceMs = 0;
         return OutputSafetyStatus::Calibration;
     }
     if (!inputValid) {
-        throttleArmed = false;
-        neutralSinceMs = 0;
-        linkReadySinceMs = 0;
+        controlThrottleArmed = false;
+        controlNeutralSinceMs = 0;
+        controlLinkReadySinceMs = 0;
         return OutputSafetyStatus::InputFault;
     }
-    if (!channel2Ui.throttleEnabled()) {
-        throttleArmed = false;
-        neutralSinceMs = 0;
-        linkReadySinceMs = 0;
+    if (!configuration.throttleEnabled) {
+        controlThrottleArmed = false;
+        controlNeutralSinceMs = 0;
+        controlLinkReadySinceMs = 0;
         return OutputSafetyStatus::ChannelDisabled;
     }
-    if (!startupPreflightComplete) {
-        throttleArmed = false;
-        neutralSinceMs = 0;
-        linkReadySinceMs = 0;
+    if (!startupComplete) {
+        controlThrottleArmed = false;
+        controlNeutralSinceMs = 0;
+        controlLinkReadySinceMs = 0;
         return OutputSafetyStatus::StartupWarning;
     }
-    if (!channel2Ui.armRequested()) {
-        throttleArmed = false;
-        neutralSinceMs = 0;
-        linkReadySinceMs = 0;
+    if (!configuration.armRequested) {
+        controlThrottleArmed = false;
+        controlNeutralSinceMs = 0;
+        controlLinkReadySinceMs = 0;
         return OutputSafetyStatus::Cut;
     }
     if (!updateLinkInterlock(telemetry)) {
         // Neutral qualification starts only after the returned RF link has
         // remained acceptable for its complete dwell period.
-        neutralSinceMs = 0;
+        controlNeutralSinceMs = 0;
         return OutputSafetyStatus::LinkRequired;
     }
-    updateNeutralInterlock(adc);
-    return throttleArmed ? OutputSafetyStatus::Armed
+    updateNeutralInterlock(adc, configuration);
+    return controlThrottleArmed ? OutputSafetyStatus::Armed
                          : OutputSafetyStatus::NeutralRequired;
 }
 
@@ -284,10 +312,10 @@ void transmitCrsfFrame(const uint8_t *frame, size_t length)
            static_cast<uint32_t>(micros() - waitStartedUs) < 2000) {
     }
     const uint32_t waitedUs = micros() - waitStartedUs;
-    if (waitedUs > crsfMaximumTransmitWaitUs)
-        crsfMaximumTransmitWaitUs = waitedUs;
+    if (waitedUs > crsfRuntimeOwned.maximumTransmitWaitUs)
+        crsfRuntimeOwned.maximumTransmitWaitUs = waitedUs;
     if (!uart_ll_is_tx_idle(UART_LL_GET_HW(RANGER_UART)))
-        ++crsfTransmitTimeouts;
+        ++crsfRuntimeOwned.transmitTimeouts;
     setCrsfBusReceive();
 }
 
@@ -296,7 +324,7 @@ void sendChannelsFrame(const CrsfChannelOutputModel &model, bool live)
     uint8_t frame[CRSF_FRAME_BYTES];
     buildCrsfChannelsFrame(model, live, frame);
     transmitCrsfFrame(frame, sizeof(frame));
-    ++crsfChannelFramesSent;
+    ++crsfRuntimeOwned.channelFramesSent;
 }
 
 bool queueManagementRequest(const ElrsManagementRequest &request)
@@ -376,12 +404,13 @@ CrsfTelemetryState readTelemetrySnapshot()
     return snapshot;
 }
 
-void publishChannelOutputs(const CrsfChannelOutputModel &model, bool live,
+void publishChannelOutputs(const CrsfChannelOutputModel &model,
+                           OutputSafetyStatus controlSafetyStatus,
                            uint32_t updatedUs)
 {
     portENTER_CRITICAL(&channelOutputMux);
     sharedChannelOutputs.model = model;
-    sharedChannelOutputs.live = live;
+    sharedChannelOutputs.controlSafetyStatus = controlSafetyStatus;
     sharedChannelOutputs.updatedUs = updatedUs;
     portEXIT_CRITICAL(&channelOutputMux);
 }
@@ -398,15 +427,51 @@ SharedChannelOutputState readChannelOutputs()
 void forceChannelOutputsSafe()
 {
     portENTER_CRITICAL(&channelOutputMux);
-    sharedChannelOutputs.live = false;
+    sharedChannelOutputs.controlSafetyStatus = OutputSafetyStatus::Cut;
     sharedChannelOutputs.updatedUs = micros();
     portEXIT_CRITICAL(&channelOutputMux);
 }
 
 void requestControlReset()
 {
-    controlResetRequested = true;
+    portENTER_CRITICAL(&controlCommandMux);
+    ++sharedControlCommands.resetSequence;
+    portEXIT_CRITICAL(&controlCommandMux);
     forceChannelOutputsSafe();
+}
+
+void completeStartupPreflight()
+{
+    portENTER_CRITICAL(&controlCommandMux);
+    sharedControlCommands.startupPreflightComplete = true;
+    ++sharedControlCommands.resetSequence;
+    portEXIT_CRITICAL(&controlCommandMux);
+    forceChannelOutputsSafe();
+}
+
+ControlCommandSnapshot readControlCommands()
+{
+    ControlCommandSnapshot snapshot;
+    portENTER_CRITICAL(&controlCommandMux);
+    snapshot = sharedControlCommands;
+    portEXIT_CRITICAL(&controlCommandMux);
+    return snapshot;
+}
+
+void publishCrsfRuntime()
+{
+    portENTER_CRITICAL(&crsfRuntimeMux);
+    sharedCrsfRuntime = crsfRuntimeOwned;
+    portEXIT_CRITICAL(&crsfRuntimeMux);
+}
+
+CrsfRuntimeSnapshot readCrsfRuntime()
+{
+    CrsfRuntimeSnapshot snapshot;
+    portENTER_CRITICAL(&crsfRuntimeMux);
+    snapshot = sharedCrsfRuntime;
+    portEXIT_CRITICAL(&crsfRuntimeMux);
+    return snapshot;
 }
 
 void publishControlState(const ControlStateSnapshot &snapshot)
@@ -425,122 +490,157 @@ ControlStateSnapshot readControlState()
     return snapshot;
 }
 
+void publishControlConfiguration(ControlConfigurationSnapshot configuration)
+{
+    configuration.revision = nextControlConfigurationRevision++;
+    portENTER_CRITICAL(&controlConfigurationMux);
+    sharedControlConfiguration = configuration;
+    portEXIT_CRITICAL(&controlConfigurationMux);
+    lastPublishedControlConfiguration = configuration;
+    controlConfigurationPublished = true;
+}
+
+void publishUiControlConfigurationIfChanged()
+{
+    const ControlConfigurationSnapshot candidate =
+        transmitterUi.controlConfigurationSnapshot();
+    if (!controlConfigurationPublished ||
+        !equivalentControlConfiguration(candidate,
+                                        lastPublishedControlConfiguration))
+        publishControlConfiguration(candidate);
+}
+
+ControlConfigurationSnapshot readControlConfiguration()
+{
+    ControlConfigurationSnapshot snapshot;
+    portENTER_CRITICAL(&controlConfigurationMux);
+    snapshot = sharedControlConfiguration;
+    portEXIT_CRITICAL(&controlConfigurationMux);
+    return snapshot;
+}
+
 void controlTask(void *)
 {
     TickType_t nextWake = xTaskGetTickCount();
     uint32_t previousCycleUs = micros();
     uint32_t maximumTaskGapUs = 0;
+    uint32_t appliedConfigurationRevision = 0;
+    uint32_t appliedResetSequence = 0;
     OutputSafetyStatus previousSafetyStatus = OutputSafetyStatus::ControlStale;
     for (;;) {
         const uint32_t cycleUs = micros();
         const uint32_t taskGapUs = cycleUs - previousCycleUs;
         previousCycleUs = cycleUs;
         if (taskGapUs > maximumTaskGapUs) maximumTaskGapUs = taskGapUs;
-        if (controlResetRequested) {
-            controlResetRequested = false;
-            throttleArmed = false;
-            neutralSinceMs = 0;
-            linkReadySinceMs = 0;
-            channel2Ui.resetChannelSpeed();
+        const ControlCommandSnapshot commands = readControlCommands();
+        if (commands.resetSequence != appliedResetSequence) {
+            appliedResetSequence = commands.resetSequence;
+            controlThrottleArmed = false;
+            controlNeutralSinceMs = 0;
+            controlLinkReadySinceMs = 0;
+            channelSlewRuntime.reset(millis());
         }
 
-        // Refresh persistent policy without disturbing live filter state. A
-        // calibration accepted by the UI therefore takes effect on the next
-        // control sample; coherent model snapshots will replace this read in
-        // the next architecture stage.
-        throttleInputRuntime.setProfile(channel2Ui.throttleInputProfile());
-        steeringInputRuntime.setProfile(channel2Ui.steeringInputProfile());
+        // Capture one coherent configuration for the entire cycle. UI/model
+        // edits published during this cycle become visible at the next one.
+        const ControlConfigurationSnapshot configuration =
+            readControlConfiguration();
+        if (configuration.revision != appliedConfigurationRevision) {
+            throttleInputRuntime.setProfile(configuration.throttleInput);
+            steeringInputRuntime.setProfile(configuration.steeringInput);
+            appliedConfigurationRevision = configuration.revision;
+        }
         const ProportionalInputState throttleInput =
             throttleInputRuntime.update(analogRead(THROTTLE_ADC_PIN));
         const uint16_t filteredAdc = throttleInput.filteredAdc;
         const ProportionalInputState steeringInput =
             steeringInputRuntime.update(analogRead(STEERING_ADC_PIN));
-        const bool calibrating = channel2Ui.calibrationActive();
+        const bool calibrating = configuration.calibrationActive;
         const bool inputValid = throttleInput.valid;
         const CrsfTelemetryState telemetry = readTelemetrySnapshot();
         const OutputSafetyStatus safetyStatus = updateTriggerSafety(
-            filteredAdc, calibrating, inputValid, telemetry);
+            filteredAdc, calibrating, inputValid, telemetry, configuration,
+            commands.startupPreflightComplete);
         if (safetyStatus != previousSafetyStatus) {
             Serial.printf("SAFETY t=%lums %s -> %s arm_request=%s raw=%u filtered=%u centre=%u delta=%+d\n",
                           static_cast<unsigned long>(millis()),
                           safetyStatusName(previousSafetyStatus),
                           safetyStatusName(safetyStatus),
-                          channel2Ui.armRequested() ? "yes" : "no",
+                          configuration.armRequested ? "yes" : "no",
                           throttleInput.rawAdc, filteredAdc,
-                          channel2Ui.throttleCentreAdc(),
+                          configuration.throttleInput.calibration.centre,
                           static_cast<int>(filteredAdc) -
-                              static_cast<int>(channel2Ui.throttleCentreAdc()));
+                              static_cast<int>(
+                                  configuration.throttleInput.calibration.centre));
             previousSafetyStatus = safetyStatus;
         }
 
-        const int16_t rawThrottle = throttleInput.normalisedPermille;
-        const int16_t responseThrottle = channel2Ui.applySettings(rawThrottle);
-        const int16_t modeThrottle = channel2Ui.applyDriveMode(
-            responseThrottle, rawThrottle);
-        const int16_t adjustedThrottle = channel2Ui.applyChannelAdjustments(
-            channel2Ui.throttleChannel(), modeThrottle);
-        const uint16_t safeNeutralThrottle = crsfValueFromPermille(
-            channel2Ui.neutralOutputPermille());
-        int16_t configuredThrottle = 0;
-        if (safetyStatus == OutputSafetyStatus::Armed)
-            configuredThrottle = channel2Ui.applyChannelSpeed(adjustedThrottle, millis());
-        else
-            channel2Ui.resetChannelSpeed();
+        const uint32_t processingNowMs = millis();
+        const bool outputsLive = safetyStatus == OutputSafetyStatus::Armed;
+        if (!outputsLive) channelSlewRuntime.reset(processingNowMs);
 
-        const uint16_t requestedThrottle = crsfValueFromPermille(configuredThrottle);
-        const uint16_t transmittedThrottle =
-            (throttleArmed && !calibrating) ? requestedThrottle : safeNeutralThrottle;
+        const int16_t rawThrottle = throttleInput.normalisedPermille;
+        const ProcessedProportionalChannel throttleChannel =
+            processConfiguredProportionalChannel(
+                configuration, configuration.throttleChannel, rawThrottle, 0,
+                channelSlewRuntime, processingNowMs, outputsLive);
+        const uint16_t requestedThrottle = crsfValueFromPermille(
+            throttleChannel.requestedPermille);
+        const uint16_t safeNeutralThrottle = crsfValueFromPermille(
+            throttleChannel.safePermille);
+        const uint16_t transmittedThrottle = outputsLive
+            ? requestedThrottle : safeNeutralThrottle;
         const int16_t rawSteering = steeringInput.normalisedPermille;
-        const int16_t adjustedSteering = channel2Ui.applyChannelAdjustments(
-            channel2Ui.steeringChannel(), rawSteering);
-        const uint16_t requestedSteering = crsfValueFromPermille(adjustedSteering);
+        const ProcessedProportionalChannel steeringChannel =
+            processConfiguredProportionalChannel(
+                configuration, configuration.steeringChannel, rawSteering, 0,
+                channelSlewRuntime, processingNowMs, outputsLive);
+        const uint16_t requestedSteering = crsfValueFromPermille(
+            steeringChannel.requestedPermille);
         const uint16_t safeNeutralSteering = crsfValueFromPermille(
-            channel2Ui.channelNeutralPermille(channel2Ui.steeringChannel()));
-        const uint16_t transmittedSteering =
-            (throttleArmed && !calibrating) ? requestedSteering : safeNeutralSteering;
+            steeringChannel.safePermille);
+        const uint16_t transmittedSteering = outputsLive
+            ? requestedSteering : safeNeutralSteering;
         CrsfChannelOutputModel outputs;
         bindingActions.clear();
         portENTER_CRITICAL(&bindingResolverMux);
         bindingResolver.update(millis(), bindingActions);
-        const uint16_t roleOwnedChannels = static_cast<uint16_t>(
-            (1U << (channel2Ui.throttleChannel() - 1)) |
-            (1U << (channel2Ui.steeringChannel() - 1)));
+        const uint16_t roleOwnedChannels =
+            configuredRoleOwnedChannels(configuration);
         bindingResolver.applyChannelOutputs(outputs, roleOwnedChannels);
         portEXIT_CRITICAL(&bindingResolverMux);
-        // Proportional AUX assignments pass through the same per-channel
-        // response profile as steering and throttle. Role-owned channels are
-        // completed by their dedicated input/safety paths below.
-        channel2Ui.applyProportionalProfiles(outputs, millis(),
-                                             roleOwnedChannels);
-        // The steering role is driven directly from its 5 kOhm pot on GPIO2.
-        outputs.configure(channel2Ui.steeringChannel(),
+        // Apply the same response/adjustment/slew pipeline to proportional AUX
+        // bindings. Role-owned channels use that processor above with their
+        // dedicated ADC inputs and are installed below.
+        processConfiguredProportionalOutputs(
+            configuration, outputs, channelSlewRuntime, processingNowMs,
+            outputsLive, roleOwnedChannels);
+        outputs.configure(configuration.steeringChannel,
             requestedSteering, safeNeutralSteering,
-            channel2Ui.steeringEnabled());
-        // The dedicated safety-checked throttle path has final ownership of
-        // its configured channel, even if a future profile is malformed.
-        outputs.configure(channel2Ui.throttleChannel(), requestedThrottle,
-                          safeNeutralThrottle, channel2Ui.throttleEnabled());
+            configuration.steeringEnabled);
+        outputs.configure(configuration.throttleChannel, requestedThrottle,
+                          safeNeutralThrottle, configuration.throttleEnabled);
         const uint32_t controlUpdateUs = micros();
-        publishChannelOutputs(outputs,
-                              safetyStatus == OutputSafetyStatus::Armed,
-                              controlUpdateUs);
+        publishChannelOutputs(outputs, safetyStatus, controlUpdateUs);
 
         ControlStateSnapshot snapshot;
         snapshot.rawAdc = throttleInput.rawAdc;
         snapshot.adc = filteredAdc;
         snapshot.rawPermille = rawThrottle;
-        snapshot.outputPermille = throttleArmed
-            ? configuredThrottle
-            : channel2Ui.neutralOutputPermille();
+        snapshot.outputPermille = outputsLive
+            ? throttleChannel.requestedPermille
+            : throttleChannel.safePermille;
         snapshot.requestedCrsf = requestedThrottle;
         snapshot.transmittedCrsf = transmittedThrottle;
         snapshot.steeringAdc = steeringInput.filteredAdc;
         snapshot.steeringRawPermille = rawSteering;
-        snapshot.steeringOutputPermille = adjustedSteering;
+        snapshot.steeringOutputPermille = steeringChannel.requestedPermille;
         snapshot.steeringTransmittedCrsf = transmittedSteering;
         snapshot.safetyStatus = safetyStatus;
         snapshot.calibrating = calibrating;
         snapshot.inputValid = inputValid;
+        snapshot.armed = controlThrottleArmed;
+        snapshot.neutralSinceMs = controlNeutralSinceMs;
         snapshot.maximumTaskGapUs = maximumTaskGapUs;
         publishControlState(snapshot);
 
@@ -560,8 +660,8 @@ void crsfTask(void *)
         const uint32_t nowUs = micros();
         const uint32_t taskGapUs = nowUs - previousTaskCycleUs;
         previousTaskCycleUs = nowUs;
-        if (taskGapUs > crsfMaximumTaskGapUs)
-            crsfMaximumTaskGapUs = taskGapUs;
+        if (taskGapUs > crsfRuntimeOwned.maximumTaskGapUs)
+            crsfRuntimeOwned.maximumTaskGapUs = taskGapUs;
         if (static_cast<int32_t>(nowUs - nextFrameUs) >= 0) {
             // Preserve the 250 Hz phase when a normal task iteration reaches
             // the deadline slightly late. Reset only after a genuinely missed
@@ -575,7 +675,10 @@ void crsfTask(void *)
             const uint32_t lastControlUs = outputs.updatedUs;
             const bool stale = lastControlUs == 0 ||
                 static_cast<uint32_t>(nowUs - lastControlUs) > CONTROL_STALE_TIMEOUT_US;
-            sharedControlStale = stale;
+            crsfRuntimeOwned.controlStale = stale;
+            const OutputSafetyDecision safetyDecision = arbitrateOutputSafety(
+                outputs.controlSafetyStatus, !stale);
+            crsfRuntimeOwned.outputSafetyStatus = safetyDecision.status;
             ElrsManagementRequest management;
             const bool requested = takeManagementRequest(management);
             const bool followup = !requested && uidFollowupPending &&
@@ -596,13 +699,15 @@ void crsfTask(void *)
                     uidFollowupPending = true;
                 }
             } else
-                sendChannelsFrame(outputs.model, outputs.live && !stale);
+                sendChannelsFrame(outputs.model,
+                                  safetyDecision.transmitRequested);
         }
         readReturnedTelemetry();
         const uint32_t nowMs = millis();
         if (static_cast<int32_t>(nowMs - nextSnapshotMs) >= 0) {
             nextSnapshotMs = nowMs + 20;
             publishTelemetrySnapshot();
+            publishCrsfRuntime();
         }
         vTaskDelay(1);
     }
@@ -687,7 +792,7 @@ void setup()
                             &crsfTaskHandle, 1);
 
     const uint32_t heapBeforeUi = ESP.getFreeHeap();
-    channel2Ui.begin();
+    transmitterUi.begin();
     Serial.printf("MEMORY: UI init used=%u heap_free=%u min_free=%u "
                   "largest=%u free_psram=%u\n",
                   static_cast<unsigned>(heapBeforeUi - ESP.getFreeHeap()),
@@ -696,7 +801,7 @@ void setup()
                   static_cast<unsigned>(ESP.getMaxAllocHeap()),
                   static_cast<unsigned>(ESP.getFreePsram()));
     const bool inputMapReady = physicalInputs.begin(kR1InputMap, kR1InputMapCount);
-    channel2Ui.setStartupPreflight(false, 0);
+    transmitterUi.setStartupPreflight(false, 0);
     configureDirectGpioInputs();
     Serial.printf("INPUT MAP: %u controls, one MCP23017 + six direct GPIO: %s\n",
                   static_cast<unsigned>(kR1InputMapCount),
@@ -709,10 +814,14 @@ void setup()
     Serial.printf("MCP23017: address=0x%02X %s; PA0 is Timer button\n",
                   MCP23017_I2C_ADDRESS,
                   inputExpanderReady ? "ONLINE" : "NOT FOUND");
-    throttleInputRuntime.setProfile(channel2Ui.throttleInputProfile());
+    publishUiControlConfigurationIfChanged();
+    const ControlConfigurationSnapshot initialConfiguration =
+        readControlConfiguration();
+    throttleInputRuntime.setProfile(initialConfiguration.throttleInput);
     throttleInputRuntime.reset(analogRead(THROTTLE_ADC_PIN));
-    steeringInputRuntime.setProfile(channel2Ui.steeringInputProfile());
+    steeringInputRuntime.setProfile(initialConfiguration.steeringInput);
     steeringInputRuntime.reset(analogRead(STEERING_ADC_PIN));
+    channelSlewRuntime.reset(millis());
     publishControlState(ControlStateSnapshot());
     xTaskCreatePinnedToCore(controlTask, "control-input", 4096, nullptr, 5,
                             &controlTaskHandle, 1);
@@ -725,13 +834,14 @@ void loop()
         // Force the whole channel model safe immediately; the CRSF task must
         // never retain live outputs while the UI task streams a screenshot.
         requestControlReset();
-        channel2Ui.captureScreenshot(Serial);
+        transmitterUi.captureScreenshot(Serial);
         nextLogMs = millis() + USB_LOG_PERIOD_MS;
         return;
     }
 
     const ControlStateSnapshot control = readControlState();
     const CrsfTelemetryState telemetry = readTelemetrySnapshot();
+    const CrsfRuntimeSnapshot crsfRuntime = readCrsfRuntime();
 
     uint16_t txVoltageDecivolts = 0;
     bool txVoltageValid = false;
@@ -768,14 +878,14 @@ void loop()
                 const uint32_t mask = physicalInputs.startupUnsafeMask();
                 if (mask != startupWarningMask) {
                     startupWarningMask = mask;
-                    channel2Ui.setStartupPreflight(false, mask);
+                    transmitterUi.setStartupPreflight(false, mask);
                     Serial.printf("STARTUP CHECK: unsafe mask=0x%08lX\n",
                                   static_cast<unsigned long>(mask));
                 }
                 if (mask == 0 && inputExpanderReady) {
                     startupPreflightComplete = true;
-                    channel2Ui.setStartupPreflight(true, 0);
-                    requestControlReset();
+                    transmitterUi.setStartupPreflight(true, 0);
+                    completeStartupPreflight();
                     Serial.println("STARTUP CHECK: controls safe; arm available");
                 }
             }
@@ -784,19 +894,19 @@ void loop()
             ResolvedBindingActionBuffer actions;
             portENTER_CRITICAL(&bindingResolverMux);
             bindingResolver.processEvents(physicalInputEvents,
-                static_cast<uint8_t>(ContextAlways | channel2Ui.activeControlContext() |
-                    (throttleArmed ? ContextArmed : ContextCut)), actions);
+                static_cast<uint8_t>(ContextAlways | transmitterUi.activeControlContext() |
+                    (control.armed ? ContextArmed : ContextCut)), actions);
             portEXIT_CRITICAL(&bindingResolverMux);
             for (size_t index = 0; index < actions.size(); ++index) {
                 const ResolvedBindingAction &action = actions[index];
                 if (action.target == AssignmentTarget::ModelParameter)
-                    channel2Ui.applyChannelParameterAction(action.targetId,
+                    transmitterUi.applyChannelParameterAction(action.targetId,
                                                             action.value);
                 else if (action.target == AssignmentTarget::TransmitterFunction)
-                    channel2Ui.applyTransmitterFunctionAction(action.targetId,
+                    transmitterUi.applyTransmitterFunctionAction(action.targetId,
                                                                action.value);
                 else if (action.target == AssignmentTarget::DriveMode)
-                    channel2Ui.applyDriveModeAction(action.targetId,
+                    transmitterUi.applyDriveModeAction(action.targetId,
                                                     action.value);
             }
             for (size_t index = 0; index < physicalInputEvents.size(); ++index) {
@@ -811,8 +921,8 @@ void loop()
                 Serial.println("INPUT: event buffer overflow");
         }
     }
-    channel2Ui.setPhysicalInputStates(physicalInputs.states());
-    if (channel2Ui.txVoltageSenseEnabled()) {
+    transmitterUi.setPhysicalInputStates(physicalInputs.states());
+    if (transmitterUi.txVoltageSenseEnabled()) {
         if (static_cast<int32_t>(nowMs - nextTxBatterySampleMs) >= 0) {
             nextTxBatterySampleMs = nowMs + 20;
             const uint32_t sampleMv = analogReadMilliVolts(TX_BATTERY_ADC_PIN);
@@ -829,19 +939,21 @@ void loop()
         filteredTxBatteryAdcMv = 0;
     }
     const SharedChannelOutputState channelOutputs = readChannelOutputs();
-    channel2Ui.update(control.adc, control.steeringAdc, control.rawPermille,
+    transmitterUi.update(control.adc, control.steeringAdc, control.rawPermille,
                       control.outputPermille,
-                      control.transmittedCrsf, control.safetyStatus,
+                      control.transmittedCrsf,
+                      crsfRuntime.outputSafetyStatus,
                       telemetry, txVoltageDecivolts, txVoltageValid,
                       channelOutputs.model,
-                      channelOutputs.live && !sharedControlStale);
+                      crsfRuntime.outputSafetyStatus ==
+                          OutputSafetyStatus::Armed);
     ElrsManagementRequest management;
-    if (channel2Ui.consumeElrsManagementRequest(management)) {
+    if (transmitterUi.consumeElrsManagementRequest(management)) {
         requestControlReset();
         if (!queueManagementRequest(management))
             Serial.println("ELRS MGMT: queue busy; request discarded");
     }
-    if (channel2Ui.consumeBindingsChanged()) {
+    if (transmitterUi.consumeBindingsChanged()) {
         // CUT the complete output model before replacing resolver state. The
         // new mapping cannot reach the RF task until the neutral interlock is
         // satisfied again.
@@ -852,43 +964,51 @@ void loop()
                           (result.reason == nullptr ? "FAILED" : result.reason),
                       static_cast<unsigned>(bindingResolver.bindingCount()));
     }
-    if (channel2Ui.consumeChannelRolesChanged()) {
+    if (transmitterUi.consumeChannelRolesChanged()) {
         // Disable all live outputs before the next atomic model snapshot moves
         // throttle to its newly selected channel.
         requestControlReset();
         Serial.printf("SAFE: throttle role changed to CH%u; release trigger to re-arm\n",
-                      channel2Ui.throttleChannel());
+                      transmitterUi.throttleChannel());
     }
-    if (channel2Ui.consumeSafetyResetRequested()) {
+    if (transmitterUi.consumeSafetyResetRequested()) {
         requestControlReset();
         Serial.println("SAFE: mode/assignment/arm state changed; output reset to neutral");
     }
+
+    // Publish only after all UI and binding actions for this Arduino-loop
+    // iteration have completed. The control task sees either the entire old
+    // model or the entire new one, never a mixture of fields.
+    publishUiControlConfigurationIfChanged();
+    const ControlConfigurationSnapshot uiConfiguration =
+        lastPublishedControlConfiguration;
 
     if (ENABLE_PERIODIC_USB_DIAGNOSTICS &&
         static_cast<int32_t>(nowMs - nextLogMs) >= 0) {
         nextLogMs += USB_LOG_PERIOD_MS;
         const int neutralDelta = static_cast<int>(control.adc) -
-                                 static_cast<int>(channel2Ui.throttleCentreAdc());
+            static_cast<int>(uiConfiguration.throttleInput.calibration.centre);
         Serial.printf("raw=%4u adc=%4u ctr=%4u delta=%+4d safety=%s armReq=%s cal=%s neutralFor=%lums THR=CH%u requested=%4u sent=%4u armed=%s stale=%s ctrlGap=%luus txFrames=%lu crsfGap=%luus txWait=%luus txTO=%lu drive=%s TIMER=%s MCP=%s link=%s LQ=%u RSSI=%d TX=%s%u.%uV RX=%s%u.%uV bytes=%lu frames=%lu crc=%lu\n",
                       control.rawAdc,
                       control.adc,
-                      channel2Ui.throttleCentreAdc(),
+                      uiConfiguration.throttleInput.calibration.centre,
                       neutralDelta,
-                      safetyStatusName(control.safetyStatus),
-                      channel2Ui.armRequested() ? "yes" : "no",
+                      safetyStatusName(crsfRuntime.outputSafetyStatus),
+                      uiConfiguration.armRequested ? "yes" : "no",
                       control.calibrating ? "yes" : "no",
-                      static_cast<unsigned long>(neutralSinceMs == 0 ? 0 : nowMs - neutralSinceMs),
-                      channel2Ui.throttleChannel(),
+                      static_cast<unsigned long>(control.neutralSinceMs == 0
+                          ? 0 : nowMs - control.neutralSinceMs),
+                      uiConfiguration.throttleChannel,
                       control.requestedCrsf,
                       control.transmittedCrsf,
-                      throttleArmed ? "yes" : "NO",
-                      sharedControlStale ? "YES" : "no",
+                      control.armed ? "yes" : "NO",
+                      crsfRuntime.controlStale ? "YES" : "no",
                       static_cast<unsigned long>(control.maximumTaskGapUs),
-                      static_cast<unsigned long>(crsfChannelFramesSent),
-                      static_cast<unsigned long>(crsfMaximumTaskGapUs),
-                      static_cast<unsigned long>(crsfMaximumTransmitWaitUs),
-                      static_cast<unsigned long>(crsfTransmitTimeouts),
-                      channel2Ui.driveMode() == DriveMode::Walk ? "WALK" : "NORMAL",
+                      static_cast<unsigned long>(crsfRuntime.channelFramesSent),
+                      static_cast<unsigned long>(crsfRuntime.maximumTaskGapUs),
+                      static_cast<unsigned long>(crsfRuntime.maximumTransmitWaitUs),
+                      static_cast<unsigned long>(crsfRuntime.transmitTimeouts),
+                      uiConfiguration.driveMode == DriveMode::Walk ? "WALK" : "NORMAL",
                       physicalInputs.state(PhysicalControlId::TimerButton).stablePrimary
                           ? "ON" : "off",
                       inputExpanderReady ? "ok" : "OFFLINE",

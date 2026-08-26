@@ -1,6 +1,6 @@
 # Control and channel architecture review
 
-Status: initial audit, 2026-08-17
+Status: active incremental refactor, updated 2026-08-26
 
 This review defines the ownership boundaries required before steering, custom
 curves, ABS, throttle hold and multiple model profiles are added. Refactoring
@@ -27,7 +27,7 @@ The following identities are distinct and must not be used interchangeably:
 
 ```mermaid
 flowchart TD
-    ADC["Throttle ADC"] --> EMA["Control-task EMA"]
+    ADC["Throttle and steering ADCs"] --> EMA["Control-task conditioning"]
     EMA --> CAL["Trigger calibration and deadband"]
     CAL --> RESP["Assigned throttle-channel response profile"]
     RESP --> WALK["Walk-mode modifier"]
@@ -40,7 +40,7 @@ flowchart TD
 
     RAMP --> MODEL["16-channel output model"]
     AUXRESP --> MODEL
-    STEER["Steering currently forced to configured neutral"] --> MODEL
+    STEER["Steering role through the same channel pipeline"] --> MODEL
     MODEL --> SAFETY["Global live/safe selection"]
     SAFETY --> CRSF["CRSF packed channels at 250 Hz"]
 ```
@@ -76,26 +76,35 @@ not perform response calculations used by the live control path.
 | ADC min/centre/max | Physical proportional input | Throttle-owned `ProportionalInput` inside UI | Create one input profile/runtime per proportional control |
 | ADC filter and deadband | Physical proportional input runtime | Filter in `main.cpp`; deadband partly in UI mapping | Move into one host-testable conditioning stage |
 | Steering/throttle channel numbers | Model role map | `ChannelRoleSettings` in UI | Move into versioned model configuration |
-| Endpoint/rate/expo/reverse/ramp | Output-channel response profile | Per-channel, but stored/processed through UI class | Pure response module now extracted; publish profiles to control task |
+| Endpoint/rate/expo/reverse/ramp | Output-channel response profile | Published in coherent control snapshot; ramp runtime is control-task-owned | Move persistence into versioned model configuration |
 | Response curve | Output-channel response profile | Linear + expo only | Add later as a versioned optional curve |
 | Trim/sub-trim | Output channel | Two independent sub-trim mechanisms currently stack | Choose one canonical channel-offset stage and migrate values |
 | Walk/hold/ABS | Logical drive-role modifier | Walk is throttle-specific in UI | Extract role-aware drive modifiers after unified axes |
 | Binding state | Binding resolver/model | Mostly separated | Move persistence into the model profile |
 | Requested/safe channel values | Output model | Separated correctly | Retain |
-| CUT/failsafe/stale-input decision | Final safety arbiter | Split between throttle state and global live/safe selection | Make one explicit final arbiter with tests |
-| UI page state | UI only | Mixed with control settings in `Channel2Ui` | Split UI controller/pages from model and processing |
+| CUT/failsafe/stale-input decision | Final safety arbiter | CRSF-task arbiter selects the complete requested or safe model immediately before framing | Add model-configurable safe values and mirror them in receiver failsafe settings |
+| UI page state | UI only | Mixed with control settings in `TransmitterUi` | Split UI controller/pages from model and processing |
 
 ## Findings and decisions required
 
 ### High priority
 
-1. **UI/control-task configuration race**
+1. **UI/control-task configuration race — resolved 2026-08-26**
 
-   `Channel2Ui` is edited from `loop()` and read by the 250 Hz control task.
+   `TransmitterUi` is edited from `loop()` and read by the 250 Hz control task.
    Individual fields may appear atomic on the ESP32, but unsynchronised C++
    reads and writes are still a data race and a multi-field edit cannot be
-   coherent. Introduce an immutable control-configuration snapshot exchanged
-   under a short critical section or double buffer.
+   coherent. `ControlConfigurationSnapshot` now captures all UI/model values
+   used by the control task and is exchanged as one value under a short
+   critical section. The task reads one revision per 4 ms cycle and never
+   calls into `TransmitterUi`.
+
+   Cross-task runtime state follows the same ownership rule. Reset requests
+   use a monotonically increasing command sequence, so a request cannot be
+   lost while the control task is between cycles. Arming/interlock state is
+   control-task-owned, CRSF timing/stale state is CRSF-task-owned, and other
+   tasks observe both only through coherent snapshots. No cross-task runtime
+   flag relies on `volatile` for synchronisation.
 
 2. **Two sub-trim stages**
 
@@ -113,38 +122,53 @@ not perform response calculations used by the live control path.
    reaches the receiver. Decide explicitly between conventional servo travel
    and extended 0..2047 transport before changing this behaviour.
 
-4. **Different pipelines for throttle, AUX and steering**
+4. **Different pipelines for throttle, AUX and steering — resolved 2026-08-26**
 
-   Throttle has a dedicated safety path, proportional AUX values are shaped as
-   a post-process of binding output, and steering is forced to neutral. A
-   single pipeline should accept normalised input plus role/channel policy;
-   role-specific modifiers should be explicit stages rather than separate
-   top-level paths.
+   `processConfiguredProportionalChannel()` now applies response, role
+   modifiers, channel adjustments and slew to steering, throttle and
+   proportional AUX values. It produces both requested and statically shaped
+   safe values. Walk remains an explicit throttle-role modifier, while final
+   live/safe selection remains outside this processor.
+
+5. **Split final safety decision — resolved 2026-08-26**
+
+   The control task previously published a `live` boolean and the CRSF task
+   separately suppressed it when the model became stale. The control snapshot
+   now carries its reasoned safety status. `arbitrateOutputSafety()` applies
+   stale precedence in the CRSF task immediately before frame construction and
+   is the only point that selects the complete requested or safe output model.
+   Its final status is published back to the UI and diagnostics.
+
+   Detectable transmitter faults continue sending deterministic safe channel
+   values. Loss of the S3 or its CRSF serial stream remains the independent
+   second layer that causes the ExpressLRS receiver's configured failsafe. A
+   future versioned model must store explicit per-channel safe positions and
+   guide the user to configure matching receiver failsafe positions.
 
 ### Structural
 
-5. **`Channel2Ui` is a subsystem container, not only a UI**
+6. **`TransmitterUi` is a subsystem container, not only a UI**
 
    The active LVGL implementation exceeds 5,000 lines and owns display drivers,
-   page rendering, NVS persistence, response math, ramp state, calibration,
+   page rendering, NVS persistence, calibration,
    assignments, drive modes and ELRS management requests. Pure response math
    has now been extracted. Persistence, runtime processing and page modules
    should follow incrementally.
 
-6. **Persistence is fragmented and ABI-dependent**
+7. **Persistence is fragmented and ABI-dependent**
 
    Settings span many NVS namespaces. Several records are raw C++ structure
    blobs, so field order, padding and `bool` representation are part of an
    undocumented storage ABI. A versioned `ModelProfile` should use explicit
    serialisation and migration.
 
-7. **Historical CH2 names obscure generic behaviour**
+8. **Historical CH2 names obscure generic behaviour**
 
    Generic pages and methods still contain `Throttle`/`Channel2` names. Rename
    only while extracting a boundary so reviews can distinguish mechanical
    renames from behavioural changes.
 
-8. **Obsolete alternate UI implementation**
+9. **Obsolete alternate UI implementation**
 
    The non-LVGL `src/channel2_ui.cpp` was excluded from builds and no longer
    matched the public header. It has been removed; Git history remains the
@@ -168,6 +192,8 @@ Every refactor and new feature must demonstrate:
    deliberately assigned to do so.
 8. Persistence migration either reproduces the previous output exactly or
    forces a clearly reported recalibration/review.
+9. Cross-task commands cannot be lost or acknowledged partially; runtime
+   state has one writer and is observed only through coherent snapshots.
 
 ## Incremental refactor plan
 
@@ -189,7 +215,7 @@ boundary:
 7. Introduce one final output-safety arbiter after all bindings, modifiers and
    channel processing.
 8. Move settings into versioned per-model persistence with explicit migration.
-9. Decompose `Channel2Ui` into model/controller, display and focused page
+9. Decompose `TransmitterUi` into model/controller, display and focused page
    modules.
 10. Add custom curves, throttle hold and ABS only after the shared pipeline and
     safety arbiter are established.
@@ -205,7 +231,7 @@ not wait for LVGL, touch, NVS, I2C, USB logging or telemetry parsing.
   layout.
 - [x] Add host characterization tests for linear response, asymmetric sides,
   expo, reverse, sub-trim, extended clamp and persisted-value sanitisation.
-- [ ] Extract per-channel ramp state and test time-step/wrap behaviour.
+- [x] Extract per-channel ramp state and test time-step/wrap behaviour.
 
 ### B. Generic proportional inputs
 
@@ -214,30 +240,28 @@ not wait for LVGL, touch, NVS, I2C, USB logging or telemetry parsing.
 - [x] Define `ProportionalInputRuntime` containing only live filter, validity
   and calibration state.
 - [x] Move throttle filtering, validity and normalisation out of
-  `Channel2Ui`/ad-hoc `main.cpp` code into that runtime without changing output
+  `TransmitterUi`/ad-hoc `main.cpp` code into that runtime without changing output
   samples. The interactive calibration session remains temporarily in the UI
   controller and publishes its accepted calibration through the profile.
-- [ ] Move the interactive calibration-session owner out of `Channel2Ui`.
-- [ ] Publish input profiles to the control task through the coherent model
-  snapshot introduced in Stage C; the current per-cycle profile copy preserves
-  the pre-existing settings race until that boundary is available.
-- [ ] Instantiate the same conditioning path for steering after its hardware
-  calibration is available.
+- [ ] Move the interactive calibration-session owner out of `TransmitterUi`.
+- [x] Publish input profiles to the control task through the coherent model
+  snapshot introduced in Stage C.
+- [x] Instantiate the same conditioning path for steering.
 
 ### C. Coherent model configuration
 
 - [ ] Define a versioned `ModelProfile`: role map, response profiles, channel
   parameters, bindings, drive modes, battery settings and safe values.
 - [ ] Replace raw-structure NVS blobs with explicit serialisation and migration.
-- [ ] Publish an immutable `ControlConfiguration` snapshot to the control task.
+- [x] Publish an immutable `ControlConfiguration` snapshot to the control task.
 
 ### D. Unified control and safety pipeline
 
-- [ ] Resolve every proportional input through one channel pipeline.
+- [x] Resolve every proportional input through one channel pipeline.
 - [ ] Extract Walk and future role modifiers from the UI.
 - [ ] Resolve the dual-sub-trim and extended-travel decisions with migration
   tests.
-- [ ] Create and test one final output-safety arbiter.
+- [x] Create and test one final output-safety arbiter.
 
 ### E. UI decomposition
 

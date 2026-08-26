@@ -6,8 +6,10 @@ CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
   channel_response_test \
+  control_configuration_test \
   proportional_input_test \
   crsf_channel_output_test \
+  output_safety_test \
   physical_input_test \
   physical_input_runtime_test \
   binding_resolver_test
@@ -23,11 +25,22 @@ $(BUILD)/channel_response_test: channel_response_test.cpp $(ROOT)/src/channel_re
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
+$(BUILD)/control_configuration_test: control_configuration_test.cpp \
+    $(ROOT)/src/control_configuration.cpp $(ROOT)/src/channel_response.cpp \
+    $(ROOT)/src/crsf_channel_output.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
+
 $(BUILD)/proportional_input_test: proportional_input_test.cpp $(ROOT)/src/proportional_input.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
 $(BUILD)/crsf_channel_output_test: crsf_channel_output_test.cpp $(ROOT)/src/crsf_channel_output.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
+
+$(BUILD)/output_safety_test: output_safety_test.cpp \
+    $(ROOT)/src/output_safety.cpp $(ROOT)/src/crsf_channel_output.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
 
@@ -50,4 +63,3 @@ $(BUILD)/binding_resolver_test: binding_resolver_test.cpp \
 
 clean:
 	rm -rf $(BUILD)
-

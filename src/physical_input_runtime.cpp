@@ -33,41 +33,51 @@ bool PhysicalInputRuntime::begin(const PhysicalInputHardwareBinding *bindings,
     return true;
 }
 
-bool PhysicalInputRuntime::endpointLevel(const InputEndpoint &endpoint,
-                                         uint16_t mcpLevels,
-                                         uint64_t directGpioLevels) const
-{
-    if (endpoint.source == InputSourceKind::Mcp23017)
-        return (mcpLevels & static_cast<uint16_t>(1U << endpoint.sourceIndex)) != 0;
-    if (endpoint.source == InputSourceKind::DirectGpio)
-        return (directGpioLevels & (uint64_t{1} << endpoint.sourceIndex)) != 0;
-    return false;
-}
-
-bool PhysicalInputRuntime::endpointActive(const InputEndpoint &endpoint,
-                                          uint16_t mcpLevels,
-                                          uint64_t directGpioLevels) const
-{
-    const bool level = endpointLevel(endpoint, mcpLevels, directGpioLevels);
-    return endpoint.activeLow ? !level : level;
-}
-
 void PhysicalInputRuntime::update(uint16_t mcpLevels,
-                                  uint64_t directGpioLevels,
-                                  uint32_t nowMs,
+                                  uint64_t directGpioLevels, uint32_t nowMs,
                                   PhysicalInputEventBuffer &events,
                                   bool mcpAvailable)
 {
+    // Compatibility entry point for the original 0x27 prototype/simulator.
+    const McpInputSnapshot snapshot{0x27, mcpLevels, mcpAvailable};
+    update(&snapshot, 1, directGpioLevels, nowMs, events);
+}
+
+void PhysicalInputRuntime::update(const McpInputSnapshot *expanders,
+                                  size_t expanderCount,
+                                  uint64_t directGpioLevels, uint32_t nowMs,
+                                  PhysicalInputEventBuffer &events)
+{
+    const auto available = [&](const InputEndpoint &endpoint) {
+        if (endpoint.source != InputSourceKind::Mcp23017) return true;
+        for (size_t i = 0; i < expanderCount; ++i)
+            if (expanders[i].address == endpoint.device)
+                return expanders[i].available && endpoint.sourceIndex < 16;
+        return false;
+    };
+    const auto active = [&](const InputEndpoint &endpoint) {
+        // An absent chip must never appear as pressed, even if its cached
+        // snapshot was held low when communication stopped.
+        if (!available(endpoint)) return false;
+        bool level = false;
+        if (endpoint.source == InputSourceKind::Mcp23017) {
+            for (size_t i = 0; i < expanderCount; ++i)
+                if (expanders[i].address == endpoint.device)
+                    level = (expanders[i].levels & (1U << endpoint.sourceIndex)) != 0;
+        } else if (endpoint.source == InputSourceKind::DirectGpio) {
+            if (endpoint.sourceIndex >= 64) return false;
+            level = (directGpioLevels & (uint64_t{1} << endpoint.sourceIndex)) != 0;
+        }
+        return endpoint.activeLow ? !level : level;
+    };
     for (size_t index = 0; index < count_; ++index) {
         const PhysicalInputHardwareBinding &binding = bindings_[index];
         const PhysicalControlKind kind = physicalControlDescriptor(
             static_cast<size_t>(binding.input)).kind;
         if (!isDigital(binding.primary.source)) continue;
-        const bool rawPrimary = endpointActive(binding.primary, mcpLevels,
-                                               directGpioLevels);
+        const bool rawPrimary = active(binding.primary);
         if (kind == PhysicalControlKind::SpringCentredTrim) {
-            const bool rawSecondary = endpointActive(binding.secondary, mcpLevels,
-                                                     directGpioLevels);
+            const bool rawSecondary = active(binding.secondary);
             trim_[index].update(rawPrimary, rawSecondary, nowMs, events);
             states_.setContacts(binding.input, rawPrimary, rawSecondary,
                                 trim_[index].position() == TrimPosition::Negative,
@@ -84,10 +94,13 @@ void PhysicalInputRuntime::update(uint16_t mcpLevels,
     // Continue feeding a fail-safe released level through the debouncers when
     // the expander disappears, but keep the monitor state visibly faulted.
     for (size_t index = 0; index < count_; ++index) {
-        if (bindings_[index].primary.source == InputSourceKind::Mcp23017)
-            states_.setFaulted(bindings_[index].input,
-                               !mcpAvailable ||
-                               states_.state(bindings_[index].input).faulted);
+        const auto &binding = bindings_[index];
+        if (binding.primary.source == InputSourceKind::Mcp23017 ||
+            binding.secondary.source == InputSourceKind::Mcp23017)
+            states_.setFaulted(binding.input,
+                               !available(binding.primary) ||
+                               !available(binding.secondary) ||
+                               states_.state(binding.input).faulted);
     }
 }
 

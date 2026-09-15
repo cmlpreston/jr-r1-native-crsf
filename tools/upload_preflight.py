@@ -48,11 +48,15 @@ if "upload" in targets:
     if os.environ.get("JR_R1_ALLOW_UNSAFE_UPLOAD") == "1":
         print("JR R1 UPLOAD PREFLIGHT: explicit unsafe override is active")
     else:
-        if pio_environment != "esp32-s3-devkitc-1":
+        approved_waveshare_environments = {
+            "esp32-s3-devkitc-1",
+            "esp32-s3-devkitc-1-portrait",
+        }
+        if pio_environment not in approved_waveshare_environments:
             fail(
-                "The selected environment is '%s', not the approved Waveshare "
-                "hardware environment 'esp32-s3-devkitc-1'. Explicit user "
-                "confirmation is required." % pio_environment)
+                "The selected environment is '%s', not an approved Waveshare "
+                "hardware environment. Explicit user confirmation is required."
+                % pio_environment)
         if board != "esp32-s3-devkitc-1-n16r8":
             fail("Unexpected board target: %s" % board)
 

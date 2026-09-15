@@ -14,6 +14,9 @@
 #include "crsf_management.h"
 #include "crsf_telemetry.h"
 #include "mcp23017_input.h"
+#ifdef JR_R1_XIAO_PCB
+#include "pcb_io.h"
+#endif
 #include "output_safety.h"
 #include "physical_input_runtime.h"
 #include "proportional_input.h"
@@ -86,7 +89,9 @@ TransmitterUi transmitterUi;
 CrsfTelemetryParser telemetryParser;
 BindingResolver bindingResolver;
 ResolvedBindingActionBuffer bindingActions;
+#ifndef JR_R1_XIAO_PCB
 Mcp23017Input inputExpander(MCP23017_I2C_ADDRESS);
+#endif
 PhysicalInputRuntime physicalInputs;
 PhysicalInputEventBuffer physicalInputEvents;
 portMUX_TYPE bindingResolverMux = portMUX_INITIALIZER_UNLOCKED;
@@ -359,6 +364,7 @@ void sendManagementRequest(const ElrsManagementRequest &request)
     const size_t length = buildElrsManagementFrame(request, frame, sizeof(frame));
     if (length == 0) return;
     transmitCrsfFrame(frame, length);
+    if (request.action == ElrsManagementAction::TxParameter) return;
     Serial.printf("ELRS MGMT: sent %s to %s (%u-byte phrase)\n",
         request.action == ElrsManagementAction::ReadUid ? "UID request" : "bindphrase",
         request.target == ElrsManagementTarget::Transmitter ? "TX module" : "receiver",
@@ -792,7 +798,16 @@ void setup()
                             &crsfTaskHandle, 1);
 
     const uint32_t heapBeforeUi = ESP.getFreeHeap();
+#ifdef JR_R1_XIAO_PCB
+    if (!transmitterUi.begin()) {
+        Serial.println("PCB STARTUP FAILED: check K1/K2, LCD and touch; reset to retry. Outputs remain safe.");
+        // No control task or arming path starts after an incomplete hardware
+        // sequence. The already-running CRSF task keeps sending safe frames.
+        for (;;) delay(1000);
+    }
+#else
     transmitterUi.begin();
+#endif
     Serial.printf("MEMORY: UI init used=%u heap_free=%u min_free=%u "
                   "largest=%u free_psram=%u\n",
                   static_cast<unsigned>(heapBeforeUi - ESP.getFreeHeap()),
@@ -803,17 +818,22 @@ void setup()
     const bool inputMapReady = physicalInputs.begin(kR1InputMap, kR1InputMapCount);
     transmitterUi.setStartupPreflight(false, 0);
     configureDirectGpioInputs();
-    Serial.printf("INPUT MAP: %u controls, one MCP23017 + six direct GPIO: %s\n",
+    Serial.printf("INPUT MAP: %u controls: %s\n",
                   static_cast<unsigned>(kR1InputMapCount),
                   inputMapReady ? "ready" : "INVALID");
     const BindingLoadResult bindingResult = installUiBindings();
     Serial.printf("BINDINGS: installed %u assignments: %s\n",
                   static_cast<unsigned>(bindingResolver.bindingCount()),
                   bindingResult.ok() ? "ready" : bindingResult.reason);
+#ifdef JR_R1_XIAO_PCB
+    // Already initialised by UI startup; do not reset the shared K2 outputs.
+    inputExpanderReady = pcbKeypad.online() && pcbControls.online();
+#else
     inputExpanderReady = inputExpander.begin();
     Serial.printf("MCP23017: address=0x%02X %s; PA0 is Timer button\n",
                   MCP23017_I2C_ADDRESS,
                   inputExpanderReady ? "ONLINE" : "NOT FOUND");
+#endif
     publishUiControlConfigurationIfChanged();
     const ControlConfigurationSnapshot initialConfiguration =
         readControlConfiguration();
@@ -846,6 +866,16 @@ void loop()
     uint16_t txVoltageDecivolts = 0;
     bool txVoltageValid = false;
     const uint32_t nowMs = millis();
+#ifdef JR_R1_XIAO_PCB
+    inputExpanderReady = pcbKeypad.online() && pcbControls.online();
+    if (!inputExpanderReady &&
+        static_cast<int32_t>(nowMs - nextExpanderProbeMs) >= 0) {
+        nextExpanderProbeMs = nowMs + 1000;
+        if (!pcbKeypad.online()) pcbKeypad.begin();
+        if (!pcbControls.online()) pcbControls.begin();
+        inputExpanderReady = pcbKeypad.online() && pcbControls.online();
+    }
+#else
     if (!inputExpanderReady &&
         static_cast<int32_t>(nowMs - nextExpanderProbeMs) >= 0) {
         nextExpanderProbeMs = nowMs + 1000;
@@ -854,8 +884,18 @@ void loop()
             Serial.printf("MCP23017: reconnected at 0x%02X\n",
                           MCP23017_I2C_ADDRESS);
     }
+#endif
     if (static_cast<int32_t>(nowMs - nextExpanderPollMs) >= 0) {
         nextExpanderPollMs = nowMs + MCP23017_POLL_PERIOD_MS;
+#ifdef JR_R1_XIAO_PCB
+        McpInputSnapshot snapshots[] = {{0x20, 0xffff, false}, {0x21, 0xffff, false}};
+        snapshots[0].available = pcbKeypad.online() && pcbKeypad.read(snapshots[0].levels);
+        snapshots[1].available = pcbControls.online() && pcbControls.read(snapshots[1].levels);
+        inputExpanderReady = snapshots[0].available && snapshots[1].available;
+        physicalInputEvents.clear();
+        physicalInputs.update(snapshots, 2, readDirectGpioLevels(), nowMs,
+                              physicalInputEvents);
+#else
         uint16_t ports = 0xffff; // fail-safe released state for active-low inputs
         if (inputExpanderReady && !inputExpander.read(ports)) {
             inputExpanderReady = false;
@@ -867,6 +907,7 @@ void loop()
         physicalInputEvents.clear();
         physicalInputs.update(ports, readDirectGpioLevels(), nowMs,
                               physicalInputEvents, inputExpanderReady);
+#endif
         physicalInputs.setProportionalValue(PhysicalControlId::ThrottleTrigger,
                                             control.rawPermille, nowMs);
         physicalInputs.setProportionalValue(PhysicalControlId::SteeringWheel,

@@ -1,6 +1,15 @@
 #include "crsf_management.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+// blueimp-md5 is bundled with the demo; the UID stays in this browser.
+EM_JS(void, browserMd5, (const char *input, unsigned char *digest), {
+    const bytes = globalThis.md5(UTF8ToString(input), null, true);
+    for (let i = 0; i < 16; ++i) HEAPU8[digest + i] = bytes.charCodeAt(i);
+});
+#else
 #include <openssl/md5.h>
+#endif
 
 #include <cstring>
 #include <string>
@@ -20,6 +29,8 @@ constexpr uint8_t kMspSetBindPhrase = 0x2d;
 size_t buildElrsManagementFrame(const ElrsManagementRequest &request,
                                 uint8_t *frame, size_t capacity)
 {
+    if (request.action == ElrsManagementAction::TxParameter)
+        return buildTxParameterFrame(request.parameter, frame, capacity);
     const bool write = request.action == ElrsManagementAction::SetBindPhrase;
     const size_t phraseLength = write
         ? min<size_t>(request.phraseLength, kElrsMaximumBindPhraseLength) : 0;
@@ -46,7 +57,11 @@ void calculateElrsBindPhraseUid(const char *phrase, uint8_t uid[kElrsUidLength])
     std::memset(uid, 0, kElrsUidLength);
     if (phrase == nullptr || phrase[0] == '\0') return;
     const std::string input = std::string("-DMY_BINDING_PHRASE=\"") + phrase + "\"";
-    unsigned char digest[MD5_DIGEST_LENGTH];
+    unsigned char digest[16];
+#ifdef __EMSCRIPTEN__
+    browserMd5(input.c_str(), digest);
+#else
     MD5(reinterpret_cast<const unsigned char *>(input.data()), input.size(), digest);
+#endif
     std::memcpy(uid, digest, kElrsUidLength);
 }

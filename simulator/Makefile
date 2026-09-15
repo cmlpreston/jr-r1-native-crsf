@@ -1,6 +1,7 @@
 ROOT := ..
-BUILD := build
-TARGET := $(BUILD)/jr-r1-sim
+BUILD ?= build
+TARGET ?= $(BUILD)/jr-r1-sim
+EXTRA_CPPFLAGS ?=
 LVGL := third_party/lvgl
 
 CXX ?= c++
@@ -21,14 +22,14 @@ CPPFLAGS := -DJR_R1_SIMULATOR -DLV_CONF_INCLUDE_SIMPLE \
   -DJR_R1_GIT_STATE=\"$(GIT_STATE)\" \
   -DJR_R1_BUILD_ENV=\"simulator\" \
   -Iinclude -I$(ROOT)/include -I$(ROOT) -I$(LVGL) \
-  $(SDL_CFLAGS) $(OPENSSL_CFLAGS)
+  $(SDL_CFLAGS) $(OPENSSL_CFLAGS) $(EXTRA_CPPFLAGS)
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Wno-deprecated-declarations
 CFLAGS := -std=c11 -O0 -g
 LDLIBS := $(SDL_LIBS) $(OPENSSL_LIBS)
 
 APP_CPP := \
   main.cpp sdl_platform.cpp arduino_compat.cpp preferences.cpp \
-  crsf_management_native.cpp \
+  crsf_management_native.cpp $(ROOT)/src/crsf_tx_config.cpp \
   $(ROOT)/src/transmitter_ui_lvgl.cpp \
   $(ROOT)/src/channel_response.cpp \
   $(ROOT)/src/control_configuration.cpp \
@@ -45,7 +46,7 @@ LVGL_C := $(shell test -d $(LVGL)/src && find $(LVGL)/src -name '*.c')
 APP_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(APP_CPP)))
 LVGL_OBJ := $(patsubst $(LVGL)/src/%.c,$(BUILD)/lvgl/%.o,$(LVGL_C))
 
-.PHONY: all run clean bootstrap check-deps
+.PHONY: all run portrait portrait-run browser clean bootstrap check-deps
 all: check-deps $(TARGET)
 
 check-deps:
@@ -78,5 +79,28 @@ $(BUILD)/lvgl/%.o: $(LVGL)/src/%.c
 run: all
 	./$(TARGET)
 
+portrait:
+	$(MAKE) BUILD=build-portrait TARGET=build-portrait/jr-r1-sim-portrait \
+		EXTRA_CPPFLAGS=-DJR_R1_UI_PORTRAIT all
+
+portrait-run: portrait
+	./build-portrait/jr-r1-sim-portrait
+
+browser: all portrait
+	python3 browser_demo.py
+
 clean:
-	rm -rf $(BUILD)
+	rm -rf build build-portrait
+
+# UI/model headers change object layouts; rebuild every consumer together.
+$(APP_OBJ): $(wildcard $(ROOT)/include/*.h) $(wildcard include/*.h) $(ROOT)/src/transmitter_ui_design.inc $(ROOT)/src/transmitter_ui_portrait.inc ui_audit.inc
+
+$(LVGL_OBJ): $(ROOT)/include/lv_conf.h
+
+.PHONY: audit
+# Each audit changes preferences, so use a fresh disposable state directory.
+audit: all portrait
+	@set -e; for binary in ./$(TARGET) ./build-portrait/jr-r1-sim-portrait; do \
+	  audit_state=$$(mktemp -d /tmp/jr-r1-ui-audit.XXXXXX); \
+	  JR_R1_SIM_STATE="$$audit_state" SDL_VIDEODRIVER=dummy "$$binary" --ui-audit; \
+	done

@@ -10,3 +10,6 @@ __pycache__/
 *.pyc
 test/build/
 tft-screenshot*.png
+
+# Local schematic extracts and investigation scratch files.
+/tmp/

@@ -1,10 +1,14 @@
 #include "transmitter_ui.h"
 
 #include <Preferences.h>
+#include <cmath>
 #ifndef JR_R1_SIMULATOR
 #include <Arduino_GFX_Library.h>
 #include <SPI.h>
 #include <Wire.h>
+#ifdef JR_R1_XIAO_PCB
+#include "pcb_io.h"
+#endif
 #else
 #include "simulator_platform.h"
 #endif
@@ -19,8 +23,16 @@ LV_IMG_DECLARE(jr_propo_boot_logo);
 
 namespace {
 
+#ifdef JR_R1_UI_PORTRAIT
+constexpr int16_t kScreenWidth = DISPLAY_LANDSCAPE_HEIGHT;
+constexpr int16_t kScreenHeight = DISPLAY_LANDSCAPE_WIDTH;
+constexpr uint8_t kWaveshareDisplayRotation = 2;
+#else
 constexpr int16_t kScreenWidth = DISPLAY_LANDSCAPE_WIDTH;
 constexpr int16_t kScreenHeight = DISPLAY_LANDSCAPE_HEIGHT;
+constexpr uint8_t kWaveshareDisplayRotation = 3;
+#endif
+constexpr bool portraitUi = kScreenWidth < kScreenHeight;
 constexpr uint16_t kCrsfMid = 992;
 // Standard CRSF/servo travel. Values 0..2047 are representable, but 172..1811
 // maps to the conventional approximately 988..2012 us receiver PWM range.
@@ -36,6 +48,7 @@ constexpr int16_t kLogoSaverProportionalWakePermille = 40;
 constexpr uint16_t kTouchPressureThreshold = 40;
 constexpr uint32_t kTouchReleaseDebounceMs = 25;
 constexpr uint32_t kTouchRetriggerGuardMs = 100;
+constexpr uint32_t kDashboardArmHoldMs = 800;
 constexpr uint32_t kDisplayWakeArmMs = 250;
 constexpr uint32_t kDisplayWakePollMs = 20;
 constexpr uint32_t kSettingsSaveDelayMs = 750;
@@ -86,6 +99,8 @@ uint8_t uiBrightnessPercent = 100;
 bool uiNightMode = false;
 
 constexpr TransmitterFunction kEditableTransmitterFunctions[] = {
+    TransmitterFunction::TimerStartStop,
+    TransmitterFunction::TimerReset,
     TransmitterFunction::OpenMenu,
     TransmitterFunction::Dashboard,
     TransmitterFunction::NextPage,
@@ -126,7 +141,7 @@ Arduino_DataBus *displayBus = new Arduino_ESP32SPI(
     TFT_DC_PIN, TFT_CS_PIN, TFT_SCK_PIN, TFT_MOSI_PIN, TFT_MISO_PIN);
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
 Arduino_GFX *display = new Arduino_ST7796(
-    displayBus, TFT_RESET_PIN, 3, true, 320, 480);
+    displayBus, TFT_RESET_PIN, kWaveshareDisplayRotation, true, 320, 480);
 #else
 Arduino_GFX *display = new Arduino_ILI9486_18bit(
     displayBus, GFX_NOT_DEFINED, 1, false);
@@ -160,11 +175,32 @@ lv_color_t lineBuffer[kScreenWidth * 16];
 
 lv_color_t colour(uint32_t rgb)
 {
-    // The BTT panel has no exposed backlight input, so its brightness setting
-    // is approximated by scaling rendered colours. The Waveshare profile uses
-    // real backlight PWM and keeps the full RGB range here.
+    if (!uiNightMode) {
+        if (rgb == cBlack) rgb = 0xe6e9e7;
+        else if (rgb == cHeader) rgb = 0x1b3039;
+        else if (rgb == cPanel) rgb = 0xf7f9f7;
+        else if (rgb == cPanel2) rgb = 0xd4e8e9;
+        else if (rgb == cLine) rgb = 0xbcc6c8;
+        else if (rgb == cWhite) rgb = 0x17262e;
+        else if (rgb == cDim) rgb = 0x53636c;
+        else if (rgb == cCyan) rgb = 0x00707d;
+        else if (rgb == cGreen) rgb = 0x176b50;
+        else if (rgb == cAmber) rgb = 0x875b0b;
+        else if (rgb == cSafetyCut) rgb = 0xf1dca9;
+        else if (rgb == cSafetyArmed) rgb = 0xd2ebdf;
+        else if (rgb == cSafetyWaiting) rgb = 0xf1dca9;
+        else if (rgb == cSafetyFault) rgb = 0xffded7;
+    } else {
+        if (rgb == cBlack) rgb = 0x1e2b34;
+        else if (rgb == cHeader) rgb = 0x0f1d26;
+        else if (rgb == cPanel) rgb = 0x283842;
+        else if (rgb == cPanel2) rgb = 0x254b58;
+        else if (rgb == cLine) rgb = 0x4a606b;
+        else if (rgb == cWhite) rgb = 0xe3ecef;
+        else if (rgb == cDim) rgb = 0xa9bbc5;
+        else if (rgb == cCyan) rgb = 0x6bd9e3;
+    }
     uint16_t scale = DISPLAY_HAS_PWM_BACKLIGHT ? 100 : uiBrightnessPercent;
-    if (uiNightMode) scale = scale * 60U / 100U;
     const uint8_t red = ((rgb >> 16) & 0xffU) * scale / 100U;
     const uint8_t green = ((rgb >> 8) & 0xffU) * scale / 100U;
     const uint8_t blue = (rgb & 0xffU) * scale / 100U;
@@ -176,6 +212,7 @@ lv_color_t colour(uint32_t rgb)
 const lv_font_t *fontFor(uint8_t size)
 {
     switch (size) {
+        case 48: return &lv_font_montserrat_48;
         case 32: return &lv_font_montserrat_32;
         case 28: return &lv_font_montserrat_28;
         case 24: return &lv_font_montserrat_24;
@@ -183,7 +220,8 @@ const lv_font_t *fontFor(uint8_t size)
         case 20: return &lv_font_montserrat_20;
         case 18: return &lv_font_montserrat_18;
         case 16: return &lv_font_montserrat_16;
-        case 12: return &lv_font_montserrat_12;
+        case 10: return &lv_font_montserrat_10;
+        case 11: case 12: case 13: return &lv_font_montserrat_12;
         default: return &lv_font_montserrat_14;
     }
 }
@@ -213,7 +251,7 @@ void position(lv_obj_t *object, int16_t x, int16_t y, int16_t width,
 
 lv_obj_t *makePanel(int16_t x, int16_t y, int16_t width, int16_t height,
                     uint32_t fill = cPanel, uint32_t border = cLine,
-                    uint8_t radius = 7)
+                    uint8_t radius = 2)
 {
     lv_obj_t *panel = lv_obj_create(lv_scr_act());
     position(panel, x, y, width, height);
@@ -230,7 +268,13 @@ lv_obj_t *makeLabel(lv_obj_t *parent, const char *text, int16_t x, int16_t y,
                     uint8_t fontSize = 14, uint32_t textColour = cWhite)
 {
     lv_obj_t *label = lv_label_create(parent);
-    lv_label_set_text(label, text);
+    // Keep the JR wordmark red in headers and firmware identity labels.
+    if (text && strncmp(text, "JR ", 3) == 0) {
+        lv_label_set_recolor(label, true);
+        lv_label_set_text_fmt(label, "#ff4b43 JR#%s", text + 2);
+    } else {
+        lv_label_set_text(label, text);
+    }
     lv_obj_set_pos(label, x, y);
     lv_obj_set_style_text_font(label, fontFor(fontSize), 0);
     lv_obj_set_style_text_color(label, colour(textColour), 0);
@@ -242,7 +286,7 @@ lv_obj_t *makeButton(int16_t x, int16_t y, int16_t width, int16_t height,
                      uint32_t fill = cPanel2, uint32_t textColour = cWhite,
                      uint32_t border = cLine)
 {
-    lv_obj_t *button = makePanel(x, y, width, height, fill, border, 7);
+    lv_obj_t *button = makePanel(x, y, width, height, fill, border, 2);
     lv_obj_t *label = makeLabel(button, text, 0, 0, fontSize, textColour);
     lv_obj_center(label);
     return button;
@@ -259,19 +303,37 @@ void startScreen()
 void makeHeader(const char *title, const char *action = nullptr)
 {
     lv_obj_t *header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
-    makeLabel(header, title, 14, 8, 24);
+#ifdef JR_R1_UI_PORTRAIT
+    auto titleLabel = makeLabel(header, title, 10, 11, 16, 0xe7edef);
+    lv_obj_set_width(titleLabel, 190);
+    lv_label_set_long_mode(titleLabel, LV_LABEL_LONG_DOT);
+    if (action != nullptr) makeButton(206, 5, 66, 34, action, 11);
+    makeButton(278, 5, 36, 34, LV_SYMBOL_HOME, 16);
+#else
+    auto titleLabel = makeLabel(header, title, 14, 12, 18, 0xe7edef);
+    lv_obj_set_width(titleLabel, action ? 318 : 400);
+    lv_label_set_long_mode(titleLabel, LV_LABEL_LONG_DOT);
     if (action != nullptr) makeButton(344, 5, 78, 34, action, 12);
     makeButton(430, 5, 42, 34, LV_SYMBOL_HOME, 18);
+#endif
 }
 
 bool headerActionTouched(int16_t x, int16_t y)
 {
+#ifdef JR_R1_UI_PORTRAIT
+    return y < 48 && x >= 202 && x < 276;
+#else
     return y < 48 && x >= 340 && x < 428;
+#endif
 }
 
 bool headerHomeTouched(int16_t x, int16_t y)
 {
+#ifdef JR_R1_UI_PORTRAIT
+    return y < 48 && x >= 276;
+#else
     return y < 48 && x >= 428;
+#endif
 }
 
 lv_obj_t *makeBar(lv_obj_t *parent, int16_t x, int16_t y, int16_t width,
@@ -431,6 +493,15 @@ void formatUid(const uint8_t *uid, char *text, size_t capacity)
 const char *uiPageName(UiPage page)
 {
     switch (page) {
+        case UiPage::Tune: return "tune";
+        case UiPage::ValueEditor: return "value-editor";
+        case UiPage::Gps: return "gps";
+        case UiPage::ChannelMonitor: return "channel-monitor";
+        case UiPage::SensorDetail: return "sensor-detail";
+        case UiPage::WidgetSelect: return "widget-select";
+        case UiPage::WidgetEditor: return "widget-editor";
+        case UiPage::BatteryMenu: return "batteries";
+        case UiPage::RadioDiagnostics: return "radio-diagnostics";
         case UiPage::BootSplash: return "boot";
         case UiPage::LogoSaver: return "logo-saver";
         case UiPage::Dashboard: return "dashboard";
@@ -454,6 +525,7 @@ const char *uiPageName(UiPage page)
         case UiPage::DisplaySetup: return "display";
         case UiPage::FirmwareInfo: return "firmware-info";
         case UiPage::ElrsBinding: return "elrs-binding";
+        case UiPage::ElrsTxConfig: return "elrs-tx-config";
         case UiPage::EscProgramming: return "esc-programming";
         case UiPage::Calibration: return "calibration";
     }
@@ -461,6 +533,12 @@ const char *uiPageName(UiPage page)
 }
 
 } // namespace
+
+#include "transmitter_ui_design.inc"
+#include "transmitter_ui_portrait.inc"
+#ifdef JR_R1_SIMULATOR
+#include "../simulator/ui_audit.inc"
+#endif
 
 bool TransmitterUi::begin()
 {
@@ -482,7 +560,18 @@ bool TransmitterUi::begin()
     digitalWrite(BUZZER_PIN, LOW);
     Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
     Wire.setClock(400000);
+#ifdef JR_R1_XIAO_PCB
+    // Both expanders must be configured before GT911 address selection or
+    // Arduino_GFX startup. Keypad pull-ups are enabled here, before sampling.
+    const bool pcbReady = pcbIoBegin();
+    Serial.printf("PCB IO: K1=0x20 %s K2=0x21 %s\n",
+                  pcbKeypad.online() ? "ONLINE" : "OFFLINE",
+                  pcbControls.online() ? "ONLINE" : "OFFLINE");
+    const bool touchReady = pcbReady && initialiseTouchController();
+    const bool lcdResetReady = pcbReady && pcbResetDisplay();
+#else
     const bool touchReady = initialiseTouchController();
+#endif
 
     if (DISPLAY_HAS_PWM_BACKLIGHT) {
         ledcSetup(TFT_BACKLIGHT_LEDC_CHANNEL, TFT_BACKLIGHT_PWM_FREQUENCY,
@@ -491,11 +580,15 @@ bool TransmitterUi::begin()
         ledcWrite(TFT_BACKLIGHT_LEDC_CHANNEL, 0);
     }
 
-    // Initialise the shared hardware SPI handle before Arduino_GFX configures
-    // the same FSPI peripheral. It is used only for explicit, synchronous LCD
-    // GRAM reads while LVGL is idle.
-    screenshotSpi.begin(TFT_SCK_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_CS_PIN);
+    // Initialise the shared hardware SPI handle only on profiles that route
+    // LCD MISO. The production Waveshare cable is deliberately write-only.
+    if (DISPLAY_HAS_SPI_READBACK)
+        screenshotSpi.begin(TFT_SCK_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_CS_PIN);
+#ifdef JR_R1_XIAO_PCB
+    displayReady_ = lcdResetReady && display->begin(TFT_SPI_FREQUENCY);
+#else
     displayReady_ = display->begin(TFT_SPI_FREQUENCY);
+#endif
 #else
     const bool touchReady = true;
     displayReady_ = simulatorDisplayBegin(kScreenWidth, kScreenHeight);
@@ -550,7 +643,11 @@ bool TransmitterUi::begin()
     if (!touchReady)
         Serial.println("DISPLAY: touch controller did not respond; LCD remains usable");
     playBuzzer(80);
+#if defined(JR_R1_XIAO_PCB) && !defined(JR_R1_SIMULATOR)
+    return touchReady;
+#else
     return true;
+#endif
 }
 
 ChannelResponseProfile &TransmitterUi::profileForChannel(uint8_t channel)
@@ -626,6 +723,13 @@ int16_t TransmitterUi::proportionalInputValue(uint8_t channel,
 bool TransmitterUi::captureScreenshot(Stream &output)
 {
     if (!displayReady_) return false;
+#ifndef JR_R1_SIMULATOR
+    if (!DISPLAY_HAS_SPI_READBACK) {
+        output.print("TFTSHOT-ERROR display readback is not wired on this profile\n");
+        output.flush();
+        return false;
+    }
+#endif
     if (displaySleeping_) wakeDisplay();
 
     // A capture blocks the UI/control loop while pixels cross USB. Keep the
@@ -650,7 +754,7 @@ bool TransmitterUi::captureScreenshot(Stream &output)
     const SPISettings settings(kScreenshotSpiFrequency, MSBFIRST, SPI_MODE0);
     for (uint16_t row = 0; row < kScreenHeight; ++row) {
         screenshotSpi.beginTransaction(settings);
-        digitalWrite(TFT_CS_PIN, LOW);
+        if (TFT_CS_PIN >= 0) digitalWrite(TFT_CS_PIN, LOW);
 
         screenshotCommand(kLcdColumnAddressSet);
         screenshotCoordinate(0, kScreenWidth - 1);
@@ -665,7 +769,7 @@ bool TransmitterUi::captureScreenshot(Stream &output)
         for (size_t index = 0; index < sizeof(screenshotRow); ++index)
             screenshotRow[index] = screenshotSpi.transfer(0x00);
 
-        digitalWrite(TFT_CS_PIN, HIGH);
+        if (TFT_CS_PIN >= 0) digitalWrite(TFT_CS_PIN, HIGH);
         screenshotSpi.endTransaction();
         output.write(screenshotRow, sizeof(screenshotRow));
         delay(0);
@@ -678,6 +782,11 @@ bool TransmitterUi::captureScreenshot(Stream &output)
 
 void TransmitterUi::resetLvglObjects()
 {
+    for (auto &view : widgetViews_) view = DashboardWidgetView{};
+    for (auto &value : designValues_) value = nullptr;
+    for (auto &value : designDetails_) value = nullptr;
+    for (auto &value : designBars_) value = nullptr;
+    designStatus_ = designLink_ = designCurve_ = designMarker_ = nullptr;
     logoSaverLogo_ = nullptr;
     logoSaverDesignation_ = nullptr;
     dashboardThrottleBar_ = nullptr;
@@ -687,6 +796,7 @@ void TransmitterUi::resetLvglObjects()
     for (lv_obj_t *&button : mainMenuButtons_) button = nullptr;
     for (lv_obj_t *&bar : dashboardChannelBars_) bar = nullptr;
     for (lv_obj_t *&marker : dashboardChannelMarkers_) marker = nullptr;
+    for (lv_obj_t *&label : dashboardChannelValueLabels_) label = nullptr;
     for (DashboardChannelWidgetKind &kind : dashboardChannelWidgetKinds_)
         kind = DashboardChannelWidgetKind::None;
     dashboardSafetyPanel_ = nullptr;
@@ -788,6 +898,20 @@ void TransmitterUi::loadModelMemorySettings()
     activeModelSlot_ = preferences.getUChar("active", 0);
     if (preferences.getBytesLength("names") == sizeof(modelNames_))
         preferences.getBytes("names", modelNames_, sizeof(modelNames_));
+    for (auto &layout : dashboardLayouts_) layout = defaultDashboardLayout();
+    if (preferences.getBytesLength("widgets-v2") == sizeof(dashboardLayouts_)) {
+        preferences.getBytes("widgets-v2", dashboardLayouts_, sizeof(dashboardLayouts_));
+        for (auto &layout : dashboardLayouts_) sanitizeDashboardLayout(layout);
+    } else if (preferences.getBytesLength("widgets-v1") == kModelMemoryCount) {
+        uint8_t legacy[kModelMemoryCount] = {};
+        preferences.getBytes("widgets-v1", legacy, sizeof(legacy));
+        for (uint8_t i=0;i<kModelMemoryCount;++i) {
+            if (legacy[i]>=1 && legacy[i]<=6) {
+                dashboardLayouts_[i].cells[0].kind = DashboardWidgetKind::Sensor;
+                dashboardLayouts_[i].cells[0].source = legacy[i]-1;
+            } else if (legacy[i]==7) dashboardLayouts_[i].cells[0].kind = DashboardWidgetKind::Map;
+        }
+    }
     preferences.end();
     if (activeModelSlot_ >= kModelMemoryCount) activeModelSlot_ = 0;
     for (uint8_t slot = 0; slot < kModelMemoryCount; ++slot)
@@ -800,6 +924,7 @@ void TransmitterUi::saveModelMemorySettings()
     preferences.begin("jr-r1-models", false);
     preferences.putUChar("active", activeModelSlot_);
     preferences.putBytes("names", modelNames_, sizeof(modelNames_));
+    preferences.putBytes("widgets-v2", dashboardLayouts_, sizeof(dashboardLayouts_));
     preferences.end();
 }
 
@@ -828,6 +953,10 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     armRequested_ = false;
     safetyResetRequested_ = true;
     saveCurrentModelMemory();
+    runTimerRunning_ = false; runTimerElapsedMs_ = 0;
+    gpsCount_ = sensorHistoryCount_ = 0;
+    gpsLastSampleMs_ = designTelemetry_.gpsUpdatedMs;
+    memset(sensorHistoryValid_, 0, sizeof(sensorHistoryValid_));
     activeModelSlot_ = slot;
     saveModelMemorySettings();
     loadChannelRoleSettings();
@@ -1648,7 +1777,12 @@ void TransmitterUi::wakeDisplay()
 
 void TransmitterUi::redrawActivePage()
 {
+    if (designPage()) { drawDesignPage(activePage_); return; }
     switch (activePage_) {
+        case UiPage::Tune: case UiPage::ValueEditor: case UiPage::Gps:
+        case UiPage::ChannelMonitor: case UiPage::SensorDetail: case UiPage::WidgetSelect: case UiPage::WidgetEditor: case UiPage::BatteryMenu:
+            drawDesignPage(activePage_); break;
+        case UiPage::RadioDiagnostics: drawRadioDiagnostics(); break;
         case UiPage::BootSplash: drawBootSplash(); break;
         case UiPage::LogoSaver: drawLogoSaver(); break;
         case UiPage::Dashboard: drawDashboard(); break;
@@ -1672,6 +1806,7 @@ void TransmitterUi::redrawActivePage()
         case UiPage::DisplaySetup: drawDisplayPage(); break;
         case UiPage::FirmwareInfo: drawFirmwareInfoPage(); break;
         case UiPage::ElrsBinding: drawElrsBindingPage(); break;
+        case UiPage::ElrsTxConfig: drawElrsTxConfigPage(); break;
         case UiPage::EscProgramming: drawEscProgrammingPage(); break;
         case UiPage::Calibration: drawCalibrationPage(); break;
     }
@@ -1688,17 +1823,35 @@ void TransmitterUi::drawBootSplash()
 
     lv_obj_t *logo = lv_img_create(lv_scr_act());
     lv_img_set_src(logo, &jr_propo_boot_logo);
+#ifdef JR_R1_UI_PORTRAIT
+    lv_img_set_zoom(logo, 176);
+    lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 150);
+#else
     lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 92);
+#endif
 
     lv_obj_t *designation = makeLabel(
         lv_scr_act(), "R1 EVO", 0, 0, 18, 0xbec3c9);
     lv_obj_set_style_text_letter_space(designation, 5, 0);
+#ifdef JR_R1_UI_PORTRAIT
+    lv_obj_align(designation, LV_ALIGN_TOP_MID, 0, 252);
+#else
     lv_obj_align(designation, LV_ALIGN_TOP_MID, 0, 204);
+#endif
 }
 
 void TransmitterUi::positionLogoSaver()
 {
     if (!logoSaverLogo_ || !logoSaverDesignation_) return;
+#ifdef JR_R1_UI_PORTRAIT
+    static constexpr int16_t xOffsets[] = {0, -4, 4, 0};
+    static constexpr int16_t yPositions[] = {54, 150, 276, 192};
+    const uint8_t position = logoSaverPosition_ % 4;
+    lv_obj_align(logoSaverLogo_, LV_ALIGN_TOP_MID,
+                 xOffsets[position], yPositions[position]);
+    lv_obj_align(logoSaverDesignation_, LV_ALIGN_TOP_MID,
+                 xOffsets[position], yPositions[position] + 100);
+#else
     static constexpr int16_t xOffsets[] = {0, -10, 10, 0};
     static constexpr int16_t yPositions[] = {32, 92, 158, 110};
     const uint8_t position = logoSaverPosition_ % 4;
@@ -1706,6 +1859,7 @@ void TransmitterUi::positionLogoSaver()
                  xOffsets[position], yPositions[position]);
     lv_obj_align(logoSaverDesignation_, LV_ALIGN_TOP_MID,
                  xOffsets[position], yPositions[position] + 112);
+#endif
 }
 
 void TransmitterUi::drawLogoSaver()
@@ -1718,6 +1872,9 @@ void TransmitterUi::drawLogoSaver()
 
     logoSaverLogo_ = lv_img_create(lv_scr_act());
     lv_img_set_src(logoSaverLogo_, &jr_propo_boot_logo);
+#ifdef JR_R1_UI_PORTRAIT
+    lv_img_set_zoom(logoSaverLogo_, 176);
+#endif
     logoSaverDesignation_ = makeLabel(
         lv_scr_act(), "R1 EVO", 0, 0, 18, 0xbec3c9);
     lv_obj_set_style_text_letter_space(logoSaverDesignation_, 5, 0);
@@ -1800,7 +1957,8 @@ ControlConfigurationSnapshot TransmitterUi::controlConfigurationSnapshot() const
     snapshot.steeringEnabled = channelRoleSettings_.steeringEnabled;
     snapshot.throttleEnabled = channelRoleSettings_.throttleEnabled;
     snapshot.armRequested = armRequested_;
-    snapshot.calibrationActive = calibrationActive();
+    snapshot.calibrationActive = calibrationActive() ||
+        activePage_ == UiPage::ElrsTxConfig;
     snapshot.driveMode = driveModeSettings_.activeMode;
     snapshot.walkLimitPercent = driveModeSettings_.walkLimitPercent;
     return snapshot;
@@ -1840,7 +1998,7 @@ bool TransmitterUi::applyChannelParameterAction(uint16_t targetId, int16_t value
 
 uint8_t TransmitterUi::activeControlContext() const
 {
-    return (activePage_ == UiPage::Dashboard || activePage_ == UiPage::Telemetry)
+    return (activePage_ == UiPage::Dashboard || activePage_ == UiPage::Telemetry || activePage_ == UiPage::Gps || activePage_ == UiPage::ChannelMonitor || activePage_ == UiPage::SensorDetail || activePage_ == UiPage::RadioDiagnostics)
         ? ContextDashboard : ContextMenu;
 }
 
@@ -1852,7 +2010,8 @@ bool TransmitterUi::navigateDashboardPage(int8_t direction)
     constexpr size_t count = sizeof(pages) / sizeof(pages[0]);
     size_t selected = count;
     for (size_t index = 0; index < count; ++index) {
-        if (pages[index] == activePage_) {
+        const UiPage current = activePage_ == UiPage::Gps || activePage_ == UiPage::ChannelMonitor || activePage_ == UiPage::SensorDetail || activePage_ == UiPage::RadioDiagnostics ? UiPage::Telemetry : activePage_;
+        if (pages[index] == current) {
             selected = index;
             break;
         }
@@ -1884,6 +2043,12 @@ bool TransmitterUi::applyTransmitterFunctionAction(uint16_t targetId, int16_t va
         return true;
     }
     switch (function) {
+        case TransmitterFunction::TimerStartStop:
+            if (value > 0) toggleRunTimer();
+            return true;
+        case TransmitterFunction::TimerReset:
+            if (value > 0) { runTimerElapsedMs_ = 0; runTimerStartedMs_ = millis(); }
+            return true;
         case TransmitterFunction::OpenMenu:
             if (value > 0) { playKeyClick(); drawMainMenu(); }
             return true;
@@ -1925,19 +2090,19 @@ bool TransmitterUi::applyTransmitterFunctionAction(uint16_t targetId, int16_t va
             return true;
         case TransmitterFunction::MenuPrevious:
             if (value > 0) {
-                if (activePage_ == UiPage::MainMenu) moveMainMenuFocus(-1);
+                if (activePage_ == UiPage::MainMenu && !designPage()) moveMainMenuFocus(-1);
                 else movePageFocus(-1);
             }
             return true;
         case TransmitterFunction::MenuNext:
             if (value > 0) {
-                if (activePage_ == UiPage::MainMenu) moveMainMenuFocus(1);
+                if (activePage_ == UiPage::MainMenu && !designPage()) moveMainMenuFocus(1);
                 else movePageFocus(1);
             }
             return true;
         case TransmitterFunction::MenuSelect:
             if (value > 0) {
-                if (activePage_ == UiPage::MainMenu) activateMainMenuFocus();
+                if (activePage_ == UiPage::MainMenu && !designPage()) activateMainMenuFocus();
                 else activatePageFocus();
             }
             return true;
@@ -1983,193 +2148,7 @@ bool TransmitterUi::applyDriveModeAction(uint16_t targetId, int16_t value)
 
 void TransmitterUi::drawDashboard()
 {
-    if (!displayReady_) return;
-    activePage_ = UiPage::Dashboard;
-    startScreen();
-    resetLvglObjects();
-    beginPageFocus(false);
-
-    dashboardHeader_ = makePanel(0, 0, 480, 40, cHeader, cHeader, 0);
-    dashboardLinkLabel_ = makeLabel(
-        dashboardHeader_, LV_SYMBOL_WIFI "  LQ --%   --- dBm", 12, 10, 16, cDim);
-    makePageActionButton(433, 4, 39, 32, LV_SYMBOL_SETTINGS, 18,
-                         cPanel2, cWhite, cLine,
-                         &TransmitterUi::controlDashboard, 0);
-
-    lv_obj_t *model = makePanel(8, 47, 144, 87);
-    char modelTitle[24];
-    snprintf(modelTitle, sizeof(modelTitle), "%02u  %s",
-             activeModelSlot_ + 1, modelNames_[activeModelSlot_]);
-    makeLabel(model, modelTitle, 10, 7, 12, cCyan);
-    if (activeModelSlot_ == 0) {
-        lv_obj_t *buggy = lv_img_create(model);
-        lv_img_set_src(buggy, &hyper7_icon);
-        lv_obj_set_pos(buggy, 31, 23);
-    } else {
-        char slotLabel[12];
-        snprintf(slotLabel, sizeof(slotLabel), "MODEL %02u", activeModelSlot_ + 1);
-        lv_obj_t *slot = makeLabel(model, slotLabel, 0, 0, 20, cDim);
-        lv_obj_align(slot, LV_ALIGN_CENTER, 0, 13);
-    }
-
-    lv_obj_t *power = makePanel(160, 47, 144, 87);
-    makeLabel(power, "POWER", 10, 8, 12, cCyan);
-    dashboardTxVoltageLabel_ = makeLabel(power, "TX  --.-V", 10, 31, 16, cDim);
-    dashboardRxVoltageLabel_ = makeLabel(power, "RX  --.-V", 10, 57, 16, cDim);
-
-    dashboardSafetyPanel_ = makePanel(312, 47, 160, 87, cSafetyCut, cAmber);
-    makeLabel(dashboardSafetyPanel_, "OUTPUT SAFETY", 10, 7, 12, cCyan);
-    dashboardSafetyLabel_ = makeLabel(
-        dashboardSafetyPanel_, "", 10, 42, 18, cAmber);
-
-    // LVGL's built-in FontAwesome subset does not contain lock glyphs, so
-    // draw a small scalable lock from ordinary LVGL objects.  This also lets
-    // the open shackle communicate LIVE without depending on text or colour.
-    dashboardSafetyIcon_ = lv_obj_create(dashboardSafetyPanel_);
-    position(dashboardSafetyIcon_, 55, 28, 50, 52);
-    lv_obj_set_style_bg_opa(dashboardSafetyIcon_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(dashboardSafetyIcon_, 0, 0);
-    lv_obj_set_style_pad_all(dashboardSafetyIcon_, 0, 0);
-
-    dashboardSafetyLockBody_ = lv_obj_create(dashboardSafetyIcon_);
-    position(dashboardSafetyLockBody_, 7, 24, 36, 25);
-    lv_obj_set_style_bg_color(dashboardSafetyLockBody_, colour(cAmber), 0);
-    lv_obj_set_style_bg_opa(dashboardSafetyLockBody_, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(dashboardSafetyLockBody_, 0, 0);
-    lv_obj_set_style_radius(dashboardSafetyLockBody_, 4, 0);
-
-    dashboardSafetyLockShackle_ = lv_line_create(dashboardSafetyIcon_);
-    static lv_point_t initialLockShackle[] = {
-        {12, 25}, {12, 13}, {16, 6}, {25, 3},
-        {34, 6}, {38, 13}, {38, 25},
-    };
-    lv_line_set_points(dashboardSafetyLockShackle_, initialLockShackle,
-                       sizeof(initialLockShackle) / sizeof(initialLockShackle[0]));
-    lv_obj_set_style_line_width(dashboardSafetyLockShackle_, 5, 0);
-    lv_obj_set_style_line_rounded(dashboardSafetyLockShackle_, true, 0);
-    lv_obj_set_style_line_color(dashboardSafetyLockShackle_, colour(cAmber), 0);
-
-    lv_obj_t *monitor = makePanel(8, 141, 464, 99);
-    makeLabel(monitor, "CHANNEL MONITOR", 10, 6, 12, cCyan);
-    uint8_t enabledChannels[CRSF_CHANNEL_COUNT];
-    uint8_t enabledCount = 0;
-    for (uint8_t channel = 1; channel <= CRSF_CHANNEL_COUNT; ++channel) {
-        const uint16_t bit = static_cast<uint16_t>(1U << (channel - 1));
-        if ((dashboardEnabledChannelMask_ & bit) != 0)
-            enabledChannels[enabledCount++] = channel;
-    }
-
-    if (enabledCount == 0) {
-        makeLabel(monitor, "NO ENABLED CHANNELS", 10, 43, 16, cDim);
-    } else {
-        // Steering and throttle are permanent primary instruments. Once the
-        // 16-channel output model supplies enabled auxiliaries, they occupy a
-        // compact vertical bank on the right without shrinking the primary
-        // channels into the same low-priority representation.
-        uint8_t primaryChannels[2];
-        uint8_t primaryCount = 0;
-        uint8_t auxiliaryChannels[14];
-        uint8_t auxiliaryCount = 0;
-        for (uint8_t index = 0; index < enabledCount; ++index) {
-            const uint8_t channel = enabledChannels[index];
-            const bool primary = channel == channelRoleSettings_.steeringChannel ||
-                                 channel == channelRoleSettings_.throttleChannel;
-            if (primary && primaryCount < 2)
-                primaryChannels[primaryCount++] = channel;
-            else if (!primary && auxiliaryCount < 14)
-                auxiliaryChannels[auxiliaryCount++] = channel;
-        }
-
-        constexpr int16_t kAuxRightEdge = 450;
-        constexpr int16_t kAuxSlotWidth = 18;
-        constexpr int16_t kPrimaryBarX = 112;
-        constexpr int16_t kPrimaryAuxGap = 8;
-        const uint8_t visibleAuxiliaryCount = min<uint8_t>(auxiliaryCount, 6);
-        const int16_t auxBankWidth = visibleAuxiliaryCount * kAuxSlotWidth;
-        const int16_t auxBankX = kAuxRightEdge - auxBankWidth;
-        const int16_t primaryBarWidth = auxiliaryCount == 0
-            ? 338
-            : auxBankX - kPrimaryAuxGap - kPrimaryBarX;
-        const int16_t firstY = primaryCount == 1 ? 46 : 29;
-        for (uint8_t index = 0; index < primaryCount; ++index) {
-            const uint8_t channel = primaryChannels[index];
-            const bool steering = channel == channelRoleSettings_.steeringChannel;
-            char label[18];
-            snprintf(label, sizeof(label), "CH%u %s", channel,
-                     steering ? "STEER" : "THROTTLE");
-            const int16_t y = firstY + index * 34;
-            makeLabel(monitor, label, 10, y - 1, 12, cCyan);
-            lv_obj_t *track = makeMarkerTrack(
-                monitor, kPrimaryBarX, y, primaryBarWidth, 18, cWhite,
-                &dashboardChannelMarkers_[channel - 1]);
-            dashboardChannelBars_[channel - 1] = track;
-            dashboardChannelWidgetKinds_[channel - 1] =
-                DashboardChannelWidgetKind::HorizontalProportional;
-            if (channel == channelRoleSettings_.throttleChannel)
-                dashboardThrottleBar_ = track;
-        }
-
-        if (auxiliaryCount > 0) {
-            constexpr uint8_t kMaximumVisibleAuxiliaries = 6;
-            const uint8_t visibleCount = min<uint8_t>(auxiliaryCount,
-                                                       kMaximumVisibleAuxiliaries);
-            const int16_t bankX = kAuxRightEdge -
-                                  visibleCount * kAuxSlotWidth;
-            const int16_t slotWidth = kAuxSlotWidth;
-            for (uint8_t index = 0; index < visibleCount; ++index) {
-                const uint8_t channel = auxiliaryChannels[index];
-                const int16_t x = bankX + index * slotWidth;
-                char number[4];
-                snprintf(number, sizeof(number), "%u", channel);
-                makeLabel(monitor, number,
-                          x + max<int16_t>(0, (slotWidth - 12) / 2),
-                          21, 10, cWhite);
-                const int16_t widgetWidth = min<int16_t>(12, slotWidth - 2);
-                const int16_t widgetX = x + max<int16_t>(1,
-                    (slotWidth - widgetWidth) / 2);
-                const bool proportional = channelHasProportionalControl(channel);
-                lv_obj_t *widget = proportional
-                    ? makeVerticalMarkerTrack(
-                        monitor, widgetX, 37, widgetWidth, 44, cWhite,
-                        &dashboardChannelMarkers_[channel - 1])
-                    : makeToggleTrack(
-                        monitor, widgetX, 37, widgetWidth, 44, cWhite,
-                        &dashboardChannelMarkers_[channel - 1]);
-                dashboardChannelBars_[channel - 1] = widget;
-                dashboardChannelWidgetKinds_[channel - 1] = proportional
-                    ? DashboardChannelWidgetKind::VerticalProportional
-                    : DashboardChannelWidgetKind::ToggleSwitch;
-            }
-        }
-    }
-
-    makePageActionButton(8, 249, 108, 62, "MENU", 18,
-                         cPanel2, cWhite, cLine,
-                         &TransmitterUi::controlDashboard, 1);
-    makePageActionButton(124, 249, 108, 62, "TELEMETRY", 11,
-                         cPanel2, cCyan, cLine,
-                         &TransmitterUi::controlDashboard, 2);
-    makePageActionButton(240, 249, 108, 62, "QUICK", 16,
-                         cPanel2, cCyan, cLine,
-                         &TransmitterUi::controlDashboard, 3);
-    const char *mode = driveModeSettings_.activeMode == DriveMode::Walk
-        ? "MODE\nWALK" : "MODE\nNORMAL";
-    makePageActionButton(356, 249, 116, 62, mode, 13,
-                         cPanel2, cGreen, cLine,
-                         &TransmitterUi::controlDashboard, 4);
-
-    // LVGL calculates object coordinates lazily. Resolve the new dashboard
-    // geometry before drawDashboardLive() reads track widths; otherwise its
-    // first marker-position calculation sees zero travel and parks the marker
-    // at the left edge until a later input change forces another update.
-    lv_obj_update_layout(lv_scr_act());
-    lastDisplayedCrsf_ = UINT16_MAX;
-    for (uint16_t &value : lastDashboardChannelValues_) value = UINT16_MAX;
-    lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
-    lastLinkValid_ = !lastLinkValid_;
-    lastReceiverVoltageValid_ = !lastReceiverVoltageValid_;
-    lastTxVoltageValid_ = !lastTxVoltageValid_;
-    finishPageFocus();
+    drawDesignPage(UiPage::Dashboard);
 }
 
 void TransmitterUi::drawStartupWarningPage()
@@ -2178,77 +2157,82 @@ void TransmitterUi::drawStartupWarningPage()
     startScreen();
     resetLvglObjects();
     lv_obj_t *header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
-    makeLabel(header, "STARTUP SAFETY CHECK", 14, 8, 24);
+    makeLabel(header, "STARTUP SAFETY CHECK", 14, 12, portraitUi ? 18 : 24);
     beginPageFocus(false);
 
-    lv_obj_t *banner = makePanel(12, 54, 456, 58, cSafetyFault, cRed);
+    lv_obj_t *banner = makePanel(12, 54, kScreenWidth-24, portraitUi ? 90 : 58, cSafetyFault, cRed);
     makeLabel(banner, startupWarningMask_ == 0
                           ? "CHECKING CONTROLS..."
-                          : "RETURN CONTROLS TO SAFE POSITION",
+                          : (portraitUi ? "RETURN CONTROLS\nTO SAFE POSITION" : "RETURN CONTROLS TO SAFE POSITION"),
               18, 8, 16, startupWarningMask_ == 0 ? cAmber : cRed);
-    makeLabel(banner, "Output remains CUT", 18, 33, 12, cWhite);
+    makeLabel(banner, "Output remains CUT", 18, portraitUi ? 66 : 33, 12, cWhite);
 
     if (startupWarningMask_ == 0) {
-        makeLabel(lv_scr_act(), "Waiting for stable input readings", 72, 154,
+        makeLabel(lv_scr_act(), "Waiting for stable input readings", portraitUi ? 14 : 72, portraitUi ? 176 : 154,
                   16, cDim);
     } else {
         uint8_t shown = 0;
         for (size_t index = 0; index < kPhysicalControlCount; ++index) {
             if ((startupWarningMask_ & (uint32_t{1} << index)) == 0) continue;
-            const int16_t column = shown >= 4 ? 1 : 0;
-            const int16_t row = shown >= 4 ? shown - 4 : shown;
+            const int16_t column = portraitUi ? 0 : shown >= 4 ? 1 : 0;
+            const int16_t row = portraitUi ? shown : shown >= 4 ? shown - 4 : shown;
             const int16_t x = 18 + column * 230;
-            const int16_t y = 126 + row * 38;
-            lv_obj_t *panel = makePanel(x, y, 214, 31, cPanel2, cAmber);
+            const int16_t y = (portraitUi ? 155 : 126) + row * (portraitUi ? 34 : 38);
+            lv_obj_t *panel = makePanel(x, y, portraitUi ? 284 : 214, 31, cPanel2, cAmber);
             makeLabel(panel, physicalControlDescriptor(index).name,
                       8, 7, 11, cWhite);
             ++shown;
             if (shown >= 8) break;
         }
     }
-    makeLabel(lv_scr_act(), "Release switches / centre trims to continue",
-              65, 286, 12, cAmber);
+    makeLabel(lv_scr_act(), portraitUi ? "Release switches / centre trims\nto continue" : "Release switches / centre trims to continue",
+              portraitUi ? 14 : 65, portraitUi ? 436 : 286, 12, cAmber);
     finishPageFocus();
 }
 
-void TransmitterUi::drawTelemetryPage()
+void TransmitterUi::drawRadioDiagnostics()
 {
     if (!displayReady_) return;
-    activePage_ = UiPage::Telemetry;
+    activePage_ = UiPage::RadioDiagnostics;
     startScreen();
     resetLvglObjects();
     makeHeader("TELEMETRY", "BACK");
     beginPageFocus();
 
-    lv_obj_t *link = makePanel(8, 47, 226, 126);
+    lv_obj_t *link = makePanel(8, 52, portraitUi ? 304 : 226, 126);
     makeLabel(link, "RADIO LINK", 10, 7, 12, cCyan);
     telemetryLinkStateLabel_ = makeLabel(link, "NO DATA", 10, 27, 20, cDim);
     telemetryLinkQualityLabel_ = makeLabel(link, "LQ   ---%", 10, 56, 17, cDim);
     telemetryRssiLabel_ = makeLabel(link, "RSSI --- dBm", 10, 80, 15, cDim);
     telemetrySnrLabel_ = makeLabel(link, "SNR  -- dB", 10, 101, 13, cDim);
 
-    lv_obj_t *power = makePanel(246, 47, 226, 126);
+    lv_obj_t *power = makePanel(portraitUi ? 8 : 246, portraitUi ? 188 : 47, portraitUi ? 304 : 226, 126);
     makeLabel(power, "POWER / RF", 10, 7, 12, cCyan);
     telemetryTxVoltageLabel_ = makeLabel(power, "TX  --.- V", 10, 31, 18, cDim);
     telemetryRxVoltageLabel_ = makeLabel(power, "RX  --.- V", 10, 59, 18, cDim);
     telemetryRadioLabel_ = makeLabel(power, "ANT -   MODE -   PWR -", 10, 94, 12, cDim);
 
-    lv_obj_t *stream = makePanel(8, 181, 464, 98);
+    lv_obj_t *stream = makePanel(8, portraitUi ? 324 : 181, kScreenWidth-16, portraitUi ? 120 : 98);
     makeLabel(stream, "CRSF STREAM", 10, 7, 12, cCyan);
     telemetryFramesLabel_ = makeLabel(stream, "FRAMES          0", 10, 31, 15, cWhite);
-    telemetryCrcLabel_ = makeLabel(stream, "CRC ERR         0", 245, 31, 15, cWhite);
+    telemetryCrcLabel_ = makeLabel(stream, "CRC ERR         0", portraitUi ? 10 : 245, portraitUi ? 78 : 31, portraitUi ? 12 : 15, cWhite);
     telemetryBytesLabel_ = makeLabel(stream, "BYTES           0", 10, 58, 15, cWhite);
-    telemetryAgeLabel_ = makeLabel(stream, "AGE          ----", 245, 58, 15, cDim);
+    telemetryAgeLabel_ = makeLabel(stream, "AGE          ----", portraitUi ? 150 : 245, portraitUi ? 78 : 58, portraitUi ? 12 : 15, cDim);
 
-    makeLabel(lv_scr_act(), "Live receiver telemetry via Ranger Nano", 12, 293, 12, cDim);
+    makeLabel(lv_scr_act(), "Live receiver telemetry via Ranger Nano", 12, portraitUi ? 446 : 293, 12, cDim);
     finishPageFocus();
+}
+
+void TransmitterUi::drawTelemetryPage()
+{
+    drawDesignPage(UiPage::Telemetry);
 }
 
 void TransmitterUi::drawTelemetryLive(const CrsfTelemetryState &telemetry,
                                    uint16_t txVoltageDecivolts,
                                    bool txVoltageValid)
 {
-    if (!displayReady_ || activePage_ != UiPage::Telemetry) return;
+    if (!displayReady_ || activePage_ != UiPage::RadioDiagnostics) return;
 
     if (telemetryLinkStateLabel_) {
         const bool everReceived = telemetry.linkUpdatedMs != 0;
@@ -2360,275 +2344,13 @@ void TransmitterUi::drawDashboardLive(uint16_t crsfValue,
                                    uint16_t txVoltageDecivolts,
                                    bool txVoltageValid)
 {
-    if (!displayReady_ || activePage_ != UiPage::Dashboard) return;
-    const bool rxVoltageLow = rxBatterySettings_.alarmEnabled &&
-        telemetry.receiverVoltageValid &&
-        telemetry.receiverVoltageDecivolts <= rxBatterySettings_.lowAlarmDecivolts;
-    const bool txVoltageLow = txVoltageValid &&
-        txVoltageDecivolts <= txBatterySettings_.lowAlarmDecivolts;
-    const bool powerWarning = rxVoltageLow || txVoltageLow;
-    for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
-        // Steering and throttle are centre-returning primary controls. While
-        // output authority is withheld, show the neutral command that the UI
-        // promises rather than a model-safe/raw value at the end of the CRSF
-        // range. AUX controls retain their configured safe-state indication.
-        const uint16_t displayedValue =
-            dashboardChannelWidgetKinds_[index] ==
-                    DashboardChannelWidgetKind::HorizontalProportional &&
-                safetyStatus != OutputSafetyStatus::Armed
-            ? kCrsfMid
-            : dashboardChannelValues_[index];
-        if (dashboardChannelBars_[index] &&
-            displayedValue != lastDashboardChannelValues_[index]) {
-            if (dashboardChannelMarkers_[index] != nullptr) {
-                lv_obj_t *track = dashboardChannelBars_[index];
-                lv_obj_t *marker = dashboardChannelMarkers_[index];
-                const int32_t value = constrain(
-                    displayedValue, kCrsfMinimum, kCrsfMaximum);
-                switch (dashboardChannelWidgetKinds_[index]) {
-                    case DashboardChannelWidgetKind::HorizontalProportional: {
-                        const int16_t travel = max<int16_t>(1,
-                            lv_obj_get_width(track) - lv_obj_get_width(marker) - 2);
-                        lv_obj_set_x(marker, 1 + static_cast<int16_t>(
-                            (value - kCrsfMinimum) * travel /
-                            (kCrsfMaximum - kCrsfMinimum)));
-                        break;
-                    }
-                    case DashboardChannelWidgetKind::VerticalProportional: {
-                        const int16_t travel = max<int16_t>(1,
-                            lv_obj_get_height(track) - lv_obj_get_height(marker) - 2);
-                        lv_obj_set_y(marker, 1 + travel - static_cast<int16_t>(
-                            (value - kCrsfMinimum) * travel /
-                            (kCrsfMaximum - kCrsfMinimum)));
-                        break;
-                    }
-                    case DashboardChannelWidgetKind::ToggleSwitch: {
-                        const int16_t lowY = lv_obj_get_height(track) -
-                                             lv_obj_get_height(marker) - 2;
-                        lv_obj_set_y(marker, value > kCrsfMid ? 2 : lowY);
-                        break;
-                    }
-                    case DashboardChannelWidgetKind::None: break;
-                }
-            } else {
-                lv_bar_set_value(dashboardChannelBars_[index],
-                                 displayedValue, LV_ANIM_OFF);
-            }
-            lastDashboardChannelValues_[index] = displayedValue;
-        }
-    }
-    lastDisplayedCrsf_ = crsfValue;
-    if (dashboardSafetyLabel_ && dashboardSafetyPanel_ &&
-        safetyStatus != lastSafetyStatus_) {
-        // Channel colour describes output authority, not channel role:
-        // white means held/inactive; cyan means the transmitter is LIVE.
-        // A future mixer model can deliberately keep derived/mixed channels
-        // white by overriding their indicator colour after this base update.
-        const uint32_t channelColour =
-            safetyStatus == OutputSafetyStatus::Armed ? cCyan : cWhite;
-        for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
-            if (dashboardChannelMarkers_[index] != nullptr) {
-                lv_obj_set_style_bg_color(dashboardChannelMarkers_[index],
-                                          colour(channelColour), 0);
-            } else if (dashboardChannelBars_[index] != nullptr) {
-                lv_obj_set_style_bg_color(
-                    dashboardChannelBars_[index], colour(channelColour),
-                    LV_PART_INDICATOR);
-            }
-        }
-        const char *text = "CUT";
-        uint32_t textColour = cAmber;
-        uint32_t panelColour = cSafetyCut;
-        uint32_t borderColour = cAmber;
-        switch (safetyStatus) {
-            case OutputSafetyStatus::Armed:
-                text = "LIVE"; textColour = cGreen;
-                panelColour = cSafetyArmed; borderColour = cGreen; break;
-            case OutputSafetyStatus::StartupWarning:
-                text = "SWITCH CHECK"; textColour = cRed;
-                panelColour = cSafetyFault; borderColour = cRed; break;
-            case OutputSafetyStatus::LinkRequired:
-                text = "LINK WAIT"; textColour = cAmber;
-                panelColour = cSafetyWaiting; borderColour = cAmber; break;
-            case OutputSafetyStatus::NeutralRequired:
-                text = "NEUTRAL..."; panelColour = cSafetyWaiting; break;
-            case OutputSafetyStatus::Calibration:
-                text = "CALIBRATE"; panelColour = cPanel2; break;
-            case OutputSafetyStatus::InputFault:
-                text = "INPUT FAULT"; textColour = cRed;
-                panelColour = cSafetyFault; borderColour = cRed; break;
-            case OutputSafetyStatus::ControlStale:
-                text = "STALE"; textColour = cRed;
-                panelColour = cSafetyFault; borderColour = cRed; break;
-            case OutputSafetyStatus::ChannelDisabled:
-                text = "CH OFF"; panelColour = cSafetyCut; break;
-            case OutputSafetyStatus::Cut: break;
-        }
-
-        const bool showLock = safetyStatus == OutputSafetyStatus::Cut ||
-                              safetyStatus == OutputSafetyStatus::Armed;
-        if (dashboardSafetyIcon_ && dashboardSafetyLockBody_ &&
-            dashboardSafetyLockShackle_) {
-            if (showLock) {
-                static lv_point_t lockedShackle[] = {
-                    {12, 25}, {12, 13}, {16, 6}, {25, 3},
-                    {34, 6}, {38, 13}, {38, 25},
-                };
-                static lv_point_t unlockedShackle[] = {
-                    {12, 25}, {12, 13}, {16, 6}, {25, 3},
-                    {34, 6}, {38, 13}, {38, 17},
-                };
-                lv_point_t *points = safetyStatus == OutputSafetyStatus::Armed
-                                         ? unlockedShackle : lockedShackle;
-                lv_line_set_points(dashboardSafetyLockShackle_, points, 7);
-                lv_obj_set_style_bg_color(dashboardSafetyLockBody_,
-                                          colour(textColour), 0);
-                lv_obj_set_style_line_color(dashboardSafetyLockShackle_,
-                                            colour(textColour), 0);
-                lv_obj_clear_flag(dashboardSafetyIcon_, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_add_flag(dashboardSafetyLabel_, LV_OBJ_FLAG_HIDDEN);
-            } else {
-                lv_obj_add_flag(dashboardSafetyIcon_, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_clear_flag(dashboardSafetyLabel_, LV_OBJ_FLAG_HIDDEN);
-            }
-        }
-        lv_label_set_text(dashboardSafetyLabel_, text);
-        lv_obj_set_style_text_color(dashboardSafetyLabel_, colour(textColour), 0);
-        lv_obj_set_style_bg_color(dashboardSafetyPanel_, colour(panelColour), 0);
-        lv_obj_set_style_border_color(dashboardSafetyPanel_, colour(borderColour), 0);
-        lastSafetyStatus_ = safetyStatus;
-    }
-    if (dashboardLinkLabel_ &&
-        (telemetry.linkValid != lastLinkValid_ ||
-         telemetry.uplinkLinkQuality != lastLinkQuality_ ||
-         telemetry.uplinkRssiDbm != lastRssiDbm_ ||
-         powerWarning != dashboardPowerWarningActive_)) {
-        if (rxVoltageLow && txVoltageLow) {
-            lv_label_set_text(dashboardLinkLabel_,
-                              LV_SYMBOL_WARNING "  LOW TX + RX VOLTAGE");
-            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cBlack), 0);
-        } else if (rxVoltageLow) {
-            lv_label_set_text_fmt(dashboardLinkLabel_,
-                                  LV_SYMBOL_WARNING "  LOW RX %u.%uV   LQ %u%%",
-                                  telemetry.receiverVoltageDecivolts / 10,
-                                  telemetry.receiverVoltageDecivolts % 10,
-                                  telemetry.uplinkLinkQuality);
-            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cBlack), 0);
-        } else if (txVoltageLow) {
-            lv_label_set_text_fmt(dashboardLinkLabel_,
-                                  LV_SYMBOL_WARNING "  LOW TX %u.%uV   LQ %u%%",
-                                  txVoltageDecivolts / 10,
-                                  txVoltageDecivolts % 10,
-                                  telemetry.uplinkLinkQuality);
-            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cBlack), 0);
-        } else if (telemetry.linkValid) {
-            lv_label_set_text_fmt(dashboardLinkLabel_,
-                                  LV_SYMBOL_WIFI "  LQ %u%%   %d dBm",
-                                  telemetry.uplinkLinkQuality,
-                                  telemetry.uplinkRssiDbm);
-            lv_obj_set_style_text_color(dashboardLinkLabel_,
-                colour(telemetry.uplinkLinkQuality >= 80 ? cGreen : cAmber), 0);
-        } else if (telemetry.linkUpdatedMs == 0) {
-            lv_label_set_text(dashboardLinkLabel_,
-                              LV_SYMBOL_WIFI "  NO TELEMETRY");
-            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cDim), 0);
-        } else {
-            // A missing return packet is not proof that the RF downlink has
-            // failed. Preserve the last decoded LQ but mark it stale; reserve
-            // NO LINK for an explicit, fresh LQ=0 report.
-            lv_label_set_text_fmt(dashboardLinkLabel_,
-                                  LV_SYMBOL_WIFI "  LQ* %u%%",
-                                  telemetry.uplinkLinkQuality);
-            lv_obj_set_style_text_color(dashboardLinkLabel_, colour(cDim), 0);
-        }
-        lastLinkValid_ = telemetry.linkValid;
-        lastLinkQuality_ = telemetry.uplinkLinkQuality;
-        lastRssiDbm_ = telemetry.uplinkRssiDbm;
-        dashboardPowerWarningActive_ = powerWarning;
-    }
-    if (dashboardHeader_) {
-        lv_obj_set_style_bg_color(dashboardHeader_,
-                                  colour(powerWarning ? cAmber : cHeader), 0);
-        lv_obj_set_style_border_color(dashboardHeader_,
-                                      colour(powerWarning ? cAmber : cHeader), 0);
-    }
-    if (dashboardRxVoltageLabel_ &&
-        (telemetry.receiverVoltageValid != lastReceiverVoltageValid_ ||
-         telemetry.receiverVoltageDecivolts != lastReceiverVoltageDecivolts_)) {
-        if (telemetry.receiverVoltageValid) {
-            const bool low = rxBatterySettings_.alarmEnabled &&
-                telemetry.receiverVoltageDecivolts <= rxBatterySettings_.lowAlarmDecivolts;
-            lv_label_set_text_fmt(dashboardRxVoltageLabel_, "RX  %u.%uV",
-                telemetry.receiverVoltageDecivolts / 10,
-                telemetry.receiverVoltageDecivolts % 10);
-            lv_obj_set_style_text_color(dashboardRxVoltageLabel_,
-                                        colour(low ? cRed : cGreen), 0);
-        } else {
-            lv_label_set_text(dashboardRxVoltageLabel_, "RX  --.-V");
-            lv_obj_set_style_text_color(dashboardRxVoltageLabel_, colour(cDim), 0);
-        }
-        lastReceiverVoltageValid_ = telemetry.receiverVoltageValid;
-        lastReceiverVoltageDecivolts_ = telemetry.receiverVoltageDecivolts;
-    }
-    if (dashboardTxVoltageLabel_ &&
-        (txVoltageValid != lastTxVoltageValid_ ||
-         txVoltageDecivolts != lastTxVoltageDecivolts_)) {
-        if (txVoltageValid) {
-            const bool low = txVoltageDecivolts <= txBatterySettings_.lowAlarmDecivolts;
-            lv_label_set_text_fmt(dashboardTxVoltageLabel_, "TX  %u.%uV",
-                txVoltageDecivolts / 10, txVoltageDecivolts % 10);
-            lv_obj_set_style_text_color(dashboardTxVoltageLabel_,
-                                        colour(low ? cRed : cGreen), 0);
-        } else {
-            lv_label_set_text(dashboardTxVoltageLabel_, "TX  --.-V");
-            lv_obj_set_style_text_color(dashboardTxVoltageLabel_, colour(cDim), 0);
-        }
-        lastTxVoltageValid_ = txVoltageValid;
-        lastTxVoltageDecivolts_ = txVoltageDecivolts;
-    }
-
-    const uint32_t now = millis();
-    if (txVoltageValid &&
-        txVoltageDecivolts <= txBatterySettings_.lowAlarmDecivolts) {
-        if (static_cast<int32_t>(now - nextTxLowBatteryAlarmMs_) >= 0) {
-            playBuzzer(300);
-            nextTxLowBatteryAlarmMs_ = now + kLowBatteryRepeatMs;
-        }
-    } else {
-        nextTxLowBatteryAlarmMs_ = now;
-    }
-    if (rxBatterySettings_.alarmEnabled && telemetry.receiverVoltageValid &&
-        telemetry.receiverVoltageDecivolts <= rxBatterySettings_.lowAlarmDecivolts) {
-        if (static_cast<int32_t>(now - nextRxLowBatteryAlarmMs_) >= 0) {
-            playBuzzer(300);
-            nextRxLowBatteryAlarmMs_ = now + kLowBatteryRepeatMs;
-        }
-    } else {
-        nextRxLowBatteryAlarmMs_ = now;
-    }
+    updateDesign(telemetry, safetyStatus, txVoltageDecivolts, txVoltageValid);
+    (void)crsfValue;
 }
 
 void TransmitterUi::drawMainMenu()
 {
-    activePage_ = UiPage::MainMenu;
-    startScreen();
-    resetLvglObjects();
-    makeHeader("JR R1 CONTROLLER");
-    static const char *labels[] = {"MODELS", "CHANNELS", "RESPONSE", "CONTROL MAP",
-        "DRIVE MODES", "ESC PROGRAM", "LINK / TELEM", "SETUP"};
-    for (uint8_t index = 0; index < 8; ++index) {
-        const bool enabled = mainMenuItemEnabled(index);
-        mainMenuButtons_[index] = makeButton(
-                   10 + (index % 2) * 235, 52 + (index / 2) * 54, 225, 46,
-                   labels[index], 16,
-                   enabled ? cPanel2 : cBlack,
-                   enabled ? (index == 1 ? cCyan : cWhite) : cDim,
-                   enabled ? cLine : cDim);
-    }
-    if (!mainMenuItemEnabled(mainMenuFocusIndex_)) mainMenuFocusIndex_ = 1;
-    refreshMainMenuFocus();
-    lv_obj_t *note = makeLabel(lv_scr_act(), "DIMMED ITEMS: COMING SOON", 0, 284, 12, cDim);
-    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 284);
+    drawDesignPage(UiPage::MainMenu);
 }
 
 void TransmitterUi::refreshMainMenuFocus()
@@ -2678,7 +2400,10 @@ void TransmitterUi::activateMainMenuFocus()
             drawDriveModesPage();
             break;
         case 5: drawEscProgrammingPage(); break;
-        case 6: drawElrsBindingPage(); break;
+        case 6:
+            txConfig_.start(millis());
+            txConfigFolder_ = txConfigOffset_ = txConfigSelected_ = 0;
+            drawElrsTxConfigPage(); break;
         case 7: drawSetupPage(); break;
         default: break;
     }
@@ -2686,47 +2411,7 @@ void TransmitterUi::activateMainMenuFocus()
 
 void TransmitterUi::drawModelSelectPage()
 {
-    activePage_ = UiPage::ModelSelect;
-    startScreen();
-    resetLvglObjects();
-    makeHeader("MODEL SELECT", "BACK");
-    beginPageFocus();
-    for (uint8_t row = 0; row < 5; ++row) {
-        const uint8_t slot = modelSelectBank_ * 5 + row;
-        const int16_t y = 52 + row * 41;
-        lv_obj_t *panel = makePanel(10, y, 460, 37);
-        char number[4];
-        snprintf(number, sizeof(number), "%02u", slot + 1);
-        makeLabel(panel, number, 12, 9, 14, cCyan);
-        makeLabel(panel, modelNames_[slot], 54, 9, 14,
-                  slot == activeModelSlot_ ? cGreen : cWhite);
-        if (slot == activeModelSlot_)
-            makeLabel(panel, "ACTIVE", 300, 9, 13, cGreen);
-        makeButton(382, y + 3, 77, 31,
-                   slot == activeModelSlot_ ? "CURRENT" : "LOAD", 12,
-                   slot == activeModelSlot_ ? cPanel : cPanel2,
-                   slot == activeModelSlot_ ? cDim : cWhite);
-        addPageActionTarget(10, y, 460, 37,
-                            &TransmitterUi::controlModels, row);
-    }
-    if (modelSelectStatus_[0] != '\0') {
-        makeLabel(lv_scr_act(), modelSelectStatus_, 70, 261, 12,
-                  strstr(modelSelectStatus_, "CUT") ? cAmber : cGreen);
-    } else {
-        makeLabel(lv_scr_act(), "Model changes require CUT and centred throttle.",
-                  70, 261, 12, cDim);
-    }
-    makeButton(10, 274, 50, 35, "<", 20, cPanel2,
-               modelSelectBank_ == 0 ? cDim : cWhite);
-    lv_obj_t *bankLabel = makeLabel(
-        lv_scr_act(), modelSelectBank_ == 0 ? "MODELS 1-5" : "MODELS 6-10",
-        0, 284, 13, cCyan);
-    lv_obj_align(bankLabel, LV_ALIGN_TOP_MID, 0, 284);
-    makeButton(420, 274, 50, 35, ">", 20, cPanel2,
-               modelSelectBank_ == 1 ? cDim : cWhite);
-    addPageActionTarget(10, 274, 50, 35, &TransmitterUi::controlModels, 10);
-    addPageActionTarget(420, 274, 50, 35, &TransmitterUi::controlModels, 11);
-    finishPageFocus();
+    drawDesignPage(UiPage::ModelSelect);
 }
 
 void TransmitterUi::beginPageFocus(bool registerStandardHeader)
@@ -2799,11 +2484,20 @@ void TransmitterUi::finishPageFocus()
     // keypad focus remains the page's primary control, while every new
     // standard-header page gets an escape route automatically.
     if (pageStandardHeaderPending_) {
-        addPageActionTarget(344, 5, 78, 34,
+        addPageActionTarget(portraitUi ? 206 : 344, 5, portraitUi ? 66 : 78, 34,
                             &TransmitterUi::controlNavigation, 0);
-        addPageActionTarget(430, 5, 42, 34,
+        addPageActionTarget(portraitUi ? 278 : 430, 5, portraitUi ? 36 : 42, 34,
                             &TransmitterUi::controlNavigation, 1);
         pageStandardHeaderPending_ = false;
+    }
+    if (portraitUi) {
+        auto strip=makePanel(0,460,320,20,cHeader,cHeader,0);
+        makeLabel(strip,"JR",8,3,12,cRed);
+        makeLabel(strip,"R1",29,3,12,0xe7edef);
+        makeLabel(strip,"TOUCH CONTROL",111,4,10,0xa9bbc5);
+        auto indicator=lv_obj_create(strip);position(indicator,300,8,12,4);
+        lv_obj_set_style_bg_color(indicator,colour(cCyan),0);
+        lv_obj_set_style_border_width(indicator,0,0);
     }
     if (pageFocusCount_ == 0) return;
     pageFocusIndicator_ = lv_obj_create(lv_scr_act());
@@ -2824,10 +2518,13 @@ void TransmitterUi::refreshPageFocus()
     position(pageFocusIndicator_, target.focus.x, target.focus.y,
              target.focus.width, target.focus.height);
     lv_obj_move_foreground(pageFocusIndicator_);
+    if(pageFocusVisible_) lv_obj_clear_flag(pageFocusIndicator_,LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(pageFocusIndicator_,LV_OBJ_FLAG_HIDDEN);
 }
 
 void TransmitterUi::movePageFocus(int8_t direction)
 {
+    pageFocusVisible_ = true;
     if (pageFocusCount_ == 0) {
         Serial.printf("UI: page %u has no registered keypad controls\n",
                       static_cast<unsigned>(activePage_));
@@ -2843,6 +2540,7 @@ void TransmitterUi::movePageFocus(int8_t direction)
 
 void TransmitterUi::activatePageFocus()
 {
+    pageFocusVisible_ = true;
     if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return;
     if (dispatchPageControl(pageFocusIndex_, PageControlEvent::Activate)) return;
     playBuzzer(35);
@@ -2850,6 +2548,7 @@ void TransmitterUi::activatePageFocus()
 
 bool TransmitterUi::adjustPageFocus(int8_t direction)
 {
+    pageFocusVisible_ = true;
     if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return false;
     if (dispatchPageControl(pageFocusIndex_, direction < 0
             ? PageControlEvent::Decrease : PageControlEvent::Increase))
@@ -2874,6 +2573,7 @@ bool TransmitterUi::dispatchPageControl(uint8_t index, PageControlEvent event)
 
 bool TransmitterUi::dispatchPageControlTouch(int16_t x, int16_t y)
 {
+    pageFocusVisible_ = false;
     const auto contains = [x, y](const PageFocusTarget::Rectangle &rectangle) {
         return rectangle.width > 0 && rectangle.height > 0 &&
                x >= rectangle.x && x < rectangle.x + rectangle.width &&
@@ -3102,8 +2802,13 @@ void TransmitterUi::controlChannelSpeed(uint8_t row, PageControlEvent event)
 
 void TransmitterUi::controlDashboard(uint8_t item, PageControlEvent)
 {
+#ifdef JR_R1_UI_PORTRAIT
+    static const int16_t x[] = {295, 43, 121, 199, 277};
+    static const int16_t y[] = {22, 437, 437, 437, 437};
+#else
     static const int16_t x[] = {452, 62, 178, 294, 414};
     static const int16_t y[] = {20, 280, 280, 280, 280};
+#endif
     if (item >= 5) return;
     handleDashboardTouch(x[item], y[item]);
 }
@@ -3180,8 +2885,19 @@ void TransmitterUi::controlNavigation(uint8_t item, PageControlEvent)
 
 void TransmitterUi::navigateBack()
 {
+    if (designPage()) {
+        if (activePage_ == UiPage::ValueEditor) drawDesignPage(editorReturn_);
+        else if (activePage_ == UiPage::WidgetEditor) drawDesignPage(UiPage::WidgetSelect);
+        else if (activePage_ == UiPage::SensorDetail || activePage_ == UiPage::Gps || activePage_ == UiPage::ChannelMonitor) drawTelemetryPage();
+        else if (activePage_ == UiPage::WidgetSelect || activePage_ == UiPage::Channels || activePage_ == UiPage::ModelSelect) drawMainMenu();
+        else drawDashboard();
+        return;
+    }
     playKeyClick();
     switch (activePage_) {
+        case UiPage::Tune: case UiPage::ValueEditor: case UiPage::Gps:
+        case UiPage::ChannelMonitor: case UiPage::SensorDetail: case UiPage::WidgetSelect: case UiPage::WidgetEditor: case UiPage::BatteryMenu:
+        case UiPage::RadioDiagnostics: drawTelemetryPage(); break;
         case UiPage::BootSplash: break;
         case UiPage::LogoSaver: leaveLogoSaver(); break;
         case UiPage::Dashboard: break;
@@ -3214,6 +2930,7 @@ void TransmitterUi::navigateBack()
         case UiPage::DisplaySetup: drawSetupPage(); break;
         case UiPage::FirmwareInfo: drawSetupPage(); break;
         case UiPage::ElrsBinding: drawMainMenu(); break;
+        case UiPage::ElrsTxConfig: leaveElrsTxConfig(); break;
         case UiPage::EscProgramming: drawMainMenu(); break;
         case UiPage::Calibration: cancelCalibration(); break;
     }
@@ -3221,46 +2938,7 @@ void TransmitterUi::navigateBack()
 
 void TransmitterUi::drawChannelsPage()
 {
-    activePage_ = UiPage::Channels;
-    startScreen();
-    resetLvglObjects();
-    makeHeader("CHANNELS", "BACK");
-    beginPageFocus();
-    makeButton(258, 5, 78, 34, "ROLES", 11, cPanel2, cCyan);
-    addPageActionTarget(258, 5, 78, 34,
-                        &TransmitterUi::controlChannels, 10);
-    const uint8_t first = channelsBank_ * 8 + 1;
-    for (uint8_t index = 0; index < 8; ++index) {
-        const uint8_t channel = first + index;
-        char label[24];
-        if (channel == channelRoleSettings_.steeringChannel)
-            snprintf(label, sizeof(label), "CH%u  STEERING", channel);
-        else if (channel == channelRoleSettings_.throttleChannel)
-            snprintf(label, sizeof(label), "CH%u  THROTTLE", channel);
-        else snprintf(label, sizeof(label), "CH%u  AUX", channel);
-        makeButton(10 + (index % 2) * 235, 52 + (index / 2) * 52, 225, 44,
-                   label, 16,
-                   channel == channelRoleSettings_.throttleChannel ? cPanel2 : cPanel,
-                   channel == channelRoleSettings_.throttleChannel ? cCyan : cWhite);
-        addPageActionTarget(10 + (index % 2) * 235,
-                            52 + (index / 2) * 52, 225, 44,
-                            &TransmitterUi::controlChannels, index);
-    }
-    makeButton(12, 270, 58, 40, "<", 24,
-               channelsBank_ == 0 ? cBlack : cPanel,
-               channelsBank_ == 0 ? cDim : cWhite);
-    addPageActionTarget(12, 270, 58, 40,
-                        &TransmitterUi::controlChannels, 8);
-    makeButton(410, 270, 58, 40, ">", 24,
-               channelsBank_ == 1 ? cBlack : cPanel,
-               channelsBank_ == 1 ? cDim : cWhite);
-    addPageActionTarget(410, 270, 58, 40,
-                        &TransmitterUi::controlChannels, 9);
-    char page[8];
-    snprintf(page, sizeof(page), "%u / 2", channelsBank_ + 1);
-    lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 280, 16, cDim);
-    lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 280);
-    finishPageFocus();
+    drawDesignPage(UiPage::Channels);
 }
 
 void TransmitterUi::drawChannelRoleRow(int row)
@@ -3294,8 +2972,8 @@ void TransmitterUi::drawControlAssignmentsPage()
         if (inputIndex >= kPhysicalControlCount) break;
         const PhysicalControlDescriptor &control =
             physicalControlDescriptor(inputIndex);
-        const int16_t y = 50 + row * 40;
-        lv_obj_t *panel = makePanel(10, y, 460, 35);
+        const int16_t y = 54 + row * (portraitUi ? 65 : 40);
+        lv_obj_t *panel = makePanel(10, y, kScreenWidth-20, portraitUi ? 58 : 35);
         makeLabel(panel, control.name, 8, 5, 12, cWhite);
         char summary[48];
         uint32_t summaryColour = cDim;
@@ -3339,30 +3017,30 @@ void TransmitterUi::drawControlAssignmentsPage()
                 summaryColour = binding.enabled ? cGreen : cAmber;
             }
         }
-        makeLabel(panel, summary, 215, 5, 11, summaryColour);
-        makeLabel(panel, ">", 438, 4, 16, cDim);
-        addPageActionTarget(10, y, 460, 35,
+        makeLabel(panel, summary, portraitUi ? 8 : 215, portraitUi ? 29 : 5, 11, summaryColour);
+        makeLabel(panel, ">", kScreenWidth-42, 4, 16, cDim);
+        addPageActionTarget(10, y, kScreenWidth-20, portraitUi ? 58 : 35,
                             &TransmitterUi::controlAssignments, row);
     }
 
-    makeButton(10, 263, 50, 42, "<", 22,
+    makeButton(10, portraitUi ? 410 : 263, 50, 42, "<", 22,
                assignmentBank_ == 0 ? cBlack : cPanel,
                assignmentBank_ == 0 ? cDim : cWhite);
-    addPageActionTarget(10, 263, 50, 42,
+    addPageActionTarget(10, portraitUi ? 410 : 263, 50, 42,
                         &TransmitterUi::controlAssignments, 5);
-    makeButton(70, 263, 94, 42, "ROLES", 12, cPanel2, cCyan);
-    addPageActionTarget(70, 263, 94, 42,
+    makeButton(portraitUi ? 66 : 70, portraitUi ? 410 : 263, portraitUi ? 80 : 94, 42, "ROLES", 12, cPanel2, cCyan);
+    addPageActionTarget(portraitUi ? 66 : 70, portraitUi ? 410 : 263, portraitUi ? 80 : 94, 42,
                         &TransmitterUi::controlAssignments, 6);
-    makeButton(174, 263, 132, 42, "INPUT MON", 12, cPanel2, cCyan);
-    addPageActionTarget(174, 263, 132, 42,
+    makeButton(portraitUi ? 152 : 174, portraitUi ? 410 : 263, portraitUi ? 102 : 132, 42, "INPUT MON", 12, cPanel2, cCyan);
+    addPageActionTarget(portraitUi ? 152 : 174, portraitUi ? 410 : 263, portraitUi ? 102 : 132, 42,
                         &TransmitterUi::controlAssignments, 7);
     char page[12];
     snprintf(page, sizeof(page), "%u/%u", assignmentBank_ + 1, kBanks);
-    makeLabel(lv_scr_act(), page, 329, 276, 12, cDim);
-    makeButton(420, 263, 50, 42, ">", 22,
+    makeLabel(lv_scr_act(), page, portraitUi ? 140 : 329, portraitUi ? 396 : 276, 12, cDim);
+    makeButton(portraitUi ? 260 : 420, portraitUi ? 410 : 263, 50, 42, ">", 22,
                assignmentBank_ + 1 >= kBanks ? cBlack : cPanel,
                assignmentBank_ + 1 >= kBanks ? cDim : cWhite);
-    addPageActionTarget(420, 263, 50, 42,
+    addPageActionTarget(portraitUi ? 260 : 420, portraitUi ? 410 : 263, 50, 42,
                         &TransmitterUi::controlAssignments, 8);
     finishPageFocus();
 }
@@ -3377,35 +3055,35 @@ void TransmitterUi::drawBindingEditorPage()
 
     const PhysicalControlDescriptor &control = physicalControlDescriptor(
         static_cast<size_t>(selectedBindingInput_));
-    lv_obj_t *namePanel = makePanel(12, 48, 456, 36);
-    makeLabel(namePanel, control.name, 12, 7, 15, cCyan);
-    makeLabel(namePanel, r1InputEndpointLabel(selectedBindingInput_), 300, 9, 10, cDim);
+    lv_obj_t *namePanel = makePanel(12, 48, kScreenWidth-24, portraitUi ? 52 : 36);
+    makeLabel(namePanel, control.name, 12, 7, 14, cCyan);
+    makeLabel(namePanel, r1InputEndpointLabel(selectedBindingInput_), portraitUi ? 12 : 300, portraitUi ? 30 : 9, 10, cDim);
 
     const bool parameter = bindingDraft_.target == AssignmentTarget::ModelParameter &&
         isChannelParameterTarget(bindingDraft_.targetId);
-    const int16_t ys[] = {86, 120, 154, 188, 222};
+    const int16_t ys[] = {static_cast<int16_t>(portraitUi?106:86),static_cast<int16_t>(portraitUi?166:120),static_cast<int16_t>(portraitUi?226:154),static_cast<int16_t>(portraitUi?286:188),static_cast<int16_t>(portraitUi?346:222)};
     const char *detailLabel =
         bindingDraft_.target == AssignmentTarget::TransmitterFunction ? "FUNCTION" :
         bindingDraft_.target == AssignmentTarget::DriveMode ? "SELECTION" : "CHANNEL";
     const char *labels[] = {"ENABLED", "TARGET", detailLabel,
                             parameter ? "PARAMETER" : "MODE", "CONTEXT"};
     for (uint8_t row = 0; row < 5; ++row) {
-        lv_obj_t *panel = makePanel(12, ys[row], 456, 30);
+        lv_obj_t *panel = makePanel(12, ys[row], kScreenWidth-24, portraitUi ? 54 : 30);
         makeLabel(panel, labels[row], 10, 6, 12, cDim);
     }
-    makeButton(344, 87, 108, 28, bindingDraft_.enabled ? "ON" : "OFF", 13,
+    makeButton(portraitUi ? 210 : 344, portraitUi ? 115 : 87, portraitUi ? 90 : 108, portraitUi ? 38 : 28, bindingDraft_.enabled ? "ON" : "OFF", 13,
                bindingDraft_.enabled ? cGreen : cPanel2,
                bindingDraft_.enabled ? cBlack : cWhite);
-    addPageActionTarget(344, 87, 108, 28,
+    addPageActionTarget(portraitUi ? 210 : 344, portraitUi ? 115 : 87, portraitUi ? 90 : 108, portraitUi ? 38 : 28,
                         &TransmitterUi::controlBindingEditor, 0);
 
     makeLabel(lv_scr_act(), assignmentTargetName(bindingDraft_.target),
-              220, 127, 12, bindingDraft_.target == AssignmentTarget::CrsfChannel
+              portraitUi ? 22 : 220, portraitUi ? 194 : 127, 12, bindingDraft_.target == AssignmentTarget::CrsfChannel
                   ? cWhite : cCyan);
-    makeButton(350, 121, 42, 28, "<", 20);
-    makeButton(408, 121, 42, 28, ">", 20);
-    addPageEditorTarget(210, 120, 246, 30,
-                        350, 121, 42, 28, 408, 121, 42, 28,
+    makeButton(portraitUi ? 210 : 350, portraitUi ? 174 : 121, 42, portraitUi ? 38 : 28, "<", 20);
+    makeButton(portraitUi ? 258 : 408, portraitUi ? 174 : 121, 42, portraitUi ? 38 : 28, ">", 20);
+    addPageEditorTarget(portraitUi ? 12 : 210, portraitUi ? 166 : 120, portraitUi ? 296 : 246, portraitUi ? 54 : 30,
+                        portraitUi ? 210 : 350, portraitUi ? 174 : 121, 42, portraitUi ? 38 : 28, portraitUi ? 258 : 408, portraitUi ? 174 : 121, 42, portraitUi ? 38 : 28,
                         &TransmitterUi::controlBindingEditor, 1);
 
     char detail[32];
@@ -3421,48 +3099,58 @@ void TransmitterUi::drawBindingEditorPage()
             : bindingDraft_.crsfChannel;
         snprintf(detail, sizeof(detail), "CH%u", selectedChannel);
     }
-    makeLabel(lv_scr_act(), detail, 220, 161, 12, cWhite);
-    makeButton(350, 155, 42, 28, "-", 20);
-    makeButton(408, 155, 42, 28, "+", 20);
-    addPageEditorTarget(210, 154, 246, 30,
-                        350, 155, 42, 28, 408, 155, 42, 28,
+    makeLabel(lv_scr_act(), detail, portraitUi ? 22 : 220, portraitUi ? 254 : 161, 12, cWhite);
+    makeButton(portraitUi ? 210 : 350, portraitUi ? 234 : 155, 42, portraitUi ? 38 : 28, "-", 20);
+    makeButton(portraitUi ? 258 : 408, portraitUi ? 234 : 155, 42, portraitUi ? 38 : 28, "+", 20);
+    addPageEditorTarget(portraitUi ? 12 : 210, portraitUi ? 226 : 154, portraitUi ? 296 : 246, portraitUi ? 54 : 30,
+                        portraitUi ? 210 : 350, portraitUi ? 234 : 155, 42, portraitUi ? 38 : 28, portraitUi ? 258 : 408, portraitUi ? 234 : 155, 42, portraitUi ? 38 : 28,
                         &TransmitterUi::controlBindingEditor, 2);
     makeLabel(lv_scr_act(), parameter
                   ? channelParameterKindName(
                         channelParameterTargetKind(bindingDraft_.targetId))
                   : controlBehaviourName(bindingDraft_.behaviour),
-              220, 195, 12, cWhite);
-    makeButton(350, 189, 42, 28, "<", 20);
-    makeButton(408, 189, 42, 28, ">", 20);
-    addPageEditorTarget(210, 188, 246, 30,
-                        350, 189, 42, 28, 408, 189, 42, 28,
+              portraitUi ? 22 : 220, portraitUi ? 314 : 195, 12, cWhite);
+    makeButton(portraitUi ? 210 : 350, portraitUi ? 294 : 189, 42, portraitUi ? 38 : 28, "<", 20);
+    makeButton(portraitUi ? 258 : 408, portraitUi ? 294 : 189, 42, portraitUi ? 38 : 28, ">", 20);
+    addPageEditorTarget(portraitUi ? 12 : 210, portraitUi ? 286 : 188, portraitUi ? 296 : 246, portraitUi ? 54 : 30,
+                        portraitUi ? 210 : 350, portraitUi ? 294 : 189, 42, portraitUi ? 38 : 28, portraitUi ? 258 : 408, portraitUi ? 294 : 189, 42, portraitUi ? 38 : 28,
                         &TransmitterUi::controlBindingEditor, 3);
 
     makeLabel(lv_scr_act(), controlContextName(bindingDraft_.contexts),
-              220, 229, 12, cWhite);
-    makeButton(350, 223, 42, 28, "<", 20);
-    makeButton(408, 223, 42, 28, ">", 20);
-    addPageEditorTarget(210, 222, 246, 30,
-                        350, 223, 42, 28, 408, 223, 42, 28,
+              portraitUi ? 22 : 220, portraitUi ? 374 : 229, 12, cWhite);
+    makeButton(portraitUi ? 210 : 350, portraitUi ? 354 : 223, 42, portraitUi ? 38 : 28, "<", 20);
+    makeButton(portraitUi ? 258 : 408, portraitUi ? 354 : 223, 42, portraitUi ? 38 : 28, ">", 20);
+    addPageEditorTarget(portraitUi ? 12 : 210, portraitUi ? 346 : 222, portraitUi ? 296 : 246, portraitUi ? 54 : 30,
+                        portraitUi ? 210 : 350, portraitUi ? 354 : 223, 42, portraitUi ? 38 : 28, portraitUi ? 258 : 408, portraitUi ? 354 : 223, 42, portraitUi ? 38 : 28,
                         &TransmitterUi::controlBindingEditor, 4);
 
     if (bindingError_[0] != '\0')
-        makeLabel(lv_scr_act(), bindingError_, 14, 257, 10, cRed);
+        makeLabel(lv_scr_act(), bindingError_, 14, portraitUi ? 402 : 257, 10, cRed);
     else
         makeLabel(lv_scr_act(), parameter ? "Step: 1%; edits force CUT" :
-                  "Assignment edits force CUT and neutral re-arm",
-                  14, 257, 10, cAmber);
-    makeButton(12, 274, 138, 34, "CANCEL", 13, cPanel);
-    addPageActionTarget(12, 274, 138, 34,
+                  portraitUi ? "Edits force CUT; re-arm at neutral" : "Assignment edits force CUT and neutral re-arm",
+                  14, portraitUi ? 402 : 257, 10, cAmber);
+    makeButton(12, portraitUi ? 416 : 274, portraitUi ? 92 : 138, portraitUi ? 40 : 34, "CANCEL", 13, cPanel);
+    addPageActionTarget(12, portraitUi ? 416 : 274, portraitUi ? 92 : 138, portraitUi ? 40 : 34,
                         &TransmitterUi::controlBindingEditor, 5);
     if (bindingIndexForInput(selectedBindingInput_) >= 0) {
-        makeButton(160, 274, 138, 34, "REMOVE", 13, cAmber, cBlack);
-        addPageActionTarget(160, 274, 138, 34,
+        makeButton(portraitUi ? 110 : 160, portraitUi ? 416 : 274, portraitUi ? 92 : 138, portraitUi ? 40 : 34, "REMOVE", 13, cAmber, cBlack);
+        addPageActionTarget(portraitUi ? 110 : 160, portraitUi ? 416 : 274, portraitUi ? 92 : 138, portraitUi ? 40 : 34,
                             &TransmitterUi::controlBindingEditor, 6);
     }
-    makeButton(308, 274, 160, 34, "SAVE", 13, cGreen, cBlack);
-    addPageActionTarget(308, 274, 160, 34,
+    makeButton(portraitUi ? 208 : 308, portraitUi ? 416 : 274, portraitUi ? 100 : 160, portraitUi ? 40 : 34, "SAVE", 13, cGreen, cBlack);
+    addPageActionTarget(portraitUi ? 208 : 308, portraitUi ? 416 : 274, portraitUi ? 100 : 160, portraitUi ? 40 : 34,
                         &TransmitterUi::controlBindingEditor, 7);
+    if(portraitUi){
+        for(uint32_t i=0;i<lv_obj_get_child_cnt(lv_scr_act());++i){
+            auto obj=lv_obj_get_child(lv_scr_act(),i);
+            if(lv_obj_check_type(obj,&lv_label_class)) {
+                int y=lv_obj_get_y(obj);
+                lv_obj_set_width(obj,y>=402?292:180);
+                lv_label_set_long_mode(obj,LV_LABEL_LONG_DOT);
+            }
+        }
+    }
     finishPageFocus();
 }
 
@@ -3482,26 +3170,26 @@ void TransmitterUi::drawInputMonitorPage()
         const size_t index = first + row;
         if (index >= kPhysicalControlCount) break;
         const PhysicalControlDescriptor &control = physicalControlDescriptor(index);
-        const int16_t y = 54 + row * 43;
-        lv_obj_t *panel = makePanel(10, y, 460, 37);
+        const int16_t y = 54 + row * (portraitUi ? 67 : 43);
+        lv_obj_t *panel = makePanel(10, y, kScreenWidth-20, portraitUi ? 60 : 37);
         makeLabel(panel, control.name, 8, 5, 12, cWhite);
-        makeLabel(panel, r1InputEndpointLabel(control.id), 150, 6, 11, cDim);
-        inputMonitorStateLabels_[row] = makeLabel(panel, "--", 285, 5, 12, cWhite);
-        inputMonitorEventLabels_[row] = makeLabel(panel, "--", 370, 6, 11, cDim);
+        makeLabel(panel, r1InputEndpointLabel(control.id), portraitUi ? 8 : 150, portraitUi ? 33 : 6, 11, cDim);
+        inputMonitorStateLabels_[row] = makeLabel(panel, "--", portraitUi ? 171 : 285, 5, 12, cWhite);
+        inputMonitorEventLabels_[row] = makeLabel(panel, "--", portraitUi ? 171 : 370, portraitUi ? 33 : 6, 11, cDim);
     }
 
-    makePageActionButton(12, 274, 58, 34, "<", 22,
+    makePageActionButton(12, portraitUi ? 410 : 274, 58, 34, "<", 22,
                          inputMonitorBank_ == 0 ? cBlack : cPanel,
                          inputMonitorBank_ == 0 ? cDim : cWhite, cLine,
                          &TransmitterUi::controlInputMonitor, 0);
-    makePageActionButton(410, 274, 58, 34, ">", 22,
+    makePageActionButton(kScreenWidth-70, portraitUi ? 410 : 274, 58, 34, ">", 22,
                          inputMonitorBank_ + 1 >= kBankCount ? cBlack : cPanel,
                          inputMonitorBank_ + 1 >= kBankCount ? cDim : cWhite,
                          cLine, &TransmitterUi::controlInputMonitor, 1);
     char page[16];
     snprintf(page, sizeof(page), "%u / %u", inputMonitorBank_ + 1, kBankCount);
-    lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, 284, 14, cDim);
-    lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 284);
+    lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, portraitUi ? 420 : 284, 14, cDim);
+    lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, portraitUi ? 420 : 284);
     refreshInputMonitorRows();
     finishPageFocus();
 }
@@ -3554,6 +3242,7 @@ void TransmitterUi::refreshInputMonitorRows()
 
 void TransmitterUi::drawChannelRolesPage()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::ChannelRoles); return; }
     activePage_ = UiPage::ChannelRoles;
     startScreen();
     resetLvglObjects();
@@ -3578,6 +3267,7 @@ void TransmitterUi::drawChannelRolesPage()
 
 void TransmitterUi::drawChannelPlaceholder()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::ChannelPlaceholder); return; }
     activePage_ = UiPage::ChannelPlaceholder;
     startScreen();
     resetLvglObjects();
@@ -3711,6 +3401,7 @@ void TransmitterUi::refreshSettingRowValue(uint8_t row)
 
 void TransmitterUi::drawPage()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::Channel2); return; }
     activePage_ = UiPage::Channel2;
     startScreen();
     resetLvglObjects();
@@ -3799,8 +3490,8 @@ void TransmitterUi::drawThrottleResponseGraph()
     constexpr int16_t graphX = 23;
     constexpr int16_t graphY = 26;
     constexpr int16_t graphWidth = 236;
-    constexpr int16_t graphHeight = 188;
-    lv_obj_t *panel = makePanel(8, 52, 272, 250);
+    constexpr int16_t graphHeight = portraitUi ? 110 : 188;
+    lv_obj_t *panel = makePanel(portraitUi ? 24 : 8, 52, 272, portraitUi ? 159 : 250);
     makeLabel(panel, "LIVE RESPONSE", 10, 7, 12, cCyan);
 
     // A restrained grid is easier to read than the original monochrome plot,
@@ -3904,11 +3595,11 @@ void TransmitterUi::drawThrottleResponseGraph()
     const bool throttle = selectedChannel_ == channelRoleSettings_.throttleChannel;
     const bool steering = selectedChannel_ == channelRoleSettings_.steeringChannel;
     makeLabel(panel, throttle ? "BRAKE" : steering ? "LEFT" : "NEG",
-              graphX, 220, 10, cDim);
-    lv_obj_t *neutral = makeLabel(panel, "N", 0, 220, 10, cDim);
-    lv_obj_align(neutral, LV_ALIGN_TOP_MID, 0, 220);
+              graphX, portraitUi ? 140 : 220, 10, cDim);
+    lv_obj_t *neutral = makeLabel(panel, "N", 0, portraitUi ? 140 : 220, 10, cDim);
+    lv_obj_align(neutral, LV_ALIGN_TOP_MID, 0, portraitUi ? 140 : 220);
     makeLabel(panel, throttle ? "FWD" : steering ? "RIGHT" : "POS",
-              graphX + graphWidth - (steering ? 34 : 25), 220, 10, cDim);
+              graphX + graphWidth - (steering ? 34 : 25), portraitUi ? 140 : 220, 10, cDim);
     throttleGraphLiveLabel_ = makeLabel(panel, "IN +0%  OUT +0%",
                                         111, 6, 9, cWhite);
     refreshThrottleResponseGraph(mapAdcToPermille(latestRawAdc_));
@@ -3920,7 +3611,7 @@ void TransmitterUi::refreshThrottleResponseGraph(int16_t rawInputPermille)
     constexpr int16_t graphX = 23;
     constexpr int16_t graphY = 26;
     constexpr int16_t graphWidth = 236;
-    constexpr int16_t graphHeight = 188;
+    constexpr int16_t graphHeight = portraitUi ? 110 : 188;
     rawInputPermille = static_cast<int16_t>(constrain(rawInputPermille,
                                                       -1000, 1000));
     rawInputPermille = proportionalInputValue(selectedChannel_, rawInputPermille);
@@ -3938,6 +3629,7 @@ void TransmitterUi::refreshThrottleResponseGraph(int16_t rawInputPermille)
 
 void TransmitterUi::drawThrottleResponsePage()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::ThrottleResponse); return; }
     activePage_ = UiPage::ThrottleResponse;
     startScreen();
     resetLvglObjects();
@@ -3982,6 +3674,7 @@ void TransmitterUi::drawChannelSpeedRow(int row)
 
 void TransmitterUi::drawChannelSpeedPage()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::ChannelSpeed); return; }
     activePage_ = UiPage::ChannelSpeed;
     startScreen();
     resetLvglObjects();
@@ -4005,6 +3698,7 @@ void TransmitterUi::drawChannelSpeedPage()
 
 void TransmitterUi::drawDriveModesPage()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::DriveModes); return; }
     activePage_ = UiPage::DriveModes;
     startScreen();
     resetLvglObjects();
@@ -4079,6 +3773,7 @@ void TransmitterUi::drawSetupRow(int row)
 
 void TransmitterUi::drawSetupPage()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::Setup); return; }
     activePage_ = UiPage::Setup;
     startScreen();
     resetLvglObjects();
@@ -4121,17 +3816,17 @@ void TransmitterUi::drawFirmwareInfoPage()
     makeHeader("FIRMWARE INFO", "BACK");
     beginPageFocus();
 
-    lv_obj_t *identity = makePanel(10, 52, 460, 72);
+    lv_obj_t *identity = makePanel(10, 58, kScreenWidth-20, portraitUi ? 106 : 72);
     makeLabel(identity, JR_R1_FIRMWARE_NAME, 14, 10, 20, cCyan);
     char revision[80];
     snprintf(revision, sizeof(revision), "%s @ %s  [%s]",
              JR_R1_FIRMWARE_BRANCH, JR_R1_FIRMWARE_COMMIT,
              JR_R1_FIRMWARE_GIT_STATE);
-    makeLabel(identity, revision, 14, 40, 14,
+    makeLabel(identity, revision, 14, 40, 12,
               strcmp(JR_R1_FIRMWARE_GIT_STATE, "clean") == 0
                   ? cGreen : cAmber);
 
-    lv_obj_t *build = makePanel(10, 132, 460, 82);
+    lv_obj_t *build = makePanel(10, portraitUi ? 180 : 132, kScreenWidth-20, portraitUi ? 126 : 82);
     makeLabel(build, "BUILD", 14, 9, 12, cDim);
     char builtAt[48];
     snprintf(builtAt, sizeof(builtAt), "%s  %s",
@@ -4139,11 +3834,164 @@ void TransmitterUi::drawFirmwareInfoPage()
     makeLabel(build, builtAt, 14, 29, 16, cWhite);
     makeLabel(build, JR_R1_FIRMWARE_BUILD_ENV, 14, 54, 13, cCyan);
 
-    lv_obj_t *hardware = makePanel(10, 222, 460, 76);
+    lv_obj_t *hardware = makePanel(10, portraitUi ? 322 : 222, kScreenWidth-20, portraitUi ? 126 : 76);
     makeLabel(hardware, "HARDWARE PROFILE", 14, 8, 12, cDim);
+#ifdef JR_R1_XIAO_PCB
+    makeLabel(hardware, "Seeed XIAO ESP32-S3 / R1 PCB", 14, 28, 14, cWhite);
+#else
     makeLabel(hardware, "ESP32-S3-DevKitC-1 N16R8", 14, 28, 14, cWhite);
+#endif
     makeLabel(hardware, DISPLAY_PROFILE_NAME, 14, 50, 13, cCyan);
+    if(portraitUi){for(auto panel : {identity,build,hardware}) {for(uint32_t i=0;i<lv_obj_get_child_cnt(panel);++i){auto label=lv_obj_get_child(panel,i);lv_obj_set_width(label,270);lv_label_set_long_mode(label,LV_LABEL_LONG_WRAP);}}}
     finishPageFocus();
+}
+
+void TransmitterUi::drawElrsTxConfigPage()
+{
+    if (activePage_ != UiPage::ElrsTxConfig) {
+        armRequested_ = false;
+        safetyResetRequested_ = true;
+    }
+    activePage_ = UiPage::ElrsTxConfig;
+    startScreen(); resetLvglObjects();
+    makeHeader("ELRS TX SETTINGS", "BACK");
+    beginPageFocus();
+    auto label = makeLabel(lv_scr_act(), txConfig_.status(), 8, 48, 12, cAmber);
+    lv_obj_set_width(label, kScreenWidth - 16);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    const auto selected = txConfig_.parameter(txConfigSelected_);
+    const int width = kScreenWidth - 16;
+    const int footer = kScreenHeight - (portraitUi ? 62 : 40);
+    if (selected) {
+        label = makeLabel(lv_scr_act(), selected->name, 8, 92, 17, cCyan);
+        lv_obj_set_width(label, width);
+        char value[384] = {};
+        if (selected->type == 9) {
+            selected->option(txConfigDraft_, value, sizeof(value));
+            const size_t length = strlen(value);
+            if (selected->info[0]) snprintf(value+length,sizeof(value)-length," %s",selected->info);
+        }
+        else snprintf(value, sizeof(value), "%s", selected->info);
+        label = makeLabel(lv_scr_act(), value, 8, 124, 15, cWhite);
+        lv_obj_set_width(label, width); lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+        if (selected->type == 9) {
+            makePageActionButton(8, 192, width/2-4, 34, "PREVIOUS VALUE", 12,
+                cPanel2, cWhite, cLine, &TransmitterUi::controlElrsTxConfig, 8);
+            makePageActionButton(12+width/2, 192, width/2-4, 34, "NEXT VALUE", 12,
+                cPanel2, cWhite, cLine, &TransmitterUi::controlElrsTxConfig, 9);
+        }
+        if (selected->type == 9 || selected->type == 13) {
+            const char *action = selected->type == 9 ? "APPLY" :
+                (txConfig_.confirming() ? "CONFIRM" : "RUN COMMAND");
+            makePageActionButton(8, footer, width/2-4, 32, action, 13,
+                cPanel2, cAmber, cLine, &TransmitterUi::controlElrsTxConfig, 10);
+        }
+        makePageActionButton(12+width/2, footer, width/2-4, 32, "CANCEL / BACK", 12,
+            cPanel2, cWhite, cLine, &TransmitterUi::controlElrsTxConfig, 11);
+        finishPageFocus();
+        return;
+    }
+    const auto folder = txConfig_.parameter(txConfigFolder_);
+    label = makeLabel(lv_scr_act(), folder ? folder->name : txConfig_.device(), 8, 78, 12, cCyan);
+    lv_obj_set_width(label, width);
+    uint8_t row=0, skipped=0;
+    memset(txConfigRows_, 0, sizeof(txConfigRows_));
+    for (uint8_t id=1; id<=txConfig_.count(); ++id) {
+        const auto p=txConfig_.parameter(id);
+        if (!p || p->hidden || p->parent!=txConfigFolder_) continue;
+        if (skipped++ < txConfigOffset_) continue;
+        if (row==4) break;
+        txConfigRows_[row]=id;
+        char text[128], value[384] = {};
+        if (p->type==9) p->option(p->value,value,sizeof(value));
+        snprintf(text,sizeof(text),"%.47s%s%.64s",p->name,
+            p->type==11 ? " >" : (p->type==9 ? ": " : ""),value);
+        makePageActionButton(8, 100+row*(portraitUi?68:38), width, portraitUi?60:34, text, portraitUi?14:12,
+            cPanel2, cWhite, cLine, &TransmitterUi::controlElrsTxConfig,row);
+        if(portraitUi){auto button=lv_obj_get_child(lv_scr_act(),-1);auto textLabel=lv_obj_get_child(button,0);lv_obj_set_width(textLabel,width-20);lv_label_set_long_mode(textLabel,LV_LABEL_LONG_WRAP);lv_obj_set_style_text_align(textLabel,LV_TEXT_ALIGN_LEFT,0);lv_obj_center(textLabel);}
+        ++row;
+    }
+    const int cell=width/4;
+    const char *actions[]={"PREV","NEXT","REFRESH","BINDING"};
+    for (uint8_t i=0;i<4;++i)
+        makePageActionButton(8+i*cell,footer,cell-4,32,actions[i],11,
+            cPanel2,cCyan,cLine,&TransmitterUi::controlElrsTxConfig,4+i);
+    finishPageFocus();
+}
+
+void TransmitterUi::leaveElrsTxConfig()
+{
+    if (txConfig_.busyCommand()) {
+        txConfig_.command(txConfigSelected_, 5, millis());
+        return; // wait for cancellation, or use Refresh after a lost connection
+    }
+    if (txConfigSelected_) {
+        txConfigSelected_=0; txConfigDraftDirty_=false;
+    } else if (txConfigFolder_) {
+        const auto p=txConfig_.parameter(txConfigFolder_);
+        txConfigFolder_=p ? p->parent : 0; txConfigOffset_=0;
+    } else {
+        txConfig_.stop(); drawMainMenu(); return;
+    }
+    drawElrsTxConfigPage();
+}
+
+void TransmitterUi::controlElrsTxConfig(uint8_t item, PageControlEvent)
+{
+    if (item<4 && !txConfigSelected_) {
+        if (!txConfig_.ready()) return;
+        const uint8_t id=txConfigRows_[item];
+        const auto p=txConfig_.parameter(id);
+        if (!p) return;
+        if (p->type==11) { txConfigFolder_=id; txConfigOffset_=0; }
+        else { txConfigSelected_=id; txConfigDraft_=p->value; txConfigDraftDirty_=false; }
+    } else if (item==4) {
+        txConfigOffset_=txConfigOffset_>=4 ? txConfigOffset_-4 : 0;
+    } else if (item==5) {
+        unsigned children=0;
+        for (uint8_t id=1;id<=txConfig_.count();++id) {
+            const auto p=txConfig_.parameter(id);
+            if (p && !p->hidden && p->parent==txConfigFolder_) ++children;
+        }
+        if (txConfigOffset_+4<children) txConfigOffset_+=4;
+    } else if (item==6) {
+        txConfig_.start(millis()); txConfigFolder_=txConfigOffset_=txConfigSelected_=0;
+        txConfigDraftDirty_=false;
+    } else if (item==7) {
+        txConfig_.stop(); drawElrsBindingPage(); return;
+    } else if (item==8 || item==9) {
+        const auto p=txConfig_.parameter(txConfigSelected_);
+        if (!txConfig_.ready() || !p || p->type!=9) return;
+        const int step=item==8 ? -1 : 1;
+        for (int value=int(txConfigDraft_)+step;value>=p->minimum && value<=p->maximum;value+=step) {
+            char text[384];
+            if (p->option(value,text,sizeof(text))) {
+                txConfigDraft_=value; txConfigDraftDirty_=true; break;
+            }
+        }
+    } else if (item==10) {
+        const auto p=txConfig_.parameter(txConfigSelected_);
+        if (!p) return;
+        if (p->type==9) {
+            if (txConfig_.apply(txConfigSelected_,txConfigDraft_,millis())) txConfigDraftDirty_=false;
+        } else if (p->type==13) {
+            txConfig_.command(txConfigSelected_,txConfig_.confirming() ? 4 : 1,millis());
+        }
+    } else if (item==11) { leaveElrsTxConfig(); return; }
+    playKeyClick(); drawElrsTxConfigPage();
+}
+
+void TransmitterUi::handleElrsTxConfigTouch(int16_t x,int16_t y)
+{
+    if (headerActionTouched(x,y)) { leaveElrsTxConfig(); return; }
+    if (y>=kScreenHeight-40) {
+        if (txConfigSelected_) controlElrsTxConfig(x<kScreenWidth/2 ? 10 : 11,PageControlEvent::Activate);
+        else controlElrsTxConfig(4+constrain((x-8)/((kScreenWidth-16)/4),0,3),PageControlEvent::Activate);
+    } else if (txConfigSelected_ && y>=192 && y<226) {
+        controlElrsTxConfig(x<kScreenWidth/2 ? 8 : 9,PageControlEvent::Activate);
+    } else if (!txConfigSelected_ && y>=100 && y<252) {
+        controlElrsTxConfig((y-100)/38,PageControlEvent::Activate);
+    }
 }
 
 void TransmitterUi::drawElrsBindingPage()
@@ -4154,19 +4002,21 @@ void TransmitterUi::drawElrsBindingPage()
     makeHeader("ELRS BINDING", "BACK");
     beginPageFocus();
 
-    lv_obj_t *phrasePanel = makePanel(8, 47, 464, 43);
+    lv_obj_t *phrasePanel = makePanel(8, 50, kScreenWidth-16, portraitUi ? 86 : 43);
     char phraseText[64];
     snprintf(phraseText, sizeof(phraseText), "PHRASE: %s",
              elrsBindPhrase_[0] == '\0' ? "<blank / unbound>" : elrsBindPhrase_);
-    makeLabel(phrasePanel, phraseText, 8, 3, 13, cWhite);
-    makeLabel(phrasePanel, elrsStatus_, 8, 22, 11,
+    auto phraseLabel=makeLabel(phrasePanel, phraseText, 8, 3, 13, cWhite);
+    lv_obj_set_width(phraseLabel,kScreenWidth-34);lv_label_set_long_mode(phraseLabel,LV_LABEL_LONG_WRAP);
+    auto statusLabel=makeLabel(phrasePanel, elrsStatus_, 8, portraitUi ? 51 : 22, 11,
               strstr(elrsStatus_, "MATCH") != nullptr ? cGreen : cAmber);
+    lv_obj_set_width(statusLabel,kScreenWidth-34);lv_label_set_long_mode(statusLabel,LV_LABEL_LONG_WRAP);
 
     const char *actions[] = {"SET TX", "SET RX", "UID TX", "UID RX", "CLEAR"};
     for (uint8_t index = 0; index < 5; ++index) {
         const bool unavailable = (index == 1 || index == 3) &&
                                  !elrsReceiverLinkAvailable_;
-        makePageActionButton(8 + index * 93, 94, 87, 32,
+        makePageActionButton(portraitUi ? 8+(index%3)*103 : 8+index*93, portraitUi ? 143+(index/3)*42 : 94, portraitUi ? 98 : 87, portraitUi ? 38 : 32,
                              actions[index], 11,
                              unavailable ? cBlack : cPanel2,
                              unavailable ? cDim :
@@ -4177,7 +4027,7 @@ void TransmitterUi::drawElrsBindingPage()
     const char *rows[] = {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm-_"};
     const uint8_t lengths[] = {10, 10, 9, 9};
     for (uint8_t row = 0; row < 4; ++row) {
-        constexpr int16_t width = 42;
+        constexpr int16_t width = portraitUi ? 31 : 42;
         const int16_t startX = (kScreenWidth - lengths[row] * width) / 2;
         for (uint8_t column = 0; column < lengths[row]; ++column) {
             char label[2] = {rows[row][column], '\0'};
@@ -4187,21 +4037,21 @@ void TransmitterUi::drawElrsBindingPage()
             for (uint8_t prior = 0; prior < row; ++prior)
                 keyIndex += lengths[prior];
             keyIndex += column;
-            makePageActionButton(startX + column * width, 130 + row * 38,
-                                 width - 3, 34, label, 14,
+            makePageActionButton(startX + column * width, portraitUi ? 228+row*45 : 130+row*38,
+                                 width - 3, portraitUi ? 42 : 34, label, 14,
                                  cPanel, cWhite, cLine,
                                  &TransmitterUi::controlElrsBinding,
                                  5 + keyIndex);
         }
     }
-    makePageActionButton(43, 282, 92, 32,
+    makePageActionButton(portraitUi ? 8 : 43, portraitUi ? 414 : 282, portraitUi ? 72 : 92, portraitUi ? 40 : 32,
                          elrsKeyboardUppercase_ ? "lower" : "UPPER", 12,
                          cPanel2, cWhite, cLine,
                          &TransmitterUi::controlElrsBinding, 43);
-    makePageActionButton(143, 282, 194, 32, "SPACE", 12,
+    makePageActionButton(portraitUi ? 86 : 143, portraitUi ? 414 : 282, portraitUi ? 148 : 194, portraitUi ? 40 : 32, "SPACE", 12,
                          cPanel2, cWhite, cLine,
                          &TransmitterUi::controlElrsBinding, 44);
-    makePageActionButton(345, 282, 92, 32, "<--", 14,
+    makePageActionButton(portraitUi ? 240 : 345, portraitUi ? 414 : 282, portraitUi ? 72 : 92, portraitUi ? 40 : 32, "<--", 14,
                          cPanel2, cAmber, cLine,
                          &TransmitterUi::controlElrsBinding, 45);
     finishPageFocus();
@@ -4215,16 +4065,16 @@ void TransmitterUi::drawEscProgrammingPage()
     makeHeader("ESC PROGRAMMER", "BACK");
     beginPageFocus();
 
-    lv_obj_t *status = makePanel(8, 47, 464, 34, cSafetyWaiting, cAmber);
-    makeLabel(status, LV_SYMBOL_WARNING "  NO ESC LINK - PREVIEW ONLY",
+    lv_obj_t *status = makePanel(8, 50, kScreenWidth-16, portraitUi ? 58 : 34, cSafetyWaiting, cAmber);
+    makeLabel(status, LV_SYMBOL_WARNING "  PREVIEW ONLY - NO ESC LINK",
               12, 7, 13, cAmber);
     lv_obj_t *profile = makeLabel(status, "TS160 DRAFT", 0, 8, 11, cDim);
-    lv_obj_align(profile, LV_ALIGN_TOP_RIGHT, -10, 8);
+    lv_obj_align(profile, LV_ALIGN_TOP_RIGHT, -10, portraitUi ? 34 : 8);
 
     static const char *tabs[] = {"BASIC", "BRAKE", "MOTOR"};
     for (uint8_t tab = 0; tab < 3; ++tab) {
         const bool selected = escProgrammingTab_ == tab;
-        makePageActionButton(8 + tab * 155, 87, 147, 32,
+        makePageActionButton(8 + tab * (kScreenWidth-16)/3, portraitUi ? 118 : 87, (kScreenWidth-16)/3-4, portraitUi ? 40 : 32,
                              tabs[tab], 13,
                              selected ? cPanel2 : cBlack,
                              selected ? cCyan : cDim,
@@ -4245,22 +4095,22 @@ void TransmitterUi::drawEscProgrammingPage()
 
     const uint8_t page = min<uint8_t>(escProgrammingTab_, 2);
     for (uint8_t row = 0; row < 4; ++row) {
-        const int16_t y = 125 + row * 36;
-        lv_obj_t *panel = makePanel(8, y, 464, 31, cPanel, cLine, 5);
+        const int16_t y = portraitUi ? 170+row*61 : 125+row*36;
+        lv_obj_t *panel = makePanel(8, y, kScreenWidth-16, portraitUi ? 55 : 31, cPanel, cLine, 5);
         makeLabel(panel, labels[page][row], 10, 7, 12, cCyan);
         lv_obj_t *value = makeLabel(panel, values[page][row], 0, 7, 12, cWhite);
-        lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -12, 7);
+        lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -12, portraitUi ? 30 : 7);
     }
 
     // These controls establish the intended workflow without suggesting that
     // a value has actually been read from or written to the ESC.
-    makePageActionButton(8, 274, 168, 35, "READ ESC", 13,
+    makePageActionButton(8, portraitUi ? 416 : 274, portraitUi ? 100 : 168, portraitUi ? 40 : 35, "READ ESC", 13,
                          cBlack, cDim, cDim,
                          &TransmitterUi::controlEscProgramming, 3);
-    makePageActionButton(184, 274, 168, 35, "WRITE ESC", 13,
+    makePageActionButton(portraitUi ? 114 : 184, portraitUi ? 416 : 274, portraitUi ? 100 : 168, portraitUi ? 40 : 35, "WRITE ESC", 13,
                          cBlack, cDim, cDim,
                          &TransmitterUi::controlEscProgramming, 4);
-    lv_obj_t *comms = makePanel(360, 274, 112, 35,
+    lv_obj_t *comms = makePanel(portraitUi ? 220 : 360, portraitUi ? 416 : 274, portraitUi ? 92 : 112, portraitUi ? 40 : 35,
                                 cSafetyWaiting, cAmber, 7);
     lv_obj_t *commsLabel = makeLabel(comms, "NO COMMS", 0, 0, 11, cAmber);
     lv_obj_center(commsLabel);
@@ -4309,6 +4159,7 @@ void TransmitterUi::drawDisplayRow(int row, int visibleRow)
 
 void TransmitterUi::drawDisplayPage()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::DisplaySetup); return; }
     activePage_ = UiPage::DisplaySetup;
     startScreen();
     resetLvglObjects();
@@ -4400,6 +4251,7 @@ void TransmitterUi::drawTxBatteryRow(int row)
 
 void TransmitterUi::drawTxBatteryPage()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::TxBatterySetup); return; }
     activePage_ = UiPage::TxBatterySetup;
     startScreen();
     resetLvglObjects();
@@ -4458,6 +4310,7 @@ void TransmitterUi::drawRxBatteryRow(int row)
 
 void TransmitterUi::drawRxBatteryPage()
 {
+    if (portraitUi) { drawPortraitDetails(UiPage::RxBatterySetup); return; }
     activePage_ = UiPage::RxBatterySetup;
     startScreen();
     resetLvglObjects();
@@ -4485,9 +4338,42 @@ void TransmitterUi::drawCalibrationPage()
 {
     startScreen();
     resetLvglObjects();
+#ifdef JR_R1_UI_PORTRAIT
+    makeHeader(calibratingSteering_ ? "STEERING CAL" : "THROTTLE CAL", "CANCEL");
+#else
     makeHeader(calibratingSteering_
         ? "STEERING CALIBRATION" : "THROTTLE CALIBRATION", "CANCEL");
+#endif
     beginPageFocus();
+#ifdef JR_R1_UI_PORTRAIT
+    {
+    makeLabel(lv_scr_act(), calibratingSteering_
+        ? "1. MOVE TO FULL LEFT" : "1. MOVE TO FULL BRAKE",
+        16, 68, 15, cCyan);
+    makeLabel(lv_scr_act(), calibratingSteering_
+        ? "2. MOVE TO FULL RIGHT" : "2. MOVE TO FULL FORWARD",
+        16, 102, 15, cCyan);
+    makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 16, 136, 15, cCyan);
+    char held[44];
+    snprintf(held, sizeof(held), "CH%u OUTPUT HELD AT NEUTRAL",
+             calibratingSteering_ ? channelRoleSettings_.steeringChannel
+                                  : channelRoleSettings_.throttleChannel);
+    makeLabel(lv_scr_act(), held, 16, 178, 13, cAmber);
+    lv_obj_t *panel = makePanel(10, 214, 300, 246);
+    makeLabel(panel, "MINIMUM AVERAGE", 16, 18, 13, cDim);
+    makeLabel(panel, "LIVE INPUT", 16, 86, 13, cDim);
+    makeLabel(panel, "MAXIMUM AVERAGE", 16, 154, 13, cDim);
+    calibrationMinimumLabel_ = makeLabel(panel, "----", 190, 10, 24);
+    calibrationLiveLabel_ = makeLabel(panel, "----", 190, 78, 24);
+    calibrationMaximumLabel_ = makeLabel(panel, "----", 190, 146, 24);
+    makeLabel(panel, "Move to both ends,\nthen hold centre.",
+              16, 202, 11, cDim);
+    drawCalibrationValues(calibratingSteering_
+        ? latestSteeringRawAdc_ : latestRawAdc_);
+    finishPageFocus();
+    return;
+    }
+#endif
     makeLabel(lv_scr_act(), calibratingSteering_
         ? "1. MOVE TO FULL LEFT" : "1. MOVE TO FULL BRAKE",
         20, 62, 16, cCyan);
@@ -4639,6 +4525,9 @@ bool TransmitterUi::initialiseTouchController()
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
     // Goodix address-select/reset sequence used by Waveshare. Holding INT low
     // when reset is released selects address 0x5d.
+#ifdef JR_R1_XIAO_PCB
+    if (!pcbResetTouch()) return false;
+#else
     pinMode(TOUCH_IRQ_PIN, OUTPUT);
     pinMode(TOUCH_RESET_PIN, OUTPUT);
     digitalWrite(TOUCH_IRQ_PIN, LOW);
@@ -4652,6 +4541,7 @@ bool TransmitterUi::initialiseTouchController()
     delay(55);
     pinMode(TOUCH_IRQ_PIN, INPUT_PULLUP);
     delay(100);
+#endif
 
     uint8_t productId[4] = {};
     const bool ready = readGt911Register(0x8140, productId, sizeof(productId));
@@ -4712,12 +4602,21 @@ bool TransmitterUi::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
     rawY = static_cast<uint16_t>(point[3] | (point[4] << 8U));
     rawZ = static_cast<uint16_t>(point[5] | (point[6] << 8U));
 
+#ifdef JR_R1_UI_PORTRAIT
+    // ST7796 rotation 2 is portrait rotated 180 degrees from the GT911's
+    // native 320x480 coordinate orientation.
+    x = constrain(static_cast<int32_t>(kScreenWidth - 1 - rawX),
+                  0L, static_cast<int32_t>(kScreenWidth - 1));
+    y = constrain(static_cast<int32_t>(kScreenHeight - 1 - rawY),
+                  0L, static_cast<int32_t>(kScreenHeight - 1));
+#else
     // Match the Waveshare example's rotation 3: landscape with the connector
     // orientation used by the ST7796 display profile.
     x = constrain(static_cast<int32_t>(kScreenWidth - 1 - rawY),
                   0L, static_cast<int32_t>(kScreenWidth - 1));
     y = constrain(static_cast<int32_t>(rawX),
                   0L, static_cast<int32_t>(kScreenHeight - 1));
+#endif
     return true;
 #else
     if (digitalRead(TOUCH_IRQ_PIN) != LOW) return false;
@@ -4734,6 +4633,31 @@ bool TransmitterUi::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
 
 void TransmitterUi::handleDashboardTouch(int16_t x, int16_t y)
 {
+#ifdef JR_R1_UI_PORTRAIT
+    if (y < 44) {
+        if (x >= 272) {
+            playKeyClick(); drawMainMenu();
+        } else if (lastSafetyStatus_ == OutputSafetyStatus::Armed) {
+            armRequested_ = false;
+            safetyResetRequested_ = true;
+            playBuzzer(180);
+            lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
+        } else if (lastTouchDurationMs_ >= kDashboardArmHoldMs) {
+            armRequested_ = true;
+            safetyResetRequested_ = true;
+            playBuzzer(80);
+            lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
+        }
+    } else if (y >= 398) {
+        if (x < 82) { playKeyClick(); drawMainMenu(); }
+        else if (x < 160) { playKeyClick(); drawTelemetryPage(); }
+        else {
+            driveModesReturnPage_ = UiPage::Dashboard;
+            playKeyClick(); drawDriveModesPage();
+        }
+    }
+    return;
+#endif
     if ((y < 45 && x >= 415) || (y >= 245 && x < 120)) { playKeyClick(); drawMainMenu(); }
     else if (y >= 245 && x >= 120 && x < 236) { playKeyClick(); drawTelemetryPage(); }
     else if (y >= 245 && x >= 236 && x < 352) {
@@ -4768,6 +4692,16 @@ void TransmitterUi::handleTelemetryTouch(int16_t x, int16_t y)
 
 void TransmitterUi::handleMainMenuTouch(int16_t x, int16_t y)
 {
+#ifdef JR_R1_UI_PORTRAIT
+    {
+    if (x < 5 || x >= 315 || y < 52 || y >= 436) return;
+    const int item = (y - 52) / 48;
+    if (item < 0 || item >= 8 || !mainMenuItemEnabled(item)) return;
+    mainMenuFocusIndex_ = static_cast<uint8_t>(item);
+    activateMainMenuFocus();
+    return;
+    }
+#endif
     if (x < 5 || x >= 475 || y < 52 || y >= 270) return;
     const int item = ((y - 52) / 54) * 2 + (x >= 240 ? 1 : 0);
     if (item < 0 || item >= 8 || !mainMenuItemEnabled(item)) return;
@@ -5462,6 +5396,7 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
     }
     if (activePage_ == UiPage::BootSplash ||
         activePage_ == UiPage::StartupWarning) return;
+    if (designPage()) { designTouchDispatch_ = true; dispatchPageControlTouch(x, y); designTouchDispatch_ = false; return; }
     if (activePage_ != UiPage::Dashboard && headerHomeTouched(x, y)) {
         if (calibrationActive()) {
             (calibratingSteering_ ? steeringInput_ : triggerInput_)
@@ -5479,8 +5414,9 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
         return;
     }
     if (dispatchPageControlTouch(x, y)) return;
+    if (portraitUi) return;
     if (activePage_ == UiPage::Dashboard) { handleDashboardTouch(x, y); return; }
-    if (activePage_ == UiPage::Telemetry) { handleTelemetryTouch(x, y); return; }
+    if (activePage_ == UiPage::RadioDiagnostics) { handleTelemetryTouch(x, y); return; }
     if (activePage_ == UiPage::MainMenu) { handleMainMenuTouch(x, y); return; }
     if (activePage_ == UiPage::ModelSelect) { handleModelSelectTouch(x, y); return; }
     if (activePage_ == UiPage::Channels) { handleChannelsTouch(x, y); return; }
@@ -5499,6 +5435,7 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
     if (activePage_ == UiPage::RxBatterySetup) { handleRxBatteryTouch(x, y); return; }
     if (activePage_ == UiPage::DisplaySetup) { handleDisplayTouch(x, y); return; }
     if (activePage_ == UiPage::ElrsBinding) { handleElrsBindingTouch(x, y); return; }
+    if (activePage_ == UiPage::ElrsTxConfig) { handleElrsTxConfigTouch(x, y); return; }
     if (y < 48 && x >= 186 && x < 262) {
         selectedChannel_ = channelRoleSettings_.throttleChannel;
         throttleResponseReturnPage_ = UiPage::Channel2;
@@ -5534,6 +5471,8 @@ void TransmitterUi::updateTouch()
     const uint32_t now = millis();
 #ifdef JR_R1_SIMULATOR
     const bool irqActive = simulatorTouchDown();
+#elif defined(JR_R1_XIAO_PCB)
+    const bool irqActive = pcbTouchIrqActive();
 #else
     const bool irqActive = digitalRead(TOUCH_IRQ_PIN) == LOW;
 #endif
@@ -5599,6 +5538,7 @@ void TransmitterUi::updateTouch()
         touchReleaseSinceMs_ = 0;
         if (!touchWasDown_) {
             touchWasDown_ = true;
+            touchDownStartedMs_ = now;
             lastTouchX_ = x;
             lastTouchY_ = y;
             Serial.printf("TOUCH down page=%s raw=(%u,%u,%u) screen=(%d,%d)\n",
@@ -5629,6 +5569,7 @@ void TransmitterUi::updateTouch()
 
     const int16_t releasedX = lastTouchX_;
     const int16_t releasedY = lastTouchY_;
+    lastTouchDurationMs_ = now - touchDownStartedMs_;
     touchWasDown_ = false;
     touchReleaseSinceMs_ = 0;
     touchIgnoreUntilMs_ = now + kTouchRetriggerGuardMs;
@@ -5647,14 +5588,43 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
                         const CrsfChannelOutputModel &channelOutputs,
                         bool channelOutputsLive)
 {
+    designTelemetry_ = telemetry; designSafety_ = safetyStatus;
+    designTxVoltage_ = txVoltageDecivolts; designTxValid_ = txVoltageValid;
     latestRawAdc_ = rawAdc;
     latestSteeringRawAdc_ = steeringRawAdc;
+    for (uint8_t ch=1; ch<=16; ++ch) designRequested_[ch-1] = channelOutputs.requested(ch);
     const uint16_t enabledMask = channelOutputs.enabledMask();
     channelOutputs.resolve(channelOutputsLive, dashboardChannelValues_);
     if (enabledMask != dashboardEnabledChannelMask_) {
         dashboardEnabledChannelMask_ = enabledMask;
         if (activePage_ == UiPage::Dashboard) drawDashboard();
     }
+    if (activePage_ == UiPage::ElrsTxConfig) {
+        if (txConfigSequence_ != telemetry.txParameterSequence) {
+            txConfigSequence_ = telemetry.txParameterSequence;
+            txConfig_.receive(telemetry.txParameterType, telemetry.txParameterPayload,
+                              telemetry.txParameterLength, millis());
+        }
+        // Share the existing bounded management queue. No second UART owner.
+        // Wait for the control task to acknowledge CUT before any requests.
+        if (!elrsRequestPending_ && safetyStatus == OutputSafetyStatus::Calibration) {
+            TxParameterRequest request;
+            if (txConfig_.poll(millis(), request)) {
+                elrsPendingRequest_ = ElrsManagementRequest{};
+                elrsPendingRequest_.action = ElrsManagementAction::TxParameter;
+                elrsPendingRequest_.parameter = request;
+                elrsRequestPending_ = true;
+            }
+        }
+        if (txConfigRevision_ != txConfig_.revision()) {
+            txConfigRevision_ = txConfig_.revision();
+            if (!txConfigDraftDirty_ && txConfigSelected_) {
+                const auto p = txConfig_.parameter(txConfigSelected_);
+                if (p) txConfigDraft_ = p->value;
+            }
+            drawElrsTxConfigPage();
+        }
+    } else txConfig_.stop();
     bool redrawElrsPage = false;
     if (elrsReceiverLinkAvailable_ != telemetry.linkValid) {
         elrsReceiverLinkAvailable_ = telemetry.linkValid;
@@ -5726,11 +5696,14 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
         nextDisplayUpdateMs_ = now + kUiUpdateMs;
         if (calibrationActive()) drawCalibrationValues(
             calibratingSteering_ ? steeringRawAdc : rawAdc);
+        else if (designPage()) {
+            updateDesign(telemetry, safetyStatus, txVoltageDecivolts, txVoltageValid);
+        }
         else if (activePage_ == UiPage::Dashboard) {
             drawDashboardLive(crsfValue, safetyStatus, telemetry,
                               txVoltageDecivolts, txVoltageValid);
         }
-        else if (activePage_ == UiPage::Telemetry) {
+        else if (activePage_ == UiPage::RadioDiagnostics) {
             drawTelemetryLive(telemetry, txVoltageDecivolts, txVoltageValid);
         }
         else if (activePage_ == UiPage::Channel2) drawLiveIndicator(outputPermille, crsfValue);

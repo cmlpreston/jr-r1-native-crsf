@@ -5,6 +5,7 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  dashboard_widgets_test \
   channel_response_test \
   control_configuration_test \
   proportional_input_test \
@@ -12,7 +13,10 @@ TESTS := \
   output_safety_test \
   physical_input_test \
   physical_input_runtime_test \
-  binding_resolver_test
+  binding_resolver_test \
+  pcb_io_test \
+  crsf_tx_config_test \
+  crsf_tx_telemetry_test
 
 .PHONY: all run clean
 
@@ -63,3 +67,22 @@ $(BUILD)/binding_resolver_test: binding_resolver_test.cpp \
 
 clean:
 	rm -rf $(BUILD)
+
+$(BUILD)/pcb_io_test: pcb_io_test.cpp $(ROOT)/src/pcb_io.cpp \
+    $(ROOT)/src/mcp23017_input.cpp $(ROOT)/src/r1_input_map.cpp \
+    $(ROOT)/src/physical_input_runtime.cpp $(ROOT)/src/physical_input.cpp \
+    $(ROOT)/src/control_assignment.cpp
+	@mkdir -p $(@D)
+	$(CXX) -Imocks $(CPPFLAGS) $(CXXFLAGS) -DJR_R1_XIAO_PCB=1 $^ -o $@
+
+$(BUILD)/crsf_tx_config_test: crsf_tx_config_test.cpp $(ROOT)/src/crsf_tx_config.cpp $(ROOT)/src/crsf_channel_output.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
+
+$(BUILD)/crsf_tx_telemetry_test: crsf_tx_telemetry_test.cpp $(ROOT)/src/crsf_telemetry.cpp $(ROOT)/src/crsf_channel_output.cpp
+	@mkdir -p $(@D)
+	$(CXX) -Icrsf_mocks $(CPPFLAGS) $(CXXFLAGS) $^ -o $@
+
+$(BUILD)/dashboard_widgets_test: dashboard_widgets_test.cpp $(ROOT)/include/dashboard_widgets.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@

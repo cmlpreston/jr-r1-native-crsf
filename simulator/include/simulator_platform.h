@@ -5,7 +5,9 @@
 
 struct SimulatorControls {
     int16_t throttlePermille = 0;
+    int16_t steeringPermille = 0;
     bool linkValid = true;
+    bool vehicleTelemetry = false;
     int8_t uplinkRssiDbm = -48;
     uint8_t linkQualityPercent = 100;
     uint16_t receiverVoltageDecivolts = 66;
@@ -27,4 +29,6 @@ void simulatorBeep(uint16_t pitchHz, uint16_t durationMs);
 void simulatorStopBeep();
 void simulatorWriteScreenshot(Stream &output);
 bool simulatorSaveScreenshot(const char *path);
-
+// Optional local browser bridge; inactive unless JR_R1_SIM_BRIDGE is set.
+void simulatorServiceBridge();
+bool simulatorConsumeAction(uint16_t &function, int16_t &value);

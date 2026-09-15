@@ -11,7 +11,9 @@ Before uploading to an ESP32-S3:
    the differences and obtaining explicit confirmation from the user.
 3. Confirm the selected PlatformIO environment, board, display profile and pin
    map against the connected hardware. The normal hardware is the
-   `esp32-s3-devkitc-1` environment with the Waveshare 3.5-inch RPi LCD (F).
+   `esp32-s3-devkitc-1-portrait` environment with the Waveshare 3.5-inch
+   RPi LCD (F). Portrait is the current UI default; the base
+   `esp32-s3-devkitc-1` environment is the landscape alternative.
 4. Build and run the available tests before upload.
 5. State which branch, environment and display profile will be uploaded.
 

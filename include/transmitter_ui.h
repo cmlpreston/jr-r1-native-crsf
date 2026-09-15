@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <lvgl.h>
 #include "channel_response.h"
+#include "dashboard_widgets.h"
 #include "control_configuration.h"
 #include "control_assignment.h"
 #include "crsf_telemetry.h"
@@ -68,8 +69,18 @@ enum class UiPage : uint8_t {
     DisplaySetup,
     FirmwareInfo,
     ElrsBinding,
+    ElrsTxConfig,
     EscProgramming,
     Calibration,
+    Tune,
+    ValueEditor,
+    Gps,
+    ChannelMonitor,
+    SensorDetail,
+    WidgetSelect,
+    RadioDiagnostics,
+    WidgetEditor,
+    BatteryMenu,
 };
 
 class TransmitterUi {
@@ -107,7 +118,18 @@ public:
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
     bool captureScreenshot(Stream &output);
 #ifdef JR_R1_SIMULATOR
-    void showSimulatorPage(UiPage page) { activePage_ = page; redrawActivePage(); }
+    bool runSimulatorUiAudit();
+    bool selectSimulatorTxParameter(uint8_t id) {
+        const auto p = txConfig_.parameter(id);
+        if (!txConfig_.ready() || !p) return false;
+        if (p->type == 11) { txConfigFolder_ = id; txConfigSelected_ = 0; }
+        else { txConfigSelected_ = id; txConfigDraft_ = p->value; }
+        drawElrsTxConfigPage(); return true;
+    }
+    void showSimulatorPage(UiPage page) {
+        if (page == UiPage::ElrsTxConfig) txConfig_.start(millis());
+        activePage_ = page; redrawActivePage();
+    }
     bool selectSimulatorModel(uint8_t slot) { return selectModelMemory(slot); }
     void selectSimulatorDisplayBank(uint8_t bank) {
         displaySetupBank_ = bank > 1 ? 1 : bank;
@@ -126,6 +148,18 @@ public:
     bool consumeElrsManagementRequest(ElrsManagementRequest &request);
 
 private:
+    bool designPage() const;
+    void drawDesignPage(UiPage page);
+    void drawPortraitDetails(UiPage page);
+    uint8_t portraitResponseBank_ = 0;
+    void updateDesign(const CrsfTelemetryState &telemetry, OutputSafetyStatus safety,
+                      uint16_t txVoltage, bool txValid);
+    void openDesignEditor(uint8_t field, UiPage returnPage);
+    int designValue() const;
+    void applyDesignValue(int value);
+    void toggleRunTimer();
+    void drawDashboardWidgets();
+    void updateDashboardWidgets(const CrsfTelemetryState &telemetry, uint16_t tx, bool txValid);
     ChannelResponseProfile &profileForChannel(uint8_t channel);
     const ChannelResponseProfile &profileForChannel(uint8_t channel) const;
     ChannelResponseProfile &throttleProfile();
@@ -169,6 +203,8 @@ private:
         Activate = 0,
         Increase = 1,
     };
+    void controlDesign(uint8_t item, PageControlEvent event);
+    void controlPortraitBank(uint8_t item, PageControlEvent event);
     using PageControlHandler = void (TransmitterUi::*)(uint8_t,
                                                      PageControlEvent);
     void addPageActionTarget(int16_t x, int16_t y, int16_t width,
@@ -224,6 +260,7 @@ private:
                            uint16_t txVoltageDecivolts,
                            bool txVoltageValid);
     void drawTelemetryPage();
+    void drawRadioDiagnostics();
     void drawTelemetryLive(const CrsfTelemetryState &telemetry,
                            uint16_t txVoltageDecivolts,
                            bool txVoltageValid);
@@ -253,6 +290,10 @@ private:
     void drawDisplayRow(int row, int visibleRow);
     void drawFirmwareInfoPage();
     void drawElrsBindingPage();
+    void drawElrsTxConfigPage();
+    void controlElrsTxConfig(uint8_t item, PageControlEvent event);
+    void handleElrsTxConfigTouch(int16_t x, int16_t y);
+    void leaveElrsTxConfig();
     void drawEscProgrammingPage();
     void drawCalibrationPage();
     void drawCalibrationValues(uint16_t adc);
@@ -332,6 +373,54 @@ private:
     ChannelResponseProfile channelProfiles_[CRSF_CHANNEL_COUNT] = {};
     static constexpr uint8_t kModelMemoryCount = 10;
     static constexpr uint8_t kModelNameCapacity = 13;
+    DashboardLayout dashboardLayouts_[kModelMemoryCount];
+    uint8_t widgetCell_ = 0;
+    DashboardWidget widgetDraft_;
+    struct DashboardWidgetView {
+        lv_obj_t *panel = nullptr;
+        lv_obj_t *values[2] = {};
+        lv_obj_t *bars[2] = {};
+        lv_obj_t *arcs[2] = {};
+        lv_obj_t *plot = nullptr;
+        lv_obj_t *secondPlot = nullptr;
+        lv_obj_t *marker = nullptr;
+        lv_obj_t *detail = nullptr;
+        lv_point_t points[48] = {};
+        lv_point_t secondPoints[30] = {};
+    };
+    DashboardWidgetView widgetViews_[4];
+    uint8_t tuneRole_ = 0; // steering, forward throttle, brake, selected AUX
+    uint8_t tuneBank_ = 0, designBank_ = 0, setupBank_ = 0, sensorSelected_ = 0;
+    uint8_t editorField_ = 0;
+    int editorDraft_ = 0;
+    UiPage editorReturn_ = UiPage::Tune;
+    bool editorFine_ = false;
+    bool designTouchDispatch_ = false;
+    bool runTimerRunning_ = false;
+    uint32_t runTimerStartedMs_ = 0, runTimerElapsedMs_ = 0;
+    OutputSafetyStatus designSafety_ = OutputSafetyStatus::Cut;
+    CrsfTelemetryState designTelemetry_;
+    uint16_t designTxVoltage_ = 0;
+    bool designTxValid_ = false;
+    lv_obj_t *designValues_[10] = {};
+    lv_obj_t *designDetails_[8] = {};
+    lv_obj_t *designBars_[4] = {};
+    lv_obj_t *designStatus_ = nullptr;
+    lv_obj_t *designLink_ = nullptr;
+    lv_obj_t *designCurve_ = nullptr;
+    lv_obj_t *designMarker_ = nullptr;
+    lv_point_t designPoints_[33] = {};
+    uint16_t channelHistory_[16][30] = {};
+    int32_t sensorHistory_[6][30] = {};
+    bool sensorHistoryValid_[6][30] = {};
+    uint8_t sensorHistoryCount_ = 0;
+    uint32_t nextSensorSampleMs_ = 0;
+    int32_t gpsLat_[48] = {}, gpsLon_[48] = {};
+    uint8_t gpsCount_ = 0;
+    uint32_t gpsLastSampleMs_ = 0;
+    bool gpsTrailVisible_ = true;
+    uint8_t gpsZoom_ = 1;
+    lv_point_t gpsPoints_[48] = {};
     uint8_t activeModelSlot_ = 0;
     uint8_t modelSelectBank_ = 0;
     uint8_t displaySetupBank_ = 0;
@@ -346,6 +435,12 @@ private:
     TxBatterySettings txBatterySettings_;
     RxBatterySettings rxBatterySettings_;
     DriveModeSettings driveModeSettings_;
+    CrsfTxConfig txConfig_;
+    uint32_t txConfigSequence_ = 0, txConfigRevision_ = 0;
+    uint8_t txConfigFolder_ = 0, txConfigOffset_ = 0, txConfigSelected_ = 0;
+    uint8_t txConfigDraft_ = 0;
+    uint8_t txConfigRows_[4] = {};
+    bool txConfigDraftDirty_ = false;
     char elrsBindPhrase_[52] = {};
     bool elrsKeyboardUppercase_ = false;
     bool elrsRequestPending_ = false;
@@ -393,6 +488,8 @@ private:
     uint16_t latestRawAdc_ = 0;
     uint16_t latestSteeringRawAdc_ = 0;
     bool touchWasDown_ = false;
+    uint32_t touchDownStartedMs_ = 0;
+    uint32_t lastTouchDurationMs_ = 0;
     uint32_t touchReleaseSinceMs_ = 0;
     uint32_t touchIgnoreUntilMs_ = 0;
     int16_t lastTouchX_ = 0;
@@ -400,6 +497,7 @@ private:
     int16_t lastMarkerX_ = -1;
     uint16_t lastDisplayedCrsf_ = UINT16_MAX;
     uint16_t dashboardEnabledChannelMask_ = 0;
+    uint16_t designRequested_[CRSF_CHANNEL_COUNT] = {};
     uint16_t dashboardChannelValues_[CRSF_CHANNEL_COUNT] = {};
     uint16_t lastDashboardChannelValues_[CRSF_CHANNEL_COUNT] = {};
     OutputSafetyStatus lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
@@ -447,6 +545,7 @@ private:
     static constexpr uint8_t kMaximumPageFocusTargets = 64;
     PageFocusTarget pageFocusTargets_[kMaximumPageFocusTargets] = {};
     uint8_t pageFocusCount_ = 0;
+    bool pageFocusVisible_ = false;
     uint8_t pageFocusIndex_ = 0;
     bool pageStandardHeaderPending_ = false;
     lv_obj_t *pageFocusIndicator_ = nullptr;
@@ -458,6 +557,7 @@ private:
     };
     lv_obj_t *dashboardChannelBars_[CRSF_CHANNEL_COUNT] = {};
     lv_obj_t *dashboardChannelMarkers_[CRSF_CHANNEL_COUNT] = {};
+    lv_obj_t *dashboardChannelValueLabels_[CRSF_CHANNEL_COUNT] = {};
     DashboardChannelWidgetKind dashboardChannelWidgetKinds_[CRSF_CHANNEL_COUNT] = {};
     lv_obj_t *dashboardSafetyPanel_ = nullptr;
     lv_obj_t *dashboardSafetyLabel_ = nullptr;

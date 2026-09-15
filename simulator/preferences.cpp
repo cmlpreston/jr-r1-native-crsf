@@ -3,6 +3,29 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+EM_JS(void, browserRestorePreferences, (const char *directory), {
+    const dir = UTF8ToString(directory), prefix = 'jr-r1-demo-v1:' + dir + '/';
+    try {
+        for (let i = 0; i < localStorage.length; ++i) {
+            const key = localStorage.key(i);
+            if (!key.startsWith(prefix)) continue;
+            const name = key.slice(prefix.length);
+            if (!/^[a-zA-Z0-9_-]+$/.test(name)) continue;
+            const raw = atob(localStorage.getItem(key));
+            FS.writeFile(dir + '/' + name, Uint8Array.from(raw, c => c.charCodeAt(0)));
+        }
+    } catch (e) { Module['storageWarning']?.(); }
+});
+EM_JS(void, browserSavePreference, (const char *path, const void *bytes, size_t length), {
+    try {
+        let raw = "";
+        for (let i = 0; i < length; ++i) raw += String.fromCharCode(HEAPU8[bytes + i]);
+        localStorage.setItem('jr-r1-demo-v1:' + UTF8ToString(path), btoa(raw));
+    } catch (e) { Module['storageWarning']?.(); }
+});
+#endif
 
 namespace fs = std::filesystem;
 
@@ -24,6 +47,10 @@ bool Preferences::begin(const char *name, bool readOnly)
     name_ = name == nullptr ? "default" : name;
     readOnly_ = readOnly;
     if (!readOnly_) fs::create_directories(stateRoot() / name_);
+#ifdef __EMSCRIPTEN__
+    fs::create_directories(stateRoot() / name_);
+    browserRestorePreferences((stateRoot() / name_).c_str());
+#endif
     return true;
 }
 
@@ -48,6 +75,9 @@ size_t Preferences::writeValue(const char *key, const void *value, size_t length
     std::ofstream output(pathFor(key), std::ios::binary | std::ios::trunc);
     if (!output) return 0;
     output.write(static_cast<const char *>(value), static_cast<std::streamsize>(length));
+#ifdef __EMSCRIPTEN__
+    if (output) browserSavePreference(pathFor(key).c_str(), value, length);
+#endif
     return output ? length : 0;
 }
 

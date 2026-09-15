@@ -88,6 +88,45 @@ void CrsfTelemetryParser::processFrame()
     const uint8_t payloadLength = frame_[1] - 2;
     const uint8_t *payload = &frame_[3];
 
+    if ((frameType == 0x29 || frameType == 0x2b) && payloadLength >= 2 &&
+        payload[0] == kRadioTransmitterAddress && payload[1] == kCrsfTransmitterAddress) {
+        state_.txParameterType = frameType;
+        state_.txParameterLength = payloadLength;
+        memcpy(state_.txParameterPayload, payload, payloadLength);
+        ++state_.txParameterSequence;
+    }
+
+    // GPS uses the deployed ELRS/Betaflight 0.1 km/h scale. See the
+    // protocol notes in docs/ui-firmware-port.md (TBS prose differs).
+    if (frameType == 0x02 && payloadLength >= 15) {
+        auto u32 = [](const uint8_t *p) { return (uint32_t(p[0]) << 24) |
+            (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3]; };
+        const int32_t lat = static_cast<int32_t>(u32(payload));
+        const int32_t lon = static_cast<int32_t>(u32(payload + 4));
+        const uint16_t heading = (uint16_t(payload[10]) << 8) | payload[11];
+        if (lat < -900000000 || lat > 900000000 || lon < -1800000000 ||
+            lon > 1800000000 || heading > 36000) return;
+        state_.latitudeE7 = lat; state_.longitudeE7 = lon;
+        state_.groundSpeedDeciKmh = (uint16_t(payload[8]) << 8) | payload[9];
+        state_.headingCentiDegrees = heading;
+        state_.altitudeMetres = ((uint16_t(payload[12]) << 8) | payload[13]) - 1000;
+        state_.satellites = payload[14];
+        state_.gpsValid = true; state_.gpsUpdatedMs = millis();
+        return;
+    }
+    // First value of vehicle source 0. Never conflate TX/RX device temperatures
+    // or later sources with the selected vehicle sensor.
+    if (frameType == 0x0c && payloadLength >= 4 && (payloadLength - 1) % 3 == 0 && payload[0] == 0) {
+        uint32_t raw = (uint32_t(payload[1]) << 16) | (uint32_t(payload[2]) << 8) | payload[3];
+        if (raw & 0x800000) raw |= 0xff000000;
+        state_.rpm = static_cast<int32_t>(raw);
+        state_.rpmValid = true; state_.rpmUpdatedMs = millis(); return;
+    }
+    if (frameType == 0x0d && payloadLength >= 3 && payloadLength <= 41 && (payloadLength - 1) % 2 == 0 && payload[0] == 0) {
+        state_.temperatureDeciC = static_cast<int16_t>((uint16_t(payload[1]) << 8) | payload[2]);
+        state_.temperatureValid = true; state_.temperatureUpdatedMs = millis(); return;
+    }
+
     if (frameType == kFrameTypeLinkStatistics && payloadLength == 10 &&
         payload[2] <= 100 && payload[4] <= 1) {
         state_.activeAntenna = payload[4];
@@ -135,6 +174,9 @@ void CrsfTelemetryParser::processFrame()
 void CrsfTelemetryParser::updateFreshness()
 {
     const uint32_t now = millis();
+    if (state_.gpsValid && now - state_.gpsUpdatedMs > 3000) state_.gpsValid = false;
+    if (state_.rpmValid && now - state_.rpmUpdatedMs > 3000) state_.rpmValid = false;
+    if (state_.temperatureValid && now - state_.temperatureUpdatedMs > 10000) state_.temperatureValid = false;
     if (state_.linkValid && now - state_.linkUpdatedMs > kLinkFreshMs) {
         state_.linkValid = false;
     }

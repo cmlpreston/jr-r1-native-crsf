@@ -5,7 +5,13 @@
 
 #include "physical_input.h"
 
-// Converts one MCP23017 snapshot plus direct-GPIO levels into debounced logical
+struct McpInputSnapshot {
+    uint8_t address;
+    uint16_t levels;
+    bool available;
+};
+
+// Converts addressed MCP23017 snapshots plus direct-GPIO levels into debounced logical
 // events and a monitorable state store. Hardware reads remain outside this
 // class, so event behaviour is host-testable.
 class PhysicalInputRuntime {
@@ -13,6 +19,9 @@ public:
     bool begin(const PhysicalInputHardwareBinding *bindings, size_t count);
     void update(uint16_t mcpLevels, uint64_t directGpioLevels, uint32_t nowMs,
                 PhysicalInputEventBuffer &events, bool mcpAvailable = true);
+    void update(const McpInputSnapshot *expanders, size_t expanderCount,
+                uint64_t directGpioLevels, uint32_t nowMs,
+                PhysicalInputEventBuffer &events);
     void setProportionalValue(PhysicalControlId input, int16_t value,
                               uint32_t nowMs,
                               PhysicalInputEventBuffer *events = nullptr);
@@ -27,11 +36,6 @@ public:
     uint32_t startupUnsafeMask() const;
 
 private:
-    bool endpointLevel(const InputEndpoint &endpoint, uint16_t mcpLevels,
-                       uint64_t directGpioLevels) const;
-    bool endpointActive(const InputEndpoint &endpoint, uint16_t mcpLevels,
-                        uint64_t directGpioLevels) const;
-
     PhysicalInputHardwareBinding bindings_[kPhysicalControlCount];
     DigitalInputProcessor digital_[kPhysicalControlCount];
     SpringTrimInputProcessor trim_[kPhysicalControlCount];

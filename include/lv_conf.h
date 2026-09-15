@@ -13,6 +13,7 @@
 #define LV_TICK_CUSTOM_SYS_TIME_EXPR ((uint32_t)(esp_timer_get_time() / 1000ULL))
 #endif
 
+#define LV_FONT_MONTSERRAT_10 1
 #define LV_FONT_MONTSERRAT_12 1
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_16 1
@@ -22,6 +23,7 @@
 #define LV_FONT_MONTSERRAT_24 1
 #define LV_FONT_MONTSERRAT_28 1
 #define LV_FONT_MONTSERRAT_32 1
+#define LV_FONT_MONTSERRAT_48 1
 
 #define LV_USE_LOG 0
 #define LV_USE_PERF_MONITOR 0

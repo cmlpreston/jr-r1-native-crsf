@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include "crsf_tx_config.h"
 
 enum class ElrsManagementTarget : uint8_t {
     Transmitter,
@@ -10,6 +11,7 @@ enum class ElrsManagementTarget : uint8_t {
 enum class ElrsManagementAction : uint8_t {
     ReadUid,
     SetBindPhrase,
+    TxParameter,
 };
 
 struct ElrsManagementRequest {
@@ -17,6 +19,7 @@ struct ElrsManagementRequest {
     ElrsManagementTarget target = ElrsManagementTarget::Transmitter;
     uint8_t phraseLength = 0;
     char phrase[52] = {};
+    TxParameterRequest parameter;
 };
 
 constexpr size_t kElrsMaximumBindPhraseLength = 51;

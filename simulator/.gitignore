@@ -1,5 +1,10 @@
 build/
+build-portrait/
 state/
+state-browser/
+__pycache__/
 third_party/
 screenshot.bmp
-
+build-web*/
+web/dist/
+web/.vercel/

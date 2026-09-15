@@ -19,6 +19,8 @@ constexpr uint8_t kSubcommandBindPhrase = 0x01;
 size_t buildElrsManagementFrame(const ElrsManagementRequest &request,
                                 uint8_t *frame, size_t capacity)
 {
+    if (request.action == ElrsManagementAction::TxParameter)
+        return buildTxParameterFrame(request.parameter, frame, capacity);
     const bool write = request.action == ElrsManagementAction::SetBindPhrase;
     const size_t phraseLength = write
         ? min<size_t>(request.phraseLength, kElrsMaximumBindPhraseLength) : 0;

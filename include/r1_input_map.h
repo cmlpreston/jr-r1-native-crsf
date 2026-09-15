@@ -4,8 +4,8 @@
 
 #include "physical_input.h"
 
-// Provisional production allocation for one Waveshare MCP23017 plus six
-// direct ESP32 inputs. Changing wiring later requires editing only this table.
+// Build-selected hardware map: DevKitC prototype or XIAO two-expander PCB.
+// Device addresses and port bits must match the selected schematic.
 extern const PhysicalInputHardwareBinding kR1InputMap[];
 extern const size_t kR1InputMapCount;
 

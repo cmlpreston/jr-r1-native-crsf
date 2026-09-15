@@ -4,7 +4,12 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <deque>
+#include <fcntl.h>
+#include <sstream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -24,6 +29,49 @@ int16_t touchY = 0;
 SimulatorControls controls;
 bool forwardPressed = false;
 bool brakePressed = false;
+std::string bridgeDirectory;
+std::string bridgeInput;
+std::deque<std::pair<uint16_t, int16_t>> bridgeActions;
+bool frameDirty = true;
+uint32_t frameWrittenMs = 0;
+uint32_t touchPressedMs = 0;
+bool touchReleasePending = false;
+
+void readBridgeCommands()
+{
+    if (bridgeDirectory.empty()) return;
+    char bytes[1024];
+    ssize_t count;
+    while ((count = read(STDIN_FILENO, bytes, sizeof(bytes))) > 0)
+        bridgeInput.append(bytes, static_cast<size_t>(count));
+    if (count == 0) { quitRequested = true; return; }
+    size_t newline;
+    while ((newline = bridgeInput.find('\n')) != std::string::npos) {
+        std::istringstream line(bridgeInput.substr(0, newline));
+        bridgeInput.erase(0, newline + 1);
+        std::string command; int a = 0, b = 0, c = 0;
+        line >> command >> a;
+        if (command == "touch" && (line >> b >> c)) {
+            touchX = constrain<int16_t>(a, 0, screenWidth - 1);
+            touchY = constrain<int16_t>(b, 0, screenHeight - 1);
+            if (c) {
+                if (!touchDown) touchPressedMs = millis();
+                touchDown = true; touchReleasePending = false;
+            } else touchReleasePending = true;
+        } else if (command == "throttle") controls.throttlePermille = constrain(a, -1000, 1000);
+        else if (command == "steering") controls.steeringPermille = constrain(a, -1000, 1000);
+        else if (command == "link") controls.linkValid = a != 0;
+        else if (command == "rx") controls.receiverVoltageDecivolts = constrain(a, 0, 200);
+        else if (command == "tx") controls.transmitterVoltageDecivolts = constrain(a, 0, 200);
+        else if (command == "action" && (line >> b) && a >= 0 && a < 27 && bridgeActions.size() < 64)
+            bridgeActions.emplace_back(static_cast<uint16_t>(a), static_cast<int16_t>(b));
+    }
+    if (bridgeInput.size() > 4096) bridgeInput.clear();
+    // A fast browser click must span at least one LVGL input polling interval.
+    if (touchReleasePending && millis() - touchPressedMs >= 85) {
+        touchDown = false; touchReleasePending = false;
+    }
+}
 
 void updateThrottle()
 {
@@ -59,6 +107,10 @@ void printControls()
 
 bool simulatorDisplayBegin(int16_t width, int16_t height)
 {
+    if (const char *path = std::getenv("JR_R1_SIM_BRIDGE")) {
+        bridgeDirectory = path;
+        fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL) | O_NONBLOCK);
+    }
     screenWidth = width;
     screenHeight = height;
     framebuffer.assign(static_cast<size_t>(width) * height, 0xff000000U);
@@ -98,6 +150,7 @@ void simulatorShutdown()
 
 void simulatorPollEvents()
 {
+    readBridgeCommands();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
@@ -148,6 +201,7 @@ bool simulatorTouchDown() { return touchDown; }
 
 void simulatorFlush(const lv_area_t *area, const lv_color_t *pixels)
 {
+    frameDirty = true;
     size_t source = 0;
     for (int16_t y = area->y1; y <= area->y2; ++y) {
         for (int16_t x = area->x1; x <= area->x2; ++x, ++source) {
@@ -178,6 +232,7 @@ bool simulatorReadTouch(int16_t &x, int16_t &y, uint16_t &rawX,
 void simulatorSetDisplayEnabled(bool enabled)
 {
     displayEnabled = enabled;
+    frameDirty = true;
     present();
 }
 
@@ -216,4 +271,27 @@ bool simulatorSaveScreenshot(const char *path)
     if (surface) SDL_FreeSurface(surface);
     std::printf("SIM: screenshot %s %s\n", saved ? "saved" : "failed", path);
     return saved;
+}
+
+bool simulatorConsumeAction(uint16_t &function, int16_t &value)
+{
+    if (bridgeActions.empty()) return false;
+    function = bridgeActions.front().first; value = bridgeActions.front().second;
+    bridgeActions.pop_front(); return true;
+}
+
+void simulatorServiceBridge()
+{
+    if (bridgeDirectory.empty() || !frameDirty || millis() - frameWrittenMs < 65) return;
+    frameWrittenMs = millis(); frameDirty = false;
+    const std::string temporary = bridgeDirectory + "/frame.tmp";
+    const std::string ready = bridgeDirectory + "/frame.bmp";
+    std::vector<uint32_t> blank;
+    if (!displayEnabled) blank.assign(framebuffer.size(), 0xff000000U);
+    SDL_Surface *surface = SDL_CreateRGBSurfaceFrom(
+        displayEnabled ? framebuffer.data() : blank.data(), screenWidth, screenHeight,
+        32, screenWidth * 4, 0x00ff0000U, 0x0000ff00U, 0x000000ffU, 0xff000000U);
+    if (surface && SDL_SaveBMP(surface, temporary.c_str()) == 0)
+        std::rename(temporary.c_str(), ready.c_str());
+    if (surface) SDL_FreeSurface(surface);
 }

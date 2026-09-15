@@ -3,6 +3,18 @@
 #include <Arduino.h>
 
 struct CrsfTelemetryState {
+    // Last validated TX configuration response. Single-flight client retries
+    // reads if an unsolicited response replaces this mailbox before UI polling.
+    uint32_t txParameterSequence = 0;
+    uint8_t txParameterType = 0, txParameterLength = 0;
+    uint8_t txParameterPayload[60] = {};
+    bool gpsValid = false, temperatureValid = false, rpmValid = false;
+    int32_t latitudeE7 = 0, longitudeE7 = 0;
+    uint16_t groundSpeedDeciKmh = 0, headingCentiDegrees = 0;
+    int32_t altitudeMetres = 0, rpm = 0;
+    int16_t temperatureDeciC = 0;
+    uint8_t satellites = 0;
+    uint32_t gpsUpdatedMs = 0, temperatureUpdatedMs = 0, rpmUpdatedMs = 0;
     bool linkValid = false;
     int16_t uplinkRssiDbm = 0; // Normalised signed dBm, e.g. -31
     uint8_t uplinkLinkQuality = 0;

@@ -16,6 +16,7 @@ from serial.tools import list_ports
 
 
 MAGIC = b"TFTSHOT1 "
+ERROR_MAGIC = b"TFTSHOT-ERROR "
 
 
 def default_port() -> str:
@@ -39,6 +40,14 @@ def read_header(port: serial.Serial, timeout: float) -> tuple[int, int, int, byt
         if not chunk:
             continue
         received.extend(chunk)
+        error_marker = received.find(ERROR_MAGIC)
+        if error_marker >= 0:
+            line_end = received.find(b"\n", error_marker)
+            if line_end >= 0:
+                message = bytes(received[error_marker:line_end]).decode(
+                    "utf-8", errors="replace"
+                )
+                raise RuntimeError(message)
         marker = received.find(MAGIC)
         if marker < 0:
             if len(received) > 4096:

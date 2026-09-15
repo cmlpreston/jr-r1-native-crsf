@@ -19,10 +19,10 @@ support for the earlier BIGTREETECH TFT35 SPI V2.1.
 | GPIO7 | Input | Keypad `SELECT` | Active-low contact; internal pull-up | production map |
 | GPIO8 | Bidirectional | Display touch `SDA` | Shared 3.3 V I²C | `TOUCH_SDA_PIN`; active |
 | GPIO9 | Output | LCD data-command | 3.3 V logic | `TFT_DC_PIN`; active |
-| GPIO10 | Output | LCD chip select | 3.3 V logic | `TFT_CS_PIN`; active |
+| GPIO10 | Unallocated | Waveshare LCD chip select is tied to GND | Available to future firmware; used as `TFT_CS_PIN` only by BTT fallback |
 | GPIO11 | Output | LCD `MOSI` | 3.3 V SPI | `TFT_MOSI_PIN`; active |
 | GPIO12 | Output | LCD `SCK` | 3.3 V SPI, presently 30 MHz | `TFT_SCK_PIN`; active |
-| GPIO13 | Input | LCD `MISO` | 3.3 V SPI | `TFT_MISO_PIN`; active |
+| GPIO13 | Unallocated | Waveshare LCD `MISO` is not routed | Available to future firmware; used as `TFT_MISO_PIN` only by BTT fallback |
 | GPIO14 | Input | Keypad `PAGE` | Active-low contact; internal pull-up | production map |
 | GPIO15 | Input | Keypad `CLEAR` | Active-low contact; internal pull-up | production map |
 | GPIO16 | Input | Display touch interrupt | Active-low, internal pull-up | `TOUCH_IRQ_PIN`; active |
@@ -109,14 +109,17 @@ edit.
 
 ## Waveshare 3.5inch RPi LCD (F) connector (default)
 
+The production PCB connector is JST PHD 14-way (2x7, 2.0 mm). Pins 1–13 follow
+the panel signal order below and pin 14 is deliberately left unconnected.
+
 | LCD signal | ESP32-S3 connection | Interface/function | Voltage |
 |---|---:|---|---:|
 | `VCC` | External regulated 3.3 V | Panel supply per official ESP32 example | 3.3 V |
 | `GND` | GND | Common reference | 0 V |
-| `LCD_MISO` | GPIO13 | LCD SPI data to ESP32 | 3.3 V logic |
+| `LCD_MISO` | Not connected | Not required for normal display operation | — |
 | `LCD_MOSI` | GPIO11 | LCD SPI data from ESP32 | 3.3 V logic |
 | `LCD_CLK` | GPIO12 | LCD SPI clock | 3.3 V logic |
-| `LCD_CS` | GPIO10 | LCD chip select | 3.3 V logic |
+| `LCD_CS` | GND | Permanently selected; LCD is the only SPI peripheral | 0 V |
 | `LCD_DC` | GPIO9 | LCD data/command | 3.3 V logic |
 | `LCD_RST` | GPIO40 | ST7796 reset | 3.3 V logic |
 | `LCD_BL` | GPIO41 | Backlight PWM | 3.3 V logic |

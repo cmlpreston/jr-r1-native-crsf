@@ -3,17 +3,31 @@
 #include <Arduino.h>
 #include "display_profile.h"
 
-// ESP32-S3 DevKitC-1 pin assignments.
+// ESP32-S3 DevKitC-1 defaults, with explicit XIAO PCB overrides.
 // GPIO19 and GPIO20 are deliberately not used: they are native USB D-/D+.
+#ifdef JR_R1_XIAO_PCB
+constexpr gpio_num_t THROTTLE_ADC_PIN = GPIO_NUM_8; // D9
+constexpr uint8_t STEERING_ADC_PIN = 7;           // D8
+#else
 constexpr gpio_num_t THROTTLE_ADC_PIN = GPIO_NUM_1;
 constexpr uint8_t STEERING_ADC_PIN = 2;
+#endif
 // Local transmitter-pack measurement. Connect only through the documented
 // 47 kOhm / 10 kOhm divider; never connect a battery directly to this pin.
+#ifdef JR_R1_XIAO_PCB
+constexpr gpio_num_t TX_BATTERY_ADC_PIN = GPIO_NUM_9; // D10
+#else
 constexpr gpio_num_t TX_BATTERY_ADC_PIN = GPIO_NUM_5;
+#endif
 constexpr uint32_t TX_BATTERY_DIVIDER_TOP_OHMS = 47000;
 constexpr uint32_t TX_BATTERY_DIVIDER_BOTTOM_OHMS = 10000;
+#ifdef JR_R1_XIAO_PCB
+constexpr gpio_num_t CRSF_SIGNAL_PIN = GPIO_NUM_44; // D7
+constexpr gpio_num_t BUZZER_PIN = GPIO_NUM_43;      // D6
+#else
 constexpr gpio_num_t CRSF_SIGNAL_PIN = GPIO_NUM_17;
 constexpr gpio_num_t BUZZER_PIN = GPIO_NUM_4;
+#endif
 constexpr uint8_t BUZZER_LEDC_CHANNEL = 7;
 
 // Waveshare MCP23017 I/O expansion board on the same I2C bus as the selected
@@ -69,3 +83,11 @@ constexpr uint32_t USB_LOG_PERIOD_MS = 250;
 // opens the monitor. Keep transition/fault messages, but make the continuous
 // stream an explicit diagnostic build option.
 constexpr bool ENABLE_PERIODIC_USB_DIAGNOSTICS = false;
+
+#ifdef JR_R1_XIAO_PCB
+// Only GPIO1..9 on the XIAO headers support ADC; D6/D7 must stay digital.
+static_assert(THROTTLE_ADC_PIN >= 1 && THROTTLE_ADC_PIN <= 9 &&
+              STEERING_ADC_PIN >= 1 && STEERING_ADC_PIN <= 9 &&
+              TX_BATTERY_ADC_PIN >= 1 && TX_BATTERY_ADC_PIN <= 9,
+              "XIAO analogue input assigned to a non-ADC header pin");
+#endif

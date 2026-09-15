@@ -43,13 +43,58 @@ bool Mcp23017Input::readRegisters(uint8_t reg, uint8_t *values, size_t count)
 
 bool Mcp23017Input::begin()
 {
-    // Every expander pin starts as an active-low input with its MCP23017
-    // pull-up enabled. A switch therefore needs only to connect its port to GND.
-    online_ = writeRegister(IODIRA, 0xff) &&
-              writeRegister(IODIRB, 0xff) &&
-              writeRegister(GPPUA, 0xff) &&
-              writeRegister(GPPUB, 0xff);
+    // Restore the last configuration after reconnect. Never turn display reset
+    // outputs into inputs or overwrite their latches during input polling.
+    online_ = writeRegister(0x14, outputLatch_ & 0xff) &&
+              writeRegister(0x15, outputLatch_ >> 8) &&
+              writeRegister(GPPUA, pullupMask_ & 0xff) &&
+              writeRegister(GPPUB, pullupMask_ >> 8) &&
+              writeRegister(IODIRA, inputMask_ & 0xff) &&
+              writeRegister(IODIRB, inputMask_ >> 8);
     return online_;
+}
+
+bool Mcp23017Input::configure(uint16_t inputs, uint16_t pullups, uint16_t latch)
+{
+    inputMask_ = inputs;
+    pullupMask_ = pullups & inputs;
+    outputLatch_ = latch;
+    return begin();
+}
+
+bool Mcp23017Input::writeOutput(uint8_t pin, bool high)
+{
+    if (pin >= 16) return false;
+    const uint16_t bit = uint16_t{1} << pin;
+    outputLatch_ = high ? outputLatch_ | bit : outputLatch_ & ~bit;
+    const bool ok = writeRegister(pin < 8 ? 0x14 : 0x15,
+        pin < 8 ? outputLatch_ & 0xff : outputLatch_ >> 8);
+    if (!ok) online_ = false;
+    return ok;
+}
+
+bool Mcp23017Input::setOutput(uint8_t pin, bool high)
+{
+    if (pin >= 16 || !writeOutput(pin, high)) return false;
+    inputMask_ &= ~(uint16_t{1} << pin);
+    const bool ok = writeRegister(pin < 8 ? IODIRA : IODIRB,
+        pin < 8 ? inputMask_ & 0xff : inputMask_ >> 8);
+    if (!ok) online_ = false;
+    return ok;
+}
+
+bool Mcp23017Input::setInput(uint8_t pin, bool pullup)
+{
+    if (pin >= 16) return false;
+    const uint16_t bit = uint16_t{1} << pin;
+    inputMask_ |= bit;
+    pullupMask_ = pullup ? pullupMask_ | bit : pullupMask_ & ~bit;
+    const bool ok = writeRegister(pin < 8 ? GPPUA : GPPUB,
+        pin < 8 ? pullupMask_ & 0xff : pullupMask_ >> 8) &&
+        writeRegister(pin < 8 ? IODIRA : IODIRB,
+        pin < 8 ? inputMask_ & 0xff : inputMask_ >> 8);
+    if (!ok) online_ = false;
+    return ok;
 }
 
 bool Mcp23017Input::read(uint16_t &ports)

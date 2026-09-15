@@ -66,6 +66,10 @@ See the detailed roadmap for individual binding features.
   while CUT and throttle-neutral.
 - [ ] Move bindings and response settings into versioned per-model profiles.
 - [ ] Add versioned JSON profile import/export and a Wi-Fi configuration UI.
+- [ ] Later: shareable setup codes/files, excluding binding credentials and
+  transmitter-specific calibration; validate channel roles and endpoints on import.
+- [ ] Later: quick handover between two vehicles, with explicitly verified
+  parked/braked receiver behaviour for the inactive vehicle and neutral re-arm.
 - [ ] Later: multi-action macros, conditions and general mixes with direction,
   weight and offset.
 
@@ -81,15 +85,32 @@ Complete these after steering shares the generic proportional pipeline:
   frequency; CUT, failsafe and hold always take priority.
 - [ ] Allow a physical dial or digital trim to adjust the Walk-mode forward
   limit while retaining full brake authority.
-- [ ] Later: race-start countdown and user-defined buzzer macros.
-- [ ] Deferred until there is a vehicle use case: 4WS and gyro-gain controls.
+- [ ] Later: race-start countdown with an optional randomised start delay and
+  user-defined buzzer macros.
+- [ ] Deferred until there is a vehicle use case: 4WS and gyro-gain controls,
+  including gradual speed-dependent gyro assistance using valid telemetry.
 
 ## Display and interaction
 
-- [ ] Add simulator navigation and layout regression tests for every page.
+- [ ] Evaluate the overall interface proposal in
+  [`docs/ui-design-direction.md`](docs/ui-design-direction.md): light daytime
+  palette, Drive/Tune/Setup navigation, persistent output status and direct
+  parameter editing, inspired by DJI's settings and operating screens.
+- [x] Audit portrait and landscape menu navigation, edit drafts, widget persistence, model
+  guards, timer operation, arm hold and focus bounds in the native simulator.
+- [x] Rebuild advanced menus for portrait and make portrait the default.
+  Use Model/Handset tabs, flat menu rows and a permanent JR R1 strip.
 - [ ] Add touchscreen lock and dashboard short/long/double-press shortcuts.
+- [ ] Evaluate optional power-on PIN unlock before arming (user idea). Unlock
+  once per power cycle; retain neutral/arming interlocks and immediate CUT at
+  all times. Define recovery and failed-attempt behavior before implementation.
 - [ ] Add dim-before-sleep plus dedicated sunlight and night palettes.
-- [ ] Add configurable dashboard widgets and quick-adjust overlays.
+- [x] Port Drive/Tune/Data/Setup into LVGL with a per-model 2×2 widget grid:
+  timer, paired TX/RX power, one/two channels, sensor, GPS trail and model image.
+  Support 1×1, 2×1 and 2×2 sizes, applicable bars/dials/graphs/switches styles,
+  Apply/Cancel editing, stale telemetry and persistent model/link/CUT status.
+- [ ] Add asset uploads and offline map backgrounds through the S3 setup portal.
+- [ ] Add quick-adjust overlays for dashboard widgets.
 - [ ] Measure and record Waveshare awake, controller-off and backlight-off
   current.
 - [ ] Decide whether the production interface needs a MOSFET-controlled
@@ -97,7 +118,8 @@ Complete these after steering shares the generic proportional pipeline:
 
 ## Telemetry and vehicle peripherals
 
-- [ ] Extend the CRSF parser for standard GPS and battery/current telemetry.
+- [x] Decode CRSF GPS, source-zero temperature and RPM with freshness checks.
+- [ ] Extend battery telemetry beyond voltage to current and consumed capacity.
 - [ ] Define and prototype the vehicle-side bridge for GPS, RPM, current,
   voltage and temperature sources, including any required S.Port/i-BUS to CRSF
   conversion.
@@ -110,6 +132,34 @@ Complete these after steering shares the generic proportional pipeline:
 - [ ] Investigate ER6G/ELRS serial sensors and safe remote ESC configuration.
 - [ ] Later: maintenance reminders, battery-cell-count suggestion with user
   confirmation, camera control and external trainer/wheel/pedal inputs.
+- [ ] Later: vehicle inclination and jump-height telemetry, subject to suitable
+  vehicle-side sensing and validation; low priority for the Hyper 7.
+
+The later ideas above include the SourceTX discussion reviewed on 2026-09-15:
+<https://www.reddit.com/r/rccars/comments/1vbqozz/introducing_sourcetx_modern_touchscreen_rc_car/>.
+They are deferred possibilities, not commitments for the current PCB/firmware release.
+
+## Local browser setup portal (future revision)
+
+- [ ] Add an ESP32-S3-hosted setup portal, opened deliberately from handset
+  Setup and usable from a phone or computer over local Wi-Fi without a cloud
+  account. Keep the browser and handset interfaces in the same design language.
+- [ ] Support model creation, duplication, naming and backup/import. Share a
+  versioned model schema and validation with the handset; assess the current
+  ten-model limit and twelve-character model names before extending them.
+- [ ] Upload model logos with browser-side cropping, resizing and a preview at
+  the actual LCD pixel size. Store media separately from model configuration,
+  referenced by asset ID, with a built-in fallback image.
+- [ ] Enter an explicit maintenance/CUT mode for configuration and asset
+  uploads; require deliberate exit and normal arming checks before driving.
+  Limit portal access to the local setup session and validate uploaded files.
+- [ ] Assess available flash/filesystem capacity and any additional storage
+  before choosing asset limits. Stage and validate uploads before replacing
+  active files so an interrupted transfer preserves the previous model/assets.
+- [ ] First deliver models, logos and backup/restore; then add bounded offline
+  map/track packages with geographic bounds or other georeferencing metadata,
+  storage budgets and required map attribution. An image alone is insufficient
+  to place live GPS coordinates correctly.
 
 ## ExpressLRS management validation
 

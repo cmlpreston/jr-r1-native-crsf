@@ -1,5 +1,9 @@
 # JR R1 native CRSF controller
 
+The XIAO ESP32-S3 two-expander PCB has an explicit build target and pin map:
+see [`docs/xiao-pcb.md`](docs/xiao-pcb.md). The default target is the
+DevKitC prototype in portrait orientation.
+
 The current control/channel architecture, invariants and staged refactor are
 documented in [`docs/architecture-review.md`](docs/architecture-review.md).
 Pure host-side modules can be checked with `make -C test run`.
@@ -20,6 +24,10 @@ The consolidated wiring and GPIO allocation is maintained in
 inventory and future assignment plan is in
 [`docs/r1-control-map.md`](docs/r1-control-map.md).
 Deferred work is tracked in [`TODO.md`](TODO.md).
+
+The integrated LVGL UI now has configurable Drive widgets and Drive/Tune/Data/Setup
+navigation. See the [firmware port and retained-menu audit](docs/ui-firmware-port.md)
+for widget controls, telemetry assumptions and remaining hardware validation.
 
 ## Desktop UI simulator
 
@@ -52,11 +60,57 @@ SDL_VIDEODRIVER=dummy ./build/jr-r1-sim \
   --run-ms 500 --screenshot /tmp/dashboard.bmp
 ```
 
+Portrait 320×480 is the default UI. To run the matching desktop build:
+
+```sh
+cd simulator
+make portrait-run
+```
+
+Use `build-portrait/jr-r1-sim-portrait --page dashboard`, `--page menu`, or
+`--page calibration` with the screenshot arguments above for automated portrait
+captures. The matching Waveshare hardware build is:
+
+```sh
+pio run -e esp32-s3-devkitc-1-portrait
+```
+
+The alternative 480×320 landscape build is available through the explicit
+`esp32-s3-devkitc-1` environment. Orientation is deliberately selected
+at build time so only one layout and touch transform are active in a firmware
+image.
+
 The simulator also emulates the ExpressLRS UID response used by the bindphrase
 page. It does not emulate RF timing, UART electrical behaviour, ESP32 tasks or
 receiver failsafe operation; those remain hardware-in-the-loop tests. QEMU is
 therefore unnecessary for normal UI work and would provide less useful touch
 and screenshot iteration than the shared-code SDL build.
+
+### Browser demo of the current interface
+
+Run `make -C simulator browser`, then open <http://127.0.0.1:8767>.
+The browser displays frames rendered by the actual C++/LVGL UI and forwards
+touches and keypad actions to the simulator. It is not an HTML recreation of
+the transmitter screens. The local server uses Python's standard library and
+binds to loopback only. `Ctrl+C` stops it and both simulator processes.
+
+Portrait is the default and includes the reworked settings menus. Landscape
+remains available as an alternative.
+Mouse/touch, MODE/PAGE/CLEAR/SELECT, arrow navigation, +/- edits, simulated arm
+requests, steering/throttle sliders, link loss and voltage changes are available.
+Inputs return to neutral on browser focus loss. For calibration, uncheck
+`Return to centre when released` to hold a sample at an endpoint.
+
+Demo preferences persist separately under `simulator/state-browser/landscape`
+and `simulator/state-browser/portrait`. The existing native simulator state and
+hardware settings are unaffected. TX configuration and binding replies are
+emulated; this demo does not reproduce the ESP32 task scheduler, full physical
+binding pipeline, RF timing or receiver/ESC failsafe behaviour.
+
+The standalone browser version is published at
+[jr-r1-demo.vercel.app](https://jr-r1-demo.vercel.app/). It runs the same C++/LVGL
+UI through WebAssembly and needs no local simulator server. Build and Vercel
+update instructions are in [simulator/web/README.md](simulator/web/README.md).
 
 The CRSF output path maintains requested, safe and enabled state independently
 for all 16 channels. The control task publishes a complete atomic snapshot to
@@ -70,12 +124,12 @@ channels until given an explicit binding.
 
 ## Capturing a TFT screenshot
 
-The firmware accepts `SCREENSHOT` over its native USB serial connection. It
-reads display memory through the SPI `MISO` connection and streams a framed
-480x320 RGB888 image without allocating a full framebuffer. Capturing forces
-throttle CUT because the main control loop pauses during the transfer. The
-established ILI9486 capture path remains available with the BTT profile; ST7796
-capture on the Waveshare panel must be bench-verified.
+The simulator can write screenshots directly. The firmware also accepts
+`SCREENSHOT` over native USB when built for the BTT profile, reading display
+memory through its SPI `MISO` connection. The production Waveshare PHD cable is
+write-only (`LCD_MISO` is not fitted), so physical-panel capture is deliberately
+disabled for that profile. Capturing on a supported profile forces throttle CUT
+because the main control loop pauses during the transfer.
 
 Stop PlatformIO's serial monitor so the capture tool can open the port, then run:
 
@@ -268,18 +322,20 @@ touch implementation and backlight behaviour are isolated behind the profile.
 
 ### Waveshare 3.5inch RPi LCD (F) wiring (default)
 
-Use the panel's 13-pin 1.25 mm connector. The official ESP32-S3 example powers
-this connector from **3.3 V**. An external regulated 3.3 V supply is suitable;
-join its ground to the ESP32 ground before connecting signal wires.
+The production PCB uses a JST PHD 14-way (2x7, 2.0 mm) connector and adapts it
+to the panel's 13-way connector; PHD pin 14 is spare. The official ESP32-S3
+example powers the panel connector from **3.3 V**. An external regulated 3.3 V
+supply is suitable; join its ground to the ESP32 ground before connecting
+signal wires.
 
 | LCD signal | ESP32-S3 DevKitC pin | Purpose |
 |---|---:|---|
 | `VCC` | External regulated `3.3V` | Panel power |
 | `GND` | `GND` | Common ground |
-| `LCD_MISO` | GPIO13 | LCD SPI data to ESP32 |
+| `LCD_MISO` | Not connected | Not required for normal display operation |
 | `LCD_MOSI` | GPIO11 | LCD SPI data from ESP32 |
 | `LCD_CLK` | GPIO12 | LCD SPI clock |
-| `LCD_CS` | GPIO10 | LCD chip select |
+| `LCD_CS` | GND | Permanently selected; LCD is the only SPI peripheral |
 | `LCD_DC` | GPIO9 | LCD data/command |
 | `LCD_RST` | GPIO40 | ST7796 reset |
 | `LCD_BL` | GPIO41 | Backlight PWM |
@@ -472,3 +528,7 @@ leaving the UART driver installed, closely matching the handset transport used
 by ExpressLRS. It currently decodes CRSF link statistics (RSSI and link quality)
 and receiver/battery voltage. A bench capture confirmed LQ 100%, roughly -35 dBm
 RSSI, and 6.6 V from the bound ER6G.
+
+TX module settings are available under **LINK / TELEM**. See
+[ExpressLRS TX configuration](docs/elrs-tx-configuration.md) for controls,
+protocol limits and hardware verification.

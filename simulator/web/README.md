@@ -121,3 +121,12 @@ Tap a speed widget for its detail page and **Reset stats**, or assign
 reset, then Save. Reset clears the maximum, average and speed graph history; incoming
 fresh GPS packets immediately begin a new session. Existing assignments are
 preserved and no button is reassigned automatically.
+
+## Handset keypad
+
+The browser keypad follows the JR Racing R-1 manual's "The Key Pad" diagram
+(printed page 7): MODE/LIST upper left, + upper right, UP above the centre,
+PAGE left, SEL right, DOWN below, CLR lower left and − lower right. The centre
+hub is decorative. Home / Drive remains a separate simulator shortcut. Buttons
+retain the modern firmware actions and existing keyboard shortcuts; the
+original radio's printed Direct Mode shortcuts are not emulated.

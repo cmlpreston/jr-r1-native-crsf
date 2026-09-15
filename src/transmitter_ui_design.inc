@@ -578,7 +578,17 @@ void TransmitterUi::drawDashboardWidgets()
             view.detail=makeLabel(view.panel,"Waiting for GPS",8,height-20,12,cDim);
         } else if(w.kind==DashboardWidgetKind::Model){
             lv_label_set_text(title,"Model");
-            if(activeModelSlot_==0){auto image=lv_img_create(view.panel);lv_img_set_src(image,&hyper7_icon);lv_obj_align(image,LV_ALIGN_CENTER,0,0);}
+            if(activeModelSlot_==0){
+                // Fit the artwork between the title and name with an outer margin.
+                constexpr int margin=10, imageTop=25, nameSpace=24;
+                const int availableW=width-2*margin, availableH=height-imageTop-nameSpace;
+                const int sourceW=hyper7_widget_icon.header.w, sourceH=hyper7_widget_icon.header.h;
+                const int zoom=min(availableW*256/sourceW,availableH*256/sourceH);
+                auto image=lv_img_create(view.panel);lv_img_set_src(image,&hyper7_widget_icon);
+                lv_img_set_pivot(image,0,0);lv_img_set_zoom(image,zoom);
+                lv_obj_set_pos(image,(width-sourceW*zoom/256)/2,
+                               imageTop+(availableH-sourceH*zoom/256)/2);
+            }
             else {auto icon=makeLabel(view.panel,LV_SYMBOL_IMAGE,0,0,28,cDim);lv_obj_center(icon);}
             auto name=makeLabel(view.panel,modelNames_[activeModelSlot_],0,0,12,cWhite);lv_obj_align(name,LV_ALIGN_BOTTOM_MID,0,-4);
         }

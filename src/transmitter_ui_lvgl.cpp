@@ -19,6 +19,7 @@
 #include "r1_input_map.h"
 
 LV_IMG_DECLARE(hyper7_icon);
+LV_IMG_DECLARE(hyper7_widget_icon);
 LV_IMG_DECLARE(jr_propo_boot_logo);
 
 namespace {

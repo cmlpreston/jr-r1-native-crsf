@@ -79,6 +79,10 @@ after reload, and portrait switching.
 Use **Drive → Layout** to select an anchor position and edit its type, size,
 style and sources. Apply saves the layout for the current model and replaces
 panels covered by the new size. Cancel leaves it unchanged. Use suggested layout restores a full-width timer with power and channel panels.
+The model artwork retains transparency in the header and widget. Model panels
+scale a larger flash-resident image to fit their available space, preserving
+aspect ratio and margins around the title and model name.
+
 Timer, model image,
 paired TX/RX voltage, one/two channels, individual sensor and GPS trail panels
 are available. Sensor and channel graphs retain a short live history.

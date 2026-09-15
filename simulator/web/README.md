@@ -102,3 +102,19 @@ physical touch feel or sunlight readability. Hold the on-screen CUT button for
 Run the isolated native integration audit with `make -C simulator audit`.
 See [the firmware port audit](../../docs/ui-firmware-port.md) for retained menus,
 telemetry assumptions and hardware validation still required.
+
+## Speed statistics
+
+Speed widgets show current, maximum and time-weighted average GPS speed in
+km/h. Statistics collect across all pages from fresh GPS fixes (at least four
+satellites); valid stopped time is included. Duplicate packets and stale fixes
+are ignored; missing-fix intervals and packet gaps over three seconds do not
+contribute time to the average. Values are session-only and reset on reboot or
+model change. Multiple speed widgets share the active model's session.
+
+Tap a speed widget for its detail page and **Reset stats**, or assign
+**RESET SPEED STATS** through Setup → Model → Control map → the chosen control
+→ TX function. Select RESET SPEED STATS and Momentary mode for a one-shot
+reset, then Save. Reset clears the maximum, average and speed graph history; incoming
+fresh GPS packets immediately begin a new session. Existing assignments are
+preserved and no button is reassigned automatically.

@@ -102,6 +102,7 @@ bool uiNightMode = false;
 constexpr TransmitterFunction kEditableTransmitterFunctions[] = {
     TransmitterFunction::TimerStartStop,
     TransmitterFunction::TimerReset,
+    TransmitterFunction::ResetSpeedStatistics,
     TransmitterFunction::OpenMenu,
     TransmitterFunction::Dashboard,
     TransmitterFunction::NextPage,
@@ -955,6 +956,7 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     safetyResetRequested_ = true;
     saveCurrentModelMemory();
     runTimerRunning_ = false; runTimerElapsedMs_ = 0;
+    resetSpeedStatistics();
     gpsCount_ = sensorHistoryCount_ = 0;
     gpsLastSampleMs_ = designTelemetry_.gpsUpdatedMs;
     memset(sensorHistoryValid_, 0, sizeof(sensorHistoryValid_));
@@ -2046,6 +2048,9 @@ bool TransmitterUi::applyTransmitterFunctionAction(uint16_t targetId, int16_t va
     switch (function) {
         case TransmitterFunction::TimerStartStop:
             if (value > 0) toggleRunTimer();
+            return true;
+        case TransmitterFunction::ResetSpeedStatistics:
+            if (value > 0) resetSpeedStatistics();
             return true;
         case TransmitterFunction::TimerReset:
             if (value > 0) { runTimerElapsedMs_ = 0; runTimerStartedMs_ = millis(); }
@@ -5589,6 +5594,8 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
                         const CrsfChannelOutputModel &channelOutputs,
                         bool channelOutputsLive)
 {
+    speedStatistics_.update(telemetry.groundSpeedDeciKmh, telemetry.gpsUpdatedMs, millis(),
+                            telemetry.gpsValid && telemetry.satellites >= 4);
     designTelemetry_ = telemetry; designSafety_ = safetyStatus;
     designTxVoltage_ = txVoltageDecivolts; designTxValid_ = txVoltageValid;
     latestRawAdc_ = rawAdc;

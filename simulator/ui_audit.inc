@@ -41,6 +41,23 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(dashboardLayouts_[1].cells[0].kind==DashboardWidgetKind::Timer);
     assert(selectModelMemory(0));assert(dashboardLayouts_[0].cells[0].kind==DashboardWidgetKind::Map);
     dashboardLayouts_[0]=defaultDashboardLayout();saveModelMemorySettings();
+    // Assigned reset clears only speed statistics, ignores release, and keeps channels/timer intact.
+    speedStatistics_.update(120,1000,1000,true);speedStatistics_.update(300,2000,2000,true);
+    auto speedResetId=static_cast<uint16_t>(TransmitterFunction::ResetSpeedStatistics);
+    assert(applyTransmitterFunctionAction(speedResetId,0) && speedStatistics_.maximum()==300);
+    auto beforeReset=controlConfigurationSnapshot();
+    assert(applyTransmitterFunctionAction(speedResetId,1) && !speedStatistics_.available());
+    assert(controlConfigurationSnapshot().throttleChannel==beforeReset.throttleChannel);
+    sensorSelected_=0;drawDesignPage(UiPage::SensorDetail);
+    speedStatistics_.update(100,3000,3000,true);controlDesign(148,activate);assert(!speedStatistics_.available());
+    for(uint8_t width=1;width<=2;++width){for(uint8_t height=1;height<=width;++height){
+        DashboardWidget speed;speed.kind=DashboardWidgetKind::Sensor;speed.source=0;speed.width=width;speed.height=height;
+        for(auto style:{DashboardWidgetStyle::Numbers,DashboardWidgetStyle::Graph}){
+            speed.style=style;placeDashboardWidget(dashboardLayouts_[0],0,speed);drawDashboard();
+            assert(widgetViews_[0].values[1]!=nullptr);
+        }
+    }}
+    dashboardLayouts_[0]=defaultDashboardLayout();
     // Merely selecting CUT with the keypad cannot reuse a previous long touch.
     drawDashboard();lastTouchDurationMs_=1000;designTouchDispatch_=false;
     controlDesign(5,activate);assert(!armRequested_);

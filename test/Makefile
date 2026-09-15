@@ -5,6 +5,7 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  speed_statistics_test \
   dashboard_widgets_test \
   channel_response_test \
   control_configuration_test \
@@ -86,3 +87,7 @@ $(BUILD)/crsf_tx_telemetry_test: crsf_tx_telemetry_test.cpp $(ROOT)/src/crsf_tel
 $(BUILD)/dashboard_widgets_test: dashboard_widgets_test.cpp $(ROOT)/include/dashboard_widgets.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/speed_statistics_test: speed_statistics_test.cpp $(ROOT)/src/binding_resolver.cpp $(ROOT)/src/control_assignment.cpp $(ROOT)/src/crsf_channel_output.cpp $(ROOT)/include/speed_statistics.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@

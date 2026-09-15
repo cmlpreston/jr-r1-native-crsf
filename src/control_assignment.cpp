@@ -162,6 +162,7 @@ const char *transmitterFunctionName(TransmitterFunction function)
         case TransmitterFunction::TimerStartStop: return "TIMER START/STOP";
         case TransmitterFunction::TimerLap: return "TIMER LAP";
         case TransmitterFunction::TimerReset: return "TIMER RESET";
+        case TransmitterFunction::ResetSpeedStatistics: return "RESET SPEED STATS";
         case TransmitterFunction::ResetMaximums: return "RESET MAXIMUMS";
         case TransmitterFunction::ResetTrip: return "RESET TRIP";
         case TransmitterFunction::ResetConsumedCapacity: return "RESET CAPACITY";

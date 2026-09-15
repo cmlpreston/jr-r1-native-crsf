@@ -1,5 +1,6 @@
 #include "simulator_platform.h"
 #include <emscripten.h>
+#include "control_assignment.h"
 #include <deque>
 #include <vector>
 
@@ -45,7 +46,7 @@ EMSCRIPTEN_KEEPALIVE void demoInput(int kind, int value) {
     }
 }
 EMSCRIPTEN_KEEPALIVE void demoAction(int function, int value) {
-    if (function >= 0 && function <= 26 && actions.size() < 64)
+    if (function >= 0 && function < static_cast<int>(TransmitterFunction::Count) && actions.size() < 64)
         actions.emplace_back(function, value);
 }
 }

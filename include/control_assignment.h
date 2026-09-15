@@ -117,6 +117,7 @@ enum class TransmitterFunction : uint8_t {
     MenuBack,
     MenuDecrease,
     MenuIncrease,
+    ResetSpeedStatistics, // Appended: existing persisted function IDs stay stable.
     Count,
 };
 

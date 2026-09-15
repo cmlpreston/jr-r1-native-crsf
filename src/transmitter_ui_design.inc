@@ -20,7 +20,7 @@ constexpr int designFooterY = kScreenHeight - (designPortrait ? 60 : 40);
 bool sensorReading(const CrsfTelemetryState &t, uint8_t sensor, int32_t &value, uint32_t &stamp)
 {
     switch (sensor) {
-        case 0: value = t.groundSpeedDeciKmh; stamp = t.gpsUpdatedMs; return t.gpsValid && t.satellites >= 4;
+        case 0: value = t.groundSpeedDeciKmh; stamp = t.gpsUpdatedMs; return t.gpsValid && t.satellites >= 4 && uint32_t(millis()-stamp)<=SpeedStatistics::FreshnessMs;
         case 1: value = t.temperatureDeciC; stamp = t.temperatureUpdatedMs; return t.temperatureValid;
         case 2: value = t.rpm; stamp = t.rpmUpdatedMs; return t.rpmValid;
         case 3: value = t.receiverVoltageDecivolts; stamp = t.batteryUpdatedMs; return t.receiverVoltageValid;
@@ -51,6 +51,12 @@ bool TransmitterUi::designPage() const
         case UiPage::ModelSelect: case UiPage::WidgetSelect: case UiPage::WidgetEditor: case UiPage::BatteryMenu: return true;
         default: return false;
     }
+}
+
+void TransmitterUi::resetSpeedStatistics()
+{
+    speedStatistics_.reset(designTelemetry_.gpsUpdatedMs);
+    memset(sensorHistoryValid_[0], 0, sizeof(sensorHistoryValid_[0]));
 }
 
 void TransmitterUi::toggleRunTimer()
@@ -221,7 +227,12 @@ void TransmitterUi::drawDesignPage(UiPage page)
             label(designSensorNames[sensorSelected_],12,90,16,cDim);
             designValues_[0]=label("--",12,117,32);
             designDetails_[0]=label("No data",170,127,14,cDim);
-            auto panel=makePanel(12,163,kScreenWidth-24,designFooterY-204,cPanel,cLine,0);
+            if(sensorSelected_==0){
+                button(kScreenWidth-140,85,128,32,"Reset stats",148);
+                designDetails_[2]=label("Max -- / Avg -- km/h",12,153,12,cDim);
+            }
+            const int graphTop=sensorSelected_==0?177:163;
+            auto panel=makePanel(12,graphTop,kScreenWidth-24,designFooterY-graphTop-41,cPanel,cLine,0);
             designCurve_=lv_line_create(panel);
             lv_obj_set_style_line_color(designCurve_,colour(cCyan),0);lv_obj_set_style_line_width(designCurve_,2,0);
             designDetails_[1]=label("History fills as readings arrive",12,designFooterY-31,12,cDim);
@@ -399,6 +410,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item==144){drawFirmwareInfoPage();return;}
     if(item==145){drawTxBatteryPage();return;}
     if(item==146){drawRxBatteryPage();return;}
+    if(item==148){resetSpeedStatistics();return;}
     if(item==147){dashboardLayouts_[activeModelSlot_]=defaultDashboardLayout();saveModelMemorySettings();drawDashboard();return;}
     if(item>=130 && item<=133){const auto &w=dashboardLayouts_[activeModelSlot_].cells[item-130];
         if(w.kind==DashboardWidgetKind::Map)drawDesignPage(UiPage::Gps);
@@ -469,12 +481,17 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     } else if(activePage_==UiPage::Telemetry){for(int i=0;i<6;++i)reading(i,designValues_[i],designDetails_[i]);}
     else if(activePage_==UiPage::SensorDetail){
         reading(sensorSelected_,designValues_[0],designDetails_[0]);
+        if(sensorSelected_==0){
+            if(speedStatistics_.available())lv_label_set_text_fmt(designDetails_[2],"Max %u.%u / Avg %u.%u km/h",
+                speedStatistics_.maximum()/10,speedStatistics_.maximum()%10,speedStatistics_.average()/10,speedStatistics_.average()%10);
+            else lv_label_set_text(designDetails_[2],"Max -- / Avg -- km/h");
+        }
         int32_t lo=INT32_MAX,hi=INT32_MIN;int count=0;
         // Draw only the most recent contiguous valid segment, never across gaps.
         int start=30;while(start>0 && sensorHistoryValid_[sensorSelected_][start-1])--start;
         for(int i=start;i<30;++i){lo=min(lo,sensorHistory_[sensorSelected_][i]);hi=max(hi,sensorHistory_[sensorSelected_][i]);++count;}
         if(count>=2){
-            int height=designFooterY-212;
+            int height=lv_obj_get_height(lv_obj_get_parent(designCurve_))-8;
             for(int i=start;i<30;++i)designPoints_[i-start]={static_cast<lv_coord_t>(4+(i-start)*(kScreenWidth-36)/max(1,count-1)),static_cast<lv_coord_t>(height-4-(static_cast<int64_t>(sensorHistory_[sensorSelected_][i])-lo)*(height-8)/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
             lv_line_set_points(designCurve_,designPoints_,count);lv_obj_clear_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);
             char a[20],b[20];sensorText(sensorSelected_,lo,a,sizeof(a));sensorText(sensorSelected_,hi,b,sizeof(b));lv_label_set_text_fmt(designDetails_[1],"Min %s / Max %s %s  |  %us",a,b,designSensorUnits[sensorSelected_],count);
@@ -567,8 +584,15 @@ void TransmitterUi::drawDashboardWidgets()
             }
         } else if(w.kind==DashboardWidgetKind::Sensor){
             lv_label_set_text(title,designSensorNames[w.source]);
-            view.values[0]=makeLabel(view.panel,"--",8,33,32);
-            view.detail=makeLabel(view.panel,designSensorUnits[w.source],8,height-20,12,cDim);
+            const bool speed=w.source==0;
+            const int valueFont=speed?(height>130 && w.style!=DashboardWidgetStyle::Graph?(width>220?48:32):24):32;
+            view.values[0]=makeLabel(view.panel,"--",8,speed?24:33,valueFont);
+            view.detail=makeLabel(view.panel,designSensorUnits[w.source],speed?width-43:8,speed?5:height-20,speed?10:12,cDim);
+            if(speed){
+                // Two compact rows fit even a 1x1 landscape panel.
+                view.values[1]=makeLabel(view.panel,"Max --\nAvg --",8,height-36,height>130?14:12,cDim);
+                boundedLabel(view.values[1],width-16);
+            }
             if(w.style==DashboardWidgetStyle::Graph){view.plot=lv_line_create(view.panel);lv_obj_set_style_line_color(view.plot,colour(cCyan),0);lv_obj_set_style_line_width(view.plot,2,0);}
         } else if(w.kind==DashboardWidgetKind::Map){
             lv_label_set_text(title,"GPS / North up");
@@ -629,12 +653,19 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
         } else if(w.kind==DashboardWidgetKind::Sensor){
             int32_t value=0;uint32_t stamp=0;bool valid=sensorReading(t,w.source,value,stamp);char text[24];sensorText(w.source,value,text,sizeof(text));
             lv_label_set_text(view.values[0],valid?text:"--");lv_label_set_text_fmt(view.detail,"%s%s",designSensorUnits[w.source],valid?"":stamp?" / stale":" / no data");
+            if(w.source==0){
+                lv_label_set_text(view.detail,"km/h");
+                if(speedStatistics_.available())lv_label_set_text_fmt(view.values[1],"Max %u.%u\nAvg %u.%u",
+                    speedStatistics_.maximum()/10,speedStatistics_.maximum()%10,speedStatistics_.average()/10,speedStatistics_.average()%10);
+                else lv_label_set_text(view.values[1],"Max --\nAvg --");
+            }
             if(view.plot){
                 int start=30;while(start>0 && sensorHistoryValid_[w.source][start-1])--start;
                 if(30-start<2){lv_obj_add_flag(view.plot,LV_OBJ_FLAG_HIDDEN);continue;}
                 int32_t lo=INT32_MAX,hi=INT32_MIN;for(int i=start;i<30;++i){lo=min(lo,sensorHistory_[w.source][i]);hi=max(hi,sensorHistory_[w.source][i]);}
                 int height=lv_obj_get_height(view.panel),width=lv_obj_get_width(view.panel);
-                for(int i=start;i<30;++i)view.points[i-start]={static_cast<lv_coord_t>(width/2+(i-start)*(width/2-10)/(29-start)),static_cast<lv_coord_t>(height-24-(static_cast<int64_t>(sensorHistory_[w.source][i])-lo)*(height-47)/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
+                const int plotBottom=height-(w.source==0?43:24), plotHeight=max(1,plotBottom-23);
+                for(int i=start;i<30;++i)view.points[i-start]={static_cast<lv_coord_t>(width/2+(i-start)*(width/2-10)/(29-start)),static_cast<lv_coord_t>(plotBottom-(static_cast<int64_t>(sensorHistory_[w.source][i])-lo)*plotHeight/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
                 lv_line_set_points(view.plot,view.points,30-start);lv_obj_clear_flag(view.plot,LV_OBJ_FLAG_HIDDEN);
             }
         } else if(w.kind==DashboardWidgetKind::Map){

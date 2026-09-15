@@ -4,6 +4,7 @@
 #include <lvgl.h>
 #include "channel_response.h"
 #include "dashboard_widgets.h"
+#include "speed_statistics.h"
 #include "control_configuration.h"
 #include "control_assignment.h"
 #include "crsf_telemetry.h"
@@ -158,6 +159,7 @@ private:
     int designValue() const;
     void applyDesignValue(int value);
     void toggleRunTimer();
+    void resetSpeedStatistics();
     void drawDashboardWidgets();
     void updateDashboardWidgets(const CrsfTelemetryState &telemetry, uint16_t tx, bool txValid);
     ChannelResponseProfile &profileForChannel(uint8_t channel);
@@ -414,6 +416,7 @@ private:
     int32_t sensorHistory_[6][30] = {};
     bool sensorHistoryValid_[6][30] = {};
     uint8_t sensorHistoryCount_ = 0;
+    SpeedStatistics speedStatistics_;
     uint32_t nextSensorSampleMs_ = 0;
     int32_t gpsLat_[48] = {}, gpsLon_[48] = {};
     uint8_t gpsCount_ = 0;

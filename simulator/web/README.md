@@ -106,7 +106,10 @@ telemetry assumptions and hardware validation still required.
 ## Speed statistics
 
 Speed widgets show current, maximum and time-weighted average GPS speed in
-km/h. Statistics collect across all pages from fresh GPS fixes (at least four
+km/h. Under Drive → Layout → the speed widget, **Large value** chooses Current,
+Maximum or Average as the main reading; the other two remain visible below it.
+Each widget saves its own choice for the model when Apply is pressed. Existing
+layouts migrate with Current selected and retain their positions and sources. Statistics collect across all pages from fresh GPS fixes (at least four
 satellites); valid stopped time is included. Duplicate packets and stale fixes
 are ignored; missing-fix intervals and packet gaps over three seconds do not
 contribute time to the average. Values are session-only and reset on reboot or

@@ -5,11 +5,13 @@
 // Fields are bytes (no ABI padding); version is encoded in the NVS key.
 enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, Count };
 enum class DashboardWidgetStyle : uint8_t { Numbers, Bars, Dials, Graph, Switches, Count };
+enum class SpeedWidgetValue : uint8_t { Current, Maximum, Average, Count };
 struct DashboardWidget {
     DashboardWidgetKind kind = DashboardWidgetKind::Empty;
     DashboardWidgetStyle style = DashboardWidgetStyle::Numbers;
     uint8_t width = 1, height = 1;
     uint8_t source = 0, secondSource = 1;
+    SpeedWidgetValue speedValue = SpeedWidgetValue::Current;
 };
 struct DashboardLayout { DashboardWidget cells[4]; };
 inline uint8_t dashboardWidgetMask(uint8_t cell, const DashboardWidget &widget)
@@ -31,6 +33,7 @@ inline bool dashboardStyleAllowed(DashboardWidgetKind kind, DashboardWidgetStyle
 }
 inline DashboardWidget sanitizedDashboardWidget(uint8_t cell, DashboardWidget widget)
 {
+    if (widget.speedValue >= SpeedWidgetValue::Count) widget.speedValue = SpeedWidgetValue::Current;
     if (widget.kind >= DashboardWidgetKind::Count) widget = DashboardWidget{};
     if (!dashboardStyleAllowed(widget.kind, widget.style)) widget.style = DashboardWidgetStyle::Numbers;
     widget.width = widget.width == 2 && cell%2==0 ? 2 : 1;
@@ -39,6 +42,16 @@ inline DashboardWidget sanitizedDashboardWidget(uint8_t cell, DashboardWidget wi
     if (widget.secondSource > 16) widget.secondSource = 1;
     if (widget.kind == DashboardWidgetKind::Sensor && widget.source > 5) widget.source = 0;
     return widget;
+}
+// v2 stored six bytes per widget; decode explicitly rather than copying structs.
+inline DashboardWidget dashboardWidgetFromV2(uint8_t cell, const uint8_t *bytes)
+{
+    DashboardWidget widget;
+    widget.kind = static_cast<DashboardWidgetKind>(bytes[0]);
+    widget.style = static_cast<DashboardWidgetStyle>(bytes[1]);
+    widget.width = bytes[2]; widget.height = bytes[3];
+    widget.source = bytes[4]; widget.secondSource = bytes[5];
+    return sanitizedDashboardWidget(cell,widget);
 }
 inline DashboardLayout defaultDashboardLayout()
 {

@@ -2,6 +2,9 @@
 // translation unit so all screens use one colour, font and focus system.
 namespace {
 const char *const designSensorNames[] = {"SPEED", "TEMPERATURE", "RPM", "RX VOLTAGE", "LINK QUALITY", "SATELLITES"};
+const char *const speedValueNames[] = {"Current", "Maximum", "Average"};
+const char *const speedValueTitles[] = {"SPEED", "MAX SPEED", "AVG SPEED"};
+const char *const speedValueShortNames[] = {"Now", "Max", "Avg"};
 const char *const designSensorUnits[] = {"km/h", "C", "rpm", "V", "%", "sats"};
 const char *const designWidgetNames[] = {"Run timer", "Speed", "Temperature", "RPM", "RX voltage", "Link quality", "Satellites", "GPS trail"};
 const char *const designFieldNames[] = {"Rate", "Expo", "Endpoint", "Response speed", "Direction", "Trim", "Subtrim"};
@@ -311,7 +314,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
         else label("Select a position to add or edit a widget",12,designFooterY-25,12,cDim);
     } else if(page==UiPage::WidgetEditor) {
         label("Widget settings",12,47,20);
-        const char *names[]={"Type","Size","Style","Source","Second channel"};
+        const bool speed=widgetDraft_.kind==DashboardWidgetKind::Sensor && widgetDraft_.source==0;
+        const char *names[]={"Type","Size","Style","Source",speed?"Large value":"Second channel"};
         char values[5][32];
         snprintf(values[0],32,"%s",dashboardKindName(widgetDraft_.kind));
         snprintf(values[1],32,"%u x %u",widgetDraft_.width,widgetDraft_.height);
@@ -319,9 +323,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
         if(widgetDraft_.kind==DashboardWidgetKind::Sensor)snprintf(values[3],32,"%s",designSensorNames[widgetDraft_.source%6]);
         else snprintf(values[3],32,"CH%u",widgetDraft_.source+1);
         if(widgetDraft_.secondSource==16)snprintf(values[4],32,"None");else snprintf(values[4],32,"CH%u",widgetDraft_.secondSource+1);
+        if(speed)snprintf(values[4],32,"%s",speedValueNames[static_cast<uint8_t>(widgetDraft_.speedValue)]);
         for(int i=0;i<5;++i){
             if(i>=3 && widgetDraft_.kind!=DashboardWidgetKind::Sensor && widgetDraft_.kind!=DashboardWidgetKind::Channels)break;
-            if(i==4 && widgetDraft_.kind!=DashboardWidgetKind::Channels)break;
+            if(i==4 && widgetDraft_.kind!=DashboardWidgetKind::Channels && !speed)break;
             row(77+i*(designPortrait?51:30),names[i],values[i],120+i,designPortrait?47:28);
         }
         label("Apply replaces any overlapping panels",12,designFooterY-(designPortrait?65:45),12,cDim);
@@ -399,7 +404,11 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         if(item==121){int size=widgetDraft_.height==2?2:widgetDraft_.width==2?1:0;int count=widgetCell_==0?3:widgetCell_==2?2:1;size=(size+direction+count)%count;widgetDraft_.width=size?2:1;widgetDraft_.height=size==2?2:1;}
         if(item==122){int style=static_cast<int>(widgetDraft_.style);for(int n=0;n<5;++n){style=(style+direction+5)%5;if(dashboardStyleAllowed(widgetDraft_.kind,static_cast<DashboardWidgetStyle>(style)))break;}widgetDraft_.style=static_cast<DashboardWidgetStyle>(style);}
         if(item==123)widgetDraft_.source=(widgetDraft_.source+direction+(widgetDraft_.kind==DashboardWidgetKind::Sensor?6:16))%(widgetDraft_.kind==DashboardWidgetKind::Sensor?6:16);
-        if(item==124)widgetDraft_.secondSource=(widgetDraft_.secondSource+direction+17)%17;
+        if(item==124){
+            if(widgetDraft_.kind==DashboardWidgetKind::Sensor && widgetDraft_.source==0)
+                widgetDraft_.speedValue=static_cast<SpeedWidgetValue>((static_cast<int>(widgetDraft_.speedValue)+direction+3)%3);
+            else widgetDraft_.secondSource=(widgetDraft_.secondSource+direction+17)%17;
+        }
         widgetDraft_=sanitizedDashboardWidget(widgetCell_,widgetDraft_);drawDesignPage(UiPage::WidgetEditor);return;
     }
     if(item==125){drawDesignPage(UiPage::WidgetSelect);return;}
@@ -585,13 +594,15 @@ void TransmitterUi::drawDashboardWidgets()
         } else if(w.kind==DashboardWidgetKind::Sensor){
             lv_label_set_text(title,designSensorNames[w.source]);
             const bool speed=w.source==0;
+            if(speed)lv_label_set_text(title,speedValueTitles[static_cast<uint8_t>(w.speedValue)]);
             const int valueFont=speed?(height>130 && w.style!=DashboardWidgetStyle::Graph?(width>220?48:32):24):32;
             view.values[0]=makeLabel(view.panel,"--",8,speed?24:33,valueFont);
             view.detail=makeLabel(view.panel,designSensorUnits[w.source],speed?width-43:8,speed?5:height-20,speed?10:12,cDim);
             if(speed){
                 // Two compact rows fit even a 1x1 landscape panel.
                 view.values[1]=makeLabel(view.panel,"Max --\nAvg --",8,height-36,height>130?14:12,cDim);
-                boundedLabel(view.values[1],width-16);
+                lv_obj_set_size(view.values[1],width-16,36);
+                lv_label_set_long_mode(view.values[1],LV_LABEL_LONG_CLIP);
             }
             if(w.style==DashboardWidgetStyle::Graph){view.plot=lv_line_create(view.panel);lv_obj_set_style_line_color(view.plot,colour(cCyan),0);lv_obj_set_style_line_width(view.plot,2,0);}
         } else if(w.kind==DashboardWidgetKind::Map){
@@ -655,9 +666,21 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             lv_label_set_text(view.values[0],valid?text:"--");lv_label_set_text_fmt(view.detail,"%s%s",designSensorUnits[w.source],valid?"":stamp?" / stale":" / no data");
             if(w.source==0){
                 lv_label_set_text(view.detail,"km/h");
-                if(speedStatistics_.available())lv_label_set_text_fmt(view.values[1],"Max %u.%u\nAvg %u.%u",
-                    speedStatistics_.maximum()/10,speedStatistics_.maximum()%10,speedStatistics_.average()/10,speedStatistics_.average()%10);
-                else lv_label_set_text(view.values[1],"Max --\nAvg --");
+                char readings[3][16];
+                snprintf(readings[0],sizeof(readings[0]),"%s",valid?text:"--");
+                for(uint8_t i=1;i<3;++i){
+                    const uint16_t stat=i==1?speedStatistics_.maximum():speedStatistics_.average();
+                    if(speedStatistics_.available())snprintf(readings[i],sizeof(readings[i]),"%u.%u",stat/10,stat%10);
+                    else snprintf(readings[i],sizeof(readings[i]),"--");
+                }
+                const uint8_t primary=static_cast<uint8_t>(w.speedValue);
+                lv_label_set_text(view.values[0],readings[primary]);
+                // Keep the remaining values in Current / Maximum / Average order.
+                uint8_t secondary[2],count=0;
+                for(uint8_t i=0;i<3;++i)if(i!=primary)secondary[count++]=i;
+                lv_label_set_text_fmt(view.values[1],"%s %s\n%s %s",
+                    speedValueShortNames[secondary[0]],readings[secondary[0]],
+                    speedValueShortNames[secondary[1]],readings[secondary[1]]);
             }
             if(view.plot){
                 int start=30;while(start>0 && sensorHistoryValid_[w.source][start-1])--start;

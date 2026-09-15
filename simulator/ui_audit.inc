@@ -58,6 +58,30 @@ bool TransmitterUi::runSimulatorUiAudit()
         }
     }}
     dashboardLayouts_[0]=defaultDashboardLayout();
+    // Speed emphasis is a per-widget draft, persisted only on Apply.
+    DashboardWidget speedChoice;speedChoice.kind=DashboardWidgetKind::Sensor;
+    placeDashboardWidget(dashboardLayouts_[0],0,speedChoice);
+    controlDesign(110,activate);controlDesign(124,activate);
+    assert(widgetDraft_.speedValue==SpeedWidgetValue::Maximum);
+    controlDesign(125,activate);
+    assert(dashboardLayouts_[0].cells[0].speedValue==SpeedWidgetValue::Current);
+    controlDesign(110,activate);controlDesign(124,activate);controlDesign(126,activate);
+    loadModelMemorySettings();
+    assert(dashboardLayouts_[0].cells[0].speedValue==SpeedWidgetValue::Maximum);
+    assert(dashboardLayouts_[1].cells[0].speedValue==SpeedWidgetValue::Current);
+    speedStatistics_.reset(0);speedStatistics_.update(100,1,1,true);speedStatistics_.update(300,1001,1001,true);
+    CrsfTelemetryState speedFeed{};speedFeed.gpsValid=true;speedFeed.satellites=12;
+    speedFeed.groundSpeedDeciKmh=400;speedFeed.gpsUpdatedMs=millis();
+    const char *expected[]={"40.0","30.0","20.0"};
+    for(uint8_t choice=0;choice<3;++choice){
+        dashboardLayouts_[0].cells[0].speedValue=static_cast<SpeedWidgetValue>(choice);
+        drawDashboard();updateDesign(speedFeed,OutputSafetyStatus::Cut,99,true);
+        assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),expected[choice])==0);
+    }
+    speedFeed.gpsValid=false;updateDesign(speedFeed,OutputSafetyStatus::Cut,99,true);
+    assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"20.0")==0);
+    assert(strstr(lv_label_get_text(widgetViews_[0].values[1]),"Now --"));
+    dashboardLayouts_[0]=defaultDashboardLayout();saveModelMemorySettings();
     // Merely selecting CUT with the keypad cannot reuse a previous long touch.
     drawDashboard();lastTouchDurationMs_=1000;designTouchDispatch_=false;
     controlDesign(5,activate);assert(!armRequested_);

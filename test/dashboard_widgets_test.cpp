@@ -1,9 +1,10 @@
 #include "dashboard_widgets.h"
 #include <cassert>
 #include <cstdio>
+#include <initializer_list>
 int main()
 {
-    static_assert(sizeof(DashboardWidget)==6,"Persisted widget shape changed; version the storage key");
+    static_assert(sizeof(DashboardWidget)==7,"Persisted widget shape changed; version the storage key");
     auto layout=defaultDashboardLayout();
     assert(dashboardWidgetMask(0,layout.cells[0])==3);
     auto timer=layout.cells[0];
@@ -26,5 +27,15 @@ int main()
     // Repeated edits are deterministic and leave the other model untouched.
     auto other=defaultDashboardLayout();placeDashboardWidget(layout,0,map);
     assert(other.cells[2].kind==DashboardWidgetKind::Power);
+    const uint8_t oldSpeed[]={4,3,2,1,0,16};
+    auto migrated=dashboardWidgetFromV2(0,oldSpeed);
+    assert(migrated.kind==DashboardWidgetKind::Sensor && migrated.style==DashboardWidgetStyle::Graph);
+    assert(migrated.width==2 && migrated.height==1 && migrated.source==0 && migrated.secondSource==16);
+    assert(migrated.speedValue==SpeedWidgetValue::Current);
+    migrated.speedValue=static_cast<SpeedWidgetValue>(255);
+    assert(sanitizedDashboardWidget(0,migrated).speedValue==SpeedWidgetValue::Current);
+    for(auto value:{SpeedWidgetValue::Current,SpeedWidgetValue::Maximum,SpeedWidgetValue::Average}){
+        migrated.speedValue=value;assert(sanitizedDashboardWidget(0,migrated).speedValue==value);
+    }
     puts("dashboard_widgets_test: PASS");
 }

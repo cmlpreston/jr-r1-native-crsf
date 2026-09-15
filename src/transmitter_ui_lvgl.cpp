@@ -901,9 +901,17 @@ void TransmitterUi::loadModelMemorySettings()
     if (preferences.getBytesLength("names") == sizeof(modelNames_))
         preferences.getBytes("names", modelNames_, sizeof(modelNames_));
     for (auto &layout : dashboardLayouts_) layout = defaultDashboardLayout();
-    if (preferences.getBytesLength("widgets-v2") == sizeof(dashboardLayouts_)) {
-        preferences.getBytes("widgets-v2", dashboardLayouts_, sizeof(dashboardLayouts_));
+    if (preferences.getBytesLength("widgets-v3") == sizeof(dashboardLayouts_)) {
+        preferences.getBytes("widgets-v3", dashboardLayouts_, sizeof(dashboardLayouts_));
         for (auto &layout : dashboardLayouts_) sanitizeDashboardLayout(layout);
+    } else if (preferences.getBytesLength("widgets-v2") == kModelMemoryCount * 4 * 6) {
+        uint8_t legacy[kModelMemoryCount][4][6] = {};
+        preferences.getBytes("widgets-v2", legacy, sizeof(legacy));
+        for (uint8_t model=0;model<kModelMemoryCount;++model) {
+            for (uint8_t cell=0;cell<4;++cell)
+                dashboardLayouts_[model].cells[cell] = dashboardWidgetFromV2(cell,legacy[model][cell]);
+            sanitizeDashboardLayout(dashboardLayouts_[model]);
+        }
     } else if (preferences.getBytesLength("widgets-v1") == kModelMemoryCount) {
         uint8_t legacy[kModelMemoryCount] = {};
         preferences.getBytes("widgets-v1", legacy, sizeof(legacy));
@@ -926,7 +934,7 @@ void TransmitterUi::saveModelMemorySettings()
     preferences.begin("jr-r1-models", false);
     preferences.putUChar("active", activeModelSlot_);
     preferences.putBytes("names", modelNames_, sizeof(modelNames_));
-    preferences.putBytes("widgets-v2", dashboardLayouts_, sizeof(dashboardLayouts_));
+    preferences.putBytes("widgets-v3", dashboardLayouts_, sizeof(dashboardLayouts_));
     preferences.end();
 }
 

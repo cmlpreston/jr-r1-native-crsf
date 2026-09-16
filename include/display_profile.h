@@ -96,9 +96,9 @@ constexpr int16_t DISPLAY_LANDSCAPE_HEIGHT = 320;
 // diagnosing the panel cable and connectors.
 constexpr uint32_t TFT_SPI_FREQUENCY = 1000000;
 #elif defined(JR_R1_XIAO_PCB)
-// Breadboard speed trial: 4 MHz works; 20 MHz produced corruption/blanking.
-// Try 8 MHz for faster refresh while retaining the schematic (5) XIAO pin map.
-constexpr uint32_t TFT_SPI_FREQUENCY = 8000000;
+// Confirmed working breadboard setting. The 8 MHz trial showed a blank LCD;
+// 20 MHz previously produced corruption/blanking. Retain the XIAO pin map.
+constexpr uint32_t TFT_SPI_FREQUENCY = 4000000;
 #else
 // Legacy prototype's trial speed; the active XIAO profile is set above.
 constexpr uint32_t TFT_SPI_FREQUENCY = 30000000;

@@ -114,9 +114,9 @@ R9's pin reversal and pull-up branch swaps need no firmware changes.
 
 ## Bench input checks
 
-The XIAO uses 100 kHz I2C for the shared MCP23017/GT911 bus and 4 MHz LCD SPI.
-The dashboard and touch were confirmed working at 4 MHz. The 8 MHz trial
-showed a blank LCD, so 4 MHz was restored in the current firmware.
+The XIAO uses 100 kHz I2C for the shared MCP23017/GT911 bus and 8 MHz LCD SPI.
+The dashboard and touch were confirmed working at 4 MHz. An earlier 8 MHz trial
+showed a blank LCD; the user has requested another 8 MHz trial.
 The current assembly is a breadboard using this pin map, not the manufactured PCB.
 These conservative rates are intended to improve margin on the jumper wiring;
 they do not fix incorrect pull-ups, grounds or power connections.

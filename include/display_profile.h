@@ -88,9 +88,12 @@ constexpr int16_t DISPLAY_LANDSCAPE_HEIGHT = 320;
 // Slow enough for a 24 Msps hobby logic analyser to resolve cleanly while
 // diagnosing the panel cable and connectors.
 constexpr uint32_t TFT_SPI_FREQUENCY = 1000000;
+#elif defined(JR_R1_XIAO_PCB)
+// Return the XIAO/Waveshare cable to the established baseline after visible
+// corruption at the 30 MHz trial speed. Panel visibility still needs bench QA.
+constexpr uint32_t TFT_SPI_FREQUENCY = 20000000;
 #else
-// 30 MHz trial on the present jumper-wire prototype. If corruption or failed
-// panel initialisation appears, return this to the proven 20 MHz setting.
+// Legacy prototype's trial speed; the active XIAO profile is set above.
 constexpr uint32_t TFT_SPI_FREQUENCY = 30000000;
 #endif
 constexpr uint8_t TFT_BACKLIGHT_LEDC_CHANNEL = 6;

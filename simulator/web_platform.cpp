@@ -45,6 +45,13 @@ EMSCRIPTEN_KEEPALIVE void demoInput(int kind, int value) {
         case 5: controls.vehicleTelemetry = value != 0; break;
     }
 }
+EMSCRIPTEN_KEEPALIVE void demoContact(int input, int positive, int down) {
+    if (input < 2 || input > 10 || positive < 0 || positive > 1) return;
+    if (positive && physicalControlDescriptor(input).kind != PhysicalControlKind::SpringCentredTrim) return;
+    const uint64_t mask = uint64_t{1} << (input * 2 + positive);
+    if (down) controls.handsetContacts |= mask;
+    else controls.handsetContacts &= ~mask;
+}
 EMSCRIPTEN_KEEPALIVE void demoAction(int function, int value) {
     if (function >= 0 && function < static_cast<int>(TransmitterFunction::Count) && actions.size() < 64)
         actions.emplace_back(function, value);

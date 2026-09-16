@@ -37,6 +37,7 @@ APP_CPP := \
   $(ROOT)/src/control_assignment.cpp \
   $(ROOT)/src/binding_resolver.cpp \
   $(ROOT)/src/physical_input.cpp \
+  $(ROOT)/src/physical_input_runtime.cpp \
   $(ROOT)/src/r1_input_map.cpp \
   $(ROOT)/src/crsf_channel_output.cpp \
   $(ROOT)/src/output_safety.cpp \

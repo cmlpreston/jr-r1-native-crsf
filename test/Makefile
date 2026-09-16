@@ -5,6 +5,7 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  simulator_handset_test \
   speed_statistics_test \
   dashboard_widgets_test \
   channel_response_test \
@@ -89,5 +90,9 @@ $(BUILD)/dashboard_widgets_test: dashboard_widgets_test.cpp $(ROOT)/include/dash
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/speed_statistics_test: speed_statistics_test.cpp $(ROOT)/src/binding_resolver.cpp $(ROOT)/src/control_assignment.cpp $(ROOT)/src/crsf_channel_output.cpp $(ROOT)/include/speed_statistics.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
+
+$(BUILD)/simulator_handset_test: simulator_handset_test.cpp $(ROOT)/src/physical_input_runtime.cpp $(ROOT)/src/physical_input.cpp $(ROOT)/src/binding_resolver.cpp $(ROOT)/src/control_assignment.cpp $(ROOT)/src/crsf_channel_output.cpp $(ROOT)/simulator/include/handset_inputs.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@

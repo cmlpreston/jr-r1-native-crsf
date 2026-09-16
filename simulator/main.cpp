@@ -3,6 +3,8 @@
 #include "crsf_management.h"
 #include "simulator_platform.h"
 #include "tx_config_module.h"
+#include "handset_inputs.h"
+#include "binding_resolver.h"
 
 #include <cstdio>
 #include <cmath>
@@ -91,6 +93,9 @@ int main(int argc, char **argv)
 
     static TransmitterUi ui;
     static ChannelSlewRuntime channelSlew;
+    static SimulatorHandsetInputs handset;
+    static BindingResolver bindings;
+    static bool bindingsLoaded = false;
     if (!ui.begin()) return 1;
     ui.setStartupPreflight(true, 0);
     if(auditUi)return ui.runSimulatorUiAudit()?0:1;
@@ -184,12 +189,33 @@ int main(int argc, char **argv)
         const auto steeringProfile = ui.steeringInputProfile();
         const uint16_t steeringAdc = adcForPermille(steeringProfile.calibration,
                                                    controls.steeringPermille);
-        PhysicalInputStateStore inputStates;
-        inputStates.setMapped(PhysicalControlId::SteeringWheel, true);
-        inputStates.setValue(PhysicalControlId::SteeringWheel, controls.steeringPermille);
-        inputStates.setMapped(PhysicalControlId::ThrottleTrigger, true);
-        inputStates.setValue(PhysicalControlId::ThrottleTrigger, controls.throttlePermille);
-        ui.setPhysicalInputStates(inputStates);
+        if (ui.consumeBindingsChanged() || !bindingsLoaded) {
+            ControlBinding profile[kPhysicalControlCount];
+            const size_t count = ui.copyBindings(profile, kPhysicalControlCount);
+            if (!bindings.setBindings(profile, count).ok()) bindings.clear();
+            bindingsLoaded = true;
+            ui.applyTransmitterFunctionAction(static_cast<uint16_t>(TransmitterFunction::ArmCut), 0);
+            channelSlew.reset(now);
+        }
+        PhysicalInputEventBuffer inputEvents;
+        handset.update(controls.handsetContacts, controls.steeringPermille,
+                       controls.throttlePermille, now, inputEvents);
+        ui.setPhysicalInputStates(handset.states());
+        ResolvedBindingActionBuffer resolved;
+        bindings.processEvents(inputEvents,
+            static_cast<uint8_t>(ContextAlways | ui.activeControlContext() |
+                (ui.armRequested() && controls.linkValid && ui.throttleEnabled() &&
+                 !ui.calibrationActive() ? ContextArmed : ContextCut)), resolved);
+        bindings.update(now, resolved);
+        for (size_t i = 0; i < resolved.size(); ++i) {
+            const auto &item = resolved[i];
+            if (item.target == AssignmentTarget::TransmitterFunction)
+                ui.applyTransmitterFunctionAction(item.targetId, item.value);
+            else if (item.target == AssignmentTarget::ModelParameter)
+                ui.applyChannelParameterAction(item.targetId, item.value);
+            else if (item.target == AssignmentTarget::DriveMode)
+                ui.applyDriveModeAction(item.targetId, item.value);
+        }
         const int16_t rawPermille = ui.mapAdcToPermille(rawAdc);
         const ControlConfigurationSnapshot configuration =
             ui.controlConfigurationSnapshot();
@@ -217,6 +243,9 @@ int main(int argc, char **argv)
                                  CRSF_CHANNEL_MID, ui.steeringEnabled());
         channelOutputs.configure(ui.throttleChannel(), crsf, CRSF_CHANNEL_MID,
                                  ui.throttleEnabled());
+        const uint16_t reserved = (uint16_t{1} << (ui.steeringChannel() - 1)) |
+                                  (uint16_t{1} << (ui.throttleChannel() - 1));
+        bindings.applyChannelOutputs(channelOutputs, reserved);
         ui.update(rawAdc, steeringAdc, rawPermille, output, crsf, safety, telemetry,
                   controls.transmitterVoltageDecivolts, true,
                   channelOutputs, safety == OutputSafetyStatus::Armed);

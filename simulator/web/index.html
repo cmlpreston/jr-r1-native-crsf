@@ -29,6 +29,24 @@
 .simulator-shortcut{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;color:#aeb8c7;margin-bottom:10px}
 .simulator-shortcut button{font-size:12px;min-height:44px}
 
+
+.handset-controls{min-width:0}
+.handset-controls .control-panel{padding:12px;background:#1b232c;border:1px solid #3d4b59;border-radius:12px}
+.handset-controls h3{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:#aeb8c7;margin:16px 0 8px}
+.handset-controls h3:first-child{margin-top:0}
+.handset-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid #34404c;font-size:13px}
+.handset-row:last-child{border-bottom:0}
+.rocker{display:flex;gap:3px;flex:none}
+.rocker button{width:46px;min-height:44px;font-size:21px;padding:4px;touch-action:none;user-select:none;-webkit-user-select:none}
+.rocker button:first-child{border-radius:9px 3px 3px 9px}
+.rocker button:last-child{border-radius:3px 9px 9px 3px}
+button[data-contact]{touch-action:none;user-select:none;-webkit-user-select:none;min-height:44px}
+button[data-contact].held{background:#126170;border-color:#49d3df;box-shadow:inset 0 2px 4px #0006}
+button[data-switch]{min-width:85px;min-height:44px;font-size:12px}
+button[data-switch][aria-pressed=true]{background:#126170;border-color:#49d3df;color:#eaffff}
+.contact-feedback{min-height:34px;margin:10px 0 0;color:#68d7e0;font-size:12px;line-height:1.4}
+@media(min-width:1100px){header,.layout{max-width:1100px}aside{width:580px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;align-items:start}aside>section,aside>details,aside>.status{grid-column:1}aside>.handset-controls{grid-column:2;grid-row:1 / 4;border-top:0;padding-top:0}}
+
 </style></head>
 <body>
 <header><div><h1><span class="brand-jr">JR</span> R1 · Widget dashboard</h1><p>Actual LVGL firmware UI: configurable widgets, tuning, channels and telemetry.</p></div><label>Display <select id="orientation"><option value="landscape">Landscape · 480 × 320</option><option value="portrait">Portrait · 320 × 480</option></select></label></header>
@@ -47,6 +65,22 @@
  <button class="key-minus" data-action="minus" aria-label="Minus" title="Decrease value (Left arrow)"><span>−</span></button>
  </div><div class="simulator-shortcut"><span>Simulator shortcut</span><button data-action="home" title="Return to Drive (H)">Home / Drive</button></div>
  <p class="hint">Keys follow the handset layout. Keyboard: M menu · P page · Esc back · arrows navigate/adjust · Enter select.</p></section>
+ <section class="handset-controls" aria-labelledby="handset-heading"><h2 id="handset-heading">R1 handset controls</h2>
+ <div class="control-panel"><h3>Trims · hold to repeat</h3>
+<div class="handset-row"><span>Steering trim</span><div class="rocker" role="group" aria-label="Steering trim"><button data-contact="7" data-positive="0" aria-label="Steering trim minus">−</button><button data-contact="7" data-positive="1" aria-label="Steering trim plus">+</button></div></div>
+<div class="handset-row"><span>Throttle trim</span><div class="rocker" role="group" aria-label="Throttle trim"><button data-contact="6" data-positive="0" aria-label="Throttle trim minus">−</button><button data-contact="6" data-positive="1" aria-label="Throttle trim plus">+</button></div></div>
+<div class="handset-row"><span>Grip trim A</span><div class="rocker" role="group" aria-label="Grip trim A"><button data-contact="4" data-positive="0" aria-label="Grip trim A minus">−</button><button data-contact="4" data-positive="1" aria-label="Grip trim A plus">+</button></div></div>
+<div class="handset-row"><span>Grip trim B</span><div class="rocker" role="group" aria-label="Grip trim B"><button data-contact="5" data-positive="0" aria-label="Grip trim B minus">−</button><button data-contact="5" data-positive="1" aria-label="Grip trim B plus">+</button></div></div>
+<div class="handset-row"><span>AUX 3 trim</span><div class="rocker" role="group" aria-label="AUX 3 trim"><button data-contact="8" data-positive="0" aria-label="AUX 3 trim minus">−</button><button data-contact="8" data-positive="1" aria-label="AUX 3 trim plus">+</button></div></div>
+<h3>Button</h3><div class="handset-row"><span>Timer</span><button data-contact="2" data-positive="0" aria-label="Timer button">PRESS</button></div>
+ <h3>Two-position switches</h3><div class="handset-row"><span>Drive mode</span><button data-switch="3" aria-label="Drive mode switch" aria-pressed="false">OFF</button></div>
+<div class="handset-row"><span>Idle up</span><button data-switch="9" aria-label="Idle up switch" aria-pressed="false">OFF</button></div>
+<div class="handset-row"><span>Display</span><button data-switch="10" aria-label="Display switch" aria-pressed="false">OFF</button></div>
+</div>
+ <p id="contact-feedback" class="contact-feedback" role="status">Controls released · switches OFF</p>
+ <p class="hint">These use your model’s saved assignments. Configure them in Setup → Model → Control map; unassigned controls only appear in the input monitor.</p>
+ <p class="hint">Tap or hold Timer. Hold a trim to repeat. Switches stay in position. Power is represented by starting or closing the simulator.</p>
+ </section>
  <section><h2>Steering & throttle</h2>
  <div class="axis"><label for="steering">Steering <output id="steering-value">0%</output></label><input id="steering" type="range" min="-100" max="100" value="0"></div>
  <div class="axis"><label for="throttle">Brake ← Throttle → Forward <output id="throttle-value">0%</output></label><input id="throttle" type="range" min="-100" max="100" value="0"></div>

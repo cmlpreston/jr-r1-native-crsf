@@ -6,6 +6,7 @@
 struct SimulatorControls {
     int16_t throttlePermille = 0;
     int16_t steeringPermille = 0;
+    uint64_t handsetContacts = 0;
     bool linkValid = true;
     bool vehicleTelemetry = false;
     int8_t uplinkRssiDbm = -48;

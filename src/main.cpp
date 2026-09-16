@@ -8,6 +8,7 @@
 
 #include "transmitter_ui.h"
 #include "binding_resolver.h"
+#include "boot_diagnostics.h"
 #include "config.h"
 #include "control_configuration.h"
 #include "crsf_channel_output.h"
@@ -727,6 +728,8 @@ bool consumeScreenshotCommand()
         if (character == '\n') {
             usbCommand[usbCommandLength] = '\0';
             const bool matched = strcmp(usbCommand, "SCREENSHOT") == 0;
+            if (strcmp(usbCommand, "BOOTLOG") == 0 || strcmp(usbCommand, "bootlog") == 0)
+                bootDiagnosticsDump();
             usbCommandLength = 0;
             if (matched) return true;
             continue;
@@ -770,6 +773,8 @@ void setup()
                   static_cast<unsigned>(ESP.getFlashChipSize()));
     Serial.println("WARNING: disconnect the motor / raise the wheels for first test");
 
+    bootDiagnosticsBegin(static_cast<uint32_t>(esp_reset_reason()));
+
     analogReadResolution(12);
     analogSetPinAttenuation(THROTTLE_ADC_PIN, ADC_11db);
     analogSetPinAttenuation(STEERING_ADC_PIN, ADC_11db);
@@ -803,7 +808,12 @@ void setup()
         Serial.println("PCB STARTUP FAILED: check K1/K2, LCD and touch; reset to retry. Outputs remain safe.");
         // No control task or arming path starts after an incomplete hardware
         // sequence. The already-running CRSF task keeps sending safe frames.
-        for (;;) delay(1000);
+        bootDiagnosticsStage("halted-safe");
+        for (;;) {
+            // Diagnostics only: never invoke screenshots, UI or control startup here.
+            consumeScreenshotCommand();
+            delay(20);
+        }
     }
 #else
     transmitterUi.begin();
@@ -843,6 +853,8 @@ void setup()
     steeringInputRuntime.reset(analogRead(STEERING_ADC_PIN));
     channelSlewRuntime.reset(millis());
     publishControlState(ControlStateSnapshot());
+    // Last flash checkpoint before live control starts; no periodic flash writes.
+    bootDiagnosticsStage("control-starting");
     xTaskCreatePinnedToCore(controlTask, "control-input", 4096, nullptr, 5,
                             &controlTaskHandle, 1);
     nextLogMs = millis();

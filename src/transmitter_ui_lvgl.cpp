@@ -1,6 +1,7 @@
 #include "transmitter_ui.h"
 
 #include <Preferences.h>
+#include "boot_diagnostics.h"
 #include <cmath>
 #ifndef JR_R1_SIMULATOR
 #include <Arduino_GFX_Library.h>
@@ -584,12 +585,19 @@ bool TransmitterUi::begin()
 #ifdef JR_R1_XIAO_PCB
     // Both expanders must be configured before GT911 address selection or
     // Arduino_GFX startup. Keypad pull-ups are enabled here, before sampling.
+    bootDiagnosticsStage("expanders");
     const bool pcbReady = pcbIoBegin();
+    bootDiagnosticsResult(BootCheck::Keypad, pcbKeypad.online());
+    bootDiagnosticsResult(BootCheck::Controls, pcbControls.online());
     Serial.printf("PCB IO: K1=0x20 %s K2=0x21 %s\n",
                   pcbKeypad.online() ? "ONLINE" : "OFFLINE",
                   pcbControls.online() ? "ONLINE" : "OFFLINE");
+    if (pcbReady) bootDiagnosticsStage("touch");
     const bool touchReady = pcbReady && initialiseTouchController();
+    if (pcbReady) bootDiagnosticsResult(BootCheck::Touch, touchReady);
+    if (pcbReady) bootDiagnosticsStage("LCD-reset");
     const bool lcdResetReady = pcbReady && pcbResetDisplay();
+    if (pcbReady) bootDiagnosticsResult(BootCheck::LcdReset, lcdResetReady);
 #else
     const bool touchReady = initialiseTouchController();
 #endif
@@ -606,7 +614,9 @@ bool TransmitterUi::begin()
     if (DISPLAY_HAS_SPI_READBACK)
         screenshotSpi.begin(TFT_SCK_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_CS_PIN);
 #ifdef JR_R1_XIAO_PCB
+    if (lcdResetReady) bootDiagnosticsStage("display-driver");
     displayReady_ = lcdResetReady && display->begin(TFT_SPI_FREQUENCY);
+    if (lcdResetReady) bootDiagnosticsResult(BootCheck::Display, displayReady_);
 #else
     displayReady_ = display->begin(TFT_SPI_FREQUENCY);
 #endif
@@ -644,6 +654,7 @@ bool TransmitterUi::begin()
     }
 #endif
 
+    bootDiagnosticsStage("LVGL");
     lv_init();
     lv_disp_draw_buf_init(&drawBuffer, lineBuffer, nullptr,
                           kScreenWidth * 16);
@@ -665,6 +676,7 @@ bool TransmitterUi::begin()
         Serial.println("DISPLAY: touch controller did not respond; LCD remains usable");
     playBuzzer(80);
 #if defined(JR_R1_XIAO_PCB) && !defined(JR_R1_SIMULATOR)
+    bootDiagnosticsResult(BootCheck::Ui, touchReady);
     return touchReady;
 #else
     return true;
@@ -4614,7 +4626,9 @@ bool TransmitterUi::initialiseTouchController()
     // Goodix address-select/reset sequence used by Waveshare. Holding INT low
     // when reset is released selects address 0x5d.
 #ifdef JR_R1_XIAO_PCB
-    if (!pcbResetTouch()) return false;
+    const bool resetReady = pcbResetTouch();
+    bootDiagnosticsResult(BootCheck::TouchReset, resetReady);
+    if (!resetReady) return false;
 #else
     pinMode(TOUCH_IRQ_PIN, OUTPUT);
     pinMode(TOUCH_RESET_PIN, OUTPUT);

@@ -6,6 +6,7 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  boot_diagnostics_test \
   gps_map_test \
   simulator_handset_test \
   speed_statistics_test \
@@ -103,3 +104,7 @@ $(BUILD)/simulator_handset_test: simulator_handset_test.cpp $(ROOT)/src/physical
 $(BUILD)/gps_map_test: gps_map_test.cpp $(ROOT)/include/gps_map_projection.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/boot_diagnostics_test: boot_diagnostics_test.cpp $(ROOT)/src/boot_diagnostics.cpp
+	@mkdir -p $(@D)
+	$(CXX) -Iboot_mocks $(CPPFLAGS) $(CXXFLAGS) -DJR_R1_XIAO_PCB=1 $^ -o $@

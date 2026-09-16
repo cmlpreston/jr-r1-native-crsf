@@ -77,6 +77,32 @@ reset/INT configuration, reconnect preservation, and failed reset writes.
 Physical reset timing, touch, button operation and CRSF still require bench
 verification on the assembled PCB before use.
 
+## Retrieving externally powered startup diagnostics
+
+The XIAO saves the last eight startup reports in the `r1-bootlog` NVS namespace.
+Reports separate K1/K2 configuration, touch reset/detection, LCD reset, display
+driver initialization and UI completion. The last checkpoint includes reset
+reason, uptime, free heap and largest DMA-capable allocation. `PASS` for the
+display driver means its software initialization returned successfully; the
+write-only LCD interface cannot verify panel power or visible pixels. LCD and
+touch reset results likewise confirm I2C writes, not measured pin voltages.
+
+1. Disconnect USB, apply external power, and allow startup to run.
+2. Remove external power before reconnecting a normal USB cable.
+3. Open the serial monitor at 115200 baud. Earlier reports print at startup.
+   To retrieve them again, send `BOOTLOG` followed by Enter. For local typing:
+   `.venv/bin/pio device monitor --baud 115200 --echo --eol LF`
+
+`BOOTLOG` also works when PCB startup has halted. It only reads history and
+does not retry initialization or enable outputs. USB reconnection may restart
+the XIAO and add another report; the earlier report remains in the ring. The
+firmware cannot identify which power source was used: identify the external
+boot by its sequence in your test. `NOT-RUN` means no result was recorded, and
+the stage can identify an interrupted operation. Diagnostics are checkpoints,
+not a recording of every serial message. Storage errors are printed to USB.
+There are no periodic flash writes or diagnostic flash writes after the control
+task starts. Wi-Fi and Bluetooth consoles are not implemented.
+
 ## Final optimiser pass
 
 The change report supplied with schematic (5) agrees with the final assignments.

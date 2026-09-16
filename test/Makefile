@@ -1,6 +1,7 @@
 ROOT := ..
 BUILD := build
 CXX ?= c++
+PYTHON ?= python3
 CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
@@ -26,6 +27,7 @@ TESTS := \
 all: $(addprefix $(BUILD)/,$(TESTS))
 
 run: all
+	$(PYTHON) upload_preflight_test.py
 	@set -e; for test in $(TESTS); do ./$(BUILD)/$$test; done
 
 $(BUILD)/channel_response_test: channel_response_test.cpp $(ROOT)/src/channel_response.cpp

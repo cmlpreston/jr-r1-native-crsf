@@ -1,7 +1,10 @@
-# Hardware and pin assignment reference
+# Legacy DevKitC hardware and pin assignment reference
 
-This document is the authoritative wiring reference for the JR R1 native-CRSF
-prototype. The current controller is an ESP32-S3 DevKitC-1 fitted with an
+**Active hardware is now the XIAO ESP32-S3 PCB.** Use [the schematic (5) pin
+map](xiao-pcb.md) for all current builds and uploads. This document preserves
+the old prototype wiring; it does not describe the connected XIAO.
+
+The former controller was an ESP32-S3 DevKitC-1 fitted with an
 ESP32-S3-WROOM-1-N16R8 module (16 MB flash and 8 MB octal PSRAM), connected to a
 Waveshare 3.5inch RPi LCD (F), the original R1 throttle potentiometer and buzzer,
 and a RadioMaster Ranger Nano transmitter module. A build-time profile retains

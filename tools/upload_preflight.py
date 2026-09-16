@@ -49,15 +49,15 @@ if "upload" in targets:
         print("JR R1 UPLOAD PREFLIGHT: explicit unsafe override is active")
     else:
         approved_waveshare_environments = {
-            "esp32-s3-devkitc-1",
-            "esp32-s3-devkitc-1-portrait",
+            "seeed_xiao_esp32s3-pcb",
+            "seeed_xiao_esp32s3-pcb-portrait",
         }
         if pio_environment not in approved_waveshare_environments:
             fail(
-                "The selected environment is '%s', not an approved Waveshare "
-                "hardware environment. Explicit user confirmation is required."
+                "The selected environment is '%s'. Active hardware is XIAO ESP32-S3 "
+                "with schematic (5) wiring. Other hardware requires explicit user confirmation."
                 % pio_environment)
-        if board != "esp32-s3-devkitc-1-n16r8":
+        if board != "seeed_xiao_esp32s3":
             fail("Unexpected board target: %s" % board)
 
         fetched = git(project_dir, "fetch", "--quiet", "origin", "main")

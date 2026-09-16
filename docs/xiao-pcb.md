@@ -1,16 +1,19 @@
 # XIAO ESP32-S3 PCB profile
 
 This profile implements the wiring in `Schematic PDF_[No Variations] (5).pdf`
-reviewed on 2026-09-13. Build explicitly:
+reviewed on 2026-09-13. Since 2026-09-16, this is the only active hardware until
+the user explicitly changes it. Portrait is the default. Build with:
 
 ```sh
-.venv/bin/pio run -e seeed_xiao_esp32s3-pcb
+.venv/bin/pio run -e seeed_xiao_esp32s3-pcb-portrait
 ```
 
 PlatformIO board: `seeed_xiao_esp32s3`; display: Waveshare RPi LCD (F).
-The default `esp32-s3-devkitc-1` target still uses the original prototype wiring.
-Existing upload preflight restrictions remain in place: the XIAO is not yet
-approved as connected hardware. This change builds firmware; it does not upload.
+The upload preflight approves the XIAO PCB portrait and landscape environments
+with the `seeed_xiao_esp32s3` board definition, while retaining branch and display
+checks. No unsafe override is needed for normal XIAO uploads. The DevKitC targets
+retain legacy prototype wiring and must not be uploaded without explicit user
+authorization to change hardware.
 
 | Function | XIAO pin | ESP32 GPIO |
 |---|---|---:|

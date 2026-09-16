@@ -10,10 +10,13 @@ Before uploading to an ESP32-S3:
    branch that is behind or unrelated to `origin/main` without first explaining
    the differences and obtaining explicit confirmation from the user.
 3. Confirm the selected PlatformIO environment, board, display profile and pin
-   map against the connected hardware. The normal hardware is the
-   `esp32-s3-devkitc-1-portrait` environment with the Waveshare 3.5-inch
-   RPi LCD (F). Portrait is the current UI default; the base
-   `esp32-s3-devkitc-1` environment is the landscape alternative.
+   map against the connected hardware. As directed by the user on 2026-09-16,
+   use only the Seeed XIAO ESP32-S3 until the user explicitly says otherwise.
+   The default environment is `seeed_xiao_esp32s3-pcb-portrait`, with the
+   Waveshare 3.5-inch RPi LCD (F) and final schematic (5) pin allocation in
+   `docs/xiao-pcb.md`. `seeed_xiao_esp32s3-pcb` is the landscape alternative.
+   DevKitC, BTT and diagnostic environments are legacy and require explicit
+   user authorization before uploading.
 4. Build and run the available tests before upload.
 5. State which branch, environment and display profile will be uploaded.
 

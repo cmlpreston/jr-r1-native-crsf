@@ -1,8 +1,9 @@
 # JR R1 native CRSF controller
 
-The XIAO ESP32-S3 two-expander PCB has an explicit build target and pin map:
-see [`docs/xiao-pcb.md`](docs/xiao-pcb.md). The default target is the
-DevKitC prototype in portrait orientation.
+The active hardware is the **Seeed XIAO ESP32-S3** two-expander PCB, using the
+final schematic (5) pin map in [`docs/xiao-pcb.md`](docs/xiao-pcb.md). The default
+target is `seeed_xiao_esp32s3-pcb-portrait` (Waveshare RPi LCD (F), 320×480).
+Use only the XIAO until the user explicitly changes the hardware.
 
 The current control/channel architecture, invariants and staged refactor are
 documented in [`docs/architecture-review.md`](docs/architecture-review.md).
@@ -19,8 +20,8 @@ profile supports the Waveshare 3.5inch RPi LCD (F) by default and retains the
 BIGTREETECH TFT35 SPI V2.1 as a build-time fallback. The touchscreen UI provides
 persistent role, endpoint, trim, direction, rate and exponential configuration.
 
-The consolidated wiring and GPIO allocation is maintained in
-[`docs/hardware-pinout.md`](docs/hardware-pinout.md). The original R1 control
+Current wiring and GPIO allocation are in [`docs/xiao-pcb.md`](docs/xiao-pcb.md).
+[`docs/hardware-pinout.md`](docs/hardware-pinout.md) preserves the legacy DevKitC wiring. The original R1 control
 inventory and future assignment plan is in
 [`docs/r1-control-map.md`](docs/r1-control-map.md).
 Deferred work is tracked in [`TODO.md`](TODO.md).
@@ -333,7 +334,9 @@ pio run -e esp32-s3-devkitc-1-btt -t upload
 Both profiles preserve the common SPI and I2C pins. Controller type, reset,
 touch implementation and backlight behaviour are isolated behind the profile.
 
-### Waveshare 3.5inch RPi LCD (F) wiring (default)
+### Legacy DevKitC Waveshare 3.5inch RPi LCD (F) wiring
+
+For the active XIAO, use [the PCB pin map](docs/xiao-pcb.md).
 
 The production PCB uses a JST PHD 14-way (2x7, 2.0 mm) connector and adapts it
 to the panel's 13-way connector; PHD pin 14 is spare. The official ESP32-S3
@@ -518,12 +521,12 @@ does not lengthen short key clicks.
 ## Build and monitor
 
 ```sh
-pio run -e esp32-s3-devkitc-1 -t upload       # Waveshare (default)
-pio run -e esp32-s3-devkitc-1-btt -t upload   # BTT fallback
+pio run                                             # XIAO PCB portrait build
+pio run -e seeed_xiao_esp32s3-pcb-portrait -t upload   # Active XIAO hardware
 pio device monitor -b 115200
 ```
 
-The current ESP32-S3 build uses 145,864 of 327,680 bytes of statically allocated
+The historical DevKitC build used 145,864 of 327,680 bytes of statically allocated
 internal RAM (44.5%) and 822,937 of 6,553,600 application-flash bytes (12.6%).
 The editable nineteen-input binding table is small compared with LVGL and its
 display buffers, so assignments do not create a practical memory risk. Boot

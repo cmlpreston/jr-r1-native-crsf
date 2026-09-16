@@ -8,6 +8,26 @@ bool TransmitterUi::runSimulatorUiAudit()
     const auto activate=PageControlEvent::Activate;
     latestRawAdc_=triggerInput_.centre();
     armRequested_=false;
+    // Throttle settings show physical input even with neutral output and no RX.
+    drawPage();
+    const auto oldTimeout = systemSettings_.screenTimeoutSeconds;
+    systemSettings_.screenTimeoutSeconds = 0;
+    CrsfTelemetryState noReceiver;
+    CrsfChannelOutputModel neutralOutputs;
+    for (int16_t input : {int16_t(-1000), int16_t(0), int16_t(1000)}) {
+        nextDisplayUpdateMs_ = 0;
+        update(triggerInput_.centre(), steeringInput_.centre(), input, 0,
+               kCrsfMid, OutputSafetyStatus::Cut, noReceiver, 0, false,
+               neutralOutputs, false);
+        assert(activePage_ == UiPage::Channel2);
+        assert(lv_bar_get_value(channel2LiveBar_) == input && !armRequested_);
+        assert(strcmp(lv_label_get_text(channel2ValueLabel_),
+            input < 0 ? "-100%" : input > 0 ? "+100%" : "+0%") == 0);
+        assert(!calibrationActive());
+    }
+    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+    if(const char *path=getenv("JR_R1_AUDIT_INPUT_SCREENSHOT")) simulatorSaveScreenshot(path);
+    systemSettings_.screenTimeoutSeconds = oldTimeout;
     // Drafts must not affect channel output settings until explicitly applied.
     tuneRole_=1;selectedChannel_=channelRoleSettings_.throttleChannel;
     auto original=profileForChannel(selectedChannel_);

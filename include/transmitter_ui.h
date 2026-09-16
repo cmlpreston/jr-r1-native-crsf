@@ -307,7 +307,7 @@ private:
     void drawSettingRow(int row);
     void refreshSettingRowValue(uint8_t row);
     void scheduleSettingsSave();
-    void drawLiveIndicator(int16_t outputPermille, uint16_t crsfValue);
+    void drawLiveIndicator(int16_t inputPermille);
     void handleTouch(int16_t x, int16_t y);
     void handleMainMenuTouch(int16_t x, int16_t y);
     void handleModelSelectTouch(int16_t x, int16_t y);
@@ -513,7 +513,6 @@ private:
     int16_t lastTouchX_ = 0;
     int16_t lastTouchY_ = 0;
     int16_t lastMarkerX_ = -1;
-    uint16_t lastDisplayedCrsf_ = UINT16_MAX;
     uint16_t dashboardEnabledChannelMask_ = 0;
     uint16_t designRequested_[CRSF_CHANNEL_COUNT] = {};
     uint16_t dashboardChannelValues_[CRSF_CHANNEL_COUNT] = {};

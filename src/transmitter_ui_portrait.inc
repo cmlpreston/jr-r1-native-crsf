@@ -87,10 +87,10 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         action("Response",8,344,148,&TransmitterUi::controlThrottleHeader,0);
         action("Calibrate",164,344,148,&TransmitterUi::controlThrottleHeader,1);
         note("Release trigger before starting calibration.",388);
-        channel2ValueLabel_=makeLabel(lv_scr_act(),"992",262,405,14,cGreen);
-        channel2LiveBar_=makeBar(lv_scr_act(),12,410,236,10,kCrsfMinimum,kCrsfMaximum,cGreen);
-        lastDisplayedCrsf_=UINT16_MAX;
-        note("Brake / reverse                     Forward",433);
+        makeLabel(lv_scr_act(),"Throttle input",12,410,12,cCyan);
+        channel2ValueLabel_=makeLabel(lv_scr_act(),"0%",248,407,14,cGreen);
+        channel2LiveBar_=makeBar(lv_scr_act(),12,434,296,10,-1000,1000,cGreen);
+        lv_bar_set_value(channel2LiveBar_,0,LV_ANIM_OFF);
     } else if (page == UiPage::ThrottleResponse) {
         snprintf(text,sizeof(text),"CH%u response",selectedChannel_);
         makeHeader(text,"Back");

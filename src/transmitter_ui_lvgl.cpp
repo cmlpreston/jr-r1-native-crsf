@@ -3528,16 +3528,13 @@ void TransmitterUi::drawPage()
                             411, 59 + row * 50, 48, 36,
                             &TransmitterUi::controlThrottleSetting, row);
     }
-    char channelLabel[16];
-    snprintf(channelLabel, sizeof(channelLabel), "CH%u", channelRoleSettings_.throttleChannel);
-    makeLabel(lv_scr_act(), channelLabel, 12, 283, 16, cCyan);
-    channel2ValueLabel_ = makeLabel(lv_scr_act(), "992", 422, 283, 14, cGreen);
-    channel2LiveBar_ = makeBar(lv_scr_act(), 60, 287, 350, 14,
-                               kCrsfMinimum, kCrsfMaximum, cGreen);
-    lv_bar_set_value(channel2LiveBar_, kCrsfMid, LV_ANIM_OFF);
-    makeLabel(lv_scr_act(), throttleProfile().reversed ? "FORWARD" : "BRAKE/REV", 60, 304, 12, cDim);
-    makeLabel(lv_scr_act(), throttleProfile().reversed ? "BRAKE/REV" : "FORWARD", 338, 304, 12, cDim);
-    lastDisplayedCrsf_ = UINT16_MAX;
+    makeLabel(lv_scr_act(), "INPUT", 12, 283, 14, cCyan);
+    channel2ValueLabel_ = makeLabel(lv_scr_act(), "0%", 398, 283, 14, cGreen);
+    channel2LiveBar_ = makeBar(lv_scr_act(), 70, 287, 316, 14,
+                               -1000, 1000, cGreen);
+    lv_bar_set_value(channel2LiveBar_, 0, LV_ANIM_OFF);
+    makeLabel(lv_scr_act(), "BRAKE/REV", 70, 304, 12, cDim);
+    makeLabel(lv_scr_act(), "FORWARD", 312, 304, 12, cDim);
     finishPageFocus();
 }
 
@@ -3830,12 +3827,14 @@ void TransmitterUi::drawDriveModesPage()
     finishPageFocus();
 }
 
-void TransmitterUi::drawLiveIndicator(int16_t, uint16_t crsfValue)
+void TransmitterUi::drawLiveIndicator(int16_t inputPermille)
 {
-    if (channel2LiveBar_ && crsfValue != lastDisplayedCrsf_) {
-        lv_bar_set_value(channel2LiveBar_, crsfValue, LV_ANIM_OFF);
-        lv_label_set_text_fmt(channel2ValueLabel_, "%4u", crsfValue);
-        lastDisplayedCrsf_ = crsfValue;
+    // Physical, calibrated input stays visible while transmitted output is CUT.
+    // This is deliberately before output trim, reversal, rate and safety gating.
+    inputPermille = constrain(inputPermille, -1000, 1000);
+    if (channel2LiveBar_ && lv_bar_get_value(channel2LiveBar_) != inputPermille) {
+        lv_bar_set_value(channel2LiveBar_, inputPermille, LV_ANIM_OFF);
+        lv_label_set_text_fmt(channel2ValueLabel_, "%+d%%", inputPermille / 10);
     }
 }
 
@@ -5875,7 +5874,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
         else if (activePage_ == UiPage::RadioDiagnostics) {
             drawTelemetryLive(telemetry, txVoltageDecivolts, txVoltageValid);
         }
-        else if (activePage_ == UiPage::Channel2) drawLiveIndicator(outputPermille, crsfValue);
+        else if (activePage_ == UiPage::Channel2) drawLiveIndicator(rawInputPermille);
         else if (activePage_ == UiPage::ThrottleResponse)
             refreshThrottleResponseGraph(rawInputPermille);
         else if (activePage_ == UiPage::InputMonitor) refreshInputMonitorRows();

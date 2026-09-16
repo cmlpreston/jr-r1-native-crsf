@@ -474,6 +474,7 @@ private:
     uint8_t logoSaverPosition_ = 0;
     bool startupPreflightComplete_ = false;
     uint32_t startupWarningMask_ = 0;
+    uint32_t startupFaultMask_ = 0;
     UiPage throttleResponseReturnPage_ = UiPage::MainMenu;
     UiPage driveModesReturnPage_ = UiPage::Dashboard;
     uint8_t escProgrammingTab_ = 0;

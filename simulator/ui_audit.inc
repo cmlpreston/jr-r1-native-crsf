@@ -182,6 +182,32 @@ bool TransmitterUi::runSimulatorUiAudit()
         }
         lv_mem_monitor_t memory;lv_mem_monitor(&memory);assert(memory.free_size>8192);
     }
-    Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, endpoints, colour schemes, arm hold and bounds PASS");
+    // Startup faults remain non-dismissible; communication faults are visibly
+    // different from held controls even if the unsafe-control mask is unchanged.
+    PhysicalInputStateStore startupStates;
+    uint32_t unsafe = 0;
+    for (uint8_t i=3;i<=9;++i) {
+        startupStates.setFaulted(static_cast<PhysicalControlId>(i),true);
+        unsafe |= uint32_t{1} << i;
+    }
+    setPhysicalInputStates(startupStates);
+    armRequested_=true;
+    setStartupPreflight(false,unsafe);
+    assert(activePage_==UiPage::StartupWarning && !armRequested_ && startupFaultMask_==unsafe);
+    assert(pageFocusCount_==0);
+    lv_obj_update_layout(lv_scr_act());
+    const auto childCount=lv_obj_get_child_cnt(lv_scr_act());
+    for(uint32_t i=0;i<childCount;++i) {
+        auto child=lv_obj_get_child(lv_scr_act(),i);
+        if(lv_obj_check_type(child,&lv_label_class))
+            assert(lv_obj_get_y(child)+lv_obj_get_height(child)<=(portraitUi?460:320));
+    }
+    lv_refr_now(nullptr);
+    if(const char *path=getenv("JR_R1_AUDIT_STARTUP_SCREENSHOT")) simulatorSaveScreenshot(path);
+    for (uint8_t i=3;i<=9;++i) startupStates.setFaulted(static_cast<PhysicalControlId>(i),false);
+    setPhysicalInputStates(startupStates);setStartupPreflight(false,unsafe);
+    assert(startupFaultMask_==0 && activePage_==UiPage::StartupWarning && !armRequested_);
+    setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard && !armRequested_);
+    Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, endpoints, colour schemes, startup fault display, arm hold and bounds PASS");
     drawDashboard();return true;
 }

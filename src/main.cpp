@@ -126,6 +126,27 @@ uint32_t startupInputSettledAtMs = 0;
 uint32_t startupWarningMask = 0;
 char usbCommand[32];
 uint8_t usbCommandLength = 0;
+#ifdef JR_R1_XIAO_PCB
+McpInputSnapshot latestPcbInputs[] = {{0x20, 0xffff, false}, {0x21, 0xffff, false}};
+uint32_t nextInputDiagnosticMs = 0;
+void printPcbInputs()
+{
+    Serial.println("INPUTS: cached GPIO (bit 0=PA0, bit 8=PB0); LOW masks exclude output/unused/touch pins");
+    for (unsigned i = 0; i < 2; ++i) {
+        const auto &sample = latestPcbInputs[i];
+        const uint16_t mask = i == 0 ? 0x7f1f : 0x661f;
+        const uint32_t errors = i == 0 ? pcbKeypad.readErrors() : pcbControls.readErrors();
+        if (sample.available)
+            Serial.printf("INPUTS K%u 0x%02X GPIO=0x%04X controls_LOW=0x%04X errors=%lu\n",
+                          i+1, sample.address, sample.levels,
+                          static_cast<unsigned>((~sample.levels) & mask),
+                          static_cast<unsigned long>(errors));
+        else
+            Serial.printf("INPUTS K%u 0x%02X UNAVAILABLE errors=%lu\n", i+1, sample.address,
+                          static_cast<unsigned long>(errors));
+    }
+}
+#endif
 
 const char *safetyStatusName(OutputSafetyStatus status)
 {
@@ -730,6 +751,10 @@ bool consumeScreenshotCommand()
             const bool matched = strcmp(usbCommand, "SCREENSHOT") == 0;
             if (strcmp(usbCommand, "BOOTLOG") == 0 || strcmp(usbCommand, "bootlog") == 0)
                 bootDiagnosticsDump();
+#ifdef JR_R1_XIAO_PCB
+            if (strcmp(usbCommand, "INPUTS") == 0 || strcmp(usbCommand, "inputs") == 0)
+                printPcbInputs();
+#endif
             usbCommandLength = 0;
             if (matched) return true;
             continue;
@@ -903,7 +928,13 @@ void loop()
         McpInputSnapshot snapshots[] = {{0x20, 0xffff, false}, {0x21, 0xffff, false}};
         snapshots[0].available = pcbKeypad.online() && pcbKeypad.read(snapshots[0].levels);
         snapshots[1].available = pcbControls.online() && pcbControls.read(snapshots[1].levels);
+        latestPcbInputs[0] = snapshots[0];
+        latestPcbInputs[1] = snapshots[1];
         inputExpanderReady = snapshots[0].available && snapshots[1].available;
+        if (!startupPreflightComplete && static_cast<int32_t>(nowMs - nextInputDiagnosticMs) >= 0) {
+            printPcbInputs();
+            nextInputDiagnosticMs = nowMs + 1000;
+        }
         physicalInputEvents.clear();
         physicalInputs.update(snapshots, 2, readDirectGpioLevels(), nowMs,
                               physicalInputEvents);
@@ -924,6 +955,7 @@ void loop()
                                             control.rawPermille, nowMs);
         physicalInputs.setProportionalValue(PhysicalControlId::SteeringWheel,
                                             control.steeringRawPermille, nowMs);
+        transmitterUi.setPhysicalInputStates(physicalInputs.states());
         if (!startupPreflightComplete) {
             if (startupInputSettledAtMs == 0)
                 startupInputSettledAtMs = nowMs;
@@ -931,10 +963,10 @@ void loop()
                 const uint32_t mask = physicalInputs.startupUnsafeMask();
                 if (mask != startupWarningMask) {
                     startupWarningMask = mask;
-                    transmitterUi.setStartupPreflight(false, mask);
                     Serial.printf("STARTUP CHECK: unsafe mask=0x%08lX\n",
                                   static_cast<unsigned long>(mask));
                 }
+                transmitterUi.setStartupPreflight(false, mask);
                 if (mask == 0 && inputExpanderReady) {
                     startupPreflightComplete = true;
                     transmitterUi.setStartupPreflight(true, 0);

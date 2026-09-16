@@ -24,6 +24,30 @@ int main()
     assert(pcbTouchIrqActive());
     Wire.heldLow[0x21]=0;
 
+    // No handset switches connected: internal pull-ups alone must release all
+    // controls. Touch IRQ can assert without becoming a startup control fault.
+    {
+        PhysicalInputRuntime runtime;
+        PhysicalInputEventBuffer events;
+        assert(runtime.begin(kR1InputMap,kR1InputMapCount));
+        Wire.heldLow[0x21]=1<<12;
+        McpInputSnapshot samples[]={{0x20,0xffff,true},{0x21,0xffff,true}};
+        assert(pcbKeypad.read(samples[0].levels));
+        assert(pcbControls.read(samples[1].levels));
+        assert(((~samples[0].levels)&0x7f1f)==0);
+        assert(((~samples[1].levels)&0x661f)==0);
+        runtime.update(samples,2,0,0,events);
+        runtime.update(samples,2,0,100,events);
+        assert(runtime.startupUnsafeMask()==0);
+        samples[0].available=false;
+        runtime.update(samples,2,0,200,events);
+        assert(runtime.startupUnsafeMask()!=0);
+        samples[0].available=true;
+        runtime.update(samples,2,0,300,events);
+        assert(runtime.startupUnsafeMask()==0);
+        Wire.heldLow[0x21]=0;
+    }
+
     // Poll/reconnect must preserve reset levels, IRQ direction and LED off.
     uint16_t ports;
     assert(pcbControls.read(ports));

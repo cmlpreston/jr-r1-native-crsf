@@ -54,7 +54,7 @@ is not implemented in this change.
 
 ## Startup and recovery
 
-After starting Wire on GPIO1/2 at 400 kHz, configure both expanders before
+After starting Wire on GPIO1/2 at 100 kHz, configure both expanders before
 initialising touch or the LCD. K1 enables internal pull-ups on all eight keys
 (and its trim contacts) before input sampling. K2 enables pull-ups on its input
 contacts and INT. Output latches are loaded before output directions, so reset
@@ -111,3 +111,21 @@ throttle and battery ADC to D8/D9/D10 respectively; all three are ADC-capable.
 D6 (buzzer) and D7 (CRSF) remain fixed digital assignments. The firmware has a
 compile-time ADC-capability check to catch accidental future use of D6/D7.
 R9's pin reversal and pull-up branch swaps need no firmware changes.
+
+## Bench input checks
+
+The XIAO uses 100 kHz I2C for the shared MCP23017/GT911 bus and 20 MHz LCD SPI.
+These conservative rates are intended to improve margin on the present wiring;
+they do not fix incorrect pull-ups, grounds or power connections.
+
+Unused switch/trim inputs are released by the configured MCP internal pull-ups.
+They do not need switches connected to pass startup. The warning marks invalid
+input readings `FAULT` and displaced controls `ACTIVE`. It remains non-dismissible
+until healthy, released readings arrive; the dashboard then appears automatically.
+
+Send `INPUTS` plus Enter over USB to inspect the latest cached expander readings.
+These are also printed once per second while input preflight is blocked. A valid
+unconnected control set has `controls_LOW=0x0000`. K1's relevant mask is `0x7F1F`;
+K2's is `0x661F` (touch IRQ and output pins excluded). `UNAVAILABLE` means no valid
+snapshot, not that all controls are pressed. Error counts are cumulative. No
+additional bus transaction or flash write is made when printing these readings.

@@ -581,7 +581,9 @@ bool TransmitterUi::begin()
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
     Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
-    Wire.setClock(400000);
+    Wire.setClock(CONTROL_I2C_FREQUENCY);
+    Serial.printf("I2C: SDA=%d SCL=%d clock=%lu Hz\n", TOUCH_SDA_PIN, TOUCH_SCL_PIN,
+                  static_cast<unsigned long>(CONTROL_I2C_FREQUENCY));
 #ifdef JR_R1_XIAO_PCB
     // Both expanders must be configured before GT911 address selection or
     // Arduino_GFX startup. Keypad pull-ups are enabled here, before sampling.
@@ -894,8 +896,13 @@ void TransmitterUi::setPhysicalInputStates(const PhysicalInputStateStore &states
 
 void TransmitterUi::setStartupPreflight(bool complete, uint32_t unsafeMask)
 {
+    uint32_t faultMask = 0;
+    for (size_t index = 0; index < kPhysicalControlCount; ++index)
+        if (physicalInputStates_[index].faulted && (unsafeMask & (uint32_t{1} << index)))
+            faultMask |= uint32_t{1} << index;
     const bool changed = startupPreflightComplete_ != complete ||
-                         startupWarningMask_ != unsafeMask;
+                         startupWarningMask_ != unsafeMask || startupFaultMask_ != faultMask;
+    startupFaultMask_ = faultMask;
     startupPreflightComplete_ = complete;
     startupWarningMask_ = unsafeMask;
     if (complete) {
@@ -2208,13 +2215,15 @@ void TransmitterUi::drawStartupWarningPage()
     startScreen();
     resetLvglObjects();
     lv_obj_t *header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
-    makeLabel(header, "STARTUP SAFETY CHECK", 14, 12, portraitUi ? 18 : 24);
+    makeLabel(header, "STARTUP SAFETY CHECK", 14, 12, portraitUi ? 16 : 24, 0xe7edef);
     beginPageFocus(false);
 
     lv_obj_t *banner = makePanel(12, 54, kScreenWidth-24, portraitUi ? 90 : 58, cSafetyFault, cRed);
     makeLabel(banner, startupWarningMask_ == 0
                           ? "CHECKING CONTROLS..."
-                          : (portraitUi ? "RETURN CONTROLS\nTO SAFE POSITION" : "RETURN CONTROLS TO SAFE POSITION"),
+                          : startupFaultMask_ != 0
+                              ? (portraitUi ? "CHECK INPUT\nCONNECTIONS" : "CHECK INPUT CONNECTIONS")
+                              : (portraitUi ? "RETURN CONTROLS\nTO SAFE POSITION" : "RETURN CONTROLS TO SAFE POSITION"),
               18, 8, 16, startupWarningMask_ == 0 ? cAmber : cRed);
     makeLabel(banner, "Output remains CUT", 18, portraitUi ? 66 : 33, 12, cWhite);
 
@@ -2228,16 +2237,21 @@ void TransmitterUi::drawStartupWarningPage()
             const int16_t column = portraitUi ? 0 : shown >= 4 ? 1 : 0;
             const int16_t row = portraitUi ? shown : shown >= 4 ? shown - 4 : shown;
             const int16_t x = 18 + column * 230;
-            const int16_t y = (portraitUi ? 155 : 126) + row * (portraitUi ? 34 : 38);
-            lv_obj_t *panel = makePanel(x, y, portraitUi ? 284 : 214, 31, cPanel2, cAmber);
+            const int16_t y = (portraitUi ? 153 : 126) + row * (portraitUi ? 31 : 38);
+            lv_obj_t *panel = makePanel(x, y, portraitUi ? 284 : 214, portraitUi ? 28 : 31, cPanel2, cAmber);
             makeLabel(panel, physicalControlDescriptor(index).name,
                       8, 7, 11, cWhite);
+            makeLabel(panel, (startupFaultMask_ & (uint32_t{1} << index)) ? "FAULT" : "ACTIVE",
+                      portraitUi ? 231 : 165, 8, 10, cRed);
             ++shown;
             if (shown >= 8) break;
         }
     }
-    makeLabel(lv_scr_act(), portraitUi ? "Release switches / centre trims\nto continue" : "Release switches / centre trims to continue",
-              portraitUi ? 14 : 65, portraitUi ? 436 : 286, 12, cAmber);
+    const char *instructions = startupFaultMask_ != 0
+        ? (portraitUi ? "Check power / input connections.\nContinues when readings are safe." : "Check power / input connections to continue")
+        : (portraitUi ? "Release switches / centre trims\nto continue" : "Release switches / centre trims to continue");
+    makeLabel(lv_scr_act(), instructions, portraitUi ? 14 : 65,
+              portraitUi ? 421 : 286, 12, cAmber);
     finishPageFocus();
 }
 

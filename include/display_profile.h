@@ -82,6 +82,13 @@ constexpr uint16_t GT911_FIRST_POINT_REGISTER = 0x814f;
 #error "Unsupported DISPLAY_PROFILE value"
 #endif
 
+#ifdef JR_R1_XIAO_PCB
+// Conservative shared MCP23017/GT911 bus rate for the current bench wiring.
+constexpr uint32_t CONTROL_I2C_FREQUENCY = 100000;
+#else
+constexpr uint32_t CONTROL_I2C_FREQUENCY = 400000;
+#endif
+
 constexpr int16_t DISPLAY_LANDSCAPE_WIDTH = 480;
 constexpr int16_t DISPLAY_LANDSCAPE_HEIGHT = 320;
 #ifdef JR_R1_DISPLAY_DIAGNOSTIC

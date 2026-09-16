@@ -53,7 +53,9 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
             snprintf(text, sizeof(text), "CH%u", i ? channelRoleSettings_.throttleChannel : channelRoleSettings_.steeringChannel);
             row(i ? "Throttle" : "Steering", text, 64+i*76, &TransmitterUi::controlChannelRoles, i);
         }
-        note("Changing roles forces CUT. Re-arm with the throttle centred.", 236, cAmber);
+        row("Steering input", channelRoleSettings_.steeringEnabled ? "On" : "Off - safe neutral",
+            216, &TransmitterUi::controlChannelRoles, 2, true);
+        note("Changes force CUT. With steering off, its output stays at safe neutral. Re-arm with throttle centred.", 300, cAmber);
     } else if (page == UiPage::ChannelPlaceholder) {
         snprintf(text, sizeof(text), "Channel %u", selectedChannel_);
         makeHeader(text, "Back");
@@ -67,7 +69,7 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
             snprintf(text, sizeof(text), "%s  %+.1f%%", control, channelParameterValue(selectedChannel_, kind)/10.0f);
             row(i ? "Subtrim control" : "Trim control", text, 82+i*76, &TransmitterUi::controlChannelConfig, i);
         }
-        note("Each trim control can own one output or parameter.", 244, cAmber);
+        note("Each trim control can own one output or parameter. Centre the control before calibrating.", 244, cAmber);
         if (proportional) {
             action(throttle ? "Basic / calibration" : "Calibrate", 8, 324, 304, &TransmitterUi::controlChannelConfig, 2);
             action("Response / ramp", 8, 376, 304, &TransmitterUi::controlChannelConfig, 3);
@@ -84,6 +86,7 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         }
         action("Response",8,344,148,&TransmitterUi::controlThrottleHeader,0);
         action("Calibrate",164,344,148,&TransmitterUi::controlThrottleHeader,1);
+        note("Release trigger before starting calibration.",388);
         channel2ValueLabel_=makeLabel(lv_scr_act(),"992",262,405,14,cGreen);
         channel2LiveBar_=makeBar(lv_scr_act(),12,410,236,10,kCrsfMinimum,kCrsfMaximum,cGreen);
         lastDisplayedCrsf_=UINT16_MAX;

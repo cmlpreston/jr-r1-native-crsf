@@ -152,7 +152,7 @@ void TransmitterUi::selectSteeringEndpoint(uint8_t side)
 
 void TransmitterUi::updateSteeringEndpointSelection()
 {
-    if (!steeringEndpointEditor() || latestSteeringRawAdc_ > 4095) return;
+    if (!channelRoleSettings_.steeringEnabled || !steeringEndpointEditor() || latestSteeringRawAdc_ > 4095) return;
     // Select from calibrated physical input, before trim, rate or reversal.
     // Hysteresis rejects centre noise. A tap overrides a held wheel until the
     // wheel enters a new side; returning to centre retains the selected side.

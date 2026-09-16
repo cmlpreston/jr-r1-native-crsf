@@ -135,6 +135,34 @@ bool TransmitterUi::runSimulatorUiAudit()
     designTouchDispatch_=true;lastTouchDurationMs_=100;controlDesign(5,activate);assert(!armRequested_);
     lastTouchDurationMs_=900;controlDesign(5,activate);assert(armRequested_);
     lastTouchDurationMs_=20;controlDesign(5,activate);assert(!armRequested_);designTouchDispatch_=false;
+    // Calibration is stored as one verified record and survives settings reload.
+    const auto oldCalibration = triggerInput_.calibration();
+    calibratingSteering_ = false;
+    triggerInput_.setCalibration({1550, 1880, 2450});
+    assert(saveCalibration());
+    triggerInput_.setCalibration(oldCalibration);
+    loadSettings();
+    assert(triggerInput_.calibration().minimum == 1550 &&
+           triggerInput_.centre() == 1880 && triggerInput_.calibration().maximum == 2450);
+    startCalibration(1880, false);
+    assert(strstr(lv_label_get_text(calibrationStatusLabel_), "WAIT"));
+    for(uint32_t t=10;t<1600;t+=10) triggerInput_.updateCalibration(1550,t);
+    for(uint32_t t=1600;t<3200;t+=10) triggerInput_.updateCalibration(2450,t);
+    drawCalibrationValues(2450);
+    assert(strstr(lv_label_get_text(calibrationStatusLabel_), "Both ends OK"));
+    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+    if(const char *path=getenv("JR_R1_AUDIT_CAL_SCREENSHOT")) simulatorSaveScreenshot(path);
+    cancelCalibration();
+    triggerInput_.setCalibration(oldCalibration);assert(saveCalibration());
+    // The bench switch persists and cannot retain an armed state.
+    channelRoleSettings_.steeringEnabled = true;
+    armRequested_ = true;
+    controlChannelRoles(2, activate);
+    assert(!steeringEnabled() && !armRequested_ && safetyResetRequested_);
+    loadChannelRoleSettings();
+    assert(!steeringEnabled() && !controlConfigurationSnapshot().steeringEnabled);
+    controlChannelRoles(2, activate);
+    assert(steeringEnabled() && !armRequested_);
     if(designPortrait){
         drawMainMenu();dispatchPageControlTouch(250,60);assert(setupBank_==1);
         dispatchPageControlTouch(80,110);assert(activePage_==UiPage::DisplaySetup);

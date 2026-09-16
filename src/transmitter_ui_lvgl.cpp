@@ -862,6 +862,7 @@ void TransmitterUi::resetLvglObjects()
     throttleGraphCurve_ = nullptr;
     throttleGraphMarker_ = nullptr;
     throttleGraphLiveLabel_ = nullptr;
+    calibrationStatusLabel_ = nullptr;
     calibrationMinimumLabel_ = nullptr;
     calibrationLiveLabel_ = nullptr;
     calibrationMaximumLabel_ = nullptr;
@@ -1073,6 +1074,11 @@ void TransmitterUi::loadSettings()
         preferences.getUShort("adc_ctr", legacyCalibration.centre),
         preferences.getUShort("adc_max", legacyCalibration.maximum),
     };
+    if (preferences.getBytesLength("cal_v1") == sizeof(calibration)) {
+        ProportionalCalibration saved;
+        if (preferences.getBytes("cal_v1", &saved, sizeof(saved)) == sizeof(saved) && saved.valid())
+            calibration = saved;
+    }
     preferences.end();
 
     for (ChannelResponseProfile &profile : channelProfiles_)
@@ -1088,6 +1094,11 @@ void TransmitterUi::loadSettings()
         preferences.getUShort("adc_ctr", STEERING_ADC_CENTER),
         preferences.getUShort("adc_max", STEERING_ADC_MAX),
     };
+    if (preferences.getBytesLength("cal_v1") == sizeof(steeringCalibration)) {
+        ProportionalCalibration saved;
+        if (preferences.getBytes("cal_v1", &saved, sizeof(saved)) == sizeof(saved) && saved.valid())
+            steeringCalibration = saved;
+    }
     preferences.end();
     if (!steeringCalibration.valid()) {
         steeringCalibration = {
@@ -1212,17 +1223,24 @@ bool TransmitterUi::consumeElrsManagementRequest(ElrsManagementRequest &request)
     return true;
 }
 
-void TransmitterUi::saveCalibration()
+bool TransmitterUi::saveCalibration()
 {
     const ProportionalCalibration &calibration = calibratingSteering_
         ? steeringInput_.calibration() : triggerInput_.calibration();
     Preferences preferences;
-    preferences.begin(calibratingSteering_
-        ? "jr-r1-steering" : "jr-r1-trigger", false);
-    preferences.putUShort("adc_min", calibration.minimum);
-    preferences.putUShort("adc_ctr", calibration.centre);
-    preferences.putUShort("adc_max", calibration.maximum);
+    if (!preferences.begin(calibratingSteering_
+        ? "jr-r1-steering" : "jr-r1-trigger", false)) return false;
+    // One atomic NVS blob avoids mixing old/new endpoints after a power loss.
+    const bool written = preferences.putBytes("cal_v1", &calibration,
+        sizeof(calibration)) == sizeof(calibration);
+    ProportionalCalibration readback;
+    const bool verified = written && preferences.getBytes("cal_v1", &readback,
+        sizeof(readback)) == sizeof(readback) &&
+        readback.minimum == calibration.minimum &&
+        readback.centre == calibration.centre &&
+        readback.maximum == calibration.maximum;
     preferences.end();
+    return verified;
 }
 
 void TransmitterUi::loadSystemSettings()
@@ -2667,6 +2685,16 @@ bool TransmitterUi::dispatchPageControlTouch(int16_t x, int16_t y)
 
 void TransmitterUi::controlChannelRoles(uint8_t row, PageControlEvent event)
 {
+    if (row == 2) {
+        channelRoleSettings_.steeringEnabled = !channelRoleSettings_.steeringEnabled;
+        channelRolesChanged_ = true;
+        safetyResetRequested_ = true;
+        armRequested_ = false;
+        saveChannelRoleSettings();
+        playKeyClick();
+        drawChannelRolesPage();
+        return;
+    }
     const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
     handleChannelRolesTouch(x, 100 + row * 68);
 }
@@ -3328,12 +3356,13 @@ void TransmitterUi::drawChannelRolesPage()
     addPageEditorTarget(18, 140, 444, 56,
                         350, 148, 44, 40, 404, 148, 44, 40,
                         &TransmitterUi::controlChannelRoles, 1);
+    makePageActionButton(18, 204, 444, 42,
+        channelRoleSettings_.steeringEnabled ? "Steering input: ON" : "Steering input: OFF (neutral)",
+        14, cPanel2, cCyan, cLine, &TransmitterUi::controlChannelRoles, 2);
     lv_obj_t *note = makeLabel(lv_scr_act(),
-        "Changing roles disarms throttle output.\n"
-        "Steering uses the proportional input on GPIO2.",
-        0, 222, 14, cAmber);
-    lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 222);
+        "Changes force CUT. Disabled steering holds safe neutral.",
+        18, 260, 12, cAmber);
+    lv_obj_set_width(note, 444);
     finishPageFocus();
 }
 
@@ -4462,10 +4491,10 @@ void TransmitterUi::drawCalibrationPage()
 #ifdef JR_R1_UI_PORTRAIT
     {
     makeLabel(lv_scr_act(), calibratingSteering_
-        ? "1. MOVE TO FULL LEFT" : "1. MOVE TO FULL BRAKE",
+        ? "1. HOLD FULL LEFT" : "1. HOLD FULL BRAKE",
         16, 68, 15, cCyan);
     makeLabel(lv_scr_act(), calibratingSteering_
-        ? "2. MOVE TO FULL RIGHT" : "2. MOVE TO FULL FORWARD",
+        ? "2. HOLD FULL RIGHT" : "2. HOLD FULL FORWARD",
         16, 102, 15, cCyan);
     makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 16, 136, 15, cCyan);
     char held[44];
@@ -4480,8 +4509,8 @@ void TransmitterUi::drawCalibrationPage()
     calibrationMinimumLabel_ = makeLabel(panel, "----", 190, 10, 24);
     calibrationLiveLabel_ = makeLabel(panel, "----", 190, 78, 24);
     calibrationMaximumLabel_ = makeLabel(panel, "----", 190, 146, 24);
-    makeLabel(panel, "Move to both ends,\nthen hold centre.",
-              16, 202, 11, cDim);
+    calibrationStatusLabel_ = makeLabel(panel, "", 12, 198, 13, cCyan);
+    lv_obj_set_width(calibrationStatusLabel_, 276);
     drawCalibrationValues(calibratingSteering_
         ? latestSteeringRawAdc_ : latestRawAdc_);
     finishPageFocus();
@@ -4489,10 +4518,10 @@ void TransmitterUi::drawCalibrationPage()
     }
 #endif
     makeLabel(lv_scr_act(), calibratingSteering_
-        ? "1. MOVE TO FULL LEFT" : "1. MOVE TO FULL BRAKE",
+        ? "1. HOLD FULL LEFT" : "1. HOLD FULL BRAKE",
         20, 62, 16, cCyan);
     makeLabel(lv_scr_act(), calibratingSteering_
-        ? "2. MOVE TO FULL RIGHT" : "2. MOVE TO FULL FORWARD",
+        ? "2. HOLD FULL RIGHT" : "2. HOLD FULL FORWARD",
         20, 92, 16, cCyan);
     makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 20, 122, 16, cCyan);
     char held[44];
@@ -4507,6 +4536,7 @@ void TransmitterUi::drawCalibrationPage()
     calibrationMinimumLabel_ = makeLabel(panel, "----", 10, 42, 24);
     calibrationLiveLabel_ = makeLabel(panel, "----", 168, 42, 24);
     calibrationMaximumLabel_ = makeLabel(panel, "----", 326, 42, 24);
+    calibrationStatusLabel_ = makeLabel(lv_scr_act(), "", 20, 180, 12, cCyan);
     drawCalibrationValues(calibratingSteering_
         ? latestSteeringRawAdc_ : latestRawAdc_);
     finishPageFocus();
@@ -4520,6 +4550,16 @@ void TransmitterUi::drawCalibrationValues(uint16_t adc)
     if (!input.calibrationActive() || !calibrationLiveLabel_) return;
     const ProportionalCalibrationProgress progress =
         input.calibrationProgress();
+    if (calibrationStatusLabel_) {
+        if (!progress.sawMinimum || !progress.sawMaximum)
+            lv_label_set_text_fmt(calibrationStatusLabel_, "Low: %s  High: %s%s",
+                progress.sawMinimum ? "OK" : "WAIT",
+                progress.sawMaximum ? "OK" : "WAIT",
+                portraitUi ? "\nHold each end until OK." : " - Hold until OK");
+        else
+            lv_label_set_text_fmt(calibrationStatusLabel_, "Both ends OK. Hold neutral%s%u / 1500 ms",
+                portraitUi ? "\n" : " ", progress.centreHoldMs);
+    }
     lv_label_set_text_fmt(calibrationMinimumLabel_, "%4u", progress.minimum);
     lv_label_set_text_fmt(calibrationLiveLabel_, "%4u", progress.live);
     lv_label_set_text_fmt(calibrationMaximumLabel_, "%4u", progress.maximum);
@@ -4555,9 +4595,18 @@ void TransmitterUi::updateCalibration(uint16_t adc)
 {
     ProportionalInput &input = calibratingSteering_
         ? steeringInput_ : triggerInput_;
+    const ProportionalCalibration previous = input.calibration();
     if (!input.updateCalibration(adc, millis())) return;
     const ProportionalCalibration &calibration = input.calibration();
-    saveCalibration();
+    if (!saveCalibration()) {
+        input.setCalibration(previous);
+        armRequested_ = false;
+        safetyResetRequested_ = true;
+        if (calibrationStatusLabel_)
+            lv_label_set_text(calibrationStatusLabel_, "Save failed. Old values kept.\nCancel and retry.");
+        Serial.println("CAL: save FAILED; previous calibration retained");
+        return;
+    }
     Serial.printf("CAL: saved %s min=%u centre=%u max=%u\n",
                   calibratingSteering_ ? "steering" : "throttle",
                   calibration.minimum, calibration.centre, calibration.maximum);

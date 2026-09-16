@@ -180,7 +180,7 @@ private:
     void saveModelMemorySettings();
     void saveCurrentModelMemory();
     bool selectModelMemory(uint8_t slot);
-    void saveCalibration();
+    bool saveCalibration();
     void loadChannelRoleSettings();
     void saveChannelRoleSettings();
     void loadSystemSettings();
@@ -611,6 +611,7 @@ private:
     lv_obj_t *throttleGraphCurve_ = nullptr;
     lv_obj_t *throttleGraphMarker_ = nullptr;
     lv_obj_t *throttleGraphLiveLabel_ = nullptr;
+    lv_obj_t *calibrationStatusLabel_ = nullptr;
     lv_obj_t *calibrationMinimumLabel_ = nullptr;
     lv_obj_t *calibrationLiveLabel_ = nullptr;
     lv_obj_t *calibrationMaximumLabel_ = nullptr;

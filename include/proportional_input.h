@@ -22,6 +22,7 @@ struct ProportionalCalibrationProgress {
     uint16_t maximum = 0;
     bool sawMinimum = false;
     bool sawMaximum = false;
+    uint16_t centreHoldMs = 0;
 
     constexpr ProportionalCalibrationProgress() = default;
     constexpr ProportionalCalibrationProgress(uint16_t minimumValue,
@@ -124,6 +125,8 @@ private:
     uint16_t observedMinimum_ = 0;
     uint16_t observedMaximum_ = 0;
     uint16_t stableSample_ = 0;
+    uint16_t calibrationStartCentre_ = 0;
+    uint16_t centreHoldMs_ = 0;
     uint16_t liveSample_ = 0;
     uint32_t calibrationFilterScaled_ = 0;
     uint32_t stableSinceMs_ = 0;

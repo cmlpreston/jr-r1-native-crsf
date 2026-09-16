@@ -121,6 +121,8 @@ int16_t ProportionalInput::mapToPermille(uint16_t sample) const
 void ProportionalInput::startCalibration(uint16_t sample)
 {
     calibrationActive_ = true;
+    calibrationStartCentre_ = sample;
+    centreHoldMs_ = 0;
     sawMinimum_ = false;
     sawMaximum_ = false;
     observedMinimum_ = sample;
@@ -154,17 +156,15 @@ bool ProportionalInput::updateCalibration(uint16_t sample, uint32_t nowMs)
     // the centre saved after the stability interval is an averaged value.
     sample = filterCalibrationSample(sample);
     liveSample_ = sample;
-    const uint16_t oldLowThreshold = calibration_.centre -
-        std::max<uint16_t>(kMinimumHalfSpan,
-                           (calibration_.centre - calibration_.minimum) / 3);
-    const uint16_t oldHighThreshold = calibration_.centre +
-        std::max<uint16_t>(kMinimumHalfSpan,
-                           (calibration_.maximum - calibration_.centre) / 3);
-    const CalibrationEndpoint endpoint = sample <= oldLowThreshold
+    // Start with the control released. Detect travel around this session's
+    // neutral, not thresholds from another ADC or an obsolete calibration.
+    const int32_t displacement = static_cast<int32_t>(sample) - calibrationStartCentre_;
+    const CalibrationEndpoint endpoint = displacement <= -static_cast<int32_t>(kMinimumHalfSpan)
         ? CalibrationEndpoint::Minimum
-        : sample >= oldHighThreshold
+        : displacement >= kMinimumHalfSpan
             ? CalibrationEndpoint::Maximum
             : CalibrationEndpoint::None;
+    centreHoldMs_ = 0;
     updateEndpointAverage(endpoint, sample, nowMs);
     if (!sawMinimum_ || !sawMaximum_) {
         stableSinceMs_ = 0;
@@ -188,7 +188,9 @@ bool ProportionalInput::updateCalibration(uint16_t sample, uint32_t nowMs)
         return false;
     }
     if (stableSinceMs_ == 0) stableSinceMs_ = nowMs;
-    if (nowMs - stableSinceMs_ < kStableCentreMs) return false;
+    centreHoldMs_ = static_cast<uint16_t>(std::min<uint32_t>(
+        nowMs - stableSinceMs_, kStableCentreMs));
+    if (centreHoldMs_ < kStableCentreMs) return false;
 
     const ProportionalCalibration candidate {
         observedMinimum_, sample, observedMaximum_
@@ -302,8 +304,10 @@ void ProportionalInput::updateEndpointAverage(CalibrationEndpoint endpoint,
 
 ProportionalCalibrationProgress ProportionalInput::calibrationProgress() const
 {
-    return {
+    ProportionalCalibrationProgress progress {
         observedMinimum_, liveSample_, observedMaximum_,
         sawMinimum_, sawMaximum_
     };
+    progress.centreHoldMs = centreHoldMs_;
+    return progress;
 }

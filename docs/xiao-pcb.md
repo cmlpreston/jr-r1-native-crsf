@@ -132,3 +132,23 @@ unconnected control set has `controls_LOW=0x0000`. K1's relevant mask is `0x7F1F
 K2's is `0x661F` (touch IRQ and output pins excluded). `UNAVAILABLE` means no valid
 snapshot, not that all controls are pressed. Error counts are cumulative. No
 additional bus transaction or flash write is made when printing these readings.
+
+## Throttle-only bench testing
+
+Open **Setup → Model → Channels → Channel roles** and set **Steering input**
+to **Off - safe neutral** when the steering pot is disconnected. This setting
+is per model and survives restart. Changing it forces CUT; throttle arming and
+startup checks remain active. Re-enable it when the steering pot is connected.
+The steering channel remains at its configured safe neutral (including its
+configured neutral adjustments), and floating ADC readings cannot select an
+endpoint in the steering editor.
+
+Start calibration with the trigger released (or steering centred). Hold each
+end until the calibration status reports **Low: OK** and **High: OK**, then
+release and hold neutral until the 1500 ms stability interval completes. The
+routine returns to settings after saving; the serial log prints the saved
+minimum, centre and maximum. Calibration uses the starting neutral rather than
+travel thresholds from the previous ADC calibration. New calibrations are
+stored as a single verified NVS record; existing individual-key calibrations
+remain readable for migration. A storage failure is shown on the calibration
+screen instead of being reported as a successful save.

@@ -627,7 +627,7 @@ void controlTask(void *)
             steeringChannel.requestedPermille);
         const uint16_t safeNeutralSteering = crsfValueFromPermille(
             steeringChannel.safePermille);
-        const uint16_t transmittedSteering = outputsLive
+        const uint16_t transmittedSteering = outputsLive && configuration.steeringEnabled
             ? requestedSteering : safeNeutralSteering;
         CrsfChannelOutputModel outputs;
         bindingActions.clear();
@@ -662,7 +662,8 @@ void controlTask(void *)
         snapshot.transmittedCrsf = transmittedThrottle;
         snapshot.steeringAdc = steeringInput.filteredAdc;
         snapshot.steeringRawPermille = rawSteering;
-        snapshot.steeringOutputPermille = steeringChannel.requestedPermille;
+        snapshot.steeringOutputPermille = outputsLive && configuration.steeringEnabled
+            ? steeringChannel.requestedPermille : steeringChannel.safePermille;
         snapshot.steeringTransmittedCrsf = transmittedSteering;
         snapshot.safetyStatus = safetyStatus;
         snapshot.calibrating = calibrating;

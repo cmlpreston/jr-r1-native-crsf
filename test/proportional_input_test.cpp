@@ -175,6 +175,23 @@ void testHeldEndpointIsRunningMeanNotLiveTracker()
     assert(progress.minimum + 8 < progress.live);
 }
 
+void testCalibrationAcceptsNewAdcRange()
+{
+    // A replacement ADC/pot need not reach thresholds derived from the old range.
+    ProportionalInput input({1447, 1970, 4015});
+    input.startCalibration(1880); // released before starting
+    uint32_t now = 0;
+    for (int i=0; i<160; ++i) input.updateCalibration(1550, now += 10);
+    for (int i=0; i<160; ++i) input.updateCalibration(2450, now += 10);
+    bool completed = false;
+    for (int i=0; i<400 && !completed; ++i)
+        completed = input.updateCalibration(1880, now += 10);
+    assert(completed);
+    assert(input.calibration().minimum >= 1540 && input.calibration().minimum <= 1560);
+    assert(input.calibration().maximum >= 2440 && input.calibration().maximum <= 2460);
+    assert(input.calibration().centre >= 1870 && input.calibration().centre <= 1890);
+}
+
 } // namespace
 
 int main()
@@ -186,6 +203,7 @@ int main()
     testInvalidProfileFailsSafeWithoutInvalidShift();
     testCalibrationRejectsSingleSampleSpike();
     testCalibrationSavesFilteredEndpointsAndCentre();
+    testCalibrationAcceptsNewAdcRange();
     testSlowReleaseDoesNotPullEndpointTowardCentre();
     testHeldEndpointIsRunningMeanNotLiveTracker();
     puts("proportional_input_test: PASS");

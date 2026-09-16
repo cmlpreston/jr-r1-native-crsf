@@ -98,6 +98,23 @@ constexpr uint32_t cSafetyFault = 0x421416;
 
 uint8_t uiBrightnessPercent = 100;
 bool uiNightMode = false;
+uint8_t uiDarkColourScheme = 0;
+
+struct DarkColourScheme {
+    const char *name;
+    uint32_t background, surface, header, selection, accent, text, muted, line;
+};
+constexpr DarkColourScheme darkColourSchemes[] = {
+    {"Graphite / teal", 0x151b20, 0x202a30, 0x10191d, 0x28433f, 0x58d2c3, 0xedf3f2, 0xaab7bd, 0x3b4a52},
+    {"Midnight / ice blue", 0x111827, 0x1d2a3b, 0x0b1220, 0x293e56, 0x82c5ff, 0xeef5ff, 0xb1bfd0, 0x3c4e64},
+    {"Warm charcoal / ivory", 0x1c1a18, 0x2c2925, 0x141311, 0x433c30, 0xe1cfab, 0xf3eee6, 0xbfb6a9, 0x4e4840},
+    {"Slate / soft lilac", 0x1b1b26, 0x292a39, 0x14151e, 0x413a55, 0xc4b1f6, 0xf0eef8, 0xb9b7ca, 0x48495f},
+};
+constexpr uint8_t darkColourSchemeCount = sizeof(darkColourSchemes) / sizeof(darkColourSchemes[0]);
+const char *colourSchemeName(bool night, uint8_t scheme)
+{
+    return night ? darkColourSchemes[scheme < darkColourSchemeCount ? scheme : 0].name : "Light";
+}
 
 constexpr TransmitterFunction kEditableTransmitterFunctions[] = {
     TransmitterFunction::TimerStartStop,
@@ -193,14 +210,15 @@ lv_color_t colour(uint32_t rgb)
         else if (rgb == cSafetyWaiting) rgb = 0xf1dca9;
         else if (rgb == cSafetyFault) rgb = 0xffded7;
     } else {
-        if (rgb == cBlack) rgb = 0x1e2b34;
-        else if (rgb == cHeader) rgb = 0x0f1d26;
-        else if (rgb == cPanel) rgb = 0x283842;
-        else if (rgb == cPanel2) rgb = 0x254b58;
-        else if (rgb == cLine) rgb = 0x4a606b;
-        else if (rgb == cWhite) rgb = 0xe3ecef;
-        else if (rgb == cDim) rgb = 0xa9bbc5;
-        else if (rgb == cCyan) rgb = 0x6bd9e3;
+        const auto &scheme = darkColourSchemes[uiDarkColourScheme < darkColourSchemeCount ? uiDarkColourScheme : 0];
+        if (rgb == cBlack) rgb = scheme.background;
+        else if (rgb == cHeader) rgb = scheme.header;
+        else if (rgb == cPanel) rgb = scheme.surface;
+        else if (rgb == cPanel2) rgb = scheme.selection;
+        else if (rgb == cLine) rgb = scheme.line;
+        else if (rgb == cWhite) rgb = scheme.text;
+        else if (rgb == cDim) rgb = scheme.muted;
+        else if (rgb == cCyan) rgb = scheme.accent;
     }
     uint16_t scale = DISPLAY_HAS_PWM_BACKLIGHT ? 100 : uiBrightnessPercent;
     const uint8_t red = ((rgb >> 16) & 0xffU) * scale / 100U;
@@ -525,6 +543,7 @@ const char *uiPageName(UiPage page)
         case UiPage::TxBatterySetup: return "tx-battery";
         case UiPage::RxBatterySetup: return "rx-battery";
         case UiPage::DisplaySetup: return "display";
+        case UiPage::ColourScheme: return "colour-scheme";
         case UiPage::FirmwareInfo: return "firmware-info";
         case UiPage::ElrsBinding: return "elrs-binding";
         case UiPage::ElrsTxConfig: return "elrs-tx-config";
@@ -1199,6 +1218,10 @@ void TransmitterUi::loadSystemSettings()
     systemSettings_.logoScreensaverEnabled = preferences.getBool("idle_logo", true);
     systemSettings_.displayBrightnessPercent = preferences.getUChar("brightness", 100);
     systemSettings_.nightMode = preferences.getBool("night", false);
+    systemSettings_.darkColourScheme = preferences.getUChar("dark_scheme", 0);
+    if (systemSettings_.darkColourScheme >= darkColourSchemeCount) systemSettings_.darkColourScheme = 0;
+    uiNightMode = systemSettings_.nightMode;
+    uiDarkColourScheme = systemSettings_.darkColourScheme;
     preferences.end();
     systemSettings_.buzzerPitchHz = constrain(systemSettings_.buzzerPitchHz,
                                                kBuzzerMinimumPitchHz,
@@ -1228,6 +1251,7 @@ void TransmitterUi::saveSystemSettings()
     preferences.putBool("idle_logo", systemSettings_.logoScreensaverEnabled);
     preferences.putUChar("brightness", systemSettings_.displayBrightnessPercent);
     preferences.putBool("night", systemSettings_.nightMode);
+    preferences.putUChar("dark_scheme", systemSettings_.darkColourScheme);
     preferences.end();
 }
 
@@ -1815,6 +1839,7 @@ void TransmitterUi::redrawActivePage()
         case UiPage::TxBatterySetup: drawTxBatteryPage(); break;
         case UiPage::RxBatterySetup: drawRxBatteryPage(); break;
         case UiPage::DisplaySetup: drawDisplayPage(); break;
+        case UiPage::ColourScheme: drawColourSchemePage(); break;
         case UiPage::FirmwareInfo: drawFirmwareInfoPage(); break;
         case UiPage::ElrsBinding: drawElrsBindingPage(); break;
         case UiPage::ElrsTxConfig: drawElrsTxConfigPage(); break;
@@ -2942,6 +2967,7 @@ void TransmitterUi::navigateBack()
         case UiPage::TxBatterySetup:
         case UiPage::RxBatterySetup:
         case UiPage::DisplaySetup: drawSetupPage(); break;
+        case UiPage::ColourScheme: drawDisplayPage(); break;
         case UiPage::FirmwareInfo: drawSetupPage(); break;
         case UiPage::ElrsBinding: drawMainMenu(); break;
         case UiPage::ElrsTxConfig: leaveElrsTxConfig(); break;
@@ -4134,11 +4160,17 @@ void TransmitterUi::drawEscProgrammingPage()
 void TransmitterUi::drawDisplayRow(int row, int visibleRow)
 {
     static const char *labels[] = {
-        "SCREEN TIMEOUT", "IDLE ACTION", "UI BRIGHTNESS", "NIGHT MODE",
+        "SCREEN TIMEOUT", "IDLE ACTION", "UI BRIGHTNESS", "COLOUR SCHEME",
         "ACTIVATE NOW"
     };
     const int16_t y = 56 + visibleRow * 50;
     lv_obj_t *panel = makePanel(10, y, 460, 44);
+    if (row == 3) {
+        makeLabel(panel, labels[row], 12, 3, 10, cDim);
+        makeLabel(panel, colourSchemeName(systemSettings_.nightMode, systemSettings_.darkColourScheme), 12, 20, 14, cWhite);
+        makeButton(353, y + 4, 106, 36, "CHOOSE", 13);
+        return;
+    }
     makeLabel(panel, labels[row], 12, 12, 16, cCyan);
     char value[24];
     if (row == 0) {
@@ -4149,14 +4181,11 @@ void TransmitterUi::drawDisplayRow(int row, int visibleRow)
                  systemSettings_.logoScreensaverEnabled ? "LOGO SAVER" : "DISPLAY OFF");
     } else if (row == 2) {
         snprintf(value, sizeof(value), "%u%%", systemSettings_.displayBrightnessPercent);
-    } else if (row == 3) {
-        snprintf(value, sizeof(value), "%s", systemSettings_.nightMode ? "ON" : "OFF");
     } else {
         snprintf(value, sizeof(value), "%s",
                  systemSettings_.logoScreensaverEnabled ? "SHOW LOGO" : "DISPLAY OFF");
     }
-    makeLabel(panel, value, 220, 12, 16,
-              row == 3 && systemSettings_.nightMode ? cAmber : cWhite);
+    makeLabel(panel, value, 220, 12, 16, cWhite);
     if (row == 0 || row == 2) {
         makeButton(353, y + 4, 48, 36, "-", 24);
         makeButton(411, y + 4, 48, 36, "+", 24);
@@ -4169,6 +4198,45 @@ void TransmitterUi::drawDisplayRow(int row, int visibleRow)
                    13, activateRow ? cAmber : cPanel2,
                    activateRow ? cBlack : cWhite);
     }
+}
+
+void TransmitterUi::controlColourScheme(uint8_t choice, PageControlEvent event)
+{
+    if (event != PageControlEvent::Activate || choice > darkColourSchemeCount) return;
+    systemSettings_.nightMode = choice != 0;
+    if (choice) systemSettings_.darkColourScheme = choice - 1;
+    uiNightMode = systemSettings_.nightMode;
+    uiDarkColourScheme = systemSettings_.darkColourScheme;
+    saveSystemSettings();
+    playKeyClick();
+    drawColourSchemePage();
+}
+
+void TransmitterUi::drawColourSchemePage()
+{
+    activePage_ = UiPage::ColourScheme;
+    startScreen();
+    resetLvglObjects();
+    makeHeader("Colour scheme", "Back");
+    beginPageFocus();
+    const int rowHeight = portraitUi ? 62 : 42;
+    const uint8_t selected = systemSettings_.nightMode ? systemSettings_.darkColourScheme + 1 : 0;
+    for (uint8_t choice = 0; choice <= darkColourSchemeCount; ++choice) {
+        const int y = 54 + choice * rowHeight;
+        auto panel = makePanel(8, y, kScreenWidth - 16, rowHeight - 4,
+                               choice == selected ? cPanel2 : cPanel, cLine);
+        makeLabel(panel, colourSchemeName(choice != 0, choice ? choice - 1 : 0),
+                  12, (rowHeight - 20) / 2, 14, choice == selected ? cCyan : cWhite);
+        if (choice == selected) makeLabel(panel, LV_SYMBOL_OK, kScreenWidth - 46,
+                                         (rowHeight - 20) / 2, 14, cCyan);
+        addPageActionTarget(8, y, kScreenWidth - 16, rowHeight - 4,
+                            &TransmitterUi::controlColourScheme, choice);
+    }
+    makeLabel(lv_scr_act(), "Saved automatically. Night mode uses your last dark scheme.",
+              12, portraitUi ? 376 : 275, 12, cDim);
+    auto note = lv_obj_get_child(lv_scr_act(), -1);
+    lv_obj_set_width(note, kScreenWidth - 24);
+    finishPageFocus();
 }
 
 void TransmitterUi::drawDisplayPage()
@@ -5296,8 +5364,9 @@ void TransmitterUi::handleDisplayTouch(int16_t x, int16_t y)
         uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
         applyBacklight(uiBrightnessPercent);
     } else if (row == 3) {
-        systemSettings_.nightMode = !systemSettings_.nightMode;
-        uiNightMode = systemSettings_.nightMode;
+        playKeyClick();
+        drawColourSchemePage();
+        return;
     } else {
         playKeyClick();
         if (systemSettings_.logoScreensaverEnabled) {

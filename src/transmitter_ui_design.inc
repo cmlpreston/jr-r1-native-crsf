@@ -255,7 +255,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
             designMapViewport_=GpsMapViewport{};
             auto map=createGpsBasemap(lv_scr_act(),10,108,kScreenWidth-20,mapH,designMapViewport_);
             makeLabel(map,"N ^",8,5,12,cDim);
-            designCurve_=lv_line_create(map);lv_obj_set_style_line_color(designCurve_,colour(cCyan),0);lv_obj_set_style_line_width(designCurve_,2,0);
+            designCurve_=lv_line_create(map);lv_obj_set_style_line_color(designCurve_,colour(0x00707d),0);lv_obj_set_style_line_width(designCurve_,2,0);
             designMarker_=makeLabel(map,LV_SYMBOL_GPS,0,0,18,cCyan);lv_obj_add_flag(designMarker_,LV_OBJ_FLAG_HIDDEN);
             designDetails_[1]=makeLabel(map,"(c) OpenStreetMap",8,mapH-16,10,cDim);
             button(10,designFooterY-(designPortrait?94:50),80,36,"Zoom -",82);button(94,designFooterY-(designPortrait?94:50),80,36,"Zoom +",83);
@@ -523,7 +523,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             }
             if(gpsCount_>1 && gpsTrailVisible_){lv_line_set_points(designCurve_,gpsPoints_,gpsCount_);lv_obj_clear_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);}else lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(designMarker_,width/2-9,height/2-9);lv_obj_clear_flag(designMarker_,LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_text_color(designMarker_,colour(t.gpsValid && t.satellites>=4?cCyan:cDim),0);
+            lv_obj_set_style_text_color(designMarker_,colour(t.gpsValid && t.satellites>=4?0x00707d:0x53636c),0);
             lv_label_set_text_fmt(designDetails_[1],"%um | %s",static_cast<unsigned>(40/pixelsPerMetre),GpsMap::covers(t.latitudeE7,t.longitudeE7)?"(c) OpenStreetMap":"No local map");
         }
     }
@@ -608,7 +608,7 @@ void TransmitterUi::drawDashboardWidgets()
         } else if(w.kind==DashboardWidgetKind::Map){
             lv_label_set_text(title,"GPS / North up");
             view.basemap=createGpsBasemap(view.panel,0,24,width,height-46,view.mapViewport);
-            view.plot=lv_line_create(view.basemap);lv_obj_set_style_line_color(view.plot,colour(cCyan),0);lv_obj_set_style_line_width(view.plot,2,0);
+            view.plot=lv_line_create(view.basemap);lv_obj_set_style_line_color(view.plot,colour(0x00707d),0);lv_obj_set_style_line_width(view.plot,2,0);
             view.marker=makeLabel(view.basemap,LV_SYMBOL_GPS,width/2-8,(height-46)/2-8,16,cCyan);
             lv_obj_add_flag(view.marker,LV_OBJ_FLAG_HIDDEN);
             view.detail=makeLabel(view.panel,"Waiting for GPS",8,height-20,12,cDim);
@@ -704,7 +704,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             updateGpsBasemap(view.basemap,view.mapViewport,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],scale);
             for(int i=0;i<gpsCount_;++i){double east=(static_cast<double>(gpsLon_[i])-gpsLon_[gpsCount_-1])*0.01113195*lonScale;double north=(static_cast<double>(gpsLat_[i])-gpsLat_[gpsCount_-1])*0.01113195;view.points[i]={static_cast<lv_coord_t>(width/2+east*scale),static_cast<lv_coord_t>(height/2-north*scale)};}
             if(gpsCount_>1)lv_line_set_points(view.plot,view.points,gpsCount_);
-            lv_obj_clear_flag(view.marker,LV_OBJ_FLAG_HIDDEN);lv_obj_set_style_text_color(view.marker,colour(fix?cCyan:cDim),0);
+            lv_obj_clear_flag(view.marker,LV_OBJ_FLAG_HIDDEN);lv_obj_set_style_text_color(view.marker,colour(fix?0x00707d:0x53636c),0);
         }
     }
 }

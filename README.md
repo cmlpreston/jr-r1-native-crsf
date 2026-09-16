@@ -29,6 +29,12 @@ The integrated LVGL UI now has configurable Drive widgets and Drive/Tune/Data/Se
 navigation. See the [firmware port and retained-menu audit](docs/ui-firmware-port.md)
 for widget controls, telemetry assumptions and remaining hardware validation.
 
+Choose **Setup → Handset → Display → Colour scheme** for Light, Graphite / teal,
+Midnight / ice blue, Warm charcoal / ivory, or Slate / soft lilac. The choice
+applies immediately and persists across restarts. The assignable **Night mode**
+action switches between Light and the last selected dark scheme. Safety colours
+and the red JR wordmark remain consistent across schemes.
+
 ## Desktop UI simulator
 
 The complete LVGL touchscreen UI can be built and exercised on macOS without

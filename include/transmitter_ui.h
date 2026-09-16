@@ -24,6 +24,7 @@ struct SystemSettings {
     bool logoScreensaverEnabled = true;
     uint8_t displayBrightnessPercent = 100;
     bool nightMode = false;
+    uint8_t darkColourScheme = 0; // Retained when switching to Light.
 };
 
 enum class BatteryChemistry : uint8_t {
@@ -83,6 +84,7 @@ enum class UiPage : uint8_t {
     RadioDiagnostics,
     WidgetEditor,
     BatteryMenu,
+    ColourScheme,
 };
 
 class TransmitterUi {
@@ -238,6 +240,7 @@ private:
     void controlTxBattery(uint8_t row, PageControlEvent event);
     void controlRxBattery(uint8_t row, PageControlEvent event);
     void controlDisplay(uint8_t row, PageControlEvent event);
+    void controlColourScheme(uint8_t choice, PageControlEvent event);
     void controlBindingEditor(uint8_t field, PageControlEvent event);
     void controlChannels(uint8_t item, PageControlEvent event);
     void controlAssignments(uint8_t item, PageControlEvent event);
@@ -290,6 +293,7 @@ private:
     void drawRxBatteryPage();
     void drawRxBatteryRow(int row);
     void drawDisplayPage();
+    void drawColourSchemePage();
     void drawDisplayRow(int row, int visibleRow);
     void drawFirmwareInfoPage();
     void drawElrsBindingPage();

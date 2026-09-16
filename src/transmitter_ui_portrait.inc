@@ -143,13 +143,13 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         makePageActionButton(8,410,304,42,"Firmware info",12,cPanel2,cCyan,cLine,&TransmitterUi::controlSetup,8);
     } else if (page == UiPage::DisplaySetup) {
         makeHeader("Display", "Back");
-        const char *names[]={"Screen timeout","Idle action","Brightness","Night mode","Activate now"};
+        const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now"};
         const int first=displaySetupBank_*4;
         for(int i=first;i<min(first+4,5);++i){
             if(i==0){if(systemSettings_.screenTimeoutSeconds)snprintf(text,sizeof(text),"%u seconds",systemSettings_.screenTimeoutSeconds);else snprintf(text,sizeof(text),"Never");}
             if(i==1)snprintf(text,sizeof(text),"%s",systemSettings_.logoScreensaverEnabled?"Logo saver":"Display off");
             if(i==2)snprintf(text,sizeof(text),"%u%%",systemSettings_.displayBrightnessPercent);
-            if(i==3)snprintf(text,sizeof(text),"%s",systemSettings_.nightMode?"On":"Off");
+            if(i==3)snprintf(text,sizeof(text),"%s",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme));
             if(i==4)snprintf(text,sizeof(text),"%s",systemSettings_.logoScreensaverEnabled?"Show logo":"Sleep");
             row(names[i],text,54+(i-first)*70,&TransmitterUi::controlDisplay,i,i!=0&&i!=2);
         }

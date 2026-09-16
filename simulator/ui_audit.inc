@@ -101,8 +101,32 @@ bool TransmitterUi::runSimulatorUiAudit()
         dispatchPageControlTouch(15,245);assert(strlen(elrsBindPhrase_)==length+1);
         dispatchPageControlTouch(271,434);assert(strlen(elrsBindPhrase_)==length);
     }
+    // Colour choices persist without altering control state. Light retains the
+    // last dark palette for the existing assignable Night mode action.
+    const auto originalSystem = systemSettings_;
+    displaySetupBank_ = 0;
+    drawDisplayPage();controlDisplay(3,activate);
+    assert(activePage_ == UiPage::ColourScheme);
+    for(uint8_t choice=0;choice<=darkColourSchemeCount;++choice){
+        controlColourScheme(choice,activate);
+        assert(activePage_==UiPage::ColourScheme && !armRequested_);
+        loadSystemSettings();
+        assert(systemSettings_.nightMode==(choice!=0));
+        if(choice)assert(systemSettings_.darkColourScheme==choice-1);
+        assert(uiDarkColourScheme==systemSettings_.darkColourScheme);
+        if(choice)assert(colour(cCyan).full==lv_color_hex(darkColourSchemes[choice-1].accent).full);
+    }
+    controlColourScheme(0,activate);loadSystemSettings();
+    assert(!uiNightMode && uiDarkColourScheme==3);
+    applyTransmitterFunctionAction(static_cast<uint16_t>(TransmitterFunction::ToggleNightMode),1);
+    assert(uiNightMode && uiDarkColourScheme==3);
+    navigateBack();assert(activePage_==UiPage::DisplaySetup);
+    // Corrupt or future palette IDs fall back safely; old night preferences work.
+    {Preferences p;p.begin("jr-r1-system",false);p.putUChar("dark_scheme",255);p.end();}
+    loadSystemSettings();assert(uiNightMode && uiDarkColourScheme==0);
+    systemSettings_=originalSystem;saveSystemSettings();loadSystemSettings();
     // Exercise every established menu in the primary hardware orientation.
-    const UiPage pages[]={UiPage::Dashboard,UiPage::Tune,UiPage::Telemetry,UiPage::Gps,UiPage::ChannelMonitor,UiPage::MainMenu,UiPage::ModelSelect,UiPage::Channels,UiPage::ChannelRoles,UiPage::Channel2,UiPage::ThrottleResponse,UiPage::ChannelSpeed,UiPage::ControlAssignments,UiPage::BindingEditor,UiPage::InputMonitor,UiPage::DriveModes,UiPage::ChannelPlaceholder,UiPage::Setup,UiPage::TxBatterySetup,UiPage::RxBatterySetup,UiPage::DisplaySetup,UiPage::FirmwareInfo,UiPage::ElrsBinding,UiPage::ElrsTxConfig,UiPage::EscProgramming,UiPage::WidgetSelect,UiPage::WidgetEditor,UiPage::RadioDiagnostics,UiPage::BatteryMenu,UiPage::Calibration};
+    const UiPage pages[]={UiPage::Dashboard,UiPage::Tune,UiPage::Telemetry,UiPage::Gps,UiPage::ChannelMonitor,UiPage::MainMenu,UiPage::ModelSelect,UiPage::Channels,UiPage::ChannelRoles,UiPage::Channel2,UiPage::ThrottleResponse,UiPage::ChannelSpeed,UiPage::ControlAssignments,UiPage::BindingEditor,UiPage::InputMonitor,UiPage::DriveModes,UiPage::ChannelPlaceholder,UiPage::Setup,UiPage::TxBatterySetup,UiPage::RxBatterySetup,UiPage::DisplaySetup,UiPage::ColourScheme,UiPage::FirmwareInfo,UiPage::ElrsBinding,UiPage::ElrsTxConfig,UiPage::EscProgramming,UiPage::WidgetSelect,UiPage::WidgetEditor,UiPage::RadioDiagnostics,UiPage::BatteryMenu,UiPage::Calibration};
     for(auto page:pages){
         showSimulatorPage(page);lv_obj_update_layout(lv_scr_act());
         assert(activePage_==page && pageFocusCount_>0);
@@ -111,6 +135,6 @@ bool TransmitterUi::runSimulatorUiAudit()
         }
         lv_mem_monitor_t memory;lv_mem_monitor(&memory);assert(memory.free_size>8192);
     }
-    Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, arm hold and bounds PASS");
+    Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, colour schemes, arm hold and bounds PASS");
     drawDashboard();return true;
 }

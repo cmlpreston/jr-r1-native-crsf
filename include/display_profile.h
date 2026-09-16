@@ -96,9 +96,9 @@ constexpr int16_t DISPLAY_LANDSCAPE_HEIGHT = 320;
 // diagnosing the panel cable and connectors.
 constexpr uint32_t TFT_SPI_FREQUENCY = 1000000;
 #elif defined(JR_R1_XIAO_PCB)
-// Return the XIAO/Waveshare cable to the established baseline after visible
-// corruption at the 30 MHz trial speed. Panel visibility still needs bench QA.
-constexpr uint32_t TFT_SPI_FREQUENCY = 20000000;
+// Conservative breadboard trial: corruption persisted at 20 MHz.
+// Keep the schematic (5) XIAO pin map; verify panel visibility on the bench.
+constexpr uint32_t TFT_SPI_FREQUENCY = 4000000;
 #else
 // Legacy prototype's trial speed; the active XIAO profile is set above.
 constexpr uint32_t TFT_SPI_FREQUENCY = 30000000;

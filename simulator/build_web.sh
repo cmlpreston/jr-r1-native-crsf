@@ -5,6 +5,8 @@ command -v emcc >/dev/null || { echo 'Activate emsdk 4.0.15 first (source emsdk_
 test -d third_party/lvgl/src || { echo 'Run make bootstrap first.'; exit 1; }
 make -f web.mk -j6 web
 make -f web.mk ORIENTATION=portrait -j6 web
+mkdir -p web/dist/maps
+cp ../assets/maps/highfield.osm ../assets/maps/README.md web/dist/maps/
 mkdir -p web/dist/vendor
 cp web/index.html web/app.js web/vercel.json web/dist/
 cp web/vendor/* web/dist/vendor/

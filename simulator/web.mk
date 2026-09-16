@@ -38,6 +38,7 @@ APP_CPP := \
   $(ROOT)/src/crsf_channel_output.cpp \
   $(ROOT)/src/output_safety.cpp \
   $(ROOT)/src/jr_propo_boot_logo.cpp \
+  $(ROOT)/src/gps_basemap.cpp \
   $(ROOT)/src/hyper7_icon.cpp
 LVGL_C := $(shell find $(LVGL)/src -name '*.c')
 APP_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(APP_CPP)))
@@ -69,3 +70,5 @@ $(BUILD)/lvgl/%.o: $(LVGL)/src/%.c
 $(APP_OBJ): $(wildcard $(ROOT)/include/*.h) $(wildcard include/*.h) $(ROOT)/src/transmitter_ui_design.inc $(ROOT)/src/transmitter_ui_portrait.inc ui_audit.inc
 
 $(LVGL_OBJ): $(ROOT)/include/lv_conf.h
+
+$(BUILD)/gps_basemap.o: $(ROOT)/src/highfield_map_data.inc

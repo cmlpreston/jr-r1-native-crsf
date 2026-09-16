@@ -1,4 +1,5 @@
 #pragma once
+#include "gps_basemap.h"
 
 #include <Arduino.h>
 #include <lvgl.h>
@@ -380,6 +381,8 @@ private:
     DashboardWidget widgetDraft_;
     struct DashboardWidgetView {
         lv_obj_t *panel = nullptr;
+        lv_obj_t *basemap = nullptr;
+        GpsMapViewport mapViewport;
         lv_obj_t *values[2] = {};
         lv_obj_t *bars[2] = {};
         lv_obj_t *arcs[2] = {};
@@ -411,6 +414,7 @@ private:
     lv_obj_t *designLink_ = nullptr;
     lv_obj_t *designCurve_ = nullptr;
     lv_obj_t *designMarker_ = nullptr;
+    GpsMapViewport designMapViewport_;
     lv_point_t designPoints_[33] = {};
     uint16_t channelHistory_[16][30] = {};
     int32_t sensorHistory_[6][30] = {};

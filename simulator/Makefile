@@ -42,6 +42,7 @@ APP_CPP := \
   $(ROOT)/src/crsf_channel_output.cpp \
   $(ROOT)/src/output_safety.cpp \
   $(ROOT)/src/jr_propo_boot_logo.cpp \
+  $(ROOT)/src/gps_basemap.cpp \
   $(ROOT)/src/hyper7_icon.cpp
 LVGL_C := $(shell test -d $(LVGL)/src && find $(LVGL)/src -name '*.c')
 APP_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(APP_CPP)))
@@ -105,3 +106,5 @@ audit: all portrait
 	  audit_state=$$(mktemp -d /tmp/jr-r1-ui-audit.XXXXXX); \
 	  JR_R1_SIM_STATE="$$audit_state" SDL_VIDEODRIVER=dummy "$$binary" --ui-audit; \
 	done
+
+$(BUILD)/gps_basemap.o: $(ROOT)/src/highfield_map_data.inc

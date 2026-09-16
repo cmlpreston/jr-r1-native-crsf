@@ -176,10 +176,10 @@ int main(int argc, char **argv)
         if (sensors) {
             const double phase = (now / 1000) * 0.12;
             telemetry.gpsUpdatedMs = telemetry.temperatureUpdatedMs = telemetry.rpmUpdatedMs = (now/1000)*1000;
-            telemetry.latitudeE7 = static_cast<int32_t>(sin(phase)*3500);
-            telemetry.longitudeE7 = static_cast<int32_t>(cos(phase)*6000);
+            telemetry.latitudeE7 = GpsMap::DemoLat + static_cast<int32_t>(sin(phase)*4500);
+            telemetry.longitudeE7 = GpsMap::DemoLon + static_cast<int32_t>(cos(phase)*6000);
             telemetry.groundSpeedDeciKmh = 220 + static_cast<int>(sin(phase)*50);
-            telemetry.headingCentiDegrees = static_cast<uint16_t>(fmod(atan2(-6000.0*sin(phase),3500.0*cos(phase))*180.0/3.141592653589793+360.0,360.0)*100.0);
+            telemetry.headingCentiDegrees = static_cast<uint16_t>(fmod(atan2(-6000.0*GpsMap::longitudeScale(GpsMap::DemoLat)*sin(phase),4500.0*cos(phase))*180.0/3.141592653589793+360.0,360.0)*100.0);
             telemetry.satellites = 12;
             telemetry.temperatureDeciC = 550 + static_cast<int>(sin(phase/4)*80);
             telemetry.rpm = 12000 + static_cast<int>(sin(phase)*3000);

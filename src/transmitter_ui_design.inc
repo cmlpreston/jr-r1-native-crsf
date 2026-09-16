@@ -94,7 +94,14 @@ void TransmitterUi::applyDesignValue(int value)
         return;
     }
     auto &p = profileForChannel(selectedChannel_);
-    // Steering edits apply symmetrically; throttle and brake remain independent.
+    if (editorField_ == 2 && tuneRole_ == 0) {
+        p.negativeEndpointPercent = steeringEndpointDrafts_[0];
+        p.positiveEndpointPercent = steeringEndpointDrafts_[1];
+        sanitizeChannelResponseProfile(p);
+        scheduleSettingsSave();
+        return;
+    }
+    // Other steering edits remain symmetric; throttle and brake are independent.
     const bool positive = tuneRole_ != 2;
     const bool negative = tuneRole_ == 0 || tuneRole_ == 2;
     switch (editorField_) {
@@ -114,7 +121,49 @@ void TransmitterUi::openDesignEditor(uint8_t field, UiPage returnPage)
     editorReturn_ = returnPage;
     editorDraft_ = designValue();
     editorFine_ = false;
+    if (field == 2 && tuneRole_ == 0) {
+        const auto &profile = profileForChannel(selectedChannel_);
+        steeringEndpointDrafts_[0] = profile.negativeEndpointPercent;
+        steeringEndpointDrafts_[1] = profile.positiveEndpointPercent;
+        steeringEndpointInputSide_ = 0;
+        const int input = latestSteeringRawAdc_ <= 4095 ? steeringInput_.mapToPermille(latestSteeringRawAdc_) : 0;
+        if (input < -150) steeringEndpointInputSide_ = -1;
+        else if (input > 150) steeringEndpointInputSide_ = 1;
+        if (steeringEndpointInputSide_) steeringEndpointSide_ = steeringEndpointInputSide_ > 0;
+        editorDraft_ = steeringEndpointDrafts_[steeringEndpointSide_];
+        editorFine_ = true;
+    }
     drawDesignPage(UiPage::ValueEditor);
+}
+
+bool TransmitterUi::steeringEndpointEditor() const
+{
+    return activePage_ == UiPage::ValueEditor && editorField_ == 2 && tuneRole_ == 0;
+}
+
+void TransmitterUi::selectSteeringEndpoint(uint8_t side)
+{
+    if (!steeringEndpointEditor() || side > 1 || side == steeringEndpointSide_) return;
+    steeringEndpointSide_ = side;
+    editorDraft_ = steeringEndpointDrafts_[side];
+    lastInteractionMs_ = millis();
+    drawDesignPage(UiPage::ValueEditor);
+}
+
+void TransmitterUi::updateSteeringEndpointSelection()
+{
+    if (!steeringEndpointEditor() || latestSteeringRawAdc_ > 4095) return;
+    // Select from calibrated physical input, before trim, rate or reversal.
+    // Hysteresis rejects centre noise. A tap overrides a held wheel until the
+    // wheel enters a new side; returning to centre retains the selected side.
+    const int input = steeringInput_.mapToPermille(latestSteeringRawAdc_);
+    int8_t side = steeringEndpointInputSide_;
+    if (input < -150) side = -1;
+    else if (input > 150) side = 1;
+    else if (input >= -75 && input <= 75) side = 0;
+    if (side == steeringEndpointInputSide_) return;
+    steeringEndpointInputSide_ = side;
+    if (side) selectSteeringEndpoint(side > 0);
 }
 
 void TransmitterUi::drawDesignPage(UiPage page)
@@ -174,7 +223,11 @@ void TransmitterUi::drawDesignPage(UiPage page)
             if (field > 6) break;
             editorField_ = field;
             char value[32]; int v=designValue();
-            if (field == 4) snprintf(value,sizeof(value),"%s",v ? "Reversed" : "Normal");
+            if (field == 2 && tuneRole_ == 0) {
+                const auto &p = profileForChannel(selectedChannel_);
+                snprintf(value,sizeof(value),"L %u / R %u%%",p.negativeEndpointPercent,p.positiveEndpointPercent);
+            }
+            else if (field == 4) snprintf(value,sizeof(value),"%s",v ? "Reversed" : "Normal");
             else snprintf(value,sizeof(value),"%d%s",v,field==3 ? " ms" : "%");
             row(86+i*gap,designFieldNames[field],value,20+field,designPortrait ? 54 : 37);
         }
@@ -183,11 +236,22 @@ void TransmitterUi::drawDesignPage(UiPage page)
     } else if (page == UiPage::ValueEditor) {
         char heading[48]; snprintf(heading,sizeof(heading),"%s / %s",designRoleNames[tuneRole_],designFieldNames[editorField_]);
         label(heading,12,47,18);
-        auto value = label("",0,0,32,cCyan);
-        lv_label_set_text_fmt(value,"%d%s",editorDraft_,editorField_==3 ? " ms" : editorField_==4 ? "" : "%");
-        if (editorField_==4) lv_label_set_text(value,editorDraft_ ? "Reversed" : "Normal");
-        lv_obj_align(value,LV_ALIGN_TOP_MID,0,83);
-        const int graphY=128, graphH=designPortrait ? 150 : 60;
+        const bool steeringEndpoints = steeringEndpointEditor();
+        if (steeringEndpoints) {
+            for (uint8_t side=0; side<2; ++side) {
+                char text[32];snprintf(text,sizeof(text),"%s%s  %d%%",side?"Right":"Left",
+                    side==steeringEndpointSide_?" *":"",steeringEndpointDrafts_[side]);
+                button(12+side*(kScreenWidth/2),83,kScreenWidth/2-24,
+                       designPortrait?62:38,text,150+side,side==steeringEndpointSide_);
+            }
+        } else {
+            auto value = label("",0,0,32,cCyan);
+            lv_label_set_text_fmt(value,"%d%s",editorDraft_,editorField_==3 ? " ms" : editorField_==4 ? "" : "%");
+            if (editorField_==4) lv_label_set_text(value,editorDraft_ ? "Reversed" : "Normal");
+            lv_obj_align(value,LV_ALIGN_TOP_MID,0,83);
+        }
+        const int graphY=steeringEndpoints && designPortrait?160:128;
+        const int graphH=designPortrait ? (steeringEndpoints?118:150) : 60;
         auto graph=makePanel(12,graphY,kScreenWidth-24,graphH,cPanel,cLine,0);
         designCurve_=lv_line_create(graph);
         auto draft = profileForChannel(selectedChannel_);
@@ -195,7 +259,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
         switch(editorField_) {
             case 0: if(pos)draft.positiveRatePercent=editorDraft_;if(neg)draft.negativeRatePercent=editorDraft_;break;
             case 1: if(pos)draft.positiveExpoPercent=editorDraft_;if(neg)draft.negativeExpoPercent=editorDraft_;break;
-            case 2: if(pos)draft.positiveEndpointPercent=editorDraft_;if(neg)draft.negativeEndpointPercent=editorDraft_;break;
+            case 2:
+                if(steeringEndpoints){draft.negativeEndpointPercent=steeringEndpointDrafts_[0];draft.positiveEndpointPercent=steeringEndpointDrafts_[1];}
+                else {if(pos)draft.positiveEndpointPercent=editorDraft_;if(neg)draft.negativeEndpointPercent=editorDraft_;}
+                break;
             case 4: draft.reversed=editorDraft_!=0;break;
         }
         for(int i=0;i<33;++i) {
@@ -206,6 +273,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         lv_line_set_points(designCurve_,designPoints_,33);
         lv_obj_set_style_line_color(designCurve_,colour(cCyan),0); lv_obj_set_style_line_width(designCurve_,2,0);
         if(editorField_==3 || editorField_>=5) { lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN); makeLabel(graph,editorField_==3 ? "Time to reach requested output" : "Offset from channel neutral",10,graphH/2-7,12,cDim); }
+        if (steeringEndpoints) label("Steer or tap a side, then use + / -",12,designPortrait?282:190,10,cDim);
         const int y=designPortrait ? 302 : 204, w=(kScreenWidth-44)/4;
         button(10,y,w,38,"-",30); button(18+w,y,w,38,editorFine_ ? "Fine" : "Coarse",32);
         button(26+w*2,y,w,38,"+",31); button(34+w*3,y,w,38,"Reset",33);
@@ -358,6 +426,10 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     }
     if(item==28){tuneBank_=!tuneBank_;drawDesignPage(UiPage::Tune);return;}
     if(item==29){drawChannelPlaceholder();return;}
+    if((item==150 || item==151) && steeringEndpointEditor()) {
+        if(event==PageControlEvent::Activate) selectSteeringEndpoint(item-150);
+        return;
+    }
     if(item>=30 && item<=35){
         if(item==34){drawDesignPage(editorReturn_);return;}
         if(item==35){applyDesignValue(editorDraft_);drawDesignPage(editorReturn_);return;}
@@ -366,7 +438,9 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         else {int step=editorField_==3?(editorFine_?10:50):editorField_==4?1:(editorFine_?1:5);int direction=item==30?-1:1;if(event==PageControlEvent::Decrease)direction=-1;editorDraft_+=direction*step;}
         int low=editorField_==1?-100:editorField_>=5?-20:editorField_==2?50:0;
         int high=editorField_==3?2000:editorField_==4?1:editorField_>=5?20:100;
-        editorDraft_=constrain(editorDraft_,low,high);drawDesignPage(UiPage::ValueEditor);return;
+        editorDraft_=constrain(editorDraft_,low,high);
+        if(steeringEndpointEditor()) steeringEndpointDrafts_[steeringEndpointSide_]=editorDraft_;
+        drawDesignPage(UiPage::ValueEditor);return;
     }
     switch(item){
         case 40:drawModelSelectPage();return;

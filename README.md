@@ -35,6 +35,13 @@ applies immediately and persists across restarts. The assignable **Night mode**
 action switches between Light and the last selected dark scheme. Safety colours
 and the red JR wordmark remain consistent across schemes.
 
+In **Tune → Steering → Endpoint**, steer left/right or tap the **Left / Right**
+value to select a side, then use the on-screen or handset **+ / −** keys.
+Returning to centre keeps the selected side. Both drafts are retained while
+switching sides; **Apply** saves them and **Cancel** discards them. **Reset**
+resets only the selected endpoint. Selection follows physical steering before
+channel reversal. Throttle and brake endpoints remain separate Tune tabs.
+
 ## Desktop UI simulator
 
 The complete LVGL touchscreen UI can be built and exercised on macOS without

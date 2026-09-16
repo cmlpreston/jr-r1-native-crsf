@@ -21,6 +21,53 @@ bool TransmitterUi::runSimulatorUiAudit()
     tuneRole_=2;openDesignEditor(0,UiPage::Tune);editorDraft_=70;controlDesign(35,activate);
     assert(profileForChannel(selectedChannel_).positiveRatePercent==55 && profileForChannel(selectedChannel_).negativeRatePercent==70);
     profileForChannel(selectedChannel_)=original;saveSettings();
+    // Steering selects independent drafts from physical input or a side tap.
+    tuneRole_=0;selectedChannel_=channelRoleSettings_.steeringChannel;
+    const auto steeringOriginal=profileForChannel(selectedChannel_);
+    auto &steering=profileForChannel(selectedChannel_);
+    steering.negativeEndpointPercent=81;steering.positiveEndpointPercent=93;
+    steering.reversed=true; // Selection follows the wheel, not output reversal.
+    latestSteeringRawAdc_=steeringInput_.calibration().minimum;
+    openDesignEditor(2,UiPage::Tune);
+    assert(steeringEndpointSide_==0 && editorDraft_==81 && editorFine_);
+    adjustPageFocus(-1);assert(editorDraft_==80);
+    assert(steering.negativeEndpointPercent==81 && steering.positiveEndpointPercent==93);
+    latestSteeringRawAdc_=steeringInput_.calibration().maximum;
+    updateSteeringEndpointSelection();assert(steeringEndpointSide_==1 && editorDraft_==93);
+    adjustPageFocus(1);assert(editorDraft_==94 && steeringEndpointDrafts_[0]==80);
+    latestSteeringRawAdc_=steeringInput_.centre()+5;
+    updateSteeringEndpointSelection();assert(steeringEndpointSide_==1);
+    latestSteeringRawAdc_=steeringInput_.calibration().maximum;
+    updateSteeringEndpointSelection();controlDesign(150,activate);
+    updateSteeringEndpointSelection();assert(steeringEndpointSide_==0 && editorDraft_==80);
+    // A tap wins over a held wheel; centre then right reselects right.
+    latestSteeringRawAdc_=steeringInput_.centre();updateSteeringEndpointSelection();
+    latestSteeringRawAdc_=steeringInput_.calibration().maximum;updateSteeringEndpointSelection();
+    assert(steeringEndpointSide_==1 && editorDraft_==94);
+    latestSteeringRawAdc_=65535;updateSteeringEndpointSelection();assert(steeringEndpointSide_==1);
+    controlDesign(35,activate);assert(!armRequested_);
+    assert(steering.negativeEndpointPercent==80 && steering.positiveEndpointPercent==94 && steering.reversed);
+    saveSettings();loadSettings();
+    assert(steering.negativeEndpointPercent==80 && steering.positiveEndpointPercent==94);
+    latestSteeringRawAdc_=steeringInput_.centre();
+    openDesignEditor(2,UiPage::Tune);controlDesign(150,activate);controlDesign(33,activate);
+    assert(steeringEndpointDrafts_[0]==100 && steeringEndpointDrafts_[1]==94);
+    controlDesign(34,activate);assert(steering.negativeEndpointPercent==80);
+    openDesignEditor(2,UiPage::Tune);controlDesign(150,activate);
+    for(int i=0;i<70;++i)adjustPageFocus(-1);
+    assert(editorDraft_==50 && steeringEndpointDrafts_[1]==94);
+    controlDesign(151,activate);for(int i=0;i<20;++i)adjustPageFocus(1);
+    assert(editorDraft_==100 && steeringEndpointDrafts_[0]==50);
+    controlDesign(34,activate);assert(steering.negativeEndpointPercent==80 && steering.positiveEndpointPercent==94);
+    steering=steeringOriginal;saveSettings();
+    // Throttle and brake retain their existing independent endpoint edits.
+    tuneRole_=1;selectedChannel_=channelRoleSettings_.throttleChannel;
+    openDesignEditor(2,UiPage::Tune);editorDraft_=75;controlDesign(35,activate);
+    assert(profileForChannel(selectedChannel_).positiveEndpointPercent==75);
+    assert(profileForChannel(selectedChannel_).negativeEndpointPercent==original.negativeEndpointPercent);
+    tuneRole_=2;openDesignEditor(2,UiPage::Tune);editorDraft_=85;controlDesign(35,activate);
+    assert(profileForChannel(selectedChannel_).negativeEndpointPercent==85 && profileForChannel(selectedChannel_).positiveEndpointPercent==75);
+    profileForChannel(selectedChannel_)=original;saveSettings();
     // All ten Setup routes must remain reachable, including non-demo features.
     const UiPage routes[]={UiPage::ModelSelect,UiPage::Channels,UiPage::ControlAssignments,UiPage::DriveModes,UiPage::ElrsTxConfig,UiPage::ElrsBinding,UiPage::EscProgramming,UiPage::Setup,UiPage::InputMonitor,UiPage::WidgetSelect};
     for(uint8_t i=0;i<10;++i){drawMainMenu();controlDesign(40+i,activate);assert(activePage_==routes[i]);}
@@ -135,6 +182,6 @@ bool TransmitterUi::runSimulatorUiAudit()
         }
         lv_mem_monitor_t memory;lv_mem_monitor(&memory);assert(memory.free_size>8192);
     }
-    Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, colour schemes, arm hold and bounds PASS");
+    Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, endpoints, colour schemes, arm hold and bounds PASS");
     drawDashboard();return true;
 }

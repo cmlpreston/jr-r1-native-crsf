@@ -2587,6 +2587,12 @@ void TransmitterUi::activatePageFocus()
 
 bool TransmitterUi::adjustPageFocus(int8_t direction)
 {
+    // In the endpoint editor the handset +/- keys always edit the selected
+    // side, even when focus is on a side selector, Apply or Cancel.
+    if (steeringEndpointEditor()) {
+        controlDesign(direction < 0 ? 30 : 31, PageControlEvent::Activate);
+        return true;
+    }
     pageFocusVisible_ = true;
     if (pageFocusCount_ == 0 || pageFocusIndex_ >= pageFocusCount_) return false;
     if (dispatchPageControl(pageFocusIndex_, direction < 0
@@ -5677,6 +5683,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     designTxVoltage_ = txVoltageDecivolts; designTxValid_ = txVoltageValid;
     latestRawAdc_ = rawAdc;
     latestSteeringRawAdc_ = steeringRawAdc;
+    updateSteeringEndpointSelection();
     for (uint8_t ch=1; ch<=16; ++ch) designRequested_[ch-1] = channelOutputs.requested(ch);
     const uint16_t enabledMask = channelOutputs.enabledMask();
     channelOutputs.resolve(channelOutputsLive, dashboardChannelValues_);

@@ -402,6 +402,12 @@ private:
     uint8_t tuneBank_ = 0, designBank_ = 0, setupBank_ = 0, sensorSelected_ = 0;
     uint8_t editorField_ = 0;
     int editorDraft_ = 0;
+    int steeringEndpointDrafts_[2] = {100, 100}; // Left, right; applied together.
+    uint8_t steeringEndpointSide_ = 0;
+    int8_t steeringEndpointInputSide_ = 0;
+    bool steeringEndpointEditor() const;
+    void selectSteeringEndpoint(uint8_t side);
+    void updateSteeringEndpointSelection();
     UiPage editorReturn_ = UiPage::Tune;
     bool editorFine_ = false;
     bool designTouchDispatch_ = false;

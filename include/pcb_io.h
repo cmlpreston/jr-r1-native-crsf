@@ -10,7 +10,8 @@ constexpr uint8_t PCB_LCD_RESET_PORT = 11;    // K2 pin 4, GPB3
 constexpr uint8_t PCB_TOUCH_IRQ_PORT = 12;    // K2 pin 5, GPB4
 extern Mcp23017Input pcbKeypad;
 extern Mcp23017Input pcbControls;
-bool pcbIoBegin();
+using PcbStartupProgress = void (*)(uint8_t attempt, bool keypad, bool controls);
+bool pcbIoBegin(PcbStartupProgress progress = nullptr);
 bool pcbResetTouch();
 bool pcbResetDisplay();
 bool pcbTouchIrqActive();

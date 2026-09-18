@@ -6,12 +6,45 @@
 #include "r1_input_map.h"
 #include "config.h"
 FakeWire Wire;
-void delay(uint32_t) {}
+unsigned startupWaits = 0;
+uint8_t recoverAddress = 0;
+void delay(uint32_t ms) {
+    if (ms == 100) {
+        ++startupWaits;
+        if (recoverAddress) Wire.missing[recoverAddress] = false;
+    }
+}
 void delayMicroseconds(uint32_t) {}
 
 int main()
 {
+    // A write ACK alone is insufficient: retry a failed read, without
+    // reconfiguring the other healthy chip.
+    Wire.failedReadsRemaining[0x21] = 1;
     assert(pcbIoBegin());
+    assert(startupWaits == 1);
+    unsigned k1Writes=0, k2Writes=0;
+    for (auto w : Wire.writes) (w.address==0x20 ? k1Writes : k2Writes)++;
+    assert(k1Writes==6 && k2Writes==12);
+    // Either chip can come online late; a healthy one is retained.
+    for (uint8_t address : {uint8_t(0x20), uint8_t(0x21)}) {
+        Wire = FakeWire{};startupWaits=0;recoverAddress=address;
+        Wire.missing[address]=true;
+        assert(pcbIoBegin());assert(startupWaits==1);
+    }
+    // Permanently missing devices exhaust exactly five attempts/four waits.
+    Wire = FakeWire{};startupWaits=0;recoverAddress=0;
+    Wire.missing[0x20]=Wire.missing[0x21]=true;
+    unsigned attempts=0;
+    static unsigned reportedAttempts=0;
+    assert(!pcbIoBegin([](uint8_t n,bool a,bool b){
+        reportedAttempts=n;assert(!a && !b);
+    }));
+    attempts=reportedAttempts;
+    assert(attempts==5 && startupWaits==4);
+    assert(!pcbKeypad.online() && !pcbControls.online());
+    Wire = FakeWire{};startupWaits=0;
+    assert(pcbIoBegin());assert(startupWaits==0);
     assert(pcbResetTouch());
     assert(pcbResetDisplay());
     // Reset lines remain outputs high; INT returns to input with pull-up.

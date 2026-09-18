@@ -55,7 +55,10 @@ is not implemented in this change.
 ## Startup and recovery
 
 After starting Wire on GPIO1/2 at 100 kHz, configure both expanders before
-initialising touch or the LCD. K1 enables internal pull-ups on all eight keys
+initialising touch or the LCD. Startup makes up to five attempts, 100 ms apart.
+Only failed chips are reconfigured; both must pass a fresh GPIO read before
+startup continues. Serial output reports `PCB STARTUP attempt=N/5 K1=... K2=...`
+for every attempt. Exhaustion leaves startup halted safely. K1 enables internal pull-ups on all eight keys
 (and its trim contacts) before input sampling. K2 enables pull-ups on its input
 contacts and INT. Output latches are loaded before output directions, so reset
 and LED lines start at deliberate levels.

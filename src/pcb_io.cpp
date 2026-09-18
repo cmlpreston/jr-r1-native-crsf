@@ -4,15 +4,23 @@
 Mcp23017Input pcbKeypad(0x20);
 Mcp23017Input pcbControls(0x21);
 
-bool pcbIoBegin()
+bool pcbIoBegin(PcbStartupProgress progress)
 {
-    // K1: keypad A1/A3/B0..B5, trims A0/A2/A4/B6. A7/B7 are output-only.
-    const bool keypad = pcbKeypad.configure(0x7f7f, 0x7f1f, 0);
-    // K2: B3 LCD reset, B0 touch reset, B7 active-low RUN LED.
-    // Start both resets asserted, RUN off. B4 is temporarily driven during
-    // address selection, then returned to an input with a pull-up.
-    const bool controls = pcbControls.configure(0x767f, 0x761f, 0x8000);
-    return keypad && controls;
+    bool keypad = false;
+    bool controls = false;
+    for (uint8_t attempt = 1; attempt <= 5; ++attempt) {
+        // Reconfigure only failed chips; keep both reset outputs asserted
+        // until both MCPs have also passed a fresh GPIO register read.
+        if (!keypad) keypad = pcbKeypad.configure(0x7f7f, 0x7f1f, 0);
+        if (!controls) controls = pcbControls.configure(0x767f, 0x761f, 0x8000);
+        uint16_t ports;
+        if (keypad) keypad = pcbKeypad.read(ports);
+        if (controls) controls = pcbControls.read(ports);
+        if (progress) progress(attempt, keypad, controls);
+        if (keypad && controls) return true;
+        if (attempt < 5) delay(100);
+    }
+    return false;
 }
 
 bool pcbResetTouch()

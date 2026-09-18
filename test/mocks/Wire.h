@@ -13,6 +13,7 @@ struct FakeWire {
     std::vector<uint8_t> tx, rx;
     uint8_t address = 0, pointer = 0;
     unsigned failAtWrite = 0;
+    std::array<unsigned,128> failedReadsRemaining{};
     void beginTransmission(uint8_t value) { address=value; tx.clear(); }
     void write(uint8_t value) { tx.push_back(value); }
     int endTransmission(bool = true) {
@@ -28,6 +29,7 @@ struct FakeWire {
     size_t requestFrom(uint8_t device, size_t count) {
         rx.clear();
         if (missing[device]) return 0;
+        if (failedReadsRemaining[device]) { --failedReadsRemaining[device]; return 0; }
         for (size_t i=0;i<count;++i) {
             auto reg=uint8_t(pointer+i);
             uint8_t value=regs[device][reg];

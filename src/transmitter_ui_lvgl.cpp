@@ -588,7 +588,10 @@ bool TransmitterUi::begin()
     // Both expanders must be configured before GT911 address selection or
     // Arduino_GFX startup. Keypad pull-ups are enabled here, before sampling.
     bootDiagnosticsStage("expanders");
-    const bool pcbReady = pcbIoBegin();
+    const bool pcbReady = pcbIoBegin([](uint8_t attempt, bool keypad, bool controls) {
+        Serial.printf("PCB STARTUP attempt=%u/5 K1=%s K2=%s\n", attempt,
+                      keypad ? "PASS" : "FAIL", controls ? "PASS" : "FAIL");
+    });
     bootDiagnosticsResult(BootCheck::Keypad, pcbKeypad.online());
     bootDiagnosticsResult(BootCheck::Controls, pcbControls.online());
     Serial.printf("PCB IO: K1=0x20 %s K2=0x21 %s\n",

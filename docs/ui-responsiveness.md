@@ -86,3 +86,42 @@ Real hardware transfer/latency measurements and subjective validation of this
 second pass remain pending. Row comparison and fragmented transfers have their
 own overhead; pixel savings do not establish a corresponding latency reduction.
 Full-page layout/render CPU work remains unchanged.
+
+## Hardware observations and A/B instrumentation
+
+The user found no obvious subjective speed change with either optimisation.
+The row-cache build logged real transitions of 347–381 ms from accepted touch
+release, including 62–72 ms page construction and 151–161 ms driver transfer.
+An identical Tune-page rebuild transferred no pixels but still took 196 ms.
+Actual navigation transferred 122,560–130,240 of 153,600 pixels: the synthetic
+Setup→Tune fixture's savings should not be generalised to all pages.
+
+The next candidate adds temporary serial commands `UICACHE OFF` and `UICACHE ON`.
+OFF bypasses comparisons and copies and sends each LVGL buffer in one transfer.
+Switching modes invalidates the cache; ON's first frame primes it. The selection
+is not saved, and reboot restores ON. This does not change radio output, display
+clock or touch handling. Tests verify re-enabling cannot reuse stale pixels and
+that on/off output images match in both orientations.
+
+Additional `UI PERF` fields:
+
+- `layout`: explicit pending screen layout before the LVGL handler on page builds.
+- `flush-overhead`: total flush callback time minus driver-transfer time, including
+  row comparison, cache copies and transfer bookkeeping.
+- `lvgl-other`: time inside `lv_timer_handler` minus flush callback time, including
+  rendering, LVGL timers and any remaining layout.
+
+These are wall-clock measurements, so task preemption is included. Construction
+may itself cause some immediate layout work; the fields are measured call scopes,
+not an exhaustive decomposition of CPU usage. `page` also includes intervening
+UI updates/scheduling. The timestamp is captured before printing the log.
+
+Hardware comparison procedure (pending):
+1. With the handset safely in CUT, record Drive→Tune→Data→Setup→Data→Tune→Drive
+   with the cache ON, repeat several times.
+2. Send `UICACHE OFF` followed by Enter and repeat the same sequence/data state.
+3. Send `UICACHE ON`, navigate once to prime it, then repeat as a consistency check.
+4. Compare medians per transition, not different pages or simulator timings.
+   Keep bus speed, theme, widget layout and logging identical.
+
+No additional page-retention optimisation is included in this measurement pass.

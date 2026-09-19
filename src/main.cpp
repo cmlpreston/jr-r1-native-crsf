@@ -756,6 +756,10 @@ bool consumeScreenshotCommand()
             if (strcmp(usbCommand, "INPUTS") == 0 || strcmp(usbCommand, "inputs") == 0)
                 printPcbInputs();
 #endif
+            if (strcmp(usbCommand, "UICACHE ON") == 0)
+                transmitterUi.setDisplayCacheEnabled(true);
+            if (strcmp(usbCommand, "UICACHE OFF") == 0)
+                transmitterUi.setDisplayCacheEnabled(false);
             usbCommandLength = 0;
             if (matched) return true;
             continue;

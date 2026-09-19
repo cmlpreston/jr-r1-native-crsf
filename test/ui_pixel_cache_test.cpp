@@ -17,5 +17,13 @@ int main() {
     assert(!cache.unchanged(0, 0, 4, b));
     cache.invalidate();
     assert(!cache.unchanged(0, 1, 4, b));
+    cache.remember(0, 1, 4, a);
+    cache.setEnabled(false);
+    assert(!cache.enabled() && !cache.unchanged(0, 1, 4, a));
+    cache.remember(0, 1, 4, b);
+    cache.setEnabled(true);
+    assert(cache.enabled() && !cache.unchanged(0, 1, 4, a));
+    cache.remember(0, 1, 4, b);
+    assert(cache.unchanged(0, 1, 4, b));
     puts("UI pixel cache PASS");
 }

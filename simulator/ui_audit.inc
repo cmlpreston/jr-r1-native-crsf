@@ -370,6 +370,19 @@ bool TransmitterUi::runSimulatorUiAudit()
         char path[256];snprintf(path,sizeof(path),"%s-%s-full.bmp",prefix,designPortrait?"portrait":"landscape");
         simulatorSaveScreenshot(path);
     }
+    setDisplayCacheEnabled(false);
+    drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);
+    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
+    assert(uiMetrics.sent == uiMetrics.rendered && uiMetrics.sent == kScreenWidth * kScreenHeight);
+    if (const char *prefix = getenv("JR_R1_AUDIT_CACHE_IMAGES")) {
+        char path[256];snprintf(path,sizeof(path),"%s-%s-off.bmp",prefix,designPortrait?"portrait":"landscape");
+        simulatorSaveScreenshot(path);
+    }
+    setDisplayCacheEnabled(true);
+    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
+    assert(uiMetrics.sent == kScreenWidth * kScreenHeight); // Re-enable primes unknown rows.
+    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
+    assert(uiMetrics.sent == 0);
     Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, endpoints, colour schemes, startup fault display, arm hold and bounds PASS");
     drawDashboard();return true;
 }

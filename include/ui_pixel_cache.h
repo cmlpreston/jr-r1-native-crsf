@@ -9,17 +9,19 @@ template <int Width, int Height> class UiPixelCache {
 public:
     void attach(uint16_t *storage) { pixels_ = storage; invalidate(); }
     void invalidate() { memset(valid_, 0, sizeof(valid_)); }
-    bool enabled() const { return pixels_ != nullptr; }
+    void setEnabled(bool enabled) { requested_ = enabled; invalidate(); }
+    bool enabled() const { return pixels_ != nullptr && requested_; }
     bool unchanged(int x, int y, int width, const uint16_t *pixels) const {
-        return pixels_ && valid_[y] &&
+        return enabled() && valid_[y] &&
             memcmp(pixels_ + y * Width + x, pixels, width * sizeof(uint16_t)) == 0;
     }
     void remember(int x, int y, int width, const uint16_t *pixels) {
-        if (!pixels_) return;
+        if (!enabled()) return;
         memcpy(pixels_ + y * Width + x, pixels, width * sizeof(uint16_t));
         if (x == 0 && width == Width) valid_[y] = true;
     }
 private:
+    bool requested_ = true;
     uint16_t *pixels_ = nullptr;
     bool valid_[Height] = {};
 };

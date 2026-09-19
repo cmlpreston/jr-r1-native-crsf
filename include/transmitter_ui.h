@@ -121,6 +121,7 @@ public:
     bool armRequested() const { return armRequested_; }
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
     bool captureScreenshot(Stream &output);
+    void setDisplayCacheEnabled(bool enabled);
 #ifdef JR_R1_SIMULATOR
     bool runSimulatorUiAudit();
     bool selectSimulatorTxParameter(uint8_t id) {

@@ -253,12 +253,14 @@ UiPixelCache<kScreenWidth, kScreenHeight> pixelCache;
 struct UiFrameMetrics {
     uint32_t rendered = 0, sent = 0, transfers = 0, transferUs = 0;
     uint32_t pageStartedUs = 0, buildUs = 0, touchAcceptedUs = 0;
+    uint32_t flushUs = 0, layoutUs = 0, handlerUs = 0;
     bool pagePending = false, touchPending = false;
 } uiMetrics;
 
 void flushDisplay(lv_disp_drv_t *driver, const lv_area_t *area,
                   lv_color_t *pixels)
 {
+    const uint32_t flushStarted = micros();
     const int width = area->x2 - area->x1 + 1;
     const int height = area->y2 - area->y1 + 1;
     auto *rgb = reinterpret_cast<uint16_t *>(pixels);
@@ -272,6 +274,7 @@ void flushDisplay(lv_disp_drv_t *driver, const lv_area_t *area,
             continue;
         }
         const int first = row++;
+        if (!pixelCache.enabled()) row = height; // Original single-transfer path.
         while (row < height && !pixelCache.unchanged(
                 area->x1, area->y1 + row, width, rgb + row * width)) ++row;
         const uint32_t started = micros();
@@ -287,23 +290,28 @@ void flushDisplay(lv_disp_drv_t *driver, const lv_area_t *area,
         uiMetrics.transferUs += static_cast<uint32_t>(micros()) - started;
         uiMetrics.sent += width * (row - first);
         ++uiMetrics.transfers;
-        for (int i = first; i < row; ++i)
+        for (int i = first; pixelCache.enabled() && i < row; ++i)
             pixelCache.remember(area->x1, area->y1 + i, width, rgb + i * width);
     }
     lv_disp_flush_ready(driver);
+    uiMetrics.flushUs += uint32_t(micros()) - flushStarted;
 }
 
 // Report once after a completed refresh, never print in the transfer callback.
 void reportUiFrame()
 {
     if (uiMetrics.pagePending || uiMetrics.touchPending) {
-        Serial.printf("UI PERF: build=%luus rendered=%lu sent=%lu transfers=%lu SPI=%luus page=%luus touch-release=%luus cache=%s\n",
+        const uint32_t finished = micros();
+        Serial.printf("UI PERF: build=%luus rendered=%lu sent=%lu transfers=%lu SPI=%luus page=%luus touch-release=%luus cache=%s layout=%luus flush-overhead=%luus lvgl-other=%luus\n",
             (unsigned long)uiMetrics.buildUs, (unsigned long)uiMetrics.rendered,
             (unsigned long)uiMetrics.sent, (unsigned long)uiMetrics.transfers,
             (unsigned long)uiMetrics.transferUs,
-            (unsigned long)(uiMetrics.pagePending ? uint32_t(micros()) - uiMetrics.pageStartedUs : 0),
-            (unsigned long)(uiMetrics.touchPending ? uint32_t(micros()) - uiMetrics.touchAcceptedUs : 0),
-            pixelCache.enabled() ? "on" : "off");
+            (unsigned long)(uiMetrics.pagePending ? finished - uiMetrics.pageStartedUs : 0),
+            (unsigned long)(uiMetrics.touchPending ? finished - uiMetrics.touchAcceptedUs : 0),
+            pixelCache.enabled() ? "on" : "off",
+            (unsigned long)uiMetrics.layoutUs,
+            (unsigned long)(uiMetrics.flushUs - uiMetrics.transferUs),
+            (unsigned long)(uiMetrics.handlerUs >= uiMetrics.flushUs ? uiMetrics.handlerUs - uiMetrics.flushUs : 0));
     }
     uiMetrics = UiFrameMetrics{};
 }
@@ -609,6 +617,15 @@ const char *uiPageName(UiPage page)
 }
 
 } // namespace
+
+void TransmitterUi::setDisplayCacheEnabled(bool enabled)
+{
+    pixelCache.setEnabled(enabled);
+    uiMetrics = UiFrameMetrics{};
+    Serial.printf("UI CACHE: %s (temporary; reboot restores on). Repeat the same navigation sequence.\n",
+                  pixelCache.enabled() ? "on" : "off");
+}
+
 
 #include "transmitter_ui_design.inc"
 #include "transmitter_ui_portrait.inc"
@@ -5948,6 +5965,15 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
         else if (activePage_ == UiPage::InputMonitor) refreshInputMonitorRows();
     }
     const uint32_t renderedBefore = uiMetrics.rendered;
+    // Make layout cost explicit for page transitions. LVGL would otherwise
+    // perform pending layout inside its refresh handler. Do not force refresh.
+    if (uiMetrics.pagePending) {
+        const uint32_t layoutStarted = micros();
+        lv_obj_update_layout(lv_scr_act());
+        uiMetrics.layoutUs += uint32_t(micros()) - layoutStarted;
+    }
+    const uint32_t handlerStarted = micros();
     lv_timer_handler();
+    uiMetrics.handlerUs += uint32_t(micros()) - handlerStarted;
     if (uiMetrics.rendered != renderedBefore) reportUiFrame();
 }

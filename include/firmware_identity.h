@@ -16,7 +16,7 @@
 #define JR_R1_BUILD_ENV "unknown"
 #endif
 
-constexpr const char *JR_R1_FIRMWARE_NAME = "JR R1 NATIVE CRSF";
+constexpr const char *JR_R1_FIRMWARE_NAME = "JR R-1 NATIVE CRSF";
 constexpr const char *JR_R1_FIRMWARE_BRANCH = JR_R1_GIT_BRANCH;
 constexpr const char *JR_R1_FIRMWARE_COMMIT = JR_R1_GIT_COMMIT;
 constexpr const char *JR_R1_FIRMWARE_GIT_STATE = JR_R1_GIT_STATE;

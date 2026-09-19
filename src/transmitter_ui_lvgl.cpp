@@ -1907,7 +1907,7 @@ void TransmitterUi::drawBootSplash()
 #endif
 
     lv_obj_t *designation = makeLabel(
-        lv_scr_act(), "R1 EVO", 0, 0, 18, 0xbec3c9);
+        lv_scr_act(), "R-1 EVO", 0, 0, 18, 0xbec3c9);
     lv_obj_set_style_text_letter_space(designation, 5, 0);
 #ifdef JR_R1_UI_PORTRAIT
     lv_obj_align(designation, LV_ALIGN_TOP_MID, 0, 252);
@@ -1952,7 +1952,7 @@ void TransmitterUi::drawLogoSaver()
     lv_img_set_zoom(logoSaverLogo_, 176);
 #endif
     logoSaverDesignation_ = makeLabel(
-        lv_scr_act(), "R1 EVO", 0, 0, 18, 0xbec3c9);
+        lv_scr_act(), "R-1 EVO", 0, 0, 18, 0xbec3c9);
     lv_obj_set_style_text_letter_space(logoSaverDesignation_, 5, 0);
     logoSaverPosition_ = 0;
     positionLogoSaver();
@@ -2579,7 +2579,7 @@ void TransmitterUi::finishPageFocus()
     if (portraitUi) {
         auto strip=makePanel(0,460,320,20,cHeader,cHeader,0);
         makeLabel(strip,"JR",8,3,12,cRed);
-        makeLabel(strip,"R1",29,3,12,0xe7edef);
+        makeLabel(strip,"R-1",29,3,12,0xe7edef);
         makeLabel(strip,"TOUCH CONTROL",111,4,10,0xa9bbc5);
         auto indicator=lv_obj_create(strip);position(indicator,300,8,12,4);
         lv_obj_set_style_bg_color(indicator,colour(cCyan),0);
@@ -3940,7 +3940,7 @@ void TransmitterUi::drawFirmwareInfoPage()
     lv_obj_t *hardware = makePanel(10, portraitUi ? 322 : 222, kScreenWidth-20, portraitUi ? 126 : 76);
     makeLabel(hardware, "HARDWARE PROFILE", 14, 8, 12, cDim);
 #ifdef JR_R1_XIAO_PCB
-    makeLabel(hardware, "Seeed XIAO ESP32-S3 / R1 PCB", 14, 28, 14, cWhite);
+    makeLabel(hardware, "Seeed XIAO ESP32-S3 / R-1 PCB", 14, 28, 14, cWhite);
 #else
     makeLabel(hardware, "ESP32-S3-DevKitC-1 N16R8", 14, 28, 14, cWhite);
 #endif

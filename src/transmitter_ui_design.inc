@@ -401,6 +401,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
     }
     finishPageFocus();
     updateDesign(designTelemetry_,designSafety_,designTxVoltage_,designTxValid_);
+    uiMetrics.buildUs = uint32_t(micros()) - uiMetrics.pageStartedUs;
 }
 
 void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)

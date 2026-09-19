@@ -47,6 +47,42 @@ numeric/bar/dial widgets; graph histories and GPS trails can still invalidate
 unchanged geometry. Full-page creation still requires a full display transfer.
 
 Next: measure real flush time/pixel counts and touch-to-visible response on the
-XIAO, then profile graph/map geometry updates and full-page transitions. Hardware
-feel and stability have not yet been validated for this change; the firmware
-has not been flashed as part of this first software pass.
+XIAO, then profile graph/map geometry updates and full-page transitions. The first pass was flashed and the user reported it worked without an obvious
+speed improvement or regression.
+
+## Second pass: skip unchanged LCD rows
+
+Every page rebuild invalidates the whole screen. The flush path now compares
+RGB565 rows against the last transferred image and sends only runs of changed
+rows. The XIAO cache uses 307,200 bytes (300 KiB) of its 8 MiB PSRAM, plus one
+validity byte per screen row. No full frame is allocated in internal/DMA RAM.
+Allocation failure falls back to the original transfer behaviour. Initial
+render and wake force a transfer; partial writes cannot validate unknown rows.
+
+Native SDL measurements for Setup → Tune (same UI and data):
+
+| Orientation | LVGL rendered pixels | Pixels sent after cache | Reduction |
+| --- | ---: | ---: | ---: |
+| Landscape | 153,600 | 85,920 | 44.1% |
+| Portrait | 153,600 | 83,200 | 45.8% |
+
+Rebuilding an identical Setup page transfers zero pixels. Simulator audits
+exercise both cases, full transfer after invalidation, and unchanged live
+values. Cache unit tests cover initial/partial writes, changed data, isolated
+rows, invalidation, and allocation-failure fallback. Optional
+`JR_R1_AUDIT_CACHE_IMAGES=/tmp/r1-cache` writes cached and forced-full redraw
+BMPs for pixel equivalence checks.
+
+`UI PERF` serial lines are emitted after a refresh following a page rebuild or
+accepted touch. They report integrated-page construction time, rendered/sent
+pixels, transfer count, time inside the display driver, elapsed page time and
+accepted-touch-release-to-refresh-completion time. Touch time excludes the
+physical hold and release debounce; it is not first-contact latency. The SPI
+field in the simulator measures SDL work, not hardware SPI. Logs are emitted
+outside the flush callback; serial logging itself can affect subsequent timing.
+
+These changes retain the working bus speeds and independent control task.
+Real hardware transfer/latency measurements and subjective validation of this
+second pass remain pending. Row comparison and fragmented transfers have their
+own overhead; pixel savings do not establish a corresponding latency reduction.
+Full-page layout/render CPU work remains unchanged.

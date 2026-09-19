@@ -347,6 +347,29 @@ bool TransmitterUi::runSimulatorUiAudit()
     dashboardChannelValues_[0] = savedChannelValue;
     dashboardLayouts_[activeModelSlot_] = savedLayout;
     nextSensorSampleMs_ = savedSampleTime;
+    // Rebuilt menus render identically. Cache must suppress their transfer,
+    // while real navigation still sends changed pixels in both orientations.
+    drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);
+    uiMetrics = UiFrameMetrics{};
+    drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);
+    assert(uiMetrics.rendered > 0 && uiMetrics.sent == 0);
+    uiMetrics = UiFrameMetrics{};
+    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
+    Serial.printf("UI transition benchmark: Setup -> Tune rendered=%lu sent=%lu pixels build=%luus\n",
+        (unsigned long)uiMetrics.rendered, (unsigned long)uiMetrics.sent, (unsigned long)uiMetrics.buildUs);
+    assert(uiMetrics.sent > 0 && uiMetrics.sent < uiMetrics.rendered);
+    if (const char *prefix = getenv("JR_R1_AUDIT_CACHE_IMAGES")) {
+        char path[256];snprintf(path,sizeof(path),"%s-%s-cached.bmp",prefix,designPortrait?"portrait":"landscape");
+        simulatorSaveScreenshot(path);
+    }
+    // Invalidation guarantees a complete transfer after wake/reinitialisation.
+    pixelCache.invalidate();uiMetrics = UiFrameMetrics{};
+    lv_obj_invalidate(lv_scr_act());lv_refr_now(nullptr);
+    assert(uiMetrics.sent == kScreenWidth * kScreenHeight);
+    if (const char *prefix = getenv("JR_R1_AUDIT_CACHE_IMAGES")) {
+        char path[256];snprintf(path,sizeof(path),"%s-%s-full.bmp",prefix,designPortrait?"portrait":"landscape");
+        simulatorSaveScreenshot(path);
+    }
     Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, endpoints, colour schemes, startup fault display, arm hold and bounds PASS");
     drawDashboard();return true;
 }

@@ -47,8 +47,10 @@ as validation. Detailed assignment status remains in its linked roadmap.
 
 ### Next software investigation: UI responsiveness
 
-- [ ] Establish redraw/flush timing, pixels transferred and touch-to-update
-  latency; distinguish simulator measurements from real SPI/LCD timings.
+- [x] Add page/flush timing, pixel counts and accepted-touch-to-refresh logging.
+- [ ] Collect these timings on hardware; simulator transfer times are not SPI timings.
+- [x] Skip unchanged LCD rows using a PSRAM cache; test page transitions and
+  allocation-failure/wake behaviour in both orientations.
 - [x] Skip unchanged live label/text-style writes in the integrated pages and
   dashboard widgets; avoid transient instantaneous-speed writes when maximum
   or average is selected. Pixel-invalidation regression checks cover both orientations.

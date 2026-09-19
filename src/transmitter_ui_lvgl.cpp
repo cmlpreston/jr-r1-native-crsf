@@ -1,5 +1,6 @@
 #include "transmitter_ui.h"
 #include "ui_refresh.h"
+#include "ui_pixel_cache.h"
 
 #include <Preferences.h>
 #include "boot_diagnostics.h"
@@ -248,20 +249,65 @@ const lv_font_t *fontFor(uint8_t size)
     }
 }
 
+UiPixelCache<kScreenWidth, kScreenHeight> pixelCache;
+struct UiFrameMetrics {
+    uint32_t rendered = 0, sent = 0, transfers = 0, transferUs = 0;
+    uint32_t pageStartedUs = 0, buildUs = 0, touchAcceptedUs = 0;
+    bool pagePending = false, touchPending = false;
+} uiMetrics;
+
 void flushDisplay(lv_disp_drv_t *driver, const lv_area_t *area,
                   lv_color_t *pixels)
 {
+    const int width = area->x2 - area->x1 + 1;
+    const int height = area->y2 - area->y1 + 1;
+    auto *rgb = reinterpret_cast<uint16_t *>(pixels);
+    uiMetrics.rendered += width * height;
+    // Coalesce adjacent changed rows, keeping command overhead bounded by the
+    // 16-row LVGL buffer. No second DMA buffer or internal-RAM frame is needed.
+    int row = 0;
+    while (row < height) {
+        if (pixelCache.unchanged(area->x1, area->y1 + row, width, rgb + row * width)) {
+            ++row;
+            continue;
+        }
+        const int first = row++;
+        while (row < height && !pixelCache.unchanged(
+                area->x1, area->y1 + row, width, rgb + row * width)) ++row;
+        const uint32_t started = micros();
 #ifdef JR_R1_SIMULATOR
-    simulatorFlush(area, pixels);
+        lv_area_t changed = *area;
+        changed.y1 += first;
+        changed.y2 = area->y1 + row - 1;
+        simulatorFlush(&changed, pixels + first * width);
 #else
-    const int16_t width = area->x2 - area->x1 + 1;
-    const int16_t height = area->y2 - area->y1 + 1;
-    display->draw16bitRGBBitmap(area->x1, area->y1,
-                                reinterpret_cast<uint16_t *>(pixels),
-                                width, height);
+        display->draw16bitRGBBitmap(area->x1, area->y1 + first,
+                                    rgb + first * width, width, row - first);
 #endif
+        uiMetrics.transferUs += static_cast<uint32_t>(micros()) - started;
+        uiMetrics.sent += width * (row - first);
+        ++uiMetrics.transfers;
+        for (int i = first; i < row; ++i)
+            pixelCache.remember(area->x1, area->y1 + i, width, rgb + i * width);
+    }
     lv_disp_flush_ready(driver);
 }
+
+// Report once after a completed refresh, never print in the transfer callback.
+void reportUiFrame()
+{
+    if (uiMetrics.pagePending || uiMetrics.touchPending) {
+        Serial.printf("UI PERF: build=%luus rendered=%lu sent=%lu transfers=%lu SPI=%luus page=%luus touch-release=%luus cache=%s\n",
+            (unsigned long)uiMetrics.buildUs, (unsigned long)uiMetrics.rendered,
+            (unsigned long)uiMetrics.sent, (unsigned long)uiMetrics.transfers,
+            (unsigned long)uiMetrics.transferUs,
+            (unsigned long)(uiMetrics.pagePending ? uint32_t(micros()) - uiMetrics.pageStartedUs : 0),
+            (unsigned long)(uiMetrics.touchPending ? uint32_t(micros()) - uiMetrics.touchAcceptedUs : 0),
+            pixelCache.enabled() ? "on" : "off");
+    }
+    uiMetrics = UiFrameMetrics{};
+}
+
 
 void position(lv_obj_t *object, int16_t x, int16_t y, int16_t width,
               int16_t height)
@@ -316,6 +362,13 @@ lv_obj_t *makeButton(int16_t x, int16_t y, int16_t width, int16_t height,
 
 void startScreen()
 {
+    const auto touchUs = uiMetrics.touchAcceptedUs;
+    const bool touchPending = uiMetrics.touchPending;
+    uiMetrics = UiFrameMetrics{};
+    uiMetrics.touchAcceptedUs = touchUs;
+    uiMetrics.touchPending = touchPending;
+    uiMetrics.pageStartedUs = micros();
+    uiMetrics.pagePending = true;
     lv_obj_clean(lv_scr_act());
     lv_obj_set_style_bg_color(lv_scr_act(), colour(cBlack), 0);
     lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);
@@ -662,6 +715,13 @@ bool TransmitterUi::begin()
 
     bootDiagnosticsStage("LVGL");
     lv_init();
+#ifdef JR_R1_SIMULATOR
+    static uint16_t cachedPixels[kScreenWidth * kScreenHeight];
+    pixelCache.attach(cachedPixels);
+#elif defined(JR_R1_XIAO_PCB)
+    pixelCache.attach(static_cast<uint16_t *>(ps_malloc(kScreenWidth * kScreenHeight * sizeof(uint16_t))));
+    Serial.printf("DISPLAY: pixel cache %s (307200 bytes PSRAM)\n", pixelCache.enabled() ? "enabled" : "unavailable; normal transfers");
+#endif
     lv_disp_draw_buf_init(&drawBuffer, lineBuffer, nullptr,
                           kScreenWidth * 16);
     lv_disp_drv_init(&displayDriver);
@@ -1843,6 +1903,7 @@ void TransmitterUi::wakeDisplay()
     displayBus->writeCommand(0x29); // Standard DCS Display ON
     displayBus->endWrite();
 #endif
+    pixelCache.invalidate();
     displaySleeping_ = false;
     applyBacklight(systemSettings_.displayBrightnessPercent);
     lastInteractionMs_ = millis();
@@ -4734,6 +4795,7 @@ bool TransmitterUi::initialiseTouchController()
 void TransmitterUi::applyBacklight(uint8_t percent)
 {
 #ifdef JR_R1_SIMULATOR
+    pixelCache.invalidate(); // SDL applies brightness when receiving pixels.
     simulatorSetBrightness(percent);
 #else
     if (!DISPLAY_HAS_PWM_BACKLIGHT || displaySleeping_) return;
@@ -5745,6 +5807,8 @@ void TransmitterUi::updateTouch()
     lastInteractionMs_ = now;
     Serial.printf("TOUCH up page=%s screen=(%d,%d)\n",
                   uiPageName(activePage_), releasedX, releasedY);
+    uiMetrics.touchAcceptedUs = micros();
+    uiMetrics.touchPending = true;
     handleTouch(releasedX, releasedY);
 }
 
@@ -5883,5 +5947,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
             refreshThrottleResponseGraph(rawInputPermille);
         else if (activePage_ == UiPage::InputMonitor) refreshInputMonitorRows();
     }
+    const uint32_t renderedBefore = uiMetrics.rendered;
     lv_timer_handler();
+    if (uiMetrics.rendered != renderedBefore) reportUiFrame();
 }

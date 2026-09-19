@@ -83,8 +83,8 @@ constexpr uint16_t GT911_FIRST_POINT_REGISTER = 0x814f;
 #endif
 
 #ifdef JR_R1_XIAO_PCB
-// Conservative shared MCP23017/GT911 bus rate for the current bench wiring.
-constexpr uint32_t CONTROL_I2C_FREQUENCY = 100000;
+// Shared MCP23017/GT911 fast-mode bus; perfboard wiring verified at 100 kHz.
+constexpr uint32_t CONTROL_I2C_FREQUENCY = 400000;
 #else
 constexpr uint32_t CONTROL_I2C_FREQUENCY = 400000;
 #endif
@@ -96,9 +96,9 @@ constexpr int16_t DISPLAY_LANDSCAPE_HEIGHT = 320;
 // diagnosing the panel cable and connectors.
 constexpr uint32_t TFT_SPI_FREQUENCY = 1000000;
 #elif defined(JR_R1_XIAO_PCB)
-// User-requested 8 MHz breadboard retrial; 4 MHz previously worked.
+// User-requested 16 MHz trial after stabilising the MCP perfboard wiring.
 // Retain the schematic (5) XIAO pin map and verify LCD stability on hardware.
-constexpr uint32_t TFT_SPI_FREQUENCY = 8000000;
+constexpr uint32_t TFT_SPI_FREQUENCY = 16000000;
 #else
 // Legacy prototype's trial speed; the active XIAO profile is set above.
 constexpr uint32_t TFT_SPI_FREQUENCY = 30000000;

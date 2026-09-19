@@ -9,7 +9,7 @@ The default hardware orientation is **320×480 portrait**, with 480×320 landsca
 available explicitly. Both orientations expose the existing functionality.
 Portrait detail pages use stacked labels/values, paged response controls and
 a compact binding keyboard. Setup groups Model and Handset functions in flat
-rows. A dark header, active-tab underline and permanent red JR / light R1 strip
+rows. A dark header, active-tab underline and permanent red JR / light R-1 strip
 follow the approved mockup. Simulator checks do not establish physical LCD contrast,
 touch accuracy, electrical correctness, RF timing or receiver failsafe behaviour.
 
@@ -67,9 +67,12 @@ hidden. Timer start/stop and reset are assignable physical actions; existing
 button assignments are preserved.
 
 The Hyper 7 uses the existing artwork and is treated as electric. Other models
-currently use a fallback icon. Logo uploads, an S3 setup portal and offline map
-backgrounds are future work. The GPS display is a bounded relative trail/grid,
-with zoom and trail reset; it does not fetch map tiles. Graph histories are short
+currently use a fallback icon. Logo uploads, an S3 setup portal and user-uploadable map
+backgrounds are future work. The GPS display has a bounded trail, zoom/reset
+controls and a built-in Highfield Park OSM vector basemap (see
+`assets/maps/README.md`); it falls back outside local coverage and does not
+fetch map tiles. Speed widgets include maximum/average, selectable primary
+value and an assignable statistics-reset action. Graph histories are short
 in-memory samples, not a background telemetry recording/export service.
 
 ## Telemetry contract
@@ -93,8 +96,8 @@ References: [TBS CRSF specification](https://github.com/tbs-fpv/tbs-crsf-spec/bl
 
 The browser's explicitly labelled sensor checkbox supplies fictional GPS,
 speed, temperature and RPM in simulator code only. Hardware requires actual
-incoming sensors. Battery current/mAh, trip accumulation and offline maps are
-not implemented by this port.
+incoming sensors. Battery current/mAh, trip accumulation and arbitrary map uploads remain
+outstanding; the built-in local map is implemented.
 
 ## Validation and hardware trial
 

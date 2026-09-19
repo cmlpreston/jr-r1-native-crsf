@@ -198,14 +198,17 @@ sounds the short error beep.
 Implement these in order so steering and throttle share one deterministic,
 testable signal path rather than accumulating channel-specific exceptions:
 
-1. [~] Introduce a per-proportional-axis profile. Persistent per-channel
+1. [x] Introduce a per-proportional-axis profile. Persistent per-channel
    reverse, sub-trim, endpoints, rate, expo and output ramp are implemented and
    legacy CH2 settings migrate to the assigned throttle channel. Calibration
-   and deadband remain attached to the physical trigger input and still need a
-   generic per-input representation.
-2. [ ] Connect the steering ADC to the same pipeline and expose independent
-   steering settings. Steering adds separate turn and return speed; throttle
-   retains separate forward and brake settings.
+   and deadband belong to generic physical-input profiles; throttle and steering
+   use the same conditioning runtime. The interactive calibration controller
+   still needs extraction from the UI.
+2. [x] Connect steering to the shared proportional conditioning/channel pipeline
+   and expose independent calibration/response settings, plus a persisted
+   steering-disable option for bench tests.
+   - [ ] Validate the actual steering pot and simultaneous throttle/steering.
+   - [ ] Add separate steering turn/return speed controls.
 3. [ ] Add optional editable response curves. Begin with a five-point curve,
    monotonic validation and a live raw-versus-output graph. Forward and brake
    throttle halves remain independently configurable.

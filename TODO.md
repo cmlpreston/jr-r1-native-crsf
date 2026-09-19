@@ -1,4 +1,4 @@
-# JR R1 controller consolidated backlog
+# JR R-1 controller consolidated backlog
 
 This is the single high-level backlog for the project. Detailed programmable
 input/control work is tracked in
@@ -11,15 +11,59 @@ The authoritative architecture-refactor execution order is recorded under
 [`docs/architecture-review.md`](docs/architecture-review.md). Follow that order
 before beginning later driving-control features.
 
+## Status reconciliation — 2026-09-19
+
+Checked against current source, host tests, simulator notes and user-reported
+bench results. `[x]` means implemented, not automatically hardware-qualified.
+Unchecked items in feature sections are outstanding development unless marked
+as validation. Detailed assignment status remains in its linked roadmap.
+
+### Implemented and bench-observed
+
+- [x] XIAO ESP32-S3 → Ranger → receiver → servo control demonstrated by user.
+- [x] K1/K2 initialise reliably after moving to perfboard (user report).
+- [x] Waveshare portrait display/touch and menu navigation operate on hardware.
+- [x] RX voltage and link-quality display observed in the bench video.
+- [x] Current working bus settings: I²C 400 kHz; LCD SPI 24 MHz requested
+  (approximately 20 MHz actual). The 32 MHz request failed to start the panel;
+  24 MHz was restored and confirmed working. This is not a timing/stress qualification.
+- [x] LCD branding uses R-1 EVO and JR R-1, with red JR in the footer.
+
+### Implemented; hardware validation still required
+
+- [ ] Validate steering calibration, filtering and response on the connected
+  steering pot, then simultaneous steering/throttle under heavy UI/telemetry load.
+- [ ] Verify calibration persistence, asymmetric endpoints, reversal and model
+  isolation on the assembled handset; implementation and host tests already exist.
+- [ ] Exercise every physical button/trim and assigned action, including the
+  input monitor and startup warnings, on final wiring.
+- [ ] Validate CUT/re-arm and receiver/ESC failsafe with captured PWM evidence.
+  A working servo link does not establish failsafe safety.
+- [ ] Validate widget editing/persistence, speed statistics/reset, themes,
+  sleep/wake and map positioning on hardware with real sensors where applicable.
+- [ ] Validate TX/RX configuration commands against actual module firmware;
+  ordinary CRSF servo control does not validate configuration commands.
+- [ ] Bring up the manufactured PCB and check its power, pin map and all I/O.
+
+### Next software investigation: UI responsiveness
+
+- [ ] Establish redraw/flush timing, pixels transferred and touch-to-update
+  latency; distinguish simulator measurements from real SPI/LCD timings.
+- [ ] Reduce unchanged label/graph updates and unnecessary page invalidation;
+  preserve touch/keypad semantics, stale-data indicators and immediate CUT.
+- [ ] Run host tests and portrait/landscape simulator checks; verify control
+  publication remains independent of rendering. Request a hardware feel/stability
+  check only after there is a tested firmware candidate.
+
 ## Current milestone: complete the two primary controls
 
-- [ ] Generalise proportional-input calibration and deadband beyond the
+- [x] Generalise proportional-input calibration and deadband beyond the
   throttle trigger. Calibration belongs to the physical input; response
   settings belong to the assigned CRSF output channel.
 - [ ] Map and connect the 5 kOhm steering pot from the FPC to its reserved ADC
-  input and give it the same sampling, filtering and fault detection as the
-  throttle trigger.
-- [ ] Route steering through the existing per-channel reverse, sub-trim,
+  input and validate it physically. Shared sampling, filtering and fault
+  detection are implemented; wiring/bench validation remains.
+- [x] Route steering through the existing per-channel reverse, sub-trim,
   endpoint, rate, expo and ramp profile.
 - [ ] Add steering-specific turn and return ramp controls.
 - [ ] Verify throttle and steering simultaneously at the 250 Hz CRSF control
@@ -28,8 +72,9 @@ before beginning later driving-control features.
 ## Safety before driving the electric buggy
 
 - [ ] Map and require a dedicated, exclusive physical arm/CUT control.
-- [ ] Guarantee CUT overrides every channel binding, future mix, macro, hold
-  and ABS output.
+- [x] Implement and host-test a final safety arbiter after current bindings and
+  channel processing. Future mixes, macros, hold and ABS must preserve this
+  priority; receiver-side failsafe validation remains outstanding.
 - [ ] Bench-test receiver PWM during TX loss, receiver reboot and deliberate
   brownout with the motor disconnected; save Saleae captures and pulse widths.
 - [ ] Select and verify the ESC throttle failsafe pulse and receiver failsafe
@@ -46,7 +91,7 @@ before beginning later driving-control features.
 - [ ] Trace and document all twelve steering FPC conductors.
 - [ ] Connect and verify every original button, maintained switch,
   spring-return trim and grip trim through direct GPIO or the MCP23017.
-- [ ] Add a physical-input diagnostic/calibration page for raw ADC/GPIO,
+- [x] Add a physical-input diagnostic/calibration page for raw ADC/GPIO,
   debounced state and detected faults.
 - [ ] Document the final interface PCB, connectors, filtering, protection,
   power rails and BOM.
@@ -62,9 +107,12 @@ See the detailed roadmap for individual binding features.
 - [ ] Add configurable trim/sub-trim ranges and step sizes; the current fixed
   implementation is +/-20% in 1% steps.
 - [ ] Add restore-default-control-profile.
-- [ ] Add model select, name, copy and reset, with model changes allowed only
-  while CUT and throttle-neutral.
-- [ ] Move bindings and response settings into versioned per-model profiles.
+- [x] Select among ten model memories with CUT/neutral guards and isolated
+  bindings, response settings and widget layouts.
+- [ ] Add model rename, copy and reset editors.
+- [x] Persist bindings and response settings per model.
+- [ ] Finish explicit versioned model serialisation and migration beyond the
+  current per-model namespaces/blobs.
 - [ ] Add versioned JSON profile import/export and a Wi-Fi configuration UI.
 - [ ] Later: shareable setup codes/files, excluding binding credentials and
   transmitter-specific calibration; validate channel roles and endpoints on import.
@@ -92,19 +140,20 @@ Complete these after steering shares the generic proportional pipeline:
 
 ## Display and interaction
 
-- [ ] Evaluate the overall interface proposal in
+- [x] Implement the overall interface direction in
   [`docs/ui-design-direction.md`](docs/ui-design-direction.md): light daytime
   palette, Drive/Tune/Setup navigation, persistent output status and direct
   parameter editing, inspired by DJI's settings and operating screens.
 - [x] Audit portrait and landscape menu navigation, edit drafts, widget persistence, model
   guards, timer operation, arm hold and focus bounds in the native simulator.
 - [x] Rebuild advanced menus for portrait and make portrait the default.
-  Use Model/Handset tabs, flat menu rows and a permanent JR R1 strip.
+  Use Model/Handset tabs, flat menu rows and a permanent JR R-1 strip.
 - [ ] Add touchscreen lock and dashboard short/long/double-press shortcuts.
 - [ ] Evaluate optional power-on PIN unlock before arming (user idea). Unlock
   once per power cycle; retain neutral/arming interlocks and immediate CUT at
   all times. Define recovery and failed-attempt behavior before implementation.
-- [ ] Add dim-before-sleep plus dedicated sunlight and night palettes.
+- [x] Add selectable daytime and four dark colour schemes.
+- [ ] Add dim-before-sleep and assess daytime contrast in direct sunlight.
 - [x] Port Drive/Tune/Data/Setup into LVGL with a per-model 2×2 widget grid:
   timer, paired TX/RX power, one/two channels, sensor, GPS trail and model image.
   Support 1×1, 2×1 and 2×2 sizes, applicable bars/dials/graphs/switches styles,
@@ -120,14 +169,20 @@ Complete these after steering shares the generic proportional pipeline:
 
 - [x] Decode CRSF GPS, source-zero temperature and RPM with freshness checks.
 - [ ] Extend battery telemetry beyond voltage to current and consumed capacity.
-- [ ] Define and prototype the vehicle-side bridge for GPS, RPM, current,
-  voltage and temperature sources, including any required S.Port/i-BUS to CRSF
-  conversion.
-- [ ] Build the driving telemetry page: speed/max speed, RPM, pack voltage,
-  current, consumed mAh, receiver voltage and temperatures.
-- [ ] Add runtime, trip distance, odometer and consumed-capacity accumulation.
-- [ ] Add the GPS/map page with heading, track history and offline OpenStreetMap
-  tiles for selected driving areas and zoom levels.
+- [x] Create a host-tested S.Port conversion core and proposed XIAO C3/ER6G
+  wiring (`onboard/sport-crsf`).
+- [ ] Finish flashable vehicle bridge firmware, bus polling and CRSF encoding
+  for the selected GPS/temperature/cell sensors; validate on hardware.
+- [x] Implement instantaneous/maximum/average speed views with selectable
+  primary value and assignable statistics reset, plus RPM, temperature and RX
+  voltage views.
+- [ ] Complete current (amperes), consumed mAh and vehicle pack presentation.
+- [x] Implement a run timer and speed-statistics accumulation.
+- [ ] Add trip distance, odometer and consumed-capacity accumulation.
+- [x] Implement GPS trail/map views and the built-in Highfield Park offline
+  OSM vector basemap, with synthetic GPS in the simulator.
+- [ ] Add user-selectable/uploadable geographically referenced map packages;
+  the existing renderer does not fetch map tiles.
 - [ ] Log telemetry and export it over Wi-Fi/BLE.
 - [ ] Investigate ER6G/ELRS serial sensors and safe remote ESC configuration.
 - [ ] Later: maintenance reminders, battery-cell-count suggestion with user
@@ -171,8 +226,10 @@ They are deferred possibilities, not commitments for the current PCB/firmware re
 ## Automated testing and release engineering
 
 - [ ] Split more safety and response processing into host-testable modules.
-- [ ] Add automated tests for response profiles, slew limits, safety
-  transitions, assignments, drive modes and saved-settings migration.
+- [x] Host-test response profiles, slew limits, safety transitions, assignments,
+  configuration snapshots, PCB I/O and telemetry (16 C++ test executables plus
+  four Python upload-preflight tests at this reconciliation).
+- [ ] Extend migration coverage as new model schemas are introduced.
 - [ ] Add scripted SDL screenshot/layout comparisons.
 - [ ] Produce a reproducible hardware/firmware build guide.
 - [ ] Decide public-release scope and licence.

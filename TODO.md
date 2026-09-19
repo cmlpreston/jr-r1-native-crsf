@@ -49,7 +49,10 @@ as validation. Detailed assignment status remains in its linked roadmap.
 
 - [ ] Establish redraw/flush timing, pixels transferred and touch-to-update
   latency; distinguish simulator measurements from real SPI/LCD timings.
-- [ ] Reduce unchanged label/graph updates and unnecessary page invalidation;
+- [x] Skip unchanged live label/text-style writes in the integrated pages and
+  dashboard widgets; avoid transient instantaneous-speed writes when maximum
+  or average is selected. Pixel-invalidation regression checks cover both orientations.
+- [ ] Reduce remaining graph/map redraws and profile full-page transitions;
   preserve touch/keypad semantics, stale-data indicators and immediate CUT.
 - [ ] Run host tests and portrait/landscape simulator checks; verify control
   publication remains independent of rendering. Request a hardware feel/stability

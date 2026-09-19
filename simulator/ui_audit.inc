@@ -2,6 +2,11 @@
 // only with JR_R1_SIM_STATE pointed at a disposable directory.
 #include <cassert>
 #include <cstdlib>
+static uint64_t auditRedrawnPixels = 0;
+static void auditRefreshMonitor(lv_disp_drv_t *, uint32_t, uint32_t pixels)
+{
+    auditRedrawnPixels += pixels;
+}
 bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
@@ -256,6 +261,92 @@ bool TransmitterUi::runSimulatorUiAudit()
     setPhysicalInputStates(startupStates);setStartupPreflight(false,unsafe);
     assert(startupFaultMask_==0 && activePage_==UiPage::StartupWarning && !armRequested_);
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard && !armRequested_);
+    // Measure real LVGL dirty-region rendering, not calls to our update helpers.
+    const auto savedLayout = dashboardLayouts_[activeModelSlot_];
+    const auto savedSampleTime = nextSensorSampleMs_;
+    dashboardLayouts_[activeModelSlot_] = DashboardLayout{};
+    auto &powerWidget = dashboardLayouts_[activeModelSlot_].cells[0];
+    powerWidget.kind = DashboardWidgetKind::Power;
+    auto &channelWidget = dashboardLayouts_[activeModelSlot_].cells[1];
+    channelWidget.kind = DashboardWidgetKind::Channels;
+    channelWidget.style = DashboardWidgetStyle::Bars;
+    CrsfTelemetryState fixedTelemetry{};
+    fixedTelemetry.linkValid = true;
+    fixedTelemetry.uplinkLinkQuality = 100;
+    fixedTelemetry.receiverVoltageValid = true;
+    fixedTelemetry.receiverVoltageDecivolts = 66;
+    nextSensorSampleMs_ = millis() + 100000;
+    drawDashboard();
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+    auto *auditDisplay = lv_disp_get_default();
+    auto previousMonitor = auditDisplay->driver->monitor_cb;
+    auditDisplay->driver->monitor_cb = auditRefreshMonitor;
+    auditRedrawnPixels = 0;
+    for (int i = 0; i < 20; ++i) {
+        updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+        lv_refr_now(nullptr);
+    }
+    Serial.printf("UI redraw benchmark: 20 unchanged dashboard updates = %llu pixels\n",
+                  static_cast<unsigned long long>(auditRedrawnPixels));
+    assert(auditRedrawnPixels == 0);
+    // Changing data and status must still repaint immediately on the next tick.
+    const auto savedChannelValue = dashboardChannelValues_[0];
+    dashboardChannelValues_[0] = kCrsfMaximum;
+    fixedTelemetry.receiverVoltageDecivolts = 67;
+    fixedTelemetry.uplinkLinkQuality = 87;
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Armed, 99, true);
+    lv_refr_now(nullptr);
+    assert(auditRedrawnPixels > 0);
+    assert(strcmp(lv_label_get_text(widgetViews_[0].values[1]), "6.7 V") == 0);
+    assert(lv_bar_get_value(widgetViews_[1].bars[0]) == permilleFromCrsfValue(kCrsfMaximum));
+    assert(strcmp(lv_label_get_text(designStatus_), "LIVE") == 0);
+    assert(strcmp(lv_label_get_text(designLink_), "87 LQ") == 0);
+    auditRedrawnPixels = 0;
+    fixedTelemetry.receiverVoltageValid = false;
+    fixedTelemetry.linkValid = false;
+    fixedTelemetry.linkUpdatedMs = 1;
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+    lv_refr_now(nullptr);
+    assert(auditRedrawnPixels > 0);
+    assert(strcmp(lv_label_get_text(widgetViews_[0].values[1]), "--") == 0);
+    assert(strcmp(lv_label_get_text(designStatus_), "CUT") == 0);
+    assert(strcmp(lv_label_get_text(designLink_), "LQ stale") == 0);
+    auditRedrawnPixels = 0;
+    updateDesign(fixedTelemetry, OutputSafetyStatus::InputFault, 0, false);
+    lv_refr_now(nullptr);
+    assert(auditRedrawnPixels > 0);
+    assert(strcmp(lv_label_get_text(designStatus_), "INPUT FAULT") == 0);
+    assert(lv_obj_get_style_text_font(designStatus_, LV_PART_MAIN) == fontFor(10));
+    // Low voltage changes the warning colour as well as its text.
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 1, true);
+    assert(strcmp(lv_label_get_text(designLink_), "TX LOW") == 0);
+    assert(lv_obj_get_style_text_color(widgetViews_[0].values[0], LV_PART_MAIN).full == colour(cRed).full);
+    // A stopped timer, unchanged dials and a max-speed widget also stay idle.
+    dashboardLayouts_[activeModelSlot_].cells[0].style = DashboardWidgetStyle::Dials;
+    dashboardLayouts_[activeModelSlot_].cells[1].kind = DashboardWidgetKind::Sensor;
+    dashboardLayouts_[activeModelSlot_].cells[1].style = DashboardWidgetStyle::Numbers;
+    dashboardLayouts_[activeModelSlot_].cells[1].speedValue = SpeedWidgetValue::Maximum;
+    dashboardLayouts_[activeModelSlot_].cells[2].kind = DashboardWidgetKind::Timer;
+    runTimerRunning_ = false;
+    speedStatistics_.reset(millis() - 1);
+    speedStatistics_.update(123, millis(), millis(), true);
+    drawDashboard();
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+    lv_refr_now(nullptr);
+    auditRedrawnPixels = 0;
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+    lv_refr_now(nullptr);
+    assert(auditRedrawnPixels == 0);
+    assert(strcmp(lv_label_get_text(widgetViews_[1].values[0]), "12.3") == 0);
+    // Formatted updates must preserve text beyond the small stack buffer.
+    char longText[200];memset(longText, 'x', sizeof(longText)-1);longText[199] = 0;
+    uiSetTextFmt(widgetViews_[1].values[0], "%s", longText);
+    assert(strcmp(lv_label_get_text(widgetViews_[1].values[0]), longText) == 0);
+    auditDisplay->driver->monitor_cb = previousMonitor;
+    dashboardChannelValues_[0] = savedChannelValue;
+    dashboardLayouts_[activeModelSlot_] = savedLayout;
+    nextSensorSampleMs_ = savedSampleTime;
     Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, endpoints, colour schemes, startup fault display, arm hold and bounds PASS");
     drawDashboard();return true;
 }

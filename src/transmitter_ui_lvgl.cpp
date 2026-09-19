@@ -1,4 +1,5 @@
 #include "transmitter_ui.h"
+#include "ui_refresh.h"
 
 #include <Preferences.h>
 #include "boot_diagnostics.h"

@@ -537,25 +537,25 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             case OutputSafetyStatus::ChannelDisabled:text="CH OFF";break;
             case OutputSafetyStatus::Cut:break;
         }
-        lv_label_set_text(designStatus_,text);
-        lv_obj_set_style_text_font(designStatus_,fontFor(strlen(text)>7?10:14),0);
-        lv_obj_set_style_text_color(designStatus_,lv_color_hex(col==cGreen?0xbcebc7:col==cRed?0xffd9d3:0xffdfa2),0);
-        lv_obj_set_style_bg_color(lv_obj_get_parent(designStatus_),lv_color_hex(col==cGreen?0x205239:col==cRed?0x692e28:0x604918),0);
+        uiSetText(designStatus_,text);
+        uiSetTextFont(designStatus_,fontFor(strlen(text)>7?10:14),0);
+        uiSetTextColor(designStatus_,lv_color_hex(col==cGreen?0xbcebc7:col==cRed?0xffd9d3:0xffdfa2),0);
+        uiSetBgColor(lv_obj_get_parent(designStatus_),lv_color_hex(col==cGreen?0x205239:col==cRed?0x692e28:0x604918),0);
     }
     if(designLink_){
-        if(lowTx || lowRx)lv_label_set_text(designLink_,lowTx?"TX LOW":"RX LOW");
-        else if(t.linkValid)lv_label_set_text_fmt(designLink_,"%u LQ",t.uplinkLinkQuality);
-        else lv_label_set_text(designLink_,t.linkUpdatedMs?"LQ stale":"LQ --");
-        lv_obj_set_style_text_color(designLink_,lv_color_hex(lowTx||lowRx?0xff746a:t.linkValid?0xa4d6ae:0xa9bbc5),0);
+        if(lowTx || lowRx)uiSetText(designLink_,lowTx?"TX LOW":"RX LOW");
+        else if(t.linkValid)uiSetTextFmt(designLink_,"%u LQ",t.uplinkLinkQuality);
+        else uiSetText(designLink_,t.linkUpdatedMs?"LQ stale":"LQ --");
+        uiSetTextColor(designLink_,lv_color_hex(lowTx||lowRx?0xff746a:t.linkValid?0xa4d6ae:0xa9bbc5),0);
     }
     auto reading=[&](uint8_t sensor,lv_obj_t *valueLabel,lv_obj_t *detailLabel){
         if(!valueLabel)return;
         int32_t value=0;uint32_t stamp=0;bool valid=sensorReading(t,sensor,value,stamp);char text[32];sensorText(sensor,value,text,sizeof(text));
-        lv_label_set_text(valueLabel,valid?text:"--");
-        lv_obj_set_style_text_color(valueLabel,colour(valid?cWhite:cDim),0);
+        uiSetText(valueLabel,valid?text:"--");
+        uiSetTextColor(valueLabel,colour(valid?cWhite:cDim),0);
         if(detailLabel){
-            if(!valid)lv_label_set_text(detailLabel,stamp?"Stale":"No data");
-            else lv_label_set_text_fmt(detailLabel,"%lus",static_cast<unsigned long>((now-stamp)/1000));
+            if(!valid)uiSetText(detailLabel,stamp?"Stale":"No data");
+            else uiSetTextFmt(detailLabel,"%lus",static_cast<unsigned long>((now-stamp)/1000));
         }
     };
     if(activePage_==UiPage::Dashboard){
@@ -564,9 +564,9 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     else if(activePage_==UiPage::SensorDetail){
         reading(sensorSelected_,designValues_[0],designDetails_[0]);
         if(sensorSelected_==0){
-            if(speedStatistics_.available())lv_label_set_text_fmt(designDetails_[2],"Max %u.%u / Avg %u.%u km/h",
+            if(speedStatistics_.available())uiSetTextFmt(designDetails_[2],"Max %u.%u / Avg %u.%u km/h",
                 speedStatistics_.maximum()/10,speedStatistics_.maximum()%10,speedStatistics_.average()/10,speedStatistics_.average()%10);
-            else lv_label_set_text(designDetails_[2],"Max -- / Avg -- km/h");
+            else uiSetText(designDetails_[2],"Max -- / Avg -- km/h");
         }
         int32_t lo=INT32_MAX,hi=INT32_MIN;int count=0;
         // Draw only the most recent contiguous valid segment, never across gaps.
@@ -576,15 +576,15 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             int height=lv_obj_get_height(lv_obj_get_parent(designCurve_))-8;
             for(int i=start;i<30;++i)designPoints_[i-start]={static_cast<lv_coord_t>(4+(i-start)*(kScreenWidth-36)/max(1,count-1)),static_cast<lv_coord_t>(height-4-(static_cast<int64_t>(sensorHistory_[sensorSelected_][i])-lo)*(height-8)/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
             lv_line_set_points(designCurve_,designPoints_,count);lv_obj_clear_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);
-            char a[20],b[20];sensorText(sensorSelected_,lo,a,sizeof(a));sensorText(sensorSelected_,hi,b,sizeof(b));lv_label_set_text_fmt(designDetails_[1],"Min %s / Max %s %s  |  %us",a,b,designSensorUnits[sensorSelected_],count);
-        } else {lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);lv_label_set_text(designDetails_[1],"Waiting for fresh sensor history");}
+            char a[20],b[20];sensorText(sensorSelected_,lo,a,sizeof(a));sensorText(sensorSelected_,hi,b,sizeof(b));uiSetTextFmt(designDetails_[1],"Min %s / Max %s %s  |  %us",a,b,designSensorUnits[sensorSelected_],count);
+        } else {lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);uiSetText(designDetails_[1],"Waiting for fresh sensor history");}
     } else if(activePage_==UiPage::ChannelMonitor){
         for(int i=0;i<4;++i){int ch=designBank_*4+i;int output=permilleFromCrsfValue(dashboardChannelValues_[ch]);
-            lv_label_set_text_fmt(designValues_[i],"%+d / %+d%% %s",permilleFromCrsfValue(designRequested_[ch])/10,output/10,(dashboardEnabledChannelMask_&(1U<<ch))?"":"off");lv_bar_set_value(designBars_[i],output,LV_ANIM_OFF);
+            uiSetTextFmt(designValues_[i],"%+d / %+d%% %s",permilleFromCrsfValue(designRequested_[ch])/10,output/10,(dashboardEnabledChannelMask_&(1U<<ch))?"":"off");lv_bar_set_value(designBars_[i],output,LV_ANIM_OFF);
         }
     } else if(activePage_==UiPage::Gps){
-        if(!t.gpsValid || t.satellites<4)lv_label_set_text(designDetails_[0],t.gpsUpdatedMs?"GPS stale / no fix":"Waiting for GPS telemetry");
-        else lv_label_set_text_fmt(designDetails_[0],"%u sats  %u.%u km/h  %u deg",t.satellites,t.groundSpeedDeciKmh/10,t.groundSpeedDeciKmh%10,t.headingCentiDegrees/100);
+        if(!t.gpsValid || t.satellites<4)uiSetText(designDetails_[0],t.gpsUpdatedMs?"GPS stale / no fix":"Waiting for GPS telemetry");
+        else uiSetTextFmt(designDetails_[0],"%u sats  %u.%u km/h  %u deg",t.satellites,t.groundSpeedDeciKmh/10,t.groundSpeedDeciKmh%10,t.headingCentiDegrees/100);
         if(gpsCount_){
             const int width=kScreenWidth-20,height=designFooterY-(designPortrait?212:168);
             updateGpsBasemap(lv_obj_get_parent(designCurve_),designMapViewport_,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],0.5*gpsZoom_);
@@ -597,8 +597,8 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             }
             if(gpsCount_>1 && gpsTrailVisible_){lv_line_set_points(designCurve_,gpsPoints_,gpsCount_);lv_obj_clear_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);}else lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(designMarker_,width/2-9,height/2-9);lv_obj_clear_flag(designMarker_,LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_text_color(designMarker_,colour(t.gpsValid && t.satellites>=4?0x00707d:0x53636c),0);
-            lv_label_set_text_fmt(designDetails_[1],"%um | %s",static_cast<unsigned>(40/pixelsPerMetre),GpsMap::covers(t.latitudeE7,t.longitudeE7)?"(c) OpenStreetMap":"No local map");
+            uiSetTextColor(designMarker_,colour(t.gpsValid && t.satellites>=4?0x00707d:0x53636c),0);
+            uiSetTextFmt(designDetails_[1],"%um | %s",static_cast<unsigned>(40/pixelsPerMetre),GpsMap::covers(t.latitudeE7,t.longitudeE7)?"(c) OpenStreetMap":"No local map");
         }
     }
     // Retain the existing voltage warning cadence on every primary page.
@@ -712,7 +712,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
         const auto &w=layout.cells[cell];auto &view=widgetViews_[cell];if(!view.panel)continue;
         if(w.kind==DashboardWidgetKind::Timer){
             uint32_t seconds=(runTimerElapsedMs_+(runTimerRunning_?millis()-runTimerStartedMs_:0))/1000;
-            lv_label_set_text_fmt(view.values[0],"%02lu:%02lu",static_cast<unsigned long>(seconds/60),static_cast<unsigned long>(seconds%60));
+            uiSetTextFmt(view.values[0],"%02lu:%02lu",static_cast<unsigned long>(seconds/60),static_cast<unsigned long>(seconds%60));
         } else if(w.kind==DashboardWidgetKind::Power || w.kind==DashboardWidgetKind::Channels){
             bool power=w.kind==DashboardWidgetKind::Power;
             const int count=power || w.secondSource<16?2:1;
@@ -720,11 +720,11 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 bool valid=power?(j?t.receiverVoltageValid:txValid):true;
                 int value=power?(j?t.receiverVoltageDecivolts:tx):permilleFromCrsfValue(dashboardChannelValues_[j?w.secondSource:w.source]);
                 bool low=power && valid && (j?(rxBatterySettings_.alarmEnabled && value<=rxBatterySettings_.lowAlarmDecivolts):value<=txBatterySettings_.lowAlarmDecivolts);
-                if(!valid)lv_label_set_text(view.values[j],"--");
-                else if(power)lv_label_set_text_fmt(view.values[j],"%d.%d%s",value/10,value%10,w.style==DashboardWidgetStyle::Dials?"":" V");
-                else if(w.style==DashboardWidgetStyle::Switches)lv_label_set_text(view.values[j],value>100?"HIGH":value< -100?"LOW":"MID");
-                else lv_label_set_text_fmt(view.values[j],"%+d%%",value/10);
-                lv_obj_set_style_text_color(view.values[j],colour(low?cRed:valid?cWhite:cDim),0);
+                if(!valid)uiSetText(view.values[j],"--");
+                else if(power)uiSetTextFmt(view.values[j],"%d.%d%s",value/10,value%10,w.style==DashboardWidgetStyle::Dials?"":" V");
+                else if(w.style==DashboardWidgetStyle::Switches)uiSetText(view.values[j],value>100?"HIGH":value< -100?"LOW":"MID");
+                else uiSetTextFmt(view.values[j],"%+d%%",value/10);
+                uiSetTextColor(view.values[j],colour(low?cRed:valid?cWhite:cDim),0);
                 int maximum=1000;
                 if(power){auto chem=j?rxBatterySettings_.chemistry:txBatterySettings_.chemistry;int cells=j?rxBatterySettings_.cellCount:txBatterySettings_.cellCount;maximum=cells*(chem==BatteryChemistry::NiMH?15:chem==BatteryChemistry::LiFe?37:42);}
                 if(w.style==DashboardWidgetStyle::Graph && sensorHistoryCount_>=2){
@@ -733,14 +733,14 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                     for(int i=0;i<count;++i)points[i]={static_cast<lv_coord_t>(8+i*(width-16)/(count-1)),static_cast<lv_coord_t>(37+(height-58)/2-permilleFromCrsfValue(channelHistory_[ch][30-count+i])*(height-58)/2000)};
                     lv_line_set_points(j?view.secondPlot:view.plot,points,count);
                 }
-                if(view.arcs[j]){lv_arc_set_range(view.arcs[j],power?0:-1000,maximum);lv_arc_set_value(view.arcs[j],valid?value:0);lv_obj_set_style_arc_color(view.arcs[j],colour(low?cRed:valid?cCyan:cDim),LV_PART_INDICATOR);}
-                if(view.bars[j]){lv_bar_set_range(view.bars[j],power?0:-1000,maximum);lv_bar_set_value(view.bars[j],valid?value:0,LV_ANIM_OFF);lv_obj_set_style_bg_color(view.bars[j],colour(low?cRed:cCyan),LV_PART_INDICATOR);}
+                if(view.arcs[j]){lv_arc_set_range(view.arcs[j],power?0:-1000,maximum);lv_arc_set_value(view.arcs[j],valid?value:0);uiSetArcColor(view.arcs[j],colour(low?cRed:valid?cCyan:cDim),LV_PART_INDICATOR);}
+                if(view.bars[j]){lv_bar_set_range(view.bars[j],power?0:-1000,maximum);lv_bar_set_value(view.bars[j],valid?value:0,LV_ANIM_OFF);uiSetBgColor(view.bars[j],colour(low?cRed:cCyan),LV_PART_INDICATOR);}
             }
         } else if(w.kind==DashboardWidgetKind::Sensor){
             int32_t value=0;uint32_t stamp=0;bool valid=sensorReading(t,w.source,value,stamp);char text[24];sensorText(w.source,value,text,sizeof(text));
-            lv_label_set_text(view.values[0],valid?text:"--");lv_label_set_text_fmt(view.detail,"%s%s",designSensorUnits[w.source],valid?"":stamp?" / stale":" / no data");
+            if(w.source!=0){uiSetText(view.values[0],valid?text:"--");uiSetTextFmt(view.detail,"%s%s",designSensorUnits[w.source],valid?"":stamp?" / stale":" / no data");}
             if(w.source==0){
-                lv_label_set_text(view.detail,"km/h");
+                uiSetText(view.detail,"km/h");
                 char readings[3][16];
                 snprintf(readings[0],sizeof(readings[0]),"%s",valid?text:"--");
                 for(uint8_t i=1;i<3;++i){
@@ -749,11 +749,11 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                     else snprintf(readings[i],sizeof(readings[i]),"--");
                 }
                 const uint8_t primary=static_cast<uint8_t>(w.speedValue);
-                lv_label_set_text(view.values[0],readings[primary]);
+                uiSetText(view.values[0],readings[primary]);
                 // Keep the remaining values in Current / Maximum / Average order.
                 uint8_t secondary[2],count=0;
                 for(uint8_t i=0;i<3;++i)if(i!=primary)secondary[count++]=i;
-                lv_label_set_text_fmt(view.values[1],"%s %s\n%s %s",
+                uiSetTextFmt(view.values[1],"%s %s\n%s %s",
                     speedValueShortNames[secondary[0]],readings[secondary[0]],
                     speedValueShortNames[secondary[1]],readings[secondary[1]]);
             }
@@ -768,8 +768,8 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             }
         } else if(w.kind==DashboardWidgetKind::Map){
             bool fix=t.gpsValid && t.satellites>=4;int width=lv_obj_get_width(view.basemap),height=lv_obj_get_height(view.basemap);
-            lv_obj_set_style_text_font(view.detail,fontFor(10),0);
-            lv_label_set_text(view.detail,!gpsCount_?"(c) OpenStreetMap":!fix?"GPS stale / no fix":GpsMap::covers(t.latitudeE7,t.longitudeE7)?"(c) OpenStreetMap":"No local map");
+            uiSetTextFont(view.detail,fontFor(10),0);
+            uiSetText(view.detail,!gpsCount_?"(c) OpenStreetMap":!fix?"GPS stale / no fix":GpsMap::covers(t.latitudeE7,t.longitudeE7)?"(c) OpenStreetMap":"No local map");
             if(!gpsCount_)continue;
             double lonScale=cos(gpsLat_[gpsCount_-1]/1e7*3.141592653589793/180.0),extent=20;
             for(int i=0;i<gpsCount_;++i){double east=(static_cast<double>(gpsLon_[i])-gpsLon_[gpsCount_-1])*0.01113195*lonScale;double north=(static_cast<double>(gpsLat_[i])-gpsLat_[gpsCount_-1])*0.01113195;extent=max(extent,max(fabs(east),fabs(north)));}
@@ -778,7 +778,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             updateGpsBasemap(view.basemap,view.mapViewport,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],scale);
             for(int i=0;i<gpsCount_;++i){double east=(static_cast<double>(gpsLon_[i])-gpsLon_[gpsCount_-1])*0.01113195*lonScale;double north=(static_cast<double>(gpsLat_[i])-gpsLat_[gpsCount_-1])*0.01113195;view.points[i]={static_cast<lv_coord_t>(width/2+east*scale),static_cast<lv_coord_t>(height/2-north*scale)};}
             if(gpsCount_>1)lv_line_set_points(view.plot,view.points,gpsCount_);
-            lv_obj_clear_flag(view.marker,LV_OBJ_FLAG_HIDDEN);lv_obj_set_style_text_color(view.marker,colour(fix?0x00707d:0x53636c),0);
+            lv_obj_clear_flag(view.marker,LV_OBJ_FLAG_HIDDEN);uiSetTextColor(view.marker,colour(fix?0x00707d:0x53636c),0);
         }
     }
 }

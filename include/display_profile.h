@@ -96,9 +96,9 @@ constexpr int16_t DISPLAY_LANDSCAPE_HEIGHT = 320;
 // diagnosing the panel cable and connectors.
 constexpr uint32_t TFT_SPI_FREQUENCY = 1000000;
 #elif defined(JR_R1_XIAO_PCB)
-// User-requested 16 MHz trial after stabilising the MCP perfboard wiring.
+// User-requested 24 MHz trial after successful 16 MHz operation.
 // Retain the schematic (5) XIAO pin map and verify LCD stability on hardware.
-constexpr uint32_t TFT_SPI_FREQUENCY = 16000000;
+constexpr uint32_t TFT_SPI_FREQUENCY = 24000000;
 #else
 // Legacy prototype's trial speed; the active XIAO profile is set above.
 constexpr uint32_t TFT_SPI_FREQUENCY = 30000000;

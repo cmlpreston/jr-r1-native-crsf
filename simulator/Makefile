@@ -42,7 +42,12 @@ APP_CPP := \
   $(ROOT)/src/crsf_channel_output.cpp \
   $(ROOT)/src/output_safety.cpp \
   $(ROOT)/src/jr_propo_boot_logo.cpp \
+  $(ROOT)/src/r1_evo_wordmark.cpp \
+  $(ROOT)/src/setup_portal.cpp \
+  $(ROOT)/src/offline_map.cpp \
   $(ROOT)/src/gps_basemap.cpp \
+  $(ROOT)/src/model_image.cpp \
+  $(ROOT)/src/model_image_assets.cpp \
   $(ROOT)/src/hyper7_icon.cpp
 LVGL_C := $(shell test -d $(LVGL)/src && find $(LVGL)/src -name '*.c')
 APP_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(APP_CPP)))
@@ -95,7 +100,7 @@ clean:
 	rm -rf build build-portrait
 
 # UI/model headers change object layouts; rebuild every consumer together.
-$(APP_OBJ): $(wildcard $(ROOT)/include/*.h) $(wildcard include/*.h) $(ROOT)/src/transmitter_ui_design.inc $(ROOT)/src/transmitter_ui_portrait.inc ui_audit.inc
+$(APP_OBJ): $(wildcard $(ROOT)/include/*.h) $(wildcard include/*.h) $(ROOT)/src/transmitter_ui_wifi.inc $(ROOT)/src/transmitter_ui_design.inc $(ROOT)/src/transmitter_ui_portrait.inc $(ROOT)/src/transmitter_ui_mixing.inc ui_audit.inc
 
 $(LVGL_OBJ): $(ROOT)/include/lv_conf.h
 

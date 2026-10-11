@@ -138,6 +138,9 @@ bindings only when the combination is made explicit in the UI.
 
 ### Contexts and shortcuts
 
+- [x] Split assignment editing into Assignment/Behaviour tabs with target-specific
+  fields and context explanations. Channel trim/subtrim selection has a named
+  picker with ownership checks, draft selection and explicit Apply/Cancel.
 - [x] Runtime Dashboard, menu, CUT and armed context selection.
 - [x] Make binding contexts editable on the TFT. The assignment editor exposes
   the unambiguous single-context presets Always, Dashboard, Menu, Cut only and
@@ -237,7 +240,8 @@ remain later enhancements.
 - [ ] Versioned profile export/import.
 - [ ] Wi-Fi web editor presenting an input-to-action/channel matrix.
 - [ ] Optional BLE companion interface.
-- [ ] Multi-action macros, conditions and mixes.
+- [x] Two per-channel contributions from channels, configured inputs or raw controls; side-specific weights, trim following, cycle rejection and LCD/web bench preview.
+- [ ] Multi-action macros, mixer offsets and richer conditions.
 
 ## Display blanking
 
@@ -269,3 +273,19 @@ saving solution for the measured 5 V / 0.25 A panel load.
 - [ ] Keep the ESP32 and CRSF control path alive while the TFT is powered down.
 
 Reference: <https://github.com/bigtreetech/TFT35-SPI/issues/2>
+
+### Assignment range editing
+
+LCD assignment editor: Assign / Mode / Range / State. Range sets the control’s
+minimum, maximum and increment in percent; State sets starting and input-fault
+values and reverses the control. Web Handset controls exposes the same values.
+Channel ranges are limited to ±100%; trim/sub-trim to ±20%. Start/fault must
+fit the range. Trim assignments retain the saved trim and reject a range that
+excludes it. These settings are independent of servo endpoints and receiver
+RF-loss failsafe. Existing persisted binding fields are reused without a schema change.
+
+Gyro gain switch example: assign Idle Up to CH3, Two position, Always,
+minimum 0%, maximum +60%, starting/fault 0%. Keep CH3 existing input enabled.
+Set the mixing constant to zero and final limits to 0% / +60%. Gate any
+throttle-to-gain mix on the same switch’s high position so the off position
+remains zero; a positive final minimum would prevent switching the gain off. Verify gain direction and neutral on the actual gyro.

@@ -148,6 +148,15 @@ void simulatorShutdown()
     SDL_Quit();
 }
 
+void simulatorDisplayResize(int16_t width,int16_t height) {
+    screenWidth=width;screenHeight=height;framebuffer.assign(size_t(width)*height,0xff000000U);
+    SDL_DestroyTexture(texture);
+    texture=SDL_CreateTexture(renderer,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,width,height);
+    SDL_SetWindowSize(window,width*kScale,height*kScale);
+    SDL_RenderSetLogicalSize(renderer,width*kScale,height*kScale);
+    touchDown=false;
+}
+
 void simulatorPollEvents()
 {
     readBridgeCommands();

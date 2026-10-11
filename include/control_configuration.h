@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "channel_response.h"
+#include "channel_mixing.h"
 #include "crsf_channel_output.h"
 #include "proportional_input.h"
 
@@ -40,6 +41,7 @@ struct ControlConfigurationSnapshot {
     ProportionalInputProfile steeringInput;
     ChannelResponseProfile channelProfiles[CRSF_CHANNEL_COUNT] = {};
     ChannelParameterValues channelParameters[CRSF_CHANNEL_COUNT] = {};
+    ChannelMixSettings mixing[CRSF_CHANNEL_COUNT] = {};
     uint16_t proportionalOutputMask = 0;
     uint8_t steeringChannel = 1;
     uint8_t throttleChannel = 2;
@@ -95,9 +97,42 @@ struct ProcessedProportionalChannel {
 ProcessedProportionalChannel processConfiguredProportionalChannel(
     const ControlConfigurationSnapshot &configuration, uint8_t channel,
     int16_t inputPermille, int16_t safeInputPermille,
-    ChannelSlewRuntime &slew, uint32_t nowMs, bool advanceSlew);
+    ChannelSlewRuntime &slew, uint32_t nowMs, bool advanceSlew,
+    int16_t switchedRatePermille = 1000);
 
 void processConfiguredProportionalOutputs(
     const ControlConfigurationSnapshot &configuration,
     CrsfChannelOutputModel &outputs, ChannelSlewRuntime &slew,
     uint32_t nowMs, bool advanceSlew, uint16_t reservedChannels = 0);
+
+
+// Shared firmware/simulator pipeline: raw bindings and physical sources enter
+// once; shaping and safety values are applied exactly once to mixed channels.
+void processConfiguredMixedOutputs(const ControlConfigurationSnapshot &configuration,
+    CrsfChannelOutputModel &outputs, const MixInputSnapshot &inputs,
+    ChannelMixRuntime &mix, ChannelSlewRuntime &slew, uint32_t nowMs, bool live);
+bool validConfiguredMixing(const ControlConfigurationSnapshot &configuration);
+bool configuredMixInputsValid(const ControlConfigurationSnapshot &configuration,
+                             const MixInputSnapshot &inputs, const CrsfChannelOutputModel *bindings=nullptr);
+
+// Additional arming veto only; never replaces the physical ADC neutral check.
+bool configuredMixedThrottleNeutral(const ControlConfigurationSnapshot &configuration,
+                                    const MixInputSnapshot &inputs, const CrsfChannelOutputModel *bindings=nullptr);
+
+// Non-transmitting bench preview. Source samples are at the contribution input
+// (after any source channel/input shaping); switch/rate transitions are settled.
+struct ChannelMixPreview {
+    int16_t contributions[2] = {};
+    int16_t mixed = 0, output = 0;
+};
+ChannelMixPreview previewChannelMix(const ControlConfigurationSnapshot &configuration,
+    uint8_t channel,const ChannelMixSettings &settings,int16_t base,
+    const int16_t sources[2],bool switchHigh,bool walk);
+
+// Sweep one preview input: 0=existing input, 1/2=mix source.
+// Other inputs stay fixed; matching source IDs move together.
+constexpr unsigned kMixCurvePoints=41;
+void previewChannelMixCurve(const ControlConfigurationSnapshot &configuration,
+    uint8_t channel,const ChannelMixSettings &settings,int16_t base,
+    const int16_t sources[2],bool switchHigh,bool walk,uint8_t sweep,
+    int16_t output[kMixCurvePoints]);

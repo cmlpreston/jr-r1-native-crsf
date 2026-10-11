@@ -15,6 +15,7 @@ struct SimulatorControls {
     uint16_t transmitterVoltageDecivolts = 99;
 };
 
+void simulatorDisplayResize(int16_t width,int16_t height);
 bool simulatorDisplayBegin(int16_t width, int16_t height);
 void simulatorShutdown();
 void simulatorPollEvents();

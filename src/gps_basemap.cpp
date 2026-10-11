@@ -1,4 +1,5 @@
 #include "gps_basemap.h"
+#include "offline_map.h"
 #include <algorithm>
 
 namespace {
@@ -29,7 +30,37 @@ void drawMap(lv_event_t *event) {
     lv_draw_rect_dsc_t fill; lv_draw_rect_dsc_init(&fill);
     fill.border_width = 0; fill.radius = 0;
     const uint32_t colours[] = {0xc5d9b7, 0xaac99b, 0xd4cbbd, 0xe4d8b5};
-    if (GpsMap::covers(view.latitude, view.longitude)) {
+    const bool custom=OfflineMap::covers(view.latitude,view.longitude);
+    if(custom && OfflineMap::pixels()){
+        const auto &map=OfflineMap::current();
+        // Sample only the current LVGL dirty rectangle. One scanline uses
+        // <=960 bytes of internal RAM; the full map stays in PSRAM.
+        lv_color_t row[480];
+        const int span=clip.x2-clip.x1+1;
+        lv_img_dsc_t image{};image.header.cf=LV_IMG_CF_TRUE_COLOR;image.header.w=span;image.header.h=1;
+        image.data_size=span*sizeof(lv_color_t);image.data=reinterpret_cast<const uint8_t*>(row);
+        lv_draw_img_dsc_t draw;lv_draw_img_dsc_init(&draw);
+        const double metresLon=GpsMap::MetresPerE7*GpsMap::longitudeScale(view.latitude);
+        if(span<=480&&view.pixelsPerMetre>0)for(int y=clip.y1;y<=clip.y2;++y){
+            const double lat=view.latitude-(y-(bounds.y1+height/2.0))/view.pixelsPerMetre/GpsMap::MetresPerE7;
+            int sy=int(std::floor((map.north-lat)/(double(map.north)-map.south)*map.height));
+            for(int x=0;x<span;++x){
+                double lon=view.longitude+(clip.x1+x-(bounds.x1+width/2.0))/view.pixelsPerMetre/metresLon;
+                int sx=int(std::floor((lon-map.west)/(double(map.east)-map.west)*map.width));
+                row[x]=lv_color_hex(0xeeeae0);
+                if(sx>=0&&sx<map.width&&sy>=0&&sy<map.height)row[x].full=OfflineMap::pixels()[sy*map.width+sx];
+            }
+            lv_area_t area={clip.x1,static_cast<lv_coord_t>(y),clip.x2,static_cast<lv_coord_t>(y)};
+            lv_draw_img(ctx,&draw,&area,&image);
+        }
+        lv_img_cache_invalidate_src(&image);
+    }else if(custom){
+        const auto &map=OfflineMap::current();line.color=lv_color_hex(0x00717c);line.width=2;
+        auto point=[&](const OfflineMap::Point &p){return lv_point_t{
+            static_cast<lv_coord_t>(std::max(-16000.0,std::min(16000.0,bounds.x1+width/2.0+GpsMap::east(view.latitude,p.lon,view.longitude)*view.pixelsPerMetre))),
+            static_cast<lv_coord_t>(std::max(-16000.0,std::min(16000.0,bounds.y1+height/2.0-GpsMap::north(p.lat,view.latitude)*view.pixelsPerMetre)))};};
+        for(unsigned i=0;i<map.pathCount;++i){const auto &path=map.paths[i];for(unsigned j=1;j<path.count;++j){auto a=point(map.points[path.offset+j-1]),b=point(map.points[path.offset+j]);lv_draw_line(ctx,&line,&a,&b);}}
+    } else if (GpsMap::covers(view.latitude, view.longitude)) {
         for (const auto &triangle : mapTriangles) {
             const lv_point_t p[] = {screenPoint(mapVertices[triangle.a]),screenPoint(mapVertices[triangle.b]),screenPoint(mapVertices[triangle.c])};
             if (std::max({p[0].x,p[1].x,p[2].x})<clip.x1 || std::min({p[0].x,p[1].x,p[2].x})>clip.x2 ||
@@ -66,6 +97,11 @@ void drawMap(lv_event_t *event) {
         for (int x=0;x<width;x+=40) {lv_point_t a={static_cast<lv_coord_t>(bounds.x1+x),bounds.y1}, b={a.x,bounds.y2};lv_draw_line(ctx,&line,&a,&b);}
         for (int y=0;y<height;y+=40) {lv_point_t a={bounds.x1,static_cast<lv_coord_t>(bounds.y1+y)}, b={bounds.x2,a.y};lv_draw_line(ctx,&line,&a,&b);}
     }
+    const char *attribution=custom?OfflineMap::current().attribution:GpsMap::covers(view.latitude,view.longitude)?"(c) OpenStreetMap":"No offline map for this location";
+    lv_draw_label_dsc_t credit;lv_draw_label_dsc_init(&credit);credit.font=&lv_font_montserrat_10;credit.color=lv_color_hex(0x405442);
+    lv_area_t creditArea={static_cast<lv_coord_t>(bounds.x1+5),static_cast<lv_coord_t>(bounds.y2-14),static_cast<lv_coord_t>(bounds.x2-5),bounds.y2};
+    fill.bg_color=lv_color_hex(0xeeeae0);fill.bg_opa=LV_OPA_90;lv_draw_rect(ctx,&fill,&creditArea);
+    lv_draw_label(ctx,&credit,&creditArea,attribution,nullptr);
     ctx->clip_area = previousClip;
 }
 }
@@ -82,7 +118,28 @@ lv_obj_t *createGpsBasemap(lv_obj_t *parent, int x, int y, int width, int height
 }
 void updateGpsBasemap(lv_obj_t *object, GpsMapViewport &view,
                       int32_t lat, int32_t lon, double scale) {
-    if (!object || (view.latitude==lat && view.longitude==lon && view.pixelsPerMetre==scale)) return;
+    if (!object || (view.latitude==lat && view.longitude==lon && view.pixelsPerMetre==scale && view.mapRevision==OfflineMap::revision())) return;
     view.latitude=lat;view.longitude=lon;view.pixelsPerMetre=scale;
+    view.mapRevision=OfflineMap::revision();
     lv_obj_invalidate(object);
+}
+
+double gpsBasemapPreviewScale(lv_obj_t *object, bool fillViewport) {
+    if(!object)return 0.5;
+    const auto &map=OfflineMap::current();
+    if(!map.valid)return 0.5;
+    lv_obj_update_layout(object);
+    const int32_t lat=map.south+(int64_t(map.north)-map.south)/2;
+    const double width=std::max(1.0,GpsMap::east(lat,map.east,map.west));
+    const double height=std::max(1.0,GpsMap::north(map.north,map.south));
+    return std::max(0.001,fillViewport
+        ?std::max(lv_obj_get_width(object)/width,lv_obj_get_height(object)/height)
+        :std::min((lv_obj_get_width(object)-12)/width,(lv_obj_get_height(object)-20)/height));
+}
+void previewGpsBasemap(lv_obj_t *object, GpsMapViewport &view, bool fillViewport, double zoom) {
+    if(!object)return;
+    const auto &map=OfflineMap::current();
+    const int32_t lat=map.valid?map.south+(int64_t(map.north)-map.south)/2:GpsMap::OriginLat;
+    const int32_t lon=map.valid?map.west+(int64_t(map.east)-map.west)/2:GpsMap::OriginLon;
+    updateGpsBasemap(object,view,lat,lon,gpsBasemapPreviewScale(object,fillViewport)*zoom);
 }

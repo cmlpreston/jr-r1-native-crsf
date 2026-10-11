@@ -25,5 +25,10 @@ int main() {
     assert(cache.enabled() && !cache.unchanged(0, 1, 4, a));
     cache.remember(0, 1, 4, b);
     assert(cache.unchanged(0, 1, 4, b));
+    assert(cache.setDimensions(3,4));
+    assert(!cache.unchanged(0,1,3,a));
+    cache.remember(0,3,3,a);assert(cache.unchanged(0,3,3,a));
+    assert(!cache.setDimensions(4,4));assert(!cache.setDimensions(0,4));
+    assert(cache.setDimensions(4,3));assert(!cache.unchanged(0,1,4,a));
     puts("UI pixel cache PASS");
 }

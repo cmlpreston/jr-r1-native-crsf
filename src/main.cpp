@@ -1,4 +1,8 @@
+#include "remote_control_policy.h"
+#include "rf_bench_session.h"
 #include <Arduino.h>
+#include <Wire.h>
+#include "input_bench_mode.h"
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include <hal/uart_ll.h>
@@ -7,8 +11,10 @@
 #include <esp_system.h>
 
 #include "transmitter_ui.h"
+#include "setup_portal.h"
 #include "binding_resolver.h"
 #include "boot_diagnostics.h"
+#include "memory_diagnostics.h"
 #include "config.h"
 #include "control_configuration.h"
 #include "crsf_channel_output.h"
@@ -126,6 +132,23 @@ uint32_t startupInputSettledAtMs = 0;
 uint32_t startupWarningMask = 0;
 char usbCommand[32];
 uint8_t usbCommandLength = 0;
+bool inputMonitorHalted = false;
+RfBenchSession rfBenchSession;
+portMUX_TYPE rfBenchMux = portMUX_INITIALIZER_UNLOCKED;
+bool rfBenchEnabled()
+{
+    portENTER_CRITICAL(&rfBenchMux);
+    const bool enabled = rfBenchSession.enabled();
+    portEXIT_CRITICAL(&rfBenchMux);
+    return enabled;
+}
+bool rfBenchArmRequested()
+{
+    portENTER_CRITICAL(&rfBenchMux);
+    const bool armed = rfBenchSession.armRequested(millis());
+    portEXIT_CRITICAL(&rfBenchMux);
+    return armed;
+}
 #ifdef JR_R1_XIAO_PCB
 McpInputSnapshot latestPcbInputs[] = {{0x20, 0xffff, false}, {0x21, 0xffff, false}};
 uint32_t nextInputDiagnosticMs = 0;
@@ -249,7 +272,7 @@ OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
                                       bool inputValid,
                                       const CrsfTelemetryState &telemetry,
                                       const ControlConfigurationSnapshot &configuration,
-                                      bool startupComplete)
+                                      bool startupComplete, bool mixedThrottleNeutral)
 {
     // Calibration is handled by ProportionalInput. This is only the output
     // safety policy: never arm during calibration and require neutral again
@@ -295,6 +318,11 @@ OutputSafetyStatus updateTriggerSafety(uint16_t adc, bool calibrationActive,
         // remained acceptable for its complete dwell period.
         controlNeutralSinceMs = 0;
         return OutputSafetyStatus::LinkRequired;
+    }
+    // Extra veto only: the original ADC-neutral dwell below remains mandatory.
+    if(!controlThrottleArmed&&!mixedThrottleNeutral) {
+        controlNeutralSinceMs=0;
+        return OutputSafetyStatus::NeutralRequired;
     }
     updateNeutralInterlock(adc, configuration);
     return controlThrottleArmed ? OutputSafetyStatus::Armed
@@ -462,6 +490,9 @@ void forceChannelOutputsSafe()
 
 void requestControlReset()
 {
+    portENTER_CRITICAL(&rfBenchMux);
+    rfBenchSession.cut();
+    portEXIT_CRITICAL(&rfBenchMux);
     portENTER_CRITICAL(&controlCommandMux);
     ++sharedControlCommands.resetSequence;
     portEXIT_CRITICAL(&controlCommandMux);
@@ -547,6 +578,35 @@ ControlConfigurationSnapshot readControlConfiguration()
     return snapshot;
 }
 
+// Loop-owned debounced digital inputs cross into the control task as one snapshot.
+portMUX_TYPE mixInputMux = portMUX_INITIALIZER_UNLOCKED;
+MixInputSnapshot sharedMixInputs;
+uint32_t sharedMixInputsMs = 0;
+ChannelMixRuntime channelMixRuntime;
+void publishMixInputs()
+{
+    MixInputSnapshot next;
+    for(uint8_t id=2;id<kPhysicalControlCount;++id) {
+        const auto &state=physicalInputs.state(static_cast<PhysicalControlId>(id));
+        if(state.mapped&&!state.faulted)next.valid|=uint32_t{1}<<id;
+        const auto kind=physicalControlDescriptor(id).kind;
+        next.values[id]=kind==PhysicalControlKind::SpringCentredTrim?
+            (state.stableSecondary?1000:state.stablePrimary?-1000:0):(state.stablePrimary?1000:-1000);
+    }
+    portENTER_CRITICAL(&mixInputMux);
+    sharedMixInputs=next;sharedMixInputsMs=millis();
+    portEXIT_CRITICAL(&mixInputMux);
+}
+MixInputSnapshot readMixInputs(uint32_t now)
+{
+    portENTER_CRITICAL(&mixInputMux);
+    MixInputSnapshot result=sharedMixInputs;
+    const uint32_t updated=sharedMixInputsMs;
+    portEXIT_CRITICAL(&mixInputMux);
+    if(!updated||now-updated>500)result.valid=0;
+    return result;
+}
+
 void controlTask(void *)
 {
     TickType_t nextWake = xTaskGetTickCount();
@@ -567,13 +627,16 @@ void controlTask(void *)
             controlNeutralSinceMs = 0;
             controlLinkReadySinceMs = 0;
             channelSlewRuntime.reset(millis());
+            channelMixRuntime.reset();
         }
 
         // Capture one coherent configuration for the entire cycle. UI/model
         // edits published during this cycle become visible at the next one.
-        const ControlConfigurationSnapshot configuration =
+        ControlConfigurationSnapshot configuration =
             readControlConfiguration();
+        if (rfBenchEnabled()) configuration.armRequested = rfBenchArmRequested();
         if (configuration.revision != appliedConfigurationRevision) {
+            channelMixRuntime.reset();
             throttleInputRuntime.setProfile(configuration.throttleInput);
             steeringInputRuntime.setProfile(configuration.steeringInput);
             appliedConfigurationRevision = configuration.revision;
@@ -584,11 +647,28 @@ void controlTask(void *)
         const ProportionalInputState steeringInput =
             steeringInputRuntime.update(analogRead(STEERING_ADC_PIN));
         const bool calibrating = configuration.calibrationActive;
-        const bool inputValid = throttleInput.valid;
+        MixInputSnapshot mixInputs=readMixInputs(millis());
+        mixInputs.values[0]=steeringInput.normalisedPermille;
+        mixInputs.values[1]=throttleInput.normalisedPermille;
+        if(steeringInput.valid)mixInputs.valid|=1;
+        if(throttleInput.valid)mixInputs.valid|=2;
+        CrsfChannelOutputModel outputs;
+        bindingActions.clear();
+        portENTER_CRITICAL(&bindingResolverMux);
+        bindingResolver.update(millis(), bindingActions);
+        bindingResolver.applyChannelOutputs(outputs, configuredRoleOwnedChannels(configuration));
+        portEXIT_CRITICAL(&bindingResolverMux);
+        const bool inputValid = throttleInput.valid && configuredMixInputsValid(configuration,mixInputs,&outputs);
+        if (rfBenchEnabled() && (!inputValid || calibrating || !configuration.throttleEnabled)) {
+            portENTER_CRITICAL(&rfBenchMux);
+            rfBenchSession.cut();
+            portEXIT_CRITICAL(&rfBenchMux);
+            configuration.armRequested = false;
+        }
         const CrsfTelemetryState telemetry = readTelemetrySnapshot();
         const OutputSafetyStatus safetyStatus = updateTriggerSafety(
             filteredAdc, calibrating, inputValid, telemetry, configuration,
-            commands.startupPreflightComplete);
+            commands.startupPreflightComplete, configuredMixedThrottleNeutral(configuration,mixInputs,&outputs));
         if (safetyStatus != previousSafetyStatus) {
             Serial.printf("SAFETY t=%lums %s -> %s arm_request=%s raw=%u filtered=%u centre=%u delta=%+d\n",
                           static_cast<unsigned long>(millis()),
@@ -608,46 +688,21 @@ void controlTask(void *)
         if (!outputsLive) channelSlewRuntime.reset(processingNowMs);
 
         const int16_t rawThrottle = throttleInput.normalisedPermille;
-        const ProcessedProportionalChannel throttleChannel =
-            processConfiguredProportionalChannel(
-                configuration, configuration.throttleChannel, rawThrottle, 0,
-                channelSlewRuntime, processingNowMs, outputsLive);
-        const uint16_t requestedThrottle = crsfValueFromPermille(
-            throttleChannel.requestedPermille);
-        const uint16_t safeNeutralThrottle = crsfValueFromPermille(
-            throttleChannel.safePermille);
-        const uint16_t transmittedThrottle = outputsLive
-            ? requestedThrottle : safeNeutralThrottle;
         const int16_t rawSteering = steeringInput.normalisedPermille;
-        const ProcessedProportionalChannel steeringChannel =
-            processConfiguredProportionalChannel(
-                configuration, configuration.steeringChannel, rawSteering, 0,
-                channelSlewRuntime, processingNowMs, outputsLive);
-        const uint16_t requestedSteering = crsfValueFromPermille(
-            steeringChannel.requestedPermille);
-        const uint16_t safeNeutralSteering = crsfValueFromPermille(
-            steeringChannel.safePermille);
-        const uint16_t transmittedSteering = outputsLive && configuration.steeringEnabled
-            ? requestedSteering : safeNeutralSteering;
-        CrsfChannelOutputModel outputs;
-        bindingActions.clear();
-        portENTER_CRITICAL(&bindingResolverMux);
-        bindingResolver.update(millis(), bindingActions);
-        const uint16_t roleOwnedChannels =
-            configuredRoleOwnedChannels(configuration);
-        bindingResolver.applyChannelOutputs(outputs, roleOwnedChannels);
-        portEXIT_CRITICAL(&bindingResolverMux);
-        // Apply the same response/adjustment/slew pipeline to proportional AUX
-        // bindings. Role-owned channels use that processor above with their
-        // dedicated ADC inputs and are installed below.
-        processConfiguredProportionalOutputs(
-            configuration, outputs, channelSlewRuntime, processingNowMs,
-            outputsLive, roleOwnedChannels);
-        outputs.configure(configuration.steeringChannel,
-            requestedSteering, safeNeutralSteering,
-            configuration.steeringEnabled);
-        outputs.configure(configuration.throttleChannel, requestedThrottle,
-                          safeNeutralThrottle, configuration.throttleEnabled);
+        processConfiguredMixedOutputs(configuration,outputs,mixInputs,channelMixRuntime,
+                                      channelSlewRuntime,processingNowMs,outputsLive);
+        const uint16_t requestedThrottle=outputs.requested(configuration.throttleChannel);
+        const uint16_t safeNeutralThrottle=outputs.safe(configuration.throttleChannel);
+        const uint16_t transmittedThrottle=outputsLive?requestedThrottle:safeNeutralThrottle;
+        const uint16_t requestedSteering=outputs.requested(configuration.steeringChannel);
+        const uint16_t safeNeutralSteering=outputs.safe(configuration.steeringChannel);
+        const uint16_t transmittedSteering=outputsLive&&configuration.steeringEnabled?requestedSteering:safeNeutralSteering;
+        ProcessedProportionalChannel throttleChannel;
+        throttleChannel.requestedPermille=permilleFromCrsfValue(requestedThrottle);
+        throttleChannel.safePermille=permilleFromCrsfValue(safeNeutralThrottle);
+        ProcessedProportionalChannel steeringChannel;
+        steeringChannel.requestedPermille=permilleFromCrsfValue(requestedSteering);
+        steeringChannel.safePermille=permilleFromCrsfValue(safeNeutralSteering);
         const uint32_t controlUpdateUs = micros();
         publishChannelOutputs(outputs, safetyStatus, controlUpdateUs);
 
@@ -705,8 +760,13 @@ void crsfTask(void *)
             const bool stale = lastControlUs == 0 ||
                 static_cast<uint32_t>(nowUs - lastControlUs) > CONTROL_STALE_TIMEOUT_US;
             crsfRuntimeOwned.controlStale = stale;
-            const OutputSafetyDecision safetyDecision = arbitrateOutputSafety(
+            OutputSafetyDecision safetyDecision = arbitrateOutputSafety(
                 outputs.controlSafetyStatus, !stale);
+            // Independent final veto, even if the UI/serial loop has stalled.
+            if (rfBenchEnabled() && !rfBenchArmRequested() && safetyDecision.transmitRequested) {
+                safetyDecision.status = OutputSafetyStatus::Cut;
+                safetyDecision.transmitRequested = false;
+            }
             crsfRuntimeOwned.outputSafetyStatus = safetyDecision.status;
             ElrsManagementRequest management;
             const bool requested = takeManagementRequest(management);
@@ -742,6 +802,55 @@ void crsfTask(void *)
     }
 }
 
+// Read-only snapshots for tools/input_monitor.py. Use the existing input cache
+// and control-task snapshot; never perform extra I2C reads or alter outputs.
+void printInputMonitorSnapshot()
+{
+    auto control = readControlState();
+    if (inputMonitorHalted) {
+        // No control task exists in this mode. Report measured ADCs, never the
+        // initial placeholder snapshot. Percentages are unavailable here.
+        control.rawAdc = control.adc = analogRead(THROTTLE_ADC_PIN);
+        control.steeringAdc = analogRead(STEERING_ADC_PIN);
+        control.inputValid = false;
+        if (transmitterUi.txVoltageSenseEnabled())
+            filteredTxBatteryAdcMv = analogReadMilliVolts(TX_BATTERY_ADC_PIN);
+    }
+    Serial.printf("@INPUT_BEGIN\t1\t%lu\t%s\t%u\t%u\t%d\t%u\t%d\t%u\t%lu\t%u\n",
+        static_cast<unsigned long>(millis()), inputMonitorHalted ? "HALTED_SAFE" : safetyStatusName(readCrsfRuntime().outputSafetyStatus),
+        control.rawAdc, control.adc, control.rawPermille, control.steeringAdc,
+        control.steeringRawPermille, control.inputValid,
+        static_cast<unsigned long>(filteredTxBatteryAdcMv), transmitterUi.txVoltageSenseEnabled());
+    const auto rf = readCrsfRuntime();
+    const auto telemetry = readTelemetrySnapshot();
+    portENTER_CRITICAL(&rfBenchMux);
+    const bool benchAuthorized = rfBenchSession.authorized();
+    portEXIT_CRITICAL(&rfBenchMux);
+    Serial.printf("@INPUT_RF\t%u\t%u\t%u\t%u\t%u\t%u\t%lu\n",
+        benchAuthorized, rfBenchArmRequested(), control.transmittedCrsf,
+        control.steeringTransmittedCrsf, telemetry.linkValid,
+        telemetry.uplinkLinkQuality, static_cast<unsigned long>(rf.channelFramesSent));
+#ifdef JR_R1_XIAO_PCB
+    for (unsigned i = 0; i < 2; ++i) {
+        const auto &sample = latestPcbInputs[i];
+        Serial.printf("@INPUT_MCP\t%u\t%u\t%u\t%lu\n", i + 1,
+            sample.available, sample.levels,
+            static_cast<unsigned long>(i ? pcbControls.readErrors() : pcbKeypad.readErrors()));
+    }
+#endif
+    for (size_t i = 0; i < kPhysicalControlCount; ++i) {
+        const auto id = static_cast<PhysicalControlId>(i);
+        const auto &state = physicalInputs.state(id);
+        const auto &descriptor = physicalControlDescriptor(i);
+        Serial.printf("@INPUT_ROW\t%u\t%s\t%s\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%s\t%lu\n",
+            static_cast<unsigned>(i), descriptor.name, r1InputEndpointLabel(id),
+            static_cast<unsigned>(descriptor.kind), state.mapped, state.faulted,
+            state.rawPrimary, state.rawSecondary, state.stablePrimary, state.stableSecondary,
+            inputEventName(state.lastEvent), static_cast<unsigned long>(state.lastEventMs));
+    }
+    Serial.printf("@INPUT_END\t%u\n", static_cast<unsigned>(kPhysicalControlCount));
+}
+
 bool consumeScreenshotCommand()
 {
     while (Serial.available() > 0) {
@@ -750,6 +859,57 @@ bool consumeScreenshotCommand()
         if (character == '\n') {
             usbCommand[usbCommandLength] = '\0';
             const bool matched = strcmp(usbCommand, "SCREENSHOT") == 0;
+            if (strncmp(usbCommand, "PINRESET ", 9) == 0) {
+                const bool cut = readChannelOutputs().controlSafetyStatus != OutputSafetyStatus::Armed &&
+                    readCrsfRuntime().outputSafetyStatus != OutputSafetyStatus::Armed;
+                const bool ok = cut && transmitterUi.recoverPinOverUsb(usbCommand + 9);
+                Serial.println(ok ? "PIN reset saved; outputs CUT; Walk mode unchanged." :
+                    "PIN reset rejected: outputs must be CUT and PIN must be four digits.");
+            }
+            if (strncmp(usbCommand, "RFTEST ", 7) == 0) {
+                const bool allowed = (inputMonitorHalted || controlTaskHandle != nullptr) &&
+                    transmitterUi.verifyPin(usbCommand + 7);
+                portENTER_CRITICAL(&rfBenchMux);
+                const bool accepted = rfBenchSession.enable(allowed, millis());
+                portEXIT_CRITICAL(&rfBenchMux);
+                if (accepted) {
+                    transmitterUi.setRfBenchMode(true);
+                    requestControlReset();
+                }
+                Serial.println(accepted ? "@RF_REPLY Bench mode enabled; outputs CUT. A requests arm." :
+                    "@RF_REPLY Bench mode rejected: PIN incorrect or startup not ready.");
+            }
+            if (strcmp(usbCommand, "RFKEEP") == 0) {
+                bool healthy = true;
+#ifdef JR_R1_XIAO_PCB
+                healthy = latestPcbInputs[0].available && latestPcbInputs[1].available;
+#endif
+                for (size_t i=0; i<kPhysicalControlCount; ++i)
+                    if (physicalInputs.state(static_cast<PhysicalControlId>(i)).faulted) healthy = false;
+                portENTER_CRITICAL(&rfBenchMux);
+                rfBenchSession.heartbeat(millis(), healthy);
+                portEXIT_CRITICAL(&rfBenchMux);
+            }
+            if (strcmp(usbCommand, "RFCUT") == 0) {
+                requestControlReset();
+                Serial.println("@RF_REPLY Outputs CUT. Press A to request arm again.");
+            }
+            if (strcmp(usbCommand, "RFARM") == 0) {
+                const auto state = readControlState();
+                const bool ready = startupPreflightComplete && state.inputValid &&
+                    !state.calibrating && !transmitterUi.calibrationActive() &&
+                    !SetupPortal::active() &&
+                    abs(int(state.adc) - int(transmitterUi.throttleCentreAdc())) <= ARM_NEUTRAL_ADC_WINDOW &&
+                    physicalInputs.startupUnsafeMask() == 0 && inputExpanderReady;
+                requestControlReset(); // Every explicit arm requires a fresh neutral/link dwell.
+                portENTER_CRITICAL(&rfBenchMux);
+                const bool accepted = rfBenchSession.requestArm(millis(), ready);
+                portEXIT_CRITICAL(&rfBenchMux);
+                Serial.println(accepted ? "@RF_REPLY Arm requested; waiting for receiver link and neutral checks." :
+                    "@RF_REPLY Arm rejected: centre controls, close Wi-Fi setup/calibration, check inputs and bench session.");
+            }
+            if (strcmp(usbCommand, "INPUTMON") == 0) printInputMonitorSnapshot();
+            if(strcmp(usbCommand,"MEMORY")==0||strcmp(usbCommand,"memory")==0)MemoryDiagnostics::print(Serial);
             if (strcmp(usbCommand, "BOOTLOG") == 0 || strcmp(usbCommand, "bootlog") == 0)
                 bootDiagnosticsDump();
 #ifdef JR_R1_XIAO_PCB
@@ -760,6 +920,7 @@ bool consumeScreenshotCommand()
                 transmitterUi.setDisplayCacheEnabled(true);
             if (strcmp(usbCommand, "UICACHE OFF") == 0)
                 transmitterUi.setDisplayCacheEnabled(false);
+            memset(usbCommand, 0, sizeof(usbCommand));
             usbCommandLength = 0;
             if (matched) return true;
             continue;
@@ -772,6 +933,7 @@ bool consumeScreenshotCommand()
     return false;
 }
 
+#include "input_bench.inc"
 } // namespace
 
 void setup()
@@ -787,6 +949,9 @@ void setup()
 
     Serial.begin(115200);
     delay(CRSF_STARTUP_BUS_QUIET_MS);
+#if JR_R1_INPUT_BENCH
+    benchBegin();return;
+#endif
     Serial.println();
     Serial.println("JR R1 native CRSF throttle test");
     Serial.printf("BOOT: reset_reason=%u free_heap=%u bytes\n",
@@ -831,6 +996,7 @@ void setup()
     // the Arduino/LVGL loop, so display/system work cannot create radio gaps.
     xTaskCreatePinnedToCore(crsfTask, "crsf-link", 4096, nullptr, 6,
                             &crsfTaskHandle, 1);
+    MemoryDiagnostics::configure(crsfTaskHandle,nullptr,false);
 
     const uint32_t heapBeforeUi = ESP.getFreeHeap();
 #ifdef JR_R1_XIAO_PCB
@@ -839,9 +1005,41 @@ void setup()
         // No control task or arming path starts after an incomplete hardware
         // sequence. The already-running CRSF task keeps sending safe frames.
         bootDiagnosticsStage("halted-safe");
+        inputMonitorHalted = true;
+        physicalInputs.begin(kR1InputMap, kR1InputMapCount);
+        configureDirectGpioInputs();
+        transmitterUi.enterHardwareRecovery();
+        SetupPortal::begin(&transmitterUi);
         for (;;) {
-            // Diagnostics only: never invoke screenshots, UI or control startup here.
+            // Sample only; never feed events to bindings or start live control.
+            latestPcbInputs[0].available = pcbKeypad.online() && pcbKeypad.read(latestPcbInputs[0].levels);
+            latestPcbInputs[1].available = pcbControls.online() && pcbControls.read(latestPcbInputs[1].levels);
+            physicalInputEvents.clear();
+            physicalInputs.update(latestPcbInputs, 2, readDirectGpioLevels(), millis(), physicalInputEvents);
+            // No binding actions, configuration publication, management requests
+            // or control task: CRSF continues sending its existing safe frames.
             consumeScreenshotCommand();
+            if (rfBenchEnabled()) {
+                inputMonitorHalted = false;
+                transmitterUi.setRfBenchMode(true);
+                Serial.println("RF BENCH: starting normal input/control tasks; USB lease and explicit ARM required");
+                break;
+            }
+            transmitterUi.setPhysicalInputStates(physicalInputs.states());
+            const uint16_t throttle = analogRead(THROTTLE_ADC_PIN);
+            const uint16_t steering = analogRead(STEERING_ADC_PIN);
+            uint16_t battery = 0;
+            if (transmitterUi.txVoltageSenseEnabled()) {
+                filteredTxBatteryAdcMv = analogReadMilliVolts(TX_BATTERY_ADC_PIN);
+                battery = (filteredTxBatteryAdcMv *
+                    (TX_BATTERY_DIVIDER_TOP_OHMS + TX_BATTERY_DIVIDER_BOTTOM_OHMS) /
+                    TX_BATTERY_DIVIDER_BOTTOM_OHMS + 50) / 100;
+            }
+            transmitterUi.update(throttle, steering, 0, 0, CRSF_CHANNEL_MID,
+                OutputSafetyStatus::ControlStale, readTelemetrySnapshot(), battery,
+                battery >= 25, CrsfChannelOutputModel{}, false);
+            // Safe by construction: no live control task can run until reboot.
+            SetupPortal::tick(true, true);
             delay(20);
         }
     }
@@ -885,13 +1083,19 @@ void setup()
     publishControlState(ControlStateSnapshot());
     // Last flash checkpoint before live control starts; no periodic flash writes.
     bootDiagnosticsStage("control-starting");
-    xTaskCreatePinnedToCore(controlTask, "control-input", 4096, nullptr, 5,
+    xTaskCreatePinnedToCore(controlTask, "control-input", 6144, nullptr, 5,
                             &controlTaskHandle, 1);
+    MemoryDiagnostics::configure(crsfTaskHandle,controlTaskHandle,true);
+    if (!rfBenchEnabled()) SetupPortal::begin(&transmitterUi);
     nextLogMs = millis();
 }
 
 void loop()
 {
+#if JR_R1_INPUT_BENCH
+    benchLoop();return;
+#endif
+    MemoryDiagnostics::sample();
     if (consumeScreenshotCommand()) {
         // Force the whole channel model safe immediately; the CRSF task must
         // never retain live outputs while the UI task streams a screenshot.
@@ -956,6 +1160,7 @@ void loop()
         physicalInputs.update(ports, readDirectGpioLevels(), nowMs,
                               physicalInputEvents, inputExpanderReady);
 #endif
+        publishMixInputs();
         physicalInputs.setProportionalValue(PhysicalControlId::ThrottleTrigger,
                                             control.rawPermille, nowMs);
         physicalInputs.setProportionalValue(PhysicalControlId::SteeringWheel,
@@ -1070,6 +1275,10 @@ void loop()
     // iteration have completed. The control task sees either the entire old
     // model or the entire new one, never a mixture of fields.
     publishUiControlConfigurationIfChanged();
+    const bool wifiArmRequested=readControlConfiguration().armRequested;
+    const auto wifiSafety=readCrsfRuntime().outputSafetyStatus;
+    SetupPortal::tick(remoteControlAllowed(wifiArmRequested,wifiSafety),
+        wifiConnectionAllowed(wifiArmRequested,wifiSafety));
     const ControlConfigurationSnapshot uiConfiguration =
         lastPublishedControlConfiguration;
 

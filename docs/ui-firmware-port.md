@@ -19,18 +19,18 @@ touch accuracy, electrical correctness, RF timing or receiver failsafe behaviour
 | --- | --- |
 | Dashboard, output state, model and link | Drive; fixed header remains visible |
 | Model memories and selection safeguards | Header model or Setup → Models; CUT and neutral required |
-| Channel configuration and role assignment | Setup → Model → Channels; role editor retained |
+| Channel configuration and role assignment | Setup → Model → Channels → Role / physical input |
 | Rate, expo, forward/brake endpoints and ramps | Tune; independent throttle/brake drafts; detailed channel editors retained |
 | Channel trim, subtrim and reverse | Tune second bank and existing channel detail pages |
 | Legacy response-profile subtrim | Detailed response editor, separately from channel-parameter subtrim |
 | Binding source/context/target/behaviour, add/remove/save | Setup → Model → Control map and binding editor |
-| Raw switch and ADC inspection | Setup → Handset → Input monitor |
-| Normal/Walk mode and forward limit | Drive mode button or Setup → Drive modes |
-| Buzzer, clicks, pitch, duration and test | Setup → System |
+| Raw switch and ADC inspection | Data → Inputs or Setup → Handset → System → Input diagnostics |
+| Normal/Walk mode and forward limit | Drive mode chooser or Setup → Model → Drive modes |
+| Buzzer, clicks, pitch, duration and test | Setup → Handset → Sounds / alerts |
 | Calibration and startup switch warning | Existing calibration/system entry points and startup flow |
-| Brightness, sleep, screensaver and night mode | System → Display |
-| TX chemistry, cells, low alarm and voltage sensing | Handset → Batteries → Transmitter |
-| RX chemistry, cells and low alarm enable | Handset → Batteries → Receiver |
+| Brightness, sleep, screensaver and night mode | Setup → Handset → Display |
+| TX chemistry, cells, low alarm and voltage sensing | Setup → Handset → TX battery |
+| RX chemistry, cells and low alarm enable | Setup → Model → RX battery |
 | Firmware branch, commit, environment and board | System → Firmware info |
 | TX module parameter discovery/edit/command | Setup → Model → RF module |
 | TX/RX UID and binding phrase | RF module → Binding |
@@ -39,14 +39,14 @@ touch accuracy, electrical correctness, RF timing or receiver failsafe behaviour
 | Requested/safe channel monitoring | Data → Channels |
 
 Numeric Tune edits are drafts until Apply. Cancel does not change control
-settings. CUT is immediate; requesting arm from the header requires a touch
-held for at least 800 ms. Keypad selection cannot reuse an earlier long touch.
-The output safety arbiter and neutral interlocks remain authoritative. A future
-optional power-on PIN unlock is recorded in TODO; it is not implemented here.
+settings. Manual CUT and enable both require holding Drive for at least 800 ms;
+automatic safety CUT remains immediate. Keypad selection cannot reuse an earlier long touch.
+The output safety arbiter and neutral interlocks remain authoritative. Boot PIN
+unlock is implemented and never requests arming.
 
 ## Widgets and persistence
 
-Drive has a two-column, two-row grid. Widgets occupy 1×1, 2×1 or 2×2 cells.
+Drive has a two-column, two-row grid. Widgets occupy 1×1, 2×1, 1×2 or 2×2 cells.
 Double-width panels start in the left column; a 2×2 panel starts at top left.
 Choose an anchor through **Drive → Layout**, edit and Apply. Applying replaces
 any overlapping panels; Cancel preserves the layout. Empty removes a panel.
@@ -122,3 +122,70 @@ Before uploading, follow `AGENTS.md`: fetch main, confirm branch ancestry and
 connected board/display/pin map, build/test, state the selected profile and use
 PlatformIO upload with preflight. Successful DevKitC and XIAO builds do not imply
 a firmware image has been flashed or physically tested.
+
+## Navigation refinement — 2026-09-30
+
+Drive no longer carries a Layout button. Dashboard layout lives under
+Setup → Model → Dashboard, with an 800 ms long press on the Drive heading
+as a shortcut. The Normal/Walk chip opens a focused chooser; changing modes
+forces CUT, and the Walk forward limit remains separate from brake/reverse.
+
+Channel configuration has one hub for role/input, response/trim and
+mixing/output limits. Role changes refuse conflicting ownership or existing
+channel bindings. The global control map remains for transmitter functions and
+physical-control overview. Tune and channel response share the focused numeric
+editor; auxiliary quick adjustments explicitly select positive/negative travel.
+Detailed response settings use the same graph-and-value editor, with independent
+positive/negative sides and Basic/More sections. Response offset remains separate
+from channel trim and subtrim. Physical trim/subtrim controls use a named picker
+with Apply/Cancel; controls already assigned elsewhere cannot be taken over.
+
+Assignments have Assignment and Behaviour tabs. Fields follow the selected target:
+functions and drive modes use their action's behaviour, while channel assignments
+expose switch/button mode. Contexts include plain-language explanations. Changing
+tabs preserves the draft; Cancel discards it and Apply validates before saving.
+
+Drive navigation shows a lock while CUT and a green dot while LIVE, with
+a hold progress indicator. All four navigation labels share the same alignment
+and size, without hold hints on Drive. Short taps
+only navigate; early release cancels output changes. Tap the Drive heading
+for blocking reasons, or hold that heading for dashboard layout. Both manual
+output changes require a physical 800 ms hold; remote input cannot enable.
+Automatic safety CUT remains immediate. Boot PIN and output enable are separate.
+Legacy detail headers use a Drive navigation shortcut with the same hold policy.
+When enabling waits for a receiver, the title bar shows Link wait and the
+output-status page explicitly shows LINK WAIT and the blocking reason. Drive
+keeps its centered label and lock until output is actually LIVE.
+
+Leaving Walk mode requires a fresh PIN entry from either the LCD/web mode chooser
+or a bound physical switch. Wrong PIN or Cancel keeps Walk active. Walk is retained
+across reboot and model changes; successful exit selects Normal with outputs CUT.
+An exit requested by a maintained switch is prompted once until that switch returns
+to Walk, avoiding repeated prompts after Cancel.
+
+Setup → Handset → System → PIN changes the four-digit PIN by checking the current
+PIN and entering the new PIN twice. The authenticated web page also has a PIN form.
+The initial PIN remains 1234 until changed. Forgotten PIN recovery requires USB
+serial access: send `PINRESET 1234` (or another four-digit PIN) with outputs CUT.
+Recovery preserves models, Wi-Fi, maps and Walk mode, and does not unlock or arm
+the handset. RF bench authorization uses the saved PIN too.
+
+Mixing uses named sections rather than a circular eight-page walk. Section
+changes preserve drafts; Cancel at the overview discards them and Apply checks
+and saves them. Preview bars and the curve are linked directly.
+
+GPS gives the map the area below the Data tabs, with a status overlay and compact
+zoom/trail controls. After four seconds without interaction it becomes a full-screen
+map, keeping North and map attribution. The first touch only reveals controls;
+no invisible navigation or output-enable targets remain. Saved raster maps fill
+the viewport with their aspect ratio preserved, and zoom works before a GPS fix.
+Live GPS uses the same map scale for imagery, trace and position marker.
+
+Wi-Fi connection settings and web credentials have separate landing pages.
+Restart belongs to System. Sounds no longer duplicates battery/display links.
+TX battery settings are handset-owned; RX battery settings are model-owned.
+The browser cannot close its transport through a mirrored navigation gesture;
+physical Close ends the manual setup session under the existing network policy.
+
+Validation uses the actual native LVGL callbacks in both orientations. It does
+not replace testing touch feel, LCD visibility or RF operation on the handset.

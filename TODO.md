@@ -107,10 +107,11 @@ See the detailed roadmap for individual binding features.
 
 - [ ] Dispatch the remaining transmitter, model-parameter and drive-mode
   actions exposed by the assignment model.
-- [ ] Add TFT editors for binding step, range, initial value, failsafe value,
-  pulse duration and retained-state behaviour.
-- [ ] Add configurable trim/sub-trim ranges and step sizes; the current fixed
-  implementation is +/-20% in 1% steps.
+- [x] Expose assignment ranges, steps, starting/fault values and reversal on LCD and web.
+- [ ] Add editors for pulse duration and retained-state behaviour.
+- [x] Group assignment fields by target and behaviour, add explicit trim-control
+  selection, and use focused graph editors for detailed channel response settings.
+- [x] Add configurable trim/sub-trim assignment ranges and step sizes within ±20%.
 - [ ] Add restore-default-control-profile.
 - [x] Select among ten model memories with CUT/neutral guards and isolated
   bindings, response settings and widget layouts.
@@ -123,8 +124,11 @@ See the detailed roadmap for individual binding features.
   transmitter-specific calibration; validate channel roles and endpoints on import.
 - [ ] Later: quick handover between two vehicles, with explicitly verified
   parked/braked receiver behaviour for the inactive vehicle and neutral re-arm.
-- [ ] Later: multi-action macros, conditions and general mixes with direction,
-  weight and offset.
+- [x] Per-model channel mixing: two ordered physical-source Add/Replace rules,
+  signed weights, switch/drive-mode conditions, LCD/web editors and shared
+  firmware/simulator processing. See docs/channel-mixing.md; bench validation pending.
+- [x] Optional switch-controlled positive/negative rates with transition.
+- [ ] Later: multi-action macros, mixer offsets and richer conditions.
 
 ## Driving controls
 
@@ -154,14 +158,18 @@ Complete these after steering shares the generic proportional pipeline:
 - [x] Rebuild advanced menus for portrait and make portrait the default.
   Use Model/Handset tabs, flat menu rows and a permanent JR R-1 strip.
 - [ ] Add touchscreen lock and dashboard short/long/double-press shortcuts.
-- [ ] Evaluate optional power-on PIN unlock before arming (user idea). Unlock
-  once per power cycle; retain neutral/arming interlocks and immediate CUT at
-  all times. Define recovery and failed-attempt behavior before implementation.
+- [x] Implement boot PIN trial (`1234`): local touchscreen/keypad unlock once
+  per boot, outputs remain CUT, normal startup/neutral/arming checks retained.
+  Wrong/incomplete entries clear and can be retried; authenticated web setup
+  remains available while CUT, but remote screen taps cannot bypass the PIN.
+- [x] Add PIN changes on LCD/web, USB recovery while CUT, and fresh PIN
+  authorization for leaving Walk; retain Walk across reboot/model changes.
+- [ ] Add a configurable boot PIN enable setting.
 - [x] Add selectable daytime and four dark colour schemes.
 - [ ] Add dim-before-sleep and assess daytime contrast in direct sunlight.
 - [x] Port Drive/Tune/Data/Setup into LVGL with a per-model 2×2 widget grid:
   timer, paired TX/RX power, one/two channels, sensor, GPS trail and model image.
-  Support 1×1, 2×1 and 2×2 sizes, applicable bars/dials/graphs/switches styles,
+  Support 1×1, 2×1, 1×2 and 2×2 sizes, applicable bars/dials/graphs/switches styles,
   Apply/Cancel editing, stale telemetry and persistent model/link/CUT status.
 - [ ] Add asset uploads and offline map backgrounds through the S3 setup portal.
 - [ ] Add quick-adjust overlays for dashboard widgets.
@@ -263,3 +271,5 @@ They are deferred possibilities, not commitments for the current PCB/firmware re
 - [x] Waveshare display profile, controller/backlight blanking and guarded
   touch-to-wake.
 - [x] SDL2 simulator with persistent settings and screenshot capture.
+
+- [x] Channel-source mixer redesign: explicit base, side-specific weights, trim follow, dependency validation, legacy migration and non-transmitting LCD/web bar preview.

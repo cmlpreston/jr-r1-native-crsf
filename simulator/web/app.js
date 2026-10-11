@@ -1,3 +1,4 @@
+const simulatorBuildId='__R1_BUILD_ID__';
 
 const screen=document.getElementById('screen'), display=document.getElementById('display'), offline=document.getElementById('offline'), statusLine=document.getElementById('status');
 const orientation=new URLSearchParams(location.search).get('orientation')==='landscape'?'landscape':'portrait';
@@ -17,8 +18,9 @@ document.getElementById('screen-label').textContent='Drive → Layout edits widg
 async function start(){
  try {
   if(!('WebAssembly' in window))throw new Error('This demo needs a browser that supports WebAssembly.');
-  await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='r1-'+orientation+'.js';script.onload=resolve;script.onerror=()=>reject(new Error('Could not download the simulator. Reload to try again.'));document.head.append(script);});
+  await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='r1-'+orientation+'.js?v='+simulatorBuildId;script.onload=resolve;script.onerror=()=>reject(new Error('Could not download the simulator. Reload to try again.'));document.head.append(script);});
   simulator=await createR1Simulator({canvas:screen,
+   locateFile:path=>path+'?v='+simulatorBuildId,
    storageWarning:()=>{statusLine.textContent='Browser storage is unavailable. Changes will last only for this session.';},
    onAbort:()=>{offline.hidden=false;offline.textContent='The simulator stopped. Reload this page to restart.';}
   });

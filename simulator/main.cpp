@@ -1,4 +1,5 @@
 #include "transmitter_ui.h"
+#include "setup_portal.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
 #include "simulator_platform.h"
@@ -93,6 +94,10 @@ int main(int argc, char **argv)
 
     static TransmitterUi ui;
     static ChannelSlewRuntime channelSlew;
+    static ChannelMixRuntime channelMix;
+    static bool previousMixLive=false;
+    static ControlConfigurationSnapshot previousMixConfiguration;
+    static bool haveMixConfiguration=false;
     static SimulatorHandsetInputs handset;
     static BindingResolver bindings;
     static bool bindingsLoaded = false;
@@ -127,6 +132,7 @@ int main(int argc, char **argv)
         ui.showSimulatorPage(UiPage::BootSplash);
     else if (initialPage == "saver" || initialPage == "screensaver")
         ui.showSimulatorPage(UiPage::LogoSaver);
+    else if (initialPage == "wifi") { SetupPortal::start();ui.showSimulatorPage(UiPage::WifiSetup); }
     else if (initialPage == "setup")
         ui.showSimulatorPage(UiPage::Setup);
     else if (initialPage == "display")
@@ -219,37 +225,39 @@ int main(int argc, char **argv)
         const int16_t rawPermille = ui.mapAdcToPermille(rawAdc);
         const ControlConfigurationSnapshot configuration =
             ui.controlConfigurationSnapshot();
-        const int16_t configured = applyConfiguredResponse(
-            configuration, configuration.throttleChannel, rawPermille);
-        const int16_t driveLimited = applyConfiguredDriveMode(
-            configuration, configured, rawPermille);
-        const int16_t adjusted = applyConfiguredChannelAdjustments(
-            configuration, configuration.throttleChannel, driveLimited);
-        const int16_t output = channelSlew.apply(
-            configuration, configuration.throttleChannel, adjusted, now);
-        const uint16_t crsf = crsfValueFromPermille(output);
-        const OutputSafetyStatus safety = configuration.calibrationActive
+        MixInputSnapshot mixInputs;
+        for(uint8_t id=0;id<kPhysicalControlCount;++id) {
+            const auto &state=handset.states().state(static_cast<PhysicalControlId>(id));
+            if(state.mapped&&!state.faulted)mixInputs.valid|=uint32_t{1}<<id;
+            const auto kind=physicalControlDescriptor(id).kind;
+            mixInputs.values[id]=id<2?state.value:kind==PhysicalControlKind::SpringCentredTrim?
+                (state.stableSecondary?1000:state.stablePrimary?-1000:0):(state.stablePrimary?1000:-1000);
+        }
+        mixInputs.values[0]=mapProportionalInputToPermille(steeringProfile,steeringAdc);
+        mixInputs.values[1]=rawPermille;
+        CrsfChannelOutputModel channelOutputs;
+        if(!haveMixConfiguration||!equivalentControlConfiguration(configuration,previousMixConfiguration)) {
+            channelMix.reset();previousMixConfiguration=configuration;haveMixConfiguration=true;
+        }
+        bindings.applyChannelOutputs(channelOutputs,configuredRoleOwnedChannels(configuration));
+        OutputSafetyStatus safety = !configuredMixInputsValid(configuration,mixInputs,&channelOutputs)?
+            OutputSafetyStatus::InputFault:configuration.calibrationActive
             ? OutputSafetyStatus::Calibration : ui.throttleEnabled()
             ? (ui.armRequested() ? (controls.linkValid ? OutputSafetyStatus::Armed
                 : OutputSafetyStatus::LinkRequired) : OutputSafetyStatus::Cut)
             : OutputSafetyStatus::ChannelDisabled;
-
-        CrsfChannelOutputModel channelOutputs;
-        const int16_t steeringResponse = applyConfiguredChannelAdjustments(configuration,
-            configuration.steeringChannel, applyConfiguredResponse(configuration,
-                configuration.steeringChannel,
-                mapProportionalInputToPermille(steeringProfile, steeringAdc)));
-        channelOutputs.configure(ui.steeringChannel(), crsfValueFromPermille(steeringResponse),
-                                 CRSF_CHANNEL_MID, ui.steeringEnabled());
-        channelOutputs.configure(ui.throttleChannel(), crsf, CRSF_CHANNEL_MID,
-                                 ui.throttleEnabled());
-        const uint16_t reserved = (uint16_t{1} << (ui.steeringChannel() - 1)) |
-                                  (uint16_t{1} << (ui.throttleChannel() - 1));
-        bindings.applyChannelOutputs(channelOutputs, reserved);
+        if(safety==OutputSafetyStatus::Armed&&!previousMixLive&&!configuredMixedThrottleNeutral(configuration,mixInputs,&channelOutputs))
+            safety=OutputSafetyStatus::NeutralRequired;
+        const bool live=safety==OutputSafetyStatus::Armed;
+        previousMixLive=live;
+        if(!live){channelSlew.reset(now);channelMix.reset();}
+        processConfiguredMixedOutputs(configuration,channelOutputs,mixInputs,channelMix,channelSlew,now,live);
+        const uint16_t crsf=live?channelOutputs.requested(ui.throttleChannel()):channelOutputs.safe(ui.throttleChannel());
+        const int16_t output=permilleFromCrsfValue(crsf);
         ui.update(rawAdc, steeringAdc, rawPermille, output, crsf, safety, telemetry,
                   controls.transmitterVoltageDecivolts, true,
                   channelOutputs, safety == OutputSafetyStatus::Armed);
-        if (ui.consumeSafetyResetRequested()) channelSlew.reset(now);
+        if (ui.consumeSafetyResetRequested()) {channelSlew.reset(now);channelMix.reset();}
         if (initialTxParameter > 0 && ui.selectSimulatorTxParameter(initialTxParameter))
             initialTxParameter = 0;
         if (initialModel >= 0) {

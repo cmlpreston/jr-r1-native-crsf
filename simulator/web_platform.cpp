@@ -64,6 +64,7 @@ bool simulatorDisplayBegin(int16_t w, int16_t h) {
     for (size_t i = 3; i < pixels.size(); i += 4) pixels[i] = 255;
     return true;
 }
+void simulatorDisplayResize(int16_t w,int16_t h){simulatorDisplayBegin(w,h);pressed=false;dirty=true;}
 void simulatorPollEvents() {
     // Preserve quick taps until LVGL has had a chance to poll the pointer.
     if (releasePending && millis() - pressedMs >= 85) { pressed = false; releasePending = false; }

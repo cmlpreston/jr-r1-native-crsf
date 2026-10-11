@@ -202,6 +202,27 @@ void testPulseExpiryAndLocalAction()
     assert(actions[0].value == 1000);
 }
 
+void testGyroGainSwitchRange()
+{
+    auto gain=channelBinding(ControlBehaviour::TwoPosition,InputEvent::PositionHigh,3);
+    gain.input=PhysicalControlId::IdleUpSwitch;
+    gain.minimum=0;gain.maximum=600;gain.initial=gain.failsafe=0;
+    BindingResolver resolver;ResolvedBindingActionBuffer actions;
+    assert(resolver.setBindings(&gain,1).ok());assert(resolver.value(0)==0);
+    resolver.processEvent(event(gain.input,InputEvent::PositionHigh,1),ContextDashboard,actions);
+    assert(resolver.value(0)==600);
+    CrsfChannelOutputModel outputs;resolver.applyChannelOutputs(outputs);
+    assert(outputs.requested(3)==crsfValueFromPermille(600));
+    assert(outputs.safe(3)==CRSF_CHANNEL_MID);
+    resolver.processEvent(event(gain.input,InputEvent::PositionLow,2),ContextDashboard,actions);
+    assert(resolver.value(0)==0);
+    gain.inverted=true;assert(resolver.setBindings(&gain,1).ok());
+    resolver.processEvent(event(gain.input,InputEvent::PositionLow,3),ContextDashboard,actions);
+    assert(resolver.value(0)==600);
+    resolver.processEvent(event(gain.input,InputEvent::PositionHigh,4),ContextDashboard,actions);
+    assert(resolver.value(0)==0);
+}
+
 void testProportionalAndFailsafe()
 {
     ControlBinding binding = channelBinding(ControlBehaviour::Proportional,
@@ -234,6 +255,7 @@ int main()
     testChannelParameterActionsAndConflicts();
     testPulseExpiryAndLocalAction();
     testProportionalAndFailsafe();
+    testGyroGainSwitchRange();
     puts("binding_resolver_test: PASS");
     return 0;
 }

@@ -8,6 +8,7 @@
 #include "speed_statistics.h"
 #include "control_configuration.h"
 #include "control_assignment.h"
+#include "remote_arm_hold.h"
 #include "crsf_telemetry.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
@@ -50,6 +51,7 @@ struct RxBatterySettings {
 
 enum class UiPage : uint8_t {
     BootSplash,
+    BootPin,
     LogoSaver,
     Dashboard,
     StartupWarning,
@@ -61,6 +63,7 @@ enum class UiPage : uint8_t {
     Channel2,
     ThrottleResponse,
     ChannelSpeed,
+    ChannelMixing,
     ControlAssignments,
     BindingEditor,
     InputMonitor,
@@ -85,11 +88,52 @@ enum class UiPage : uint8_t {
     WidgetEditor,
     BatteryMenu,
     ColourScheme,
+    WifiSetup,
+    OutputStatus,
+    ModeChooser,
+    ChannelInput,
+    ChannelResponseSetup,
+    MixingOverview,
+    NetworkOptions,
+    SystemMenu,
+    ParameterControlPicker,
+    ResponseProfile,
 };
 
 class TransmitterUi {
 public:
     bool begin();
+    bool verifyPin(const char *pin) const;
+    bool changePin(const char *current, const char *next, const char *confirm);
+    bool recoverPinOverUsb(const char *next);
+    bool portalRemoteInput(int x, int y, int action, uint32_t hold = 0, uint32_t pageEpoch = 0);
+    bool portalDriveHoldBounds(int &x,int &y,int &w,int &h) const;
+    uint32_t portalRemoteHoldId() const {return remoteArmHold_.id();}
+    bool portalEnableScreen();
+    int screenWidth() const;
+    int screenHeight() const;
+    bool requestDisplayRotation();
+    void applyDisplayRotation();
+    bool portalScreenNeedsWake() const { return displaySleeping_ || activePage_ == UiPage::LogoSaver; }
+    bool portalWakeScreen();
+    bool portalRequestRemoteControl();
+    const char *portalModelName() const { return modelNames_[activeModelSlot_]; }
+    uint8_t portalModelSlot() const { return activeModelSlot_; }
+    bool portalRenameModel(const char *name);
+    uint8_t portalModelImage() const { return modelImages_[activeModelSlot_]; }
+    uint32_t portalModelColour() const { return modelColours_[activeModelSlot_]; }
+    uint32_t portalModelAccent() const { return modelAccents_[activeModelSlot_]; }
+    uint32_t portalModelBase() const { return modelBases_[activeModelSlot_]; }
+    bool portalSetModelAppearance(uint8_t image, uint32_t colour, uint32_t accent=0x1000000, uint32_t base=0x1000000);
+    ControlBinding portalBinding(uint8_t input) const;
+    static int portalFunction(unsigned index);
+    bool portalSetBinding(uint8_t input, uint8_t target, uint16_t selection,
+                          uint8_t behaviour, uint8_t context, bool enabled, const ControlBinding *values = nullptr);
+    const char *portalBindingError() const { return bindingError_; }
+    bool portalSetRole(uint8_t input, uint8_t channel, bool enabled);
+    bool portalSetMixing(uint8_t channel, const ChannelMixSettings &settings);
+    bool portalSetChannel(uint8_t channel, const ChannelResponseProfile &profile, int trim, int subtrim);
+
     void update(uint16_t rawAdc, uint16_t steeringRawAdc,
                 int16_t rawInputPermille,
                 int16_t outputPermille, uint16_t crsfValue,
@@ -118,7 +162,10 @@ public:
     uint8_t throttleChannel() const { return channelRoleSettings_.throttleChannel; }
     bool steeringEnabled() const { return channelRoleSettings_.steeringEnabled; }
     bool throttleEnabled() const { return channelRoleSettings_.throttleEnabled; }
-    bool armRequested() const { return armRequested_; }
+    bool armRequested() const { return !hardwareRecovery_ && !rfBenchMode_ && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_; }
+    void enterHardwareRecovery() { hardwareRecovery_ = true; armRequested_ = false; }
+    void setRfBenchMode(bool enabled) { rfBenchMode_ = enabled; }
+    bool bootPinUnlocked() const { return bootPinUnlocked_; }
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
     bool captureScreenshot(Stream &output);
     void setDisplayCacheEnabled(bool enabled);
@@ -197,6 +244,23 @@ private:
     void drawMainMenu();
     void drawModelSelectPage();
     void drawBootSplash();
+    void drawBootPin();
+    bool bootPinUnlocked_ = false;
+    bool hardwareRecovery_ = false;
+    bool rfBenchMode_ = false;
+    char bootPinDigits_[5] = {};
+    bool bootPinError_ = false;
+    enum class PinPurpose : uint8_t { None, Boot, WalkExit, ChangeCurrent, ChangeNew, ChangeConfirm };
+    PinPurpose pinPurpose_ = PinPurpose::Boot;
+    UiPage pinReturnPage_ = UiPage::Dashboard;
+    char securityPin_[5] = "1234";
+    char newPin_[5] = {};
+    bool walkRetained_ = false;
+    bool walkSwitchExitRequested_ = false;
+    void loadPinSecurity();
+    bool storePin(const char *pin);
+    void beginPin(PinPurpose purpose, UiPage returnPage);
+    bool requestDriveMode(DriveMode mode);
     void drawLogoSaver();
     void positionLogoSaver();
     void leaveLogoSaver();
@@ -209,6 +273,7 @@ private:
         Activate = 0,
         Increase = 1,
     };
+    void controlBootPin(uint8_t item, PageControlEvent event);
     void controlDesign(uint8_t item, PageControlEvent event);
     void controlPortraitBank(uint8_t item, PageControlEvent event);
     using PageControlHandler = void (TransmitterUi::*)(uint8_t,
@@ -251,6 +316,18 @@ private:
     void controlThrottleResponse(uint8_t row, PageControlEvent event);
     void controlChannelSpeed(uint8_t row, PageControlEvent event);
     void controlDashboard(uint8_t item, PageControlEvent event);
+    void drawChannelMixing();
+    void controlChannelMixing(uint8_t item, PageControlEvent event);
+    bool saveMixing(uint8_t channel, const ChannelMixSettings &settings);
+    void loadMixing();
+    ChannelMixSettings channelMixing_[16] = {};
+    ChannelMixSettings mixingDraft_;
+    uint8_t mixingBank_ = 0;
+    int16_t mixingPreviewValues_[3] = {};
+    uint8_t mixingCurveSource_=1;
+    lv_point_t mixingCurvePoints_[41]={};
+    bool mixingPreviewHigh_ = false, mixingPreviewWalk_ = false;
+    bool mixingSaveError_ = false;
     void controlChannelConfig(uint8_t item, PageControlEvent event);
     void controlInputMonitor(uint8_t item, PageControlEvent event);
     void controlElrsBinding(uint8_t item, PageControlEvent event);
@@ -287,6 +364,20 @@ private:
     void drawInputMonitorPage();
     void refreshInputMonitorRows();
     void drawDriveModesPage();
+    void drawWifiPage();
+    void updateWifiKeyPreview(int16_t x, int16_t y);
+    lv_obj_t *wifiKeyPreview_ = nullptr;
+    void controlWifi(uint8_t item, PageControlEvent event);
+    char wifiHostname_[33] = {};
+    char wifiSsid_[33] = {}, wifiPassword_[64] = {}, wifiSetupPassword_[17] = {};
+    bool wifiSetupPasswordError_ = false;
+    bool remoteTouchActive_ = false, remoteTouchRejected_ = false;
+    bool remoteArmHoldDispatch_ = false;
+    RemoteArmHold remoteArmHold_;
+    uint32_t remoteArmPage_ = 0;
+    bool wifiWebAccess_ = false;
+    uint8_t wifiEdit_ = 0, wifiKeyMode_ = 0, wifiNetworkPage_ = 0;
+    uint32_t wifiRevision_ = 0;
     void drawSetupPage();
     void drawSetupRow(int row);
     void drawTxBatteryPage();
@@ -384,12 +475,17 @@ private:
     DashboardLayout dashboardLayouts_[kModelMemoryCount];
     uint8_t widgetCell_ = 0;
     DashboardWidget widgetDraft_;
+    uint32_t dashboardHidden_[kModelMemoryCount][4] = {};
+    uint32_t widgetHiddenDraft_ = 0;
+    bool widgetInputsEditing_ = false;
+    uint8_t widgetInputsBank_ = 0;
     struct DashboardWidgetView {
         lv_obj_t *panel = nullptr;
         lv_obj_t *basemap = nullptr;
         GpsMapViewport mapViewport;
-        lv_obj_t *values[2] = {};
-        lv_obj_t *bars[2] = {};
+        lv_obj_t *values[16] = {};
+        lv_obj_t *bars[16] = {};
+        lv_obj_t *switches[16] = {};
         lv_obj_t *arcs[2] = {};
         lv_obj_t *plot = nullptr;
         lv_obj_t *secondPlot = nullptr;
@@ -398,9 +494,17 @@ private:
         lv_point_t points[48] = {};
         lv_point_t secondPoints[30] = {};
     };
+    bool dashboardBinaryChannel(uint8_t ch, int &off, int &on) const;
     DashboardWidgetView widgetViews_[4];
+    uint8_t channelWidgetPages_[4] = {};
     uint8_t tuneRole_ = 0; // steering, forward throttle, brake, selected AUX
     uint8_t tuneBank_ = 0, designBank_ = 0, setupBank_ = 0, sensorSelected_ = 0;
+    uint8_t setupPage_ = 0, channelInputPage_ = 0;
+    UiPage statusReturnPage_ = UiPage::Dashboard;
+    UiPage inputMonitorReturnPage_ = UiPage::ControlAssignments;
+    bool channelRoleConflict_ = false;
+    lv_obj_t *armProgress_ = nullptr;
+    lv_obj_t *driveProgress_ = nullptr, *driveHint_ = nullptr, *driveIcon_ = nullptr;
     uint8_t editorField_ = 0;
     int editorDraft_ = 0;
     int steeringEndpointDrafts_[2] = {100, 100}; // Left, right; applied together.
@@ -412,6 +516,7 @@ private:
     UiPage editorReturn_ = UiPage::Tune;
     bool editorFine_ = false;
     bool designTouchDispatch_ = false;
+    bool armGestureValid_ = false;
     bool runTimerRunning_ = false;
     uint32_t runTimerStartedMs_ = 0, runTimerElapsedMs_ = 0;
     OutputSafetyStatus designSafety_ = OutputSafetyStatus::Cut;
@@ -438,8 +543,16 @@ private:
     uint32_t gpsLastSampleMs_ = 0;
     bool gpsTrailVisible_ = true;
     uint8_t gpsZoom_ = 1;
+    bool gpsFullScreen_ = false;
+    void drawGpsMapView(bool fullScreen);
+    void updateGpsPresentation(uint32_t now);
     lv_point_t gpsPoints_[48] = {};
     uint8_t activeModelSlot_ = 0;
+    bool modelAppearanceEditing_ = false;
+    uint8_t modelImages_[kModelMemoryCount] = {};
+    uint32_t modelColours_[kModelMemoryCount] = {};
+    uint32_t modelAccents_[kModelMemoryCount] = {},modelBases_[kModelMemoryCount] = {};
+    uint8_t modelPaintEditing_ = 0;
     uint8_t modelSelectBank_ = 0;
     uint8_t displaySetupBank_ = 0;
     char modelNames_[kModelMemoryCount][kModelNameCapacity] = {};
@@ -483,6 +596,12 @@ private:
     uint8_t selectedChannel_ = 2;
     uint8_t inputMonitorBank_ = 0;
     uint8_t assignmentBank_ = 0;
+    uint8_t bindingEditorBank_ = 0;
+    uint8_t responseDetailBank_ = 0;
+    ChannelParameterKind parameterControlKind_ = ChannelParameterKind::Trim;
+    PhysicalControlId parameterControlDraft_ = PhysicalControlId::Count;
+    bool parameterControlError_ = false;
+    uint8_t assignmentChannelContext_ = 0;
     PhysicalControlId selectedBindingInput_ = PhysicalControlId::TimerButton;
     ControlBinding bindingDraft_;
     char bindingError_[64] = {};
@@ -494,6 +613,7 @@ private:
     bool bindingsChanged_ = false;
     bool armRequested_ = false;
     bool displaySleeping_ = false;
+    bool rotationPending_ = false;
     // A touch-triggered sleep can leave the controller IRQ asserted for the
     // tail of the same gesture. Require an idle/released sample before that
     // IRQ is allowed to wake the display again.

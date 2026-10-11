@@ -43,7 +43,8 @@ PAGE, SELECT, CLEAR and +/- must invoke the same actions as touch controls.
 - Changes have clear Save/Cancel and visible applied/pending feedback. On real
   hardware, use the existing CUT policy for configuration, neutral re-arm and
   verified module readback. Do not imply that a setting was applied prematurely.
-- Preserve physical arming. A readiness screen explains blockers; it must not
+- Preserve physical arming and allow an authenticated, timed remote Drive hold
+  as authorised on 2026-10-02. A readiness screen explains blockers; it must not
   falsely certify receiver/ESC failsafe behaviour from transmitter link status.
 - Use restrained neutral surfaces, one accent for focus/selection, and warning
   colours for actual conditions. Pair status colour with text. Increase primary
@@ -263,7 +264,44 @@ Portrait 320×480 is now the default for the LVGL UI and standalone demo. The
 approved mockup informs the dark slate header, readable values, Model/Handset
 Setup tabs, flat separator rows, active navigation underline and permanent JR R1
 branding. The Drive layout remains a configurable 2×2 grid supporting 1×1,
-2×1 and 2×2 panels; the earlier single-slot proposal above is superseded.
+2×1, 1×2 and 2×2 panels; the earlier single-slot proposal above is superseded.
 Detailed functionality is inventoried in [the port audit](ui-firmware-port.md).
 Existing control/persistence handlers are reused behind portrait-specific
 layouts. No firmware upload or physical display verification is implied.
+
+### Mixed channel/switch dashboard monitoring
+
+All Channels → Source selects Channels, Hardware switches, or Channels + switches.
+Channel entries show the actual output, including CUT behaviour. A single binary
+CRSF binding (momentary/toggle/two-position/pulse) is shown as a read-only switch;
+proportional inputs, trim controls, stepped or three-position assignments and
+mixed channels retain numerical/analogue presentation. Intermediate values are
+marked MID instead of being misrepresented as OFF. Endpoint/reverse/trim settings
+are considered when matching the two binary positions.
+
+Hardware entries show Drive mode and Idle up contact states independently of
+output/CUT. Unmapped/faulted contacts show --. DISPLAY_SW is excluded. Tapping a
+widget still pages the monitor; the drawn switch indicators cannot operate a
+channel or physical switch. Layout storage v4 migrates existing All Channels
+widgets to channels-only before enabling the new source options.
+
+## Card spacing
+
+Separate cards and boxed setting rows use `kPanelGap` (6 native LCD pixels)
+in both orientations. Dashboard, sensor grid, RF diagnostics, assignment/input
+rows, mixing rows, colour schemes and firmware cards share that gutter.
+Joined segmented tabs and navigation controls deliberately have no gutter.
+RF diagnostics uses the dashboard’s 10-pixel outer margin and derives its
+column widths and stacked positions from the shared spacing constants.
+
+
+### Manual orientation trial (2026-10-02)
+
+Display settings page 2 includes an Orientation / Rotate control. It switches
+between 480×320 landscape and 320×480 portrait at runtime, including LCD
+rotation, GT911 touch mapping, LVGL layouts and the remote-screen dimensions.
+The framebuffer and maximum-width 16-row draw buffer are reused. Rotation is
+deferred until touch release and refused during an arm request, calibration
+or remote enable hold. Firmware logs free heap, largest DMA block and PSRAM
+after each switch. The trial is not saved: reboot restores the environment's
+default orientation. No accelerometer is required for this test.

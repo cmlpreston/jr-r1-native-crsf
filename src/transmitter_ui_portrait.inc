@@ -51,7 +51,7 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         makeHeader("Channel roles", "Back");
         for (int i=0; i<2; ++i) {
             snprintf(text, sizeof(text), "CH%u", i ? channelRoleSettings_.throttleChannel : channelRoleSettings_.steeringChannel);
-            row(i ? "Throttle" : "Steering", text, 64+i*76, &TransmitterUi::controlChannelRoles, i);
+            row(i ? "Throttle" : "Steering", text, 64+i*76, &TransmitterUi::controlChannelRoles, i,false,76-kPanelGap);
         }
         row("Steering input", channelRoleSettings_.steeringEnabled ? "On" : "Off - safe neutral",
             216, &TransmitterUi::controlChannelRoles, 2, true);
@@ -67,13 +67,14 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
             int binding = bindingIndexForChannelParameter(selectedChannel_, kind);
             const char *control = binding >= 0 ? physicalControlDescriptor(static_cast<size_t>(bindings_[binding].input)).name : "None";
             snprintf(text, sizeof(text), "%s  %+.1f%%", control, channelParameterValue(selectedChannel_, kind)/10.0f);
-            row(i ? "Subtrim control" : "Trim control", text, 82+i*76, &TransmitterUi::controlChannelConfig, i);
+            row(i ? "Subtrim control" : "Trim control", text, 82+i*76, &TransmitterUi::controlChannelConfig, i,false,76-kPanelGap);
         }
-        note("Each trim control can own one output or parameter. Centre the control before calibrating.", 244, cAmber);
+        action("Physical control / assignments", 8, 232, 304, &TransmitterUi::controlChannelConfig, 4);
+        action("Mixing / switched rates",8,278,304,&TransmitterUi::controlChannelConfig,5);
         if (proportional) {
             action(throttle ? "Basic / calibration" : "Calibrate", 8, 324, 304, &TransmitterUi::controlChannelConfig, 2);
-            action("Response / ramp", 8, 376, 304, &TransmitterUi::controlChannelConfig, 3);
         }
+        action("Response / ramp", 8, 376, 304, &TransmitterUi::controlChannelConfig, 3);
     } else if (page == UiPage::Channel2) {
         makeHeader("Throttle settings", "Back");
         const char *names[]={"Brake / reverse endpoint", "Profile subtrim", "Forward endpoint", "Direction"};
@@ -108,7 +109,7 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
             if(index==0)snprintf(name,sizeof(name),"Profile subtrim");
             else snprintf(name,sizeof(name),"%s %s",index<4?positive:negative,index==1||index==4?"endpoint":index==2||index==5?"rate":"expo");
             snprintf(text,sizeof(text),"%d%%",values[index]);
-            row(name,text,214+i*49,&TransmitterUi::controlThrottleResponse,index,false,47);
+            row(name,text,214+i*49,&TransmitterUi::controlThrottleResponse,index,false,49-kPanelGap);
         }
         action("<",8,414,52,&TransmitterUi::controlPortraitBank,0);
         action("Ramp time",68,414,184,&TransmitterUi::controlThrottleHeader,0);
@@ -119,7 +120,7 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         for(int i=0;i<2;++i){
             uint16_t value=i?p.negativeRampMs:p.positiveRampMs;
             snprintf(text,sizeof(text),value?"%u ms":"Direct",value);
-            row(i?"Negative / brake side":"Positive / forward side",text,64+i*76,&TransmitterUi::controlChannelSpeed,i);
+            row(i?"Negative / brake side":"Positive / forward side",text,64+i*76,&TransmitterUi::controlChannelSpeed,i,false,76-kPanelGap);
         }
         note("0 ms means direct response. Ramp time is measured from neutral to the endpoint.",234);
     } else if (page == UiPage::DriveModes) {
@@ -137,7 +138,7 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
             if(i==1)snprintf(text,sizeof(text),"%s",systemSettings_.keyClicksEnabled?"On":"Off");
             if(i==2)snprintf(text,sizeof(text),"%u Hz",systemSettings_.buzzerPitchHz);
             if(i==3)snprintf(text,sizeof(text),"%u ms",systemSettings_.keyClickDurationMs);
-            row(names[i],text,54+i*62,&TransmitterUi::controlSetup,i,i<2,58);
+            row(names[i],text,54+i*62,&TransmitterUi::controlSetup,i,i<2,62-kPanelGap);
         }
         action("Test sound",8,308,148,&TransmitterUi::controlSetup,4);
         action("Display",164,308,148,&TransmitterUi::controlSetup,5);
@@ -146,13 +147,14 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         makePageActionButton(8,410,304,42,"Firmware info",12,cPanel2,cCyan,cLine,&TransmitterUi::controlSetup,8);
     } else if (page == UiPage::DisplaySetup) {
         makeHeader("Display", "Back");
-        const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now"};
+        const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now","Orientation"};
         const int first=displaySetupBank_*4;
-        for(int i=first;i<min(first+4,5);++i){
+        for(int i=first;i<min(first+4,6);++i){
             if(i==0){if(systemSettings_.screenTimeoutSeconds)snprintf(text,sizeof(text),"%u seconds",systemSettings_.screenTimeoutSeconds);else snprintf(text,sizeof(text),"Never");}
             if(i==1)snprintf(text,sizeof(text),"%s",systemSettings_.logoScreensaverEnabled?"Logo saver":"Display off");
             if(i==2)snprintf(text,sizeof(text),"%u%%",systemSettings_.displayBrightnessPercent);
             if(i==3)snprintf(text,sizeof(text),"%s",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme));
+            if(i==5)snprintf(text,sizeof(text),"Portrait / rotate");
             if(i==4)snprintf(text,sizeof(text),"%s",systemSettings_.logoScreensaverEnabled?"Show logo":"Sleep");
             row(names[i],text,54+(i-first)*70,&TransmitterUi::controlDisplay,i,i!=0&&i!=2);
         }

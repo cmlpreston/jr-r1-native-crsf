@@ -1,0 +1,1 @@
+logic2-automation==1.0.11

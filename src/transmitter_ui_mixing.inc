@@ -1,42 +1,25 @@
 // Versioned per-model mixer blob; never rewrite endpoint/calibration storage.
 void TransmitterUi::loadMixing()
 {
-    for(auto &m:channelMixing_)m=ChannelMixSettings{};
-    Preferences p;char space[16];
-    if(!p.begin(modelNamespace(activeModelSlot_,"jr-r1-mix","mix",space,sizeof(space)),true))return;
-    if(p.getBytesLength("v4")==sizeof(channelMixing_))p.getBytes("v4",channelMixing_,sizeof(channelMixing_));
-    else if(p.getBytesLength("v3")==sizeof(ChannelMixSettingsV3)*16) {
-        ChannelMixSettingsV3 old[16];p.getBytes("v3",old,sizeof(old));
-        for(int n=0;n<16;++n)channelMixing_[n]=migrateChannelMix(old[n]);
-    }
-    else if(p.getBytesLength("v2")==sizeof(ChannelMixSettingsV2)*16) {
-        ChannelMixSettingsV2 old[16];p.getBytes("v2",old,sizeof(old));
-        for(int n=0;n<16;++n)channelMixing_[n]=migrateChannelMix(old[n]);
-    }
-    else if(p.getBytesLength("v1")==sizeof(LegacyMixSettings)*16) {
-        LegacyMixSettings legacy[16];p.getBytes("v1",legacy,sizeof(legacy));
-        for(int n=0;n<16;++n)channelMixing_[n]=migrateChannelMix(legacy[n]);
-    }
-    p.end();
-    for(auto &m:channelMixing_)if(!validChannelMix(m))m=ChannelMixSettings{};
+    for (auto &m : channelModel_.mixing) m = ChannelMixSettings{};
+    if (ChannelSettingsRepository::loadMixing(activeModelSlot_, channelModel_) == ChannelSettingsLoad::Invalid)
+        modelStorageFault_ = true;
 }
 bool TransmitterUi::saveMixing(uint8_t ch,const ChannelMixSettings &settings)
 {
     if(ch<1||ch>16||!validChannelMix(settings))return false;
     if((ch==steeringChannel()||ch==throttleChannel())&&
        (settings.cutOverride||settings.outputMinimum>0||settings.outputMaximum<0))return false;
-    armRequested_=false;safetyResetRequested_=true;
+    requestConfigurationCut();
     ChannelMixSettings candidate[16];
-    memcpy(candidate,channelMixing_,sizeof(candidate));candidate[ch-1]=settings;
+    memcpy(candidate,channelModel_.mixing,sizeof(candidate));candidate[ch-1]=settings;
     if(!validChannelMixGraph(candidate))return false;
     auto configuration=controlConfigurationSnapshot();memcpy(configuration.mixing,candidate,sizeof(candidate));
     if(!validConfiguredMixing(configuration))return false;
-    Preferences p;char space[16];
-    if(!p.begin(modelNamespace(activeModelSlot_,"jr-r1-mix","mix",space,sizeof(space)),false))return false;
-    bool ok=p.putBytes("v4",candidate,sizeof(candidate))==sizeof(candidate);
-    ChannelMixSettings check[16];
-    ok=ok&&p.getBytes("v4",check,sizeof(check))==sizeof(check)&&memcmp(check,candidate,sizeof(check))==0;
-    p.end();if(ok)memcpy(channelMixing_,candidate,sizeof(candidate));
+    auto model = channelModel_;
+    memcpy(model.mixing, candidate, sizeof(candidate));
+    const bool ok = ChannelSettingsRepository::save(activeModelSlot_, model);
+    if (ok) { channelModel_ = model; modelStorageFault_ = false; }
     return ok;
 }
 bool TransmitterUi::portalSetMixing(uint8_t ch,const ChannelMixSettings &settings)

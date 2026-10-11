@@ -47,6 +47,7 @@ struct ControlConfigurationSnapshot {
     uint8_t throttleChannel = 2;
     bool steeringEnabled = true;
     bool throttleEnabled = true;
+    bool modelStorageValid = true;
     bool armRequested = false;
     bool calibrationActive = false;
     DriveMode driveMode = DriveMode::Normal;
@@ -56,6 +57,9 @@ struct ControlConfigurationSnapshot {
 // Revision is publication metadata, not configuration identity.
 bool equivalentControlConfiguration(const ControlConfigurationSnapshot &left,
                                     const ControlConfigurationSnapshot &right);
+// Live trim is deliberate. Structural response/input/role/mix edits require CUT.
+bool controlConfigurationRequiresRearm(const ControlConfigurationSnapshot &before,
+                                      const ControlConfigurationSnapshot &after);
 
 uint16_t configuredRoleOwnedChannels(
     const ControlConfigurationSnapshot &configuration);
@@ -106,11 +110,27 @@ void processConfiguredProportionalOutputs(
     uint32_t nowMs, bool advanceSlew, uint16_t reservedChannels = 0);
 
 
+// Compiled on configuration revision changes, never by the UI paint loop.
+struct CompiledMixPlan {
+    uint8_t order[CRSF_CHANNEL_COUNT] = {};
+    uint8_t count = 0;
+    uint16_t requiredMask = 0;
+    bool valid = false;
+};
+CompiledMixPlan compileConfiguredMixing(const ControlConfigurationSnapshot &configuration);
+struct ConfiguredMixInspection {
+    bool inputsValid = false;
+    bool throttleNeutral = false;
+};
+ConfiguredMixInspection inspectConfiguredMixInputs(
+    const ControlConfigurationSnapshot &configuration, const MixInputSnapshot &inputs,
+    const CrsfChannelOutputModel &bindings, const CompiledMixPlan &plan);
+
 // Shared firmware/simulator pipeline: raw bindings and physical sources enter
 // once; shaping and safety values are applied exactly once to mixed channels.
 void processConfiguredMixedOutputs(const ControlConfigurationSnapshot &configuration,
     CrsfChannelOutputModel &outputs, const MixInputSnapshot &inputs,
-    ChannelMixRuntime &mix, ChannelSlewRuntime &slew, uint32_t nowMs, bool live);
+    ChannelMixRuntime &mix, ChannelSlewRuntime &slew, uint32_t nowMs, bool live, const CompiledMixPlan *plan = nullptr);
 bool validConfiguredMixing(const ControlConfigurationSnapshot &configuration);
 bool configuredMixInputsValid(const ControlConfigurationSnapshot &configuration,
                              const MixInputSnapshot &inputs, const CrsfChannelOutputModel *bindings=nullptr);

@@ -15,6 +15,7 @@ enum class OutputSafetyStatus : uint8_t {
     InputFault,
     ControlStale,
     ChannelDisabled,
+    ConfigurationFault,
 };
 
 struct OutputSafetyDecision {

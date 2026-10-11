@@ -61,6 +61,7 @@ bool equivalentControlConfiguration(const ControlConfigurationSnapshot &left,
         left.throttleChannel != right.throttleChannel ||
         left.steeringEnabled != right.steeringEnabled ||
         left.throttleEnabled != right.throttleEnabled ||
+        left.modelStorageValid != right.modelStorageValid ||
         left.armRequested != right.armRequested ||
         left.calibrationActive != right.calibrationActive ||
         left.driveMode != right.driveMode ||
@@ -89,6 +90,16 @@ uint16_t configuredRoleOwnedChannels(
     if (validChannel(configuration.throttleChannel))
         mask |= static_cast<uint16_t>(1U << (configuration.throttleChannel - 1));
     return mask;
+}
+
+bool controlConfigurationRequiresRearm(const ControlConfigurationSnapshot &before,
+                                      const ControlConfigurationSnapshot &after)
+{
+    auto candidate = after;
+    candidate.armRequested = before.armRequested;
+    for (size_t n = 0; n < CRSF_CHANNEL_COUNT; ++n)
+        candidate.channelParameters[n].trimPermille = before.channelParameters[n].trimPermille;
+    return !equivalentControlConfiguration(before, candidate);
 }
 
 int16_t applyConfiguredResponse(
@@ -273,8 +284,6 @@ struct MixEvaluation {
     bool evaluate(uint8_t index) {
         if(done&(1U<<index))return valid[index];
         const auto &m=c.mixing[index];const uint8_t ch=index+1;
-        for(const auto &r:m.rules)if(r.enabled&&r.source>=kMixChannelSource&&r.source<kMixConfiguredSource)
-            evaluate(r.source-kMixChannelSource);
         const bool steer=ch==c.steeringChannel,throttle=ch==c.throttleChannel;
         const int16_t base=steer?inputs.values[0]:throttle?inputs.values[1]:
             outputs.enabled(ch)?permilleFromCrsfValue(outputs.requested(ch)):0;
@@ -295,6 +304,8 @@ struct MixEvaluation {
 };
 }
 bool validConfiguredMixing(const ControlConfigurationSnapshot &c) {
+    if (!validChannel(c.steeringChannel) || !validChannel(c.throttleChannel) ||
+        c.steeringChannel == c.throttleChannel) return false;
     if(!validChannelMixGraph(c.mixing))return false;
     for(uint8_t ch=1;ch<=16;++ch)if(ch==c.steeringChannel||ch==c.throttleChannel){
         const auto &m=c.mixing[ch-1];
@@ -302,27 +313,75 @@ bool validConfiguredMixing(const ControlConfigurationSnapshot &c) {
     }
     return true;
 }
-bool configuredMixInputsValid(const ControlConfigurationSnapshot &c,const MixInputSnapshot &inputs,
-                              const CrsfChannelOutputModel *bindings)
-{
-    if(!validConfiguredMixing(c))return false;
-    CrsfChannelOutputModel empty;ChannelMixRuntime runtime;
-    MixEvaluation e(c,inputs,bindings?*bindings:empty,runtime,0,false);
-    for(uint8_t n=0;n<16;++n)if(channelHasMix(c.mixing[n])&&!e.evaluate(n))return false;
-    return true;
+namespace {
+void appendMixOrder(const ChannelMixSettings *all, uint8_t n,
+                    uint16_t &done, CompiledMixPlan &plan) {
+    if (done & (1U << n)) return;
+    done |= 1U << n;
+    for (const auto &r : all[n].rules)
+        if (r.enabled && r.source >= kMixChannelSource && r.source < kMixConfiguredSource)
+            appendMixOrder(all, r.source - kMixChannelSource, done, plan);
+    plan.order[plan.count++] = n;
+}
+void evaluateMixPlan(MixEvaluation &evaluation, const CompiledMixPlan &plan) {
+    for (uint8_t n = 0; n < plan.count; ++n) evaluation.evaluate(plan.order[n]);
+}
+}
+CompiledMixPlan compileConfiguredMixing(const ControlConfigurationSnapshot &c) {
+    CompiledMixPlan plan;
+    if (!validConfiguredMixing(c)) return plan;
+    uint16_t done = 0;
+    for (uint8_t n = 0; n < CRSF_CHANNEL_COUNT; ++n) {
+        appendMixOrder(c.mixing, n, done, plan);
+        const bool role = (n+1 == c.steeringChannel && c.steeringEnabled) ||
+                          (n+1 == c.throttleChannel && c.throttleEnabled);
+        if (role || channelHasMix(c.mixing[n])) plan.requiredMask |= 1U << n;
+    }
+    plan.valid = true;
+    return plan;
+}
+ConfiguredMixInspection inspectConfiguredMixInputs(const ControlConfigurationSnapshot &c,
+    const MixInputSnapshot &inputs, const CrsfChannelOutputModel &bindings,
+    const CompiledMixPlan &plan) {
+    ConfiguredMixInspection result;
+    if (!plan.valid) return result;
+    ChannelMixRuntime runtime;
+    MixEvaluation e(c, inputs, bindings, runtime, 0, false);
+    evaluateMixPlan(e, plan);
+    result.inputsValid = true;
+    for (uint8_t n = 0; n < CRSF_CHANNEL_COUNT; ++n)
+        if ((plan.requiredMask & (1U << n)) && !e.valid[n]) result.inputsValid = false;
+    if (c.throttleChannel < 1 || c.throttleChannel > CRSF_CHANNEL_COUNT) return result;
+    const auto &m = c.mixing[c.throttleChannel-1];
+    const bool unchanged = !m.constantPercent && m.includeBase &&
+                           !m.rules[0].enabled && !m.rules[1].enabled;
+    const int16_t throttle = e.raw[c.throttleChannel-1];
+    result.throttleNeutral = e.valid[c.throttleChannel-1] &&
+                            (unchanged || (throttle >= -50 && throttle <= 50));
+    return result;
+}
+bool configuredMixInputsValid(const ControlConfigurationSnapshot &c, const MixInputSnapshot &inputs,
+                              const CrsfChannelOutputModel *bindings) {
+    const CrsfChannelOutputModel empty;
+    return inspectConfiguredMixInputs(c, inputs, bindings ? *bindings : empty,
+                                      compileConfiguredMixing(c)).inputsValid;
 }
 void processConfiguredMixedOutputs(const ControlConfigurationSnapshot &c,
     CrsfChannelOutputModel &outputs,const MixInputSnapshot &inputs,
-    ChannelMixRuntime &mix,ChannelSlewRuntime &slew,uint32_t now,bool live)
+    ChannelMixRuntime &mix,ChannelSlewRuntime &slew,uint32_t now,bool live,
+    const CompiledMixPlan *compiled)
 {
-    if(!validChannelMixGraph(c.mixing))return; // safety validity gate prevents transmission
+    CompiledMixPlan fallback;
+    if (!compiled) { fallback = compileConfiguredMixing(c); compiled = &fallback; }
+    if (!compiled->valid) return; // safety validity gate prevents transmission
     const CrsfChannelOutputModel original=outputs;
     MixEvaluation e(c,inputs,original,mix,now,live);
+    evaluateMixPlan(e, *compiled);
     for(uint8_t ch=1;ch<=16;++ch) {
         const bool steer=ch==c.steeringChannel, throttle=ch==c.throttleChannel;
         const auto &m=c.mixing[ch-1];const bool modified=channelHasMix(m);
         if(!(original.enabled(ch)||steer||throttle||modified||(c.proportionalOutputMask&(1U<<(ch-1)))))continue;
-        e.evaluate(ch-1);
+        const bool valid = e.evaluate(ch-1);
         const int16_t safeBase=(steer||throttle)?0:permilleFromCrsfValue(original.safe(ch));
         auto processed=processConfiguredProportionalChannel(c,ch,e.raw[ch-1],safeBase,slew,now,live,e.rates[ch-1]);
         // Final command bounds follow response, trims, reverse and slew.
@@ -331,22 +390,17 @@ void processConfiguredMixedOutputs(const ControlConfigurationSnapshot &c,
         if(!(steer||throttle)|| (m.outputMinimum<=0&&m.outputMaximum>=0))
             processed.requestedPermille=limitMixedOutput(m,processed.requestedPermille);
         if(m.cutOverride&&!steer&&!throttle)processed.safePermille=int16_t(m.cutPercent)*10;
+        if (!valid) processed.requestedPermille = processed.safePermille;
         outputs.configure(ch,crsfValueFromPermille(processed.requestedPermille),
             crsfValueFromPermille(processed.safePermille),
             steer?c.steeringEnabled:throttle?c.throttleEnabled:(original.enabled(ch)||modified));
     }
 }
-bool configuredMixedThrottleNeutral(const ControlConfigurationSnapshot &c,const MixInputSnapshot &inputs,
-                                    const CrsfChannelOutputModel *bindings)
-{
-    if(c.throttleChannel<1||c.throttleChannel>16||!validConfiguredMixing(c))return false;
-    const auto &m=c.mixing[c.throttleChannel-1];
-    if(!m.constantPercent&&m.includeBase&&!m.rules[0].enabled&&!m.rules[1].enabled)return true;
-    CrsfChannelOutputModel empty;ChannelMixRuntime runtime;
-    MixEvaluation e(c,inputs,bindings?*bindings:empty,runtime,0,false);
-    if(!e.evaluate(c.throttleChannel-1))return false;
-    const int16_t mixed=e.raw[c.throttleChannel-1];
-    return mixed>=-50&&mixed<=50;
+bool configuredMixedThrottleNeutral(const ControlConfigurationSnapshot &c,
+    const MixInputSnapshot &inputs, const CrsfChannelOutputModel *bindings) {
+    const CrsfChannelOutputModel empty;
+    return inspectConfiguredMixInputs(c, inputs, bindings ? *bindings : empty,
+                                      compileConfiguredMixing(c)).throttleNeutral;
 }
 
 ChannelMixPreview previewChannelMix(const ControlConfigurationSnapshot &configuration,

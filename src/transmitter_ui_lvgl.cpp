@@ -1,3 +1,4 @@
+#include "channel_settings_repository.h"
 #include "transmitter_ui.h"
 #include "ui_refresh.h"
 #include "model_image.h"
@@ -70,8 +71,6 @@ constexpr uint32_t kDisplayWakeArmMs = 250;
 constexpr uint32_t kDisplayWakePollMs = 20;
 constexpr uint32_t kSettingsSaveDelayMs = 750;
 constexpr uint16_t kBindingProfileVersion = 1;
-constexpr uint16_t kChannelParameterVersion = 1;
-constexpr uint16_t kResponseProfileVersion = 1;
 constexpr int16_t kChannelParameterLimitPermille = 200;
 constexpr uint8_t kNsReadX = 0xC0;
 constexpr uint8_t kNsReadY = 0xD0;
@@ -921,13 +920,13 @@ bool TransmitterUi::begin()
 ChannelResponseProfile &TransmitterUi::profileForChannel(uint8_t channel)
 {
     channel = constrain(channel, 1, static_cast<int>(CRSF_CHANNEL_COUNT));
-    return channelProfiles_[channel - 1];
+    return channelModel_.responses[channel - 1];
 }
 
 const ChannelResponseProfile &TransmitterUi::profileForChannel(uint8_t channel) const
 {
     channel = constrain(channel, 1, static_cast<int>(CRSF_CHANNEL_COUNT));
-    return channelProfiles_[channel - 1];
+    return channelModel_.responses[channel - 1];
 }
 
 ChannelResponseProfile &TransmitterUi::throttleProfile()
@@ -1002,8 +1001,7 @@ bool TransmitterUi::captureScreenshot(Stream &output)
 
     // A capture blocks the UI/control loop while pixels cross USB. Keep the
     // independent CRSF task alive, but require an explicit re-arm afterwards.
-    armRequested_ = false;
-    safetyResetRequested_ = true;
+    requestConfigurationCut();
     lv_refr_now(nullptr);
     delay(2);
 
@@ -1154,8 +1152,7 @@ void TransmitterUi::setStartupPreflight(bool complete, uint32_t unsafeMask)
     }
     // A preflight fault is not dismissible and must never preserve an arm
     // request made before switch positions were known.
-    armRequested_ = false;
-    safetyResetRequested_ = true;
+    requestConfigurationCut();
     if (activePage_ == UiPage::BootSplash) return;
     if (changed || activePage_ != UiPage::StartupWarning) {
         playBuzzer(180);
@@ -1265,8 +1262,7 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
         return false;
     }
 
-    armRequested_ = false;
-    safetyResetRequested_ = true;
+    requestConfigurationCut();
     saveCurrentModelMemory();
     runTimerRunning_ = false; runTimerElapsedMs_ = 0;
     resetSpeedStatistics();
@@ -1293,8 +1289,9 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
 
 void TransmitterUi::loadSettings()
 {
+    modelStorageFault_ = false;
     loadMixing();
-    for (ChannelResponseProfile &profile : channelProfiles_)
+    for (ChannelResponseProfile &profile : channelModel_.responses)
         profile = ChannelResponseProfile{};
     Preferences preferences;
     ProportionalCalibration legacyCalibration {
@@ -1324,16 +1321,12 @@ void TransmitterUi::loadSettings()
     // profile block exists, the legacy CH2 settings above become the profile
     // for the currently assigned throttle channel and every other channel
     // starts linear at full travel.
-    char responseNamespace[16];
-    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-response",
-                                     "response", responseNamespace,
-                                     sizeof(responseNamespace)), true);
-    if (preferences.getUShort("version", 0) == kResponseProfileVersion &&
-        preferences.getBytesLength("profiles") == sizeof(channelProfiles_)) {
-        preferences.getBytes("profiles", channelProfiles_,
-                             sizeof(channelProfiles_));
+    const auto record = ChannelSettingsRepository::loadResponses(activeModelSlot_, channelModel_);
+    if (record == ChannelSettingsLoad::Invalid) {
+        modelStorageFault_ = true;
+        for (auto &profile : channelModel_.responses) profile = ChannelResponseProfile{};
+        Serial.println("MODEL STORAGE: invalid channel record; live outputs inhibited");
     }
-    preferences.end();
 
     preferences.begin("jr-r1-trigger", true);
     ProportionalCalibration calibration {
@@ -1348,7 +1341,7 @@ void TransmitterUi::loadSettings()
     }
     preferences.end();
 
-    for (ChannelResponseProfile &profile : channelProfiles_)
+    for (ChannelResponseProfile &profile : channelModel_.responses)
         sanitizeChannelResponseProfile(profile);
     if (!calibration.valid()) {
         calibration = {THROTTLE_ADC_MIN, THROTTLE_ADC_CENTER, THROTTLE_ADC_MAX};
@@ -1374,38 +1367,37 @@ void TransmitterUi::loadSettings()
     steeringInput_.setCalibration(steeringCalibration);
 }
 
+bool TransmitterUi::persistChannelModel()
+{
+    const bool ok = ChannelSettingsRepository::save(activeModelSlot_, channelModel_);
+    modelStorageFault_ = !ok;
+    if (!ok) {
+        requestConfigurationCut();
+        Serial.println("MODEL STORAGE: save failed; outputs inhibited");
+    }
+    return ok;
+}
+
 void TransmitterUi::saveSettings()
 {
-    Preferences preferences;
-    if (activeModelSlot_ == 0) {
-        preferences.begin("jr-r1-ch2", false);
-        preferences.putUChar("brake_ep", throttleProfile().negativeEndpointPercent);
-        preferences.putUChar("throt_ep", throttleProfile().positiveEndpointPercent);
-        preferences.putUChar("brk_rate", throttleProfile().negativeRatePercent);
-        preferences.putUChar("fwd_rate", throttleProfile().positiveRatePercent);
-        preferences.putChar("brk_expo", throttleProfile().negativeExpoPercent);
-        preferences.putChar("fwd_expo", throttleProfile().positiveExpoPercent);
-        preferences.putUShort("brk_speed", throttleProfile().negativeRampMs);
-        preferences.putUShort("fwd_speed", throttleProfile().positiveRampMs);
-        preferences.putChar("trim", throttleProfile().subtrimPercent);
-        preferences.putBool("reverse", throttleProfile().reversed);
-        preferences.end();
-    }
-
-    char responseNamespace[16];
-    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-response",
-                                     "response", responseNamespace,
-                                     sizeof(responseNamespace)), false);
-    preferences.putUShort("version", kResponseProfileVersion);
-    preferences.putBytes("profiles", channelProfiles_, sizeof(channelProfiles_));
-    preferences.end();
-    settingsSavePending_ = false;
+    settingsSavePending_ = !persistChannelModel();
+    if (settingsSavePending_) settingsSaveDueMs_ = millis() + 1000;
 }
 
 void TransmitterUi::scheduleSettingsSave()
 {
+    requestConfigurationCut();
     settingsSavePending_ = true;
     settingsSaveDueMs_ = millis() + kSettingsSaveDelayMs;
+}
+
+void TransmitterUi::requestConfigurationCut()
+{
+    armRequested_ = false;
+    safetyResetRequested_ = true;
+    remoteArmHold_.cancel();
+    // Hardware veto is immediate, before any page construction or NVS work.
+    if (safetyCutHandler_) safetyCutHandler_();
 }
 
 void TransmitterUi::loadChannelRoleSettings()
@@ -1724,38 +1716,16 @@ void TransmitterUi::saveBindings()
 
 void TransmitterUi::loadChannelParameters()
 {
-    Preferences preferences;
-    char name[16];
-    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-chparam",
-                                     "param", name, sizeof(name)), true);
-    const uint16_t version = preferences.getUShort("version", 0);
-    const size_t bytes = preferences.getBytesLength("values");
-    const bool valid = version == kChannelParameterVersion &&
-        bytes == sizeof(channelParameters_) &&
-        preferences.getBytes("values", channelParameters_, bytes) == bytes;
-    preferences.end();
-    if (!valid) {
-        for (ChannelParameterValues &values : channelParameters_)
-            values = ChannelParameterValues{};
-    }
-    for (ChannelParameterValues &values : channelParameters_) {
-        values.trimPermille = constrain(values.trimPermille,
-            -kChannelParameterLimitPermille, kChannelParameterLimitPermille);
-        values.subtrimPermille = constrain(values.subtrimPermille,
-            -kChannelParameterLimitPermille, kChannelParameterLimitPermille);
+    if (ChannelSettingsRepository::loadParameters(activeModelSlot_, channelModel_) == ChannelSettingsLoad::Invalid) {
+        modelStorageFault_ = true;
+        for (auto &values : channelModel_.parameters) values = ChannelParameterValues{};
     }
 }
 
 void TransmitterUi::saveChannelParameters()
 {
-    Preferences preferences;
-    char name[16];
-    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-chparam",
-                                     "param", name, sizeof(name)), false);
-    preferences.putUShort("version", kChannelParameterVersion);
-    preferences.putBytes("values", channelParameters_, sizeof(channelParameters_));
-    preferences.end();
-    channelParameterSavePending_ = false;
+    channelParameterSavePending_ = !persistChannelModel();
+    if (channelParameterSavePending_) channelParameterSaveDueMs_ = millis() + 1000;
 }
 
 void TransmitterUi::scheduleChannelParameterSave()
@@ -1840,12 +1810,12 @@ bool TransmitterUi::assignChannelParameterControl(
     }
     BindingResolver validator;
     if (!validator.setBindings(candidate, count).ok()) return false;
+    requestConfigurationCut();
     bindingCount_ = count;
     for (size_t index = 0; index < count; ++index) bindings_[index] = candidate[index];
     saveBindings();
     bindingsChanged_ = true;
-    safetyResetRequested_ = true;
-    armRequested_ = false;
+    requestConfigurationCut();
     return true;
 }
 
@@ -2024,12 +1994,12 @@ bool TransmitterUi::saveBindingDraft()
                  result.reason == nullptr ? "Invalid assignment" : result.reason);
         return false;
     }
+    requestConfigurationCut();
     bindingCount_ = count;
     for (size_t index = 0; index < count; ++index) bindings_[index] = candidate[index];
     saveBindings();
     bindingsChanged_ = true;
-    safetyResetRequested_ = true;
-    armRequested_ = false;
+    requestConfigurationCut();
     return true;
 }
 
@@ -2040,11 +2010,11 @@ bool TransmitterUi::removeSelectedBinding()
     for (size_t index = static_cast<size_t>(existing); index + 1 < bindingCount_;
          ++index)
         bindings_[index] = bindings_[index + 1];
+    requestConfigurationCut();
     --bindingCount_;
     saveBindings();
     bindingsChanged_ = true;
-    safetyResetRequested_ = true;
-    armRequested_ = false;
+    requestConfigurationCut();
     return true;
 }
 
@@ -2220,7 +2190,7 @@ bool TransmitterUi::changePin(const char *current,const char *next,const char *c
 bool TransmitterUi::recoverPinOverUsb(const char *next)
 {
     if(armRequested_||designSafety_==OutputSafetyStatus::Armed||!storePin(next))return false;
-    armRequested_=false;safetyResetRequested_=true;
+    requestConfigurationCut();
     bootPinDigits_[0]=newPin_[0]=0;bootPinError_=false;
     pinPurpose_=bootPinUnlocked_?PinPurpose::None:PinPurpose::Boot;
     if(bootPinUnlocked_)drawDashboard();else drawBootPin();
@@ -2228,7 +2198,7 @@ bool TransmitterUi::recoverPinOverUsb(const char *next)
 }
 void TransmitterUi::beginPin(PinPurpose purpose,UiPage returnPage)
 {
-    armRequested_=false;safetyResetRequested_=true;
+    requestConfigurationCut();
     pinPurpose_=purpose;pinReturnPage_=returnPage;
     bootPinDigits_[0]=newPin_[0]=0;bootPinError_=false;drawBootPin();
 }
@@ -2240,7 +2210,7 @@ bool TransmitterUi::requestDriveMode(DriveMode mode)
     Preferences p;if(!p.begin("jr-r1-security",false))return false;
     bool saved=p.putBool("walk",true)>0;p.end();if(!saved)return false;
     walkRetained_=true;driveModeSettings_.activeMode=DriveMode::Walk;
-    armRequested_=false;safetyResetRequested_=true;saveDriveModeSettings();return true;
+    requestConfigurationCut();saveDriveModeSettings();return true;
 }
 void TransmitterUi::drawBootPin()
 {
@@ -2299,7 +2269,7 @@ void TransmitterUi::controlBootPin(uint8_t item, PageControlEvent event)
                     if(ok){walkRetained_=false;driveModeSettings_.activeMode=DriveMode::Normal;saveDriveModeSettings();}
                 }
                 if(ok){bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;bootPinDigits_[0]=0;bootPinError_=false;
-                    armRequested_=false;safetyResetRequested_=true;lastInteractionMs_=millis();
+                    requestConfigurationCut();lastInteractionMs_=millis();
                     if(startupPreflightComplete_||hardwareRecovery_)drawDashboard();else drawStartupWarningPage();return;}
             }
         }
@@ -2405,11 +2375,8 @@ ControlConfigurationSnapshot TransmitterUi::controlConfigurationSnapshot() const
     ControlConfigurationSnapshot snapshot;
     snapshot.throttleInput = throttleInputProfile();
     snapshot.steeringInput = steeringInputProfile();
-    for (size_t index = 0; index < CRSF_CHANNEL_COUNT; ++index) {
-        snapshot.channelProfiles[index] = channelProfiles_[index];
-        snapshot.mixing[index] = channelMixing_[index];
-        snapshot.channelParameters[index] = channelParameters_[index];
-    }
+    channelModel_.copyTo(snapshot);
+    snapshot.modelStorageValid = !modelStorageFault_;
     for (size_t index = 0; index < bindingCount_; ++index) {
         const ControlBinding &binding = bindings_[index];
         if (!binding.enabled || binding.target != AssignmentTarget::CrsfChannel ||
@@ -2436,7 +2403,7 @@ int16_t TransmitterUi::channelParameterValue(uint8_t channel,
                                           ChannelParameterKind kind) const
 {
     if (channel < 1 || channel > 16) return 0;
-    const ChannelParameterValues &values = channelParameters_[channel - 1];
+    const ChannelParameterValues &values = channelModel_.parameters[channel - 1];
     return kind == ChannelParameterKind::Subtrim
         ? values.subtrimPermille : values.trimPermille;
 }
@@ -2453,9 +2420,10 @@ bool TransmitterUi::applyChannelParameterAction(uint16_t targetId, int16_t value
     value = constrain(value, -kChannelParameterLimitPermille,
                       kChannelParameterLimitPermille);
     int16_t &stored = kind == ChannelParameterKind::Subtrim
-        ? channelParameters_[channel - 1].subtrimPermille
-        : channelParameters_[channel - 1].trimPermille;
+        ? channelModel_.parameters[channel - 1].subtrimPermille
+        : channelModel_.parameters[channel - 1].trimPermille;
     if (stored == value) return true;
+    if (kind == ChannelParameterKind::Subtrim) requestConfigurationCut();
     stored = value;
     scheduleChannelParameterSave();
     Serial.printf("CHANNEL PARAM: CH%u %s=%+.1f%%\n", channel,
@@ -3100,8 +3068,7 @@ void TransmitterUi::controlChannelRoles(uint8_t row, PageControlEvent event)
     if (row == 2) {
         channelRoleSettings_.steeringEnabled = !channelRoleSettings_.steeringEnabled;
         channelRolesChanged_ = true;
-        safetyResetRequested_ = true;
-        armRequested_ = false;
+        requestConfigurationCut();
         saveChannelRoleSettings();
         playKeyClick();
         drawChannelRolesPage();
@@ -3340,7 +3307,7 @@ void TransmitterUi::controlDashboard(uint8_t item, PageControlEvent)
 void TransmitterUi::controlChannelConfig(uint8_t item, PageControlEvent event)
 {
     if(item==5) {
-        mixingDraft_=channelMixing_[selectedChannel_-1];mixingBank_=0;mixingSaveError_=false;
+        mixingDraft_=channelModel_.mixing[selectedChannel_-1];mixingBank_=0;mixingSaveError_=false;
         drawChannelMixing();return;
     }
     if (item == 4) {
@@ -4268,8 +4235,7 @@ void TransmitterUi::drawFirmwareInfoPage()
 void TransmitterUi::drawElrsTxConfigPage()
 {
     if (activePage_ != UiPage::ElrsTxConfig) {
-        armRequested_ = false;
-        safetyResetRequested_ = true;
+        requestConfigurationCut();
     }
     activePage_ = UiPage::ElrsTxConfig;
     startScreen(); resetLvglObjects();
@@ -4919,8 +4885,7 @@ void TransmitterUi::updateCalibration(uint16_t adc)
     const ProportionalCalibration &calibration = input.calibration();
     if (!saveCalibration()) {
         input.setCalibration(previous);
-        armRequested_ = false;
-        safetyResetRequested_ = true;
+        requestConfigurationCut();
         if (calibrationStatusLabel_)
             lv_label_set_text(calibrationStatusLabel_, "Save failed. Old values kept.\nCancel and retry.");
         Serial.println("CAL: save FAILED; previous calibration retained");
@@ -5123,8 +5088,7 @@ if(portraitUi) {
         if (x >= 272) {
             playKeyClick(); drawMainMenu();
         } else if (lastSafetyStatus_ == OutputSafetyStatus::Armed) {
-            armRequested_ = false;
-            safetyResetRequested_ = true;
+            requestConfigurationCut();
             playBuzzer(180);
             lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
         } else if (lastTouchDurationMs_ >= kDashboardArmHoldMs) {
@@ -5280,8 +5244,7 @@ void TransmitterUi::handleChannelRolesTouch(int16_t x, int16_t y)
         if (!bindingUsesChannel(roleChannel, PhysicalControlId::Count)) break;
     }
     channelRolesChanged_ = true;
-    safetyResetRequested_ = true;
-    armRequested_ = false;
+    requestConfigurationCut();
     saveChannelRoleSettings();
     playKeyClick();
     drawChannelRolesPage();
@@ -5303,7 +5266,7 @@ void TransmitterUi::handleThrottleResponseTouch(int16_t x, int16_t y)
     if (y < 52 || y >= 297 || x < 288) return;
     const int row = (y - 52) / 35;
     const int8_t direction = x < 424 ? -1 : 1;
-    ChannelResponseProfile &profile = selectedResponseProfile();
+    auto profile = selectedResponseProfile();
     bool changed = false;
     if (row == 0) {
         const int value = profile.subtrimPercent +
@@ -5333,7 +5296,7 @@ void TransmitterUi::handleThrottleResponseTouch(int16_t x, int16_t y)
         const int value = profile.negativeExpoPercent + direction * kResponseExpoStepPercent;
         profile.negativeExpoPercent = constrain(value, -100, 100); changed = true;
     }
-    if (changed) { saveSettings(); playKeyClick(); drawThrottleResponsePage(); }
+    if (changed) { channelModel_.setResponse(selectedChannel_,profile); scheduleSettingsSave(); playKeyClick(); drawThrottleResponsePage(); }
 }
 
 void TransmitterUi::handleChannelSpeedTouch(int16_t x, int16_t y)
@@ -5342,12 +5305,13 @@ void TransmitterUi::handleChannelSpeedTouch(int16_t x, int16_t y)
     if (x < 340 || y < 78 || y >= 230) return;
     const uint8_t row = (y - 78) / 76;
     const int16_t direction = x < 400 ? -1 : 1;
-    ChannelResponseProfile &profile = selectedResponseProfile();
+    auto profile = selectedResponseProfile();
     uint16_t &value = row == 0 ? profile.positiveRampMs : profile.negativeRampMs;
     const int32_t changed = static_cast<int32_t>(value) +
                             direction * kChannelSpeedStepMs;
     value = constrain(changed, 0L, static_cast<long>(kChannelSpeedMaximumMs));
-    saveSettings();
+    channelModel_.setResponse(selectedChannel_,profile);
+    scheduleSettingsSave();
     playKeyClick();
     drawChannelSpeedPage();
 }
@@ -5592,8 +5556,7 @@ void TransmitterUi::handleDriveModesTouch(int16_t x, int16_t y)
         if (x < 70 || x >= 415) return;
         const uint8_t index = x < 245 ? 0 : 1;
         if(!requestDriveMode(static_cast<DriveMode>(index)))return;
-        armRequested_ = false;
-        safetyResetRequested_ = true;
+        requestConfigurationCut();
         playBuzzer(80);
         drawDriveModesPage();
         return;
@@ -5680,8 +5643,7 @@ void TransmitterUi::queueElrsRequest(ElrsManagementAction action,
     memcpy(elrsPendingRequest_.phrase, elrsBindPhrase_,
            elrsPendingRequest_.phraseLength + 1);
     elrsRequestPending_ = true;
-    armRequested_ = false;
-    safetyResetRequested_ = true;
+    requestConfigurationCut();
     if (action == ElrsManagementAction::SetBindPhrase) saveElrsSettings();
     snprintf(elrsStatus_, sizeof(elrsStatus_), "%s queued; outputs CUT",
              action == ElrsManagementAction::SetBindPhrase ? "Bindphrase" : "UID read");
@@ -5909,8 +5871,7 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
         if (calibrationActive()) {
             (calibratingSteering_ ? steeringInput_ : triggerInput_)
                 .cancelCalibration();
-            armRequested_ = false;
-            safetyResetRequested_ = true;
+            requestConfigurationCut();
             Serial.println("CAL: cancelled by Home; previous calibration retained");
         }
         playKeyClick();
@@ -6195,7 +6156,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     if (redrawElrsPage) drawElrsBindingPage();
     if(SetupPortal::active())armRequested_=false;
     if(activePage_==UiPage::WifiSetup){
-        if(!SetupPortal::active()){armRequested_=false;safetyResetRequested_=true;drawMainMenu();}
+        if(!SetupPortal::active()){requestConfigurationCut();drawMainMenu();}
         else if(wifiRevision_!=SetupPortal::state().revision && wifiEdit_!=1 && wifiEdit_!=2 && wifiEdit_!=4 && wifiEdit_!=6)drawWifiPage();
     }
     updateWifiStatusIcon();
@@ -6217,14 +6178,6 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
         positionLogoSaver();
         nextLogoSaverMoveMs_ = now + kLogoSaverMoveMs;
     }
-    if (settingsSavePending_ &&
-        static_cast<int32_t>(now - settingsSaveDueMs_) >= 0) {
-        saveSettings();
-    }
-    if (channelParameterSavePending_ &&
-        static_cast<int32_t>(now - channelParameterSaveDueMs_) >= 0) {
-        saveChannelParameters();
-    }
     if (!hardwareRecovery_ && !SetupPortal::active() && !displaySleeping_ && activePage_ != UiPage::BootSplash &&
         activePage_ != UiPage::LogoSaver &&
         activePage_ != UiPage::BootPin &&
@@ -6242,7 +6195,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     updateGpsPresentation(now);
     if (static_cast<int32_t>(now - nextDisplayUpdateMs_) >= 0) {
         nextDisplayUpdateMs_ = now + kUiUpdateMs;
-        if(detailOutputLabel)updateDriveIcon(detailDriveIcon,safetyStatus==OutputSafetyStatus::Armed,hardwareRecovery_||safetyStatus==OutputSafetyStatus::InputFault||safetyStatus==OutputSafetyStatus::ControlStale);
+        if(detailOutputLabel)updateDriveIcon(detailDriveIcon,safetyStatus==OutputSafetyStatus::Armed,hardwareRecovery_||safetyStatus==OutputSafetyStatus::InputFault||safetyStatus==OutputSafetyStatus::ConfigurationFault||safetyStatus==OutputSafetyStatus::ControlStale);
         if (calibrationActive()) drawCalibrationValues(
             calibratingSteering_ ? steeringRawAdc : rawAdc);
         else if (designPage()) {
@@ -6272,6 +6225,20 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     lv_timer_handler();
     uiMetrics.handlerUs += uint32_t(micros()) - handlerStarted;
     if (uiMetrics.rendered != renderedBefore) reportUiFrame();
+    // Paint accepted touches first. Coalesce the complete model into one write,
+    // only after the RF path acknowledges non-live output and the gesture ends.
+    const bool outputSafe = safetyStatus != OutputSafetyStatus::Armed &&
+                            safetyStatus != OutputSafetyStatus::LinkRequired &&
+                            safetyStatus != OutputSafetyStatus::NeutralRequired;
+    const bool saveDue = (settingsSavePending_ && int32_t(now-settingsSaveDueMs_) >= 0) ||
+                         (channelParameterSavePending_ && int32_t(now-channelParameterSaveDueMs_) >= 0);
+    if (!armRequested_ && outputSafe && !touchWasDown_ && !uiMetrics.touchPending &&
+        !uiMetrics.pagePending && saveDue) {
+        saveSettings();
+        channelParameterSavePending_ = settingsSavePending_;
+        channelParameterSaveDueMs_ = settingsSaveDueMs_;
+    }
+
 }
 
 int TransmitterUi::screenWidth() const {return kScreenWidth;}
@@ -6311,3 +6278,5 @@ void TransmitterUi::applyDisplayRotation() {
 #include "transmitter_ui_wifi.inc"
 
 #include "transmitter_ui_mixing.inc"
+
+#include "transmitter_ui_remote.inc"

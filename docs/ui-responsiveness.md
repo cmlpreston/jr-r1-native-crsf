@@ -125,3 +125,43 @@ Hardware comparison procedure (pending):
    Keep bus speed, theme, widget layout and logging identical.
 
 No additional page-retention optimisation is included in this measurement pass.
+
+## Safety refactor comparison — 2026-10-11
+
+The safety refactor keeps control independent of LVGL and defers/coalesces
+touch channel-settings writes until after the accepted gesture has painted and
+output is safe. Mixer graphs are compiled on structural configuration changes,
+rather than revalidated repeatedly on each 4 ms cycle.
+
+An identical native SDL performance fixture was applied to checkpoint `4cc5872`
+and the refactor. Seven rounds measured median page action → forced layout →
+completed redraw, with the same state and cache settings:
+
+| Orientation / page | Checkpoint median | Refactor median |
+| --- | ---: | ---: |
+| Landscape / Tune | 316.667 ms | 316.668 ms |
+| Landscape / Data | 316.666 ms | 316.665 ms |
+| Landscape / Setup | 316.666 ms | 316.669 ms |
+| Landscape / Drive | 316.667 ms | 316.664 ms |
+| Portrait / Tune | 449.960 ms | 449.976 ms |
+| Portrait / Data | 466.654 ms | 466.670 ms |
+| Portrait / Setup | 450.006 ms | 449.983 ms |
+| Portrait / Drive | 450.001 ms | 449.990 ms |
+
+These differences do not establish a measurable latency change. Native SDL
+transfer/vsync dominates the fixture; this excludes physical touch scanning,
+hold/release debounce and hardware SPI. Unchanged dashboard updates and repeated
+identical menu draws still transfer zero pixels. Setup → Tune still renders
+153,600 pixels and sends 85,440 landscape / 82,240 portrait pixels in this fixture.
+
+A separate `-O2` native chained-AUX mixer benchmark (seven runs of 20,000 cycles)
+measured 1,229 ns/cycle before and 990 ns/cycle with cached validation/order and
+combined inspection, about 19% less time, with identical output checksums. This
+is representative host CPU work, not an ESP32 deadline measurement.
+
+The focused `--ui-perf-audit` also verifies immediate CUT for response edits,
+preserved live trim, CUT for sub-trim, postponement of due writes while armed,
+and a coalesced save after safe output/painting. Full audits retain interaction,
+rotation, display equivalence and memory checks in both orientations. Hardware
+touch-to-visible timing and safe bench validation of the new firmware remain
+pending; this change has not been flashed.

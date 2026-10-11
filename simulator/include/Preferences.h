@@ -11,6 +11,7 @@ class Preferences {
 public:
     bool begin(const char *name, bool readOnly = false);
     void end();
+    bool isKey(const char *key) const;
 
     bool getBool(const char *key, bool fallback = false) const;
     uint8_t getUChar(const char *key, uint8_t fallback = 0) const;
@@ -35,4 +36,3 @@ private:
     std::string name_;
     bool readOnly_ = false;
 };
-

@@ -56,6 +56,8 @@ bool Preferences::begin(const char *name, bool readOnly)
 
 void Preferences::end() {}
 
+bool Preferences::isKey(const char *key) const { return fs::exists(pathFor(key)); }
+
 std::string Preferences::pathFor(const char *key) const
 {
     return (stateRoot() / name_ / (key == nullptr ? "unnamed" : key)).string();

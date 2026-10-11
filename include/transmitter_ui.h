@@ -7,6 +7,7 @@
 #include "dashboard_widgets.h"
 #include "speed_statistics.h"
 #include "control_configuration.h"
+#include "channel_model.h"
 #include "control_assignment.h"
 #include "remote_arm_hold.h"
 #include "crsf_telemetry.h"
@@ -103,6 +104,7 @@ enum class UiPage : uint8_t {
 class TransmitterUi {
 public:
     bool begin();
+    void setSafetyCutHandler(void (*handler)()) { safetyCutHandler_ = handler; }
     bool verifyPin(const char *pin) const;
     bool changePin(const char *current, const char *next, const char *confirm);
     bool recoverPinOverUsb(const char *next);
@@ -171,6 +173,7 @@ public:
     void setDisplayCacheEnabled(bool enabled);
 #ifdef JR_R1_SIMULATOR
     bool runSimulatorUiAudit();
+    bool runSimulatorPerformanceAudit();
     bool selectSimulatorTxParameter(uint8_t id) {
         const auto p = txConfig_.parameter(id);
         if (!txConfig_.ready() || !p) return false;
@@ -320,7 +323,9 @@ private:
     void controlChannelMixing(uint8_t item, PageControlEvent event);
     bool saveMixing(uint8_t channel, const ChannelMixSettings &settings);
     void loadMixing();
-    ChannelMixSettings channelMixing_[16] = {};
+    ChannelModelController channelModel_;
+    bool modelStorageFault_ = false;
+    bool persistChannelModel();
     ChannelMixSettings mixingDraft_;
     uint8_t mixingBank_ = 0;
     int16_t mixingPreviewValues_[3] = {};
@@ -469,7 +474,6 @@ private:
                                             AssignmentTarget current,
                                             int8_t direction) const;
 
-    ChannelResponseProfile channelProfiles_[CRSF_CHANNEL_COUNT] = {};
     static constexpr uint8_t kModelMemoryCount = 10;
     static constexpr uint8_t kModelNameCapacity = 13;
     DashboardLayout dashboardLayouts_[kModelMemoryCount];
@@ -607,9 +611,10 @@ private:
     char bindingError_[64] = {};
     ControlBinding bindings_[kPhysicalControlCount] = {};
     size_t bindingCount_ = 0;
-    ChannelParameterValues channelParameters_[16] = {};
     bool channelRolesChanged_ = false;
     bool safetyResetRequested_ = false;
+    void (*safetyCutHandler_)() = nullptr;
+    void requestConfigurationCut();
     bool bindingsChanged_ = false;
     bool armRequested_ = false;
     bool displaySleeping_ = false;

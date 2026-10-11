@@ -3,6 +3,8 @@
 #include <cassert>
 #include <cstdlib>
 static uint64_t auditRedrawnPixels = 0;
+static unsigned auditCutRequests = 0;
+static void auditConfigurationCut() { ++auditCutRequests; }
 static void auditRefreshMonitor(lv_disp_drv_t *, uint32_t, uint32_t pixels)
 {
     auditRedrawnPixels += pixels;
@@ -177,7 +179,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     drawDashboard();
     // Binary monitor classification is based on assignment, never sampled values.
     const auto savedBinding=bindings_[0];const auto savedCount=bindingCount_;
-    const auto savedMix=channelMixing_[14];channelMixing_[14]=ChannelMixSettings{};
+    const auto savedMix=channelModel_.mixing[14];channelModel_.mixing[14]=ChannelMixSettings{};
     bindings_[0]=ControlBinding{};bindings_[0].input=PhysicalControlId::IdleUpSwitch;
     bindings_[0].target=AssignmentTarget::CrsfChannel;bindings_[0].crsfChannel=15;
     bindings_[0].behaviour=ControlBehaviour::TwoPosition;bindingCount_=1;
@@ -185,8 +187,8 @@ bool TransmitterUi::runSimulatorUiAudit()
     bindings_[0].behaviour=ControlBehaviour::Stepped;assert(!dashboardBinaryChannel(14,binaryOff,binaryOn));
     bindings_[0].behaviour=ControlBehaviour::TwoPosition;bindings_[0].input=PhysicalControlId::GripTrimA;
     assert(!dashboardBinaryChannel(14,binaryOff,binaryOn));
-    bindings_[0].input=PhysicalControlId::IdleUpSwitch;channelMixing_[14].rules[0].enabled=1;
-    assert(!dashboardBinaryChannel(14,binaryOff,binaryOn));channelMixing_[14]=savedMix;
+    bindings_[0].input=PhysicalControlId::IdleUpSwitch;channelModel_.mixing[14].rules[0].enabled=1;
+    assert(!dashboardBinaryChannel(14,binaryOff,binaryOn));channelModel_.mixing[14]=savedMix;
     bindings_[0]=savedBinding;bindingCount_=savedCount;
     // Appearance persists per model and never changes channel settings.
     latestRawAdc_=triggerInput_.centre();armRequested_=false;
@@ -320,13 +322,13 @@ bool TransmitterUi::runSimulatorUiAudit()
     }
     // Mixer drafts, model isolation, persisted reload and all editor pages.
     {
-        const auto saved=channelMixing_[2];
+        const auto saved=channelModel_.mixing[2];
         const auto selected=selectedChannel_;selectedChannel_=3;
         controlChannelConfig(5,activate);
         assert(activePage_==UiPage::ChannelMixing);
         controlChannelMixing(0,activate);controlChannelMixing(2,PageControlEvent::Decrease);
         assert(mixingDraft_.rules[0].enabled&&mixingDraft_.rules[0].weight==95);
-        assert(memcmp(&saved,&channelMixing_[2],sizeof(saved))==0);
+        assert(memcmp(&saved,&channelModel_.mixing[2],sizeof(saved))==0);
         navigateBack();assert(activePage_==UiPage::MixingOverview);navigateBack();assert(activePage_==UiPage::ChannelPlaceholder); // cancel draft
         controlChannelConfig(5,activate);
         assert(memcmp(&saved,&mixingDraft_,sizeof(saved))==0);
@@ -342,11 +344,11 @@ bool TransmitterUi::runSimulatorUiAudit()
         }
         armRequested_=true;controlChannelMixing(12,activate);
         assert(!armRequested_&&safetyResetRequested_&&!mixingSaveError_);
-        loadMixing();assert(channelMixing_[2].rules[0].weight==-70);
-        assert(channelMixing_[2].constantPercent==60&&channelMixing_[2].outputMinimum==20&&channelMixing_[2].cutOverride&&channelMixing_[2].cutPercent==60);
+        loadMixing();assert(channelModel_.mixing[2].rules[0].weight==-70);
+        assert(channelModel_.mixing[2].constantPercent==60&&channelModel_.mixing[2].outputMinimum==20&&channelModel_.mixing[2].cutOverride&&channelModel_.mixing[2].cutPercent==60);
         const auto slot=activeModelSlot_;activeModelSlot_=4;loadMixing();
-        assert(!channelMixing_[2].rules[0].enabled);
-        activeModelSlot_=slot;loadMixing();assert(channelMixing_[2].rules[0].weight==-70);
+        assert(!channelModel_.mixing[2].rules[0].enabled);
+        activeModelSlot_=slot;loadMixing();assert(channelModel_.mixing[2].rules[0].weight==-70);
         // Threshold controls, v4 persistence and model isolation.
         mixingDraft_=ChannelMixSettings{};mixingDraft_.includeBase=0;
         mixingDraft_.rules[0].enabled=1;mixingDraft_.rules[0].source=1;
@@ -362,11 +364,11 @@ bool TransmitterUi::runSimulatorUiAudit()
             simulatorSaveScreenshot(path);
         }
         controlChannelMixing(12,activate);assert(!mixingSaveError_);
-        loadMixing();assert(channelMixing_[2].rules[0].sourceMode==2);
-        assert(channelMixing_[2].rules[0].thresholdPercent==-5&&channelMixing_[2].rules[0].hysteresisPercent==3);
-        activeModelSlot_=4;loadMixing();assert(channelMixing_[2].rules[0].sourceMode==0);
-        activeModelSlot_=slot;loadMixing();assert(channelMixing_[2].rules[0].sourceMode==2);
-        assert(!saveMixing(throttleChannel(),channelMixing_[2]));
+        loadMixing();assert(channelModel_.mixing[2].rules[0].sourceMode==2);
+        assert(channelModel_.mixing[2].rules[0].thresholdPercent==-5&&channelModel_.mixing[2].rules[0].hysteresisPercent==3);
+        activeModelSlot_=4;loadMixing();assert(channelModel_.mixing[2].rules[0].sourceMode==0);
+        activeModelSlot_=slot;loadMixing();assert(channelModel_.mixing[2].rules[0].sourceMode==2);
+        assert(!saveMixing(throttleChannel(),channelModel_.mixing[2]));
         assert(saveMixing(3,saved));selectedChannel_=selected;
     }
     // All ten Setup routes must remain reachable, including non-demo features.
@@ -596,147 +598,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     setPhysicalInputStates(startupStates);setStartupPreflight(false,unsafe);
     assert(startupFaultMask_==0 && activePage_==UiPage::StartupWarning && !armRequested_);
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard && !armRequested_);
-    // Measure real LVGL dirty-region rendering, not calls to our update helpers.
-    const auto savedLayout = dashboardLayouts_[activeModelSlot_];
-    const auto savedSampleTime = nextSensorSampleMs_;
-    dashboardLayouts_[activeModelSlot_] = DashboardLayout{};
-    auto &powerWidget = dashboardLayouts_[activeModelSlot_].cells[0];
-    powerWidget.kind = DashboardWidgetKind::Power;
-    auto &channelWidget = dashboardLayouts_[activeModelSlot_].cells[1];
-    channelWidget.kind = DashboardWidgetKind::Channels;
-    channelWidget.style = DashboardWidgetStyle::Bars;
-    CrsfTelemetryState fixedTelemetry{};
-    fixedTelemetry.linkValid = true;
-    fixedTelemetry.uplinkLinkQuality = 100;
-    fixedTelemetry.receiverVoltageValid = true;
-    fixedTelemetry.receiverVoltageDecivolts = 66;
-    nextSensorSampleMs_ = millis() + 100000;
-    drawDashboard();
-    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
-    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
-    auto *auditDisplay = lv_disp_get_default();
-    auto previousMonitor = auditDisplay->driver->monitor_cb;
-    auditDisplay->driver->monitor_cb = auditRefreshMonitor;
-    auditRedrawnPixels = 0;
-    for (int i = 0; i < 20; ++i) {
-        updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
-        lv_refr_now(nullptr);
-    }
-    Serial.printf("UI redraw benchmark: 20 unchanged dashboard updates = %llu pixels\n",
-                  static_cast<unsigned long long>(auditRedrawnPixels));
-    assert(auditRedrawnPixels == 0);
-    // Changing data and status must still repaint immediately on the next tick.
-    const auto savedChannelValue = dashboardChannelValues_[0];
-    dashboardChannelValues_[0] = kCrsfMaximum;
-    fixedTelemetry.receiverVoltageDecivolts = 67;
-    fixedTelemetry.uplinkLinkQuality = 87;
-    updateDesign(fixedTelemetry, OutputSafetyStatus::Armed, 99, true);
-    lv_refr_now(nullptr);
-    assert(auditRedrawnPixels > 0);
-    assert(strcmp(lv_label_get_text(widgetViews_[0].values[1]), "6.7 V") == 0);
-    assert(lv_bar_get_value(widgetViews_[1].bars[0]) == permilleFromCrsfValue(kCrsfMaximum));
-    assert(strcmp(lv_label_get_text(designStatus_), "Drive") == 0);
-    assert(lv_obj_has_flag(lv_obj_get_child(driveIcon_,0),LV_OBJ_FLAG_HIDDEN));
-    assert(strcmp(lv_label_get_text(designLink_), "87 LQ") == 0);
-    auditRedrawnPixels = 0;
-    fixedTelemetry.receiverVoltageValid = false;
-    fixedTelemetry.linkValid = false;
-    fixedTelemetry.linkUpdatedMs = 1;
-    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
-    lv_refr_now(nullptr);
-    assert(auditRedrawnPixels > 0);
-    assert(strcmp(lv_label_get_text(widgetViews_[0].values[1]), "--") == 0);
-    assert(strcmp(lv_label_get_text(designStatus_), "Drive") == 0);
-    assert(!lv_obj_has_flag(lv_obj_get_child(driveIcon_,0),LV_OBJ_FLAG_HIDDEN));
-    assert(strcmp(lv_label_get_text(designLink_), "LQ stale") == 0);
-    // A blocked enable request remains visible without replacing the Drive label.
-    armRequested_=true;
-    updateDesign(fixedTelemetry,OutputSafetyStatus::LinkRequired,99,true);
-    assert(strcmp(lv_label_get_text(designLink_),"Link wait")==0);
-    assert(strcmp(lv_label_get_text(designStatus_),"Drive")==0);
-    assert(!lv_obj_has_flag(lv_obj_get_child(driveIcon_,0),LV_OBJ_FLAG_HIDDEN));
-    drawDesignPage(UiPage::OutputStatus);
-    updateDesign(fixedTelemetry,OutputSafetyStatus::LinkRequired,99,true);
-    assert(strcmp(lv_label_get_text(designDetails_[0]),"LINK WAIT")==0);
-    assert(strcmp(lv_label_get_text(designDetails_[1]),"Waiting for receiver link.")==0);
-    updateDesign(fixedTelemetry,OutputSafetyStatus::NeutralRequired,99,true);
-    assert(strcmp(lv_label_get_text(designDetails_[0]),"NEUTRAL WAIT")==0);
-    armRequested_=false;drawDashboard();lv_refr_now(nullptr);
-    updateDesign(fixedTelemetry,OutputSafetyStatus::Cut,99,true);
-    assert(strcmp(lv_label_get_text(designLink_),"LQ stale")==0);
-
-    auditRedrawnPixels = 0;
-    updateDesign(fixedTelemetry, OutputSafetyStatus::InputFault, 0, false);
-    lv_refr_now(nullptr);
-    assert(auditRedrawnPixels > 0);
-    assert(strcmp(lv_label_get_text(designStatus_), "Drive") == 0);
-    assert(lv_obj_get_style_bg_color(lv_obj_get_child(driveIcon_,1),0).full==colour(cRed).full);
-    assert(lv_obj_get_style_text_font(designStatus_, LV_PART_MAIN) == fontFor(16));
-    // Low voltage changes the warning colour as well as its text.
-    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 1, true);
-    assert(strcmp(lv_label_get_text(designLink_), "TX LOW") == 0);
-    assert(lv_obj_get_style_text_color(widgetViews_[0].values[0], LV_PART_MAIN).full == colour(cRed).full);
-    // A stopped timer, unchanged dials and a max-speed widget also stay idle.
-    dashboardLayouts_[activeModelSlot_].cells[0].style = DashboardWidgetStyle::Dials;
-    dashboardLayouts_[activeModelSlot_].cells[1].kind = DashboardWidgetKind::Sensor;
-    dashboardLayouts_[activeModelSlot_].cells[1].style = DashboardWidgetStyle::Numbers;
-    dashboardLayouts_[activeModelSlot_].cells[1].speedValue = SpeedWidgetValue::Maximum;
-    dashboardLayouts_[activeModelSlot_].cells[2].kind = DashboardWidgetKind::Timer;
-    runTimerRunning_ = false;
-    speedStatistics_.reset(millis() - 1);
-    speedStatistics_.update(123, millis(), millis(), true);
-    drawDashboard();
-    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
-    lv_refr_now(nullptr);
-    auditRedrawnPixels = 0;
-    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
-    lv_refr_now(nullptr);
-    assert(auditRedrawnPixels == 0);
-    assert(strcmp(lv_label_get_text(widgetViews_[1].values[0]), "12.3") == 0);
-    // Formatted updates must preserve text beyond the small stack buffer.
-    char longText[200];memset(longText, 'x', sizeof(longText)-1);longText[199] = 0;
-    uiSetTextFmt(widgetViews_[1].values[0], "%s", longText);
-    assert(strcmp(lv_label_get_text(widgetViews_[1].values[0]), longText) == 0);
-    auditDisplay->driver->monitor_cb = previousMonitor;
-    dashboardChannelValues_[0] = savedChannelValue;
-    dashboardLayouts_[activeModelSlot_] = savedLayout;
-    nextSensorSampleMs_ = savedSampleTime;
-    // Rebuilt menus render identically. Cache must suppress their transfer,
-    // while real navigation still sends changed pixels in both orientations.
-    drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);
-    uiMetrics = UiFrameMetrics{};
-    drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);
-    assert(uiMetrics.rendered > 0 && uiMetrics.sent == 0);
-    uiMetrics = UiFrameMetrics{};
-    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
-    Serial.printf("UI transition benchmark: Setup -> Tune rendered=%lu sent=%lu pixels build=%luus\n",
-        (unsigned long)uiMetrics.rendered, (unsigned long)uiMetrics.sent, (unsigned long)uiMetrics.buildUs);
-    assert(uiMetrics.sent > 0 && uiMetrics.sent < uiMetrics.rendered);
-    if (const char *prefix = getenv("JR_R1_AUDIT_CACHE_IMAGES")) {
-        char path[256];snprintf(path,sizeof(path),"%s-%s-cached.bmp",prefix,designPortrait?"portrait":"landscape");
-        simulatorSaveScreenshot(path);
-    }
-    // Invalidation guarantees a complete transfer after wake/reinitialisation.
-    pixelCache.invalidate();uiMetrics = UiFrameMetrics{};
-    lv_obj_invalidate(lv_scr_act());lv_refr_now(nullptr);
-    assert(uiMetrics.sent == kScreenWidth * kScreenHeight);
-    if (const char *prefix = getenv("JR_R1_AUDIT_CACHE_IMAGES")) {
-        char path[256];snprintf(path,sizeof(path),"%s-%s-full.bmp",prefix,designPortrait?"portrait":"landscape");
-        simulatorSaveScreenshot(path);
-    }
-    setDisplayCacheEnabled(false);
-    drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);
-    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
-    assert(uiMetrics.sent == uiMetrics.rendered && uiMetrics.sent == kScreenWidth * kScreenHeight);
-    if (const char *prefix = getenv("JR_R1_AUDIT_CACHE_IMAGES")) {
-        char path[256];snprintf(path,sizeof(path),"%s-%s-off.bmp",prefix,designPortrait?"portrait":"landscape");
-        simulatorSaveScreenshot(path);
-    }
-    setDisplayCacheEnabled(true);
-    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
-    assert(uiMetrics.sent == kScreenWidth * kScreenHeight); // Re-enable primes unknown rows.
-    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
-    assert(uiMetrics.sent == 0);
+    assert(runSimulatorPerformanceAudit());
     // Setup must suppress every arm request, including a previously true one.
     SetupPortal::begin(this);controlDesign(152,activate);
     assert(activePage_==UiPage::WifiSetup && SetupPortal::active());
@@ -768,9 +630,9 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlWifi(10,activate);controlWifi(10,activate);controlWifi(20,activate);
     assert(strcmp(wifiPassword_,"!")==0);
     controlWifi(13,activate);
-    const auto savedProfile=channelProfiles_[0];const auto savedParameters=channelParameters_[0];
+    const auto savedProfile=channelModel_.responses[0];const auto savedParameters=channelModel_.parameters[0];
     auto edited=savedProfile;edited.negativeEndpointPercent=73;edited.positiveEndpointPercent=92;
-    assert(portalSetChannel(1,edited,10,-20));assert(channelProfiles_[0].negativeEndpointPercent==73 && channelProfiles_[0].positiveEndpointPercent==92);
+    assert(portalSetChannel(1,edited,10,-20));assert(channelModel_.responses[0].negativeEndpointPercent==73 && channelModel_.responses[0].positiveEndpointPercent==92);
     assert(portalSetChannel(1,savedProfile,savedParameters.trimPermille,savedParameters.subtrimPermille));
     // Web assignments share the resolver, model persistence and CUT gate.
     ControlBinding savedBindings[kPhysicalControlCount];
@@ -807,7 +669,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     char previousName[kModelNameCapacity];strcpy(previousName,portalModelName());
     bootPinUnlocked_=false;
     assert(!portalRemoteInput(0,0,2));
-    assert(portalSetChannel(1,channelProfiles_[0],channelParameters_[0].trimPermille,channelParameters_[0].subtrimPermille));
+    assert(portalSetChannel(1,channelModel_.responses[0],channelModel_.parameters[0].trimPermille,channelModel_.parameters[0].subtrimPermille));
     assert(!bootPinUnlocked()&&!controlConfigurationSnapshot().armRequested);
     assert(portalRenameModel("BENCH TEST"));assert(strcmp(portalModelName(),"BENCH TEST")==0);
     assert(!portalRenameModel("TOO LONG MODEL NAME"));assert(portalRenameModel(previousName));
@@ -1116,4 +978,212 @@ bool TransmitterUi::runSimulatorUiAudit()
     remoteArmHold_.begin(1,millis());assert(!requestDisplayRotation());remoteArmHold_.cancel();
     Serial.println("Runtime rotation: all pages, both dimensions, memory stability and arm/hold guards PASS");
     drawDashboard();return true;
+}
+
+bool TransmitterUi::runSimulatorPerformanceAudit()
+{
+    bootPinUnlocked_ = true; pinPurpose_ = PinPurpose::None;
+    armRequested_ = false; startupPreflightComplete_ = true;
+    // Measure real LVGL dirty-region rendering, not calls to our update helpers.
+    const auto savedLayout = dashboardLayouts_[activeModelSlot_];
+    const auto savedSampleTime = nextSensorSampleMs_;
+    dashboardLayouts_[activeModelSlot_] = DashboardLayout{};
+    auto &powerWidget = dashboardLayouts_[activeModelSlot_].cells[0];
+    powerWidget.kind = DashboardWidgetKind::Power;
+    auto &channelWidget = dashboardLayouts_[activeModelSlot_].cells[1];
+    channelWidget.kind = DashboardWidgetKind::Channels;
+    channelWidget.style = DashboardWidgetStyle::Bars;
+    CrsfTelemetryState fixedTelemetry{};
+    fixedTelemetry.linkValid = true;
+    fixedTelemetry.uplinkLinkQuality = 100;
+    fixedTelemetry.receiverVoltageValid = true;
+    fixedTelemetry.receiverVoltageDecivolts = 66;
+    nextSensorSampleMs_ = millis() + 100000;
+    drawDashboard();
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+    auto *auditDisplay = lv_disp_get_default();
+    auto previousMonitor = auditDisplay->driver->monitor_cb;
+    auditDisplay->driver->monitor_cb = auditRefreshMonitor;
+    auditRedrawnPixels = 0;
+    for (int i = 0; i < 20; ++i) {
+        updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+        lv_refr_now(nullptr);
+    }
+    Serial.printf("UI redraw benchmark: 20 unchanged dashboard updates = %llu pixels\n",
+                  static_cast<unsigned long long>(auditRedrawnPixels));
+    assert(auditRedrawnPixels == 0);
+    // Changing data and status must still repaint immediately on the next tick.
+    const auto savedChannelValue = dashboardChannelValues_[0];
+    dashboardChannelValues_[0] = kCrsfMaximum;
+    fixedTelemetry.receiverVoltageDecivolts = 67;
+    fixedTelemetry.uplinkLinkQuality = 87;
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Armed, 99, true);
+    lv_refr_now(nullptr);
+    assert(auditRedrawnPixels > 0);
+    assert(strcmp(lv_label_get_text(widgetViews_[0].values[1]), "6.7 V") == 0);
+    assert(lv_bar_get_value(widgetViews_[1].bars[0]) == permilleFromCrsfValue(kCrsfMaximum));
+    assert(strcmp(lv_label_get_text(designStatus_), "Drive") == 0);
+    assert(lv_obj_has_flag(lv_obj_get_child(driveIcon_,0),LV_OBJ_FLAG_HIDDEN));
+    assert(strcmp(lv_label_get_text(designLink_), "87 LQ") == 0);
+    auditRedrawnPixels = 0;
+    fixedTelemetry.receiverVoltageValid = false;
+    fixedTelemetry.linkValid = false;
+    fixedTelemetry.linkUpdatedMs = 1;
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+    lv_refr_now(nullptr);
+    assert(auditRedrawnPixels > 0);
+    assert(strcmp(lv_label_get_text(widgetViews_[0].values[1]), "--") == 0);
+    assert(strcmp(lv_label_get_text(designStatus_), "Drive") == 0);
+    assert(!lv_obj_has_flag(lv_obj_get_child(driveIcon_,0),LV_OBJ_FLAG_HIDDEN));
+    assert(strcmp(lv_label_get_text(designLink_), "LQ stale") == 0);
+    // A blocked enable request remains visible without replacing the Drive label.
+    armRequested_=true;
+    updateDesign(fixedTelemetry,OutputSafetyStatus::LinkRequired,99,true);
+    assert(strcmp(lv_label_get_text(designLink_),"Link wait")==0);
+    assert(strcmp(lv_label_get_text(designStatus_),"Drive")==0);
+    assert(!lv_obj_has_flag(lv_obj_get_child(driveIcon_,0),LV_OBJ_FLAG_HIDDEN));
+    drawDesignPage(UiPage::OutputStatus);
+    updateDesign(fixedTelemetry,OutputSafetyStatus::LinkRequired,99,true);
+    assert(strcmp(lv_label_get_text(designDetails_[0]),"LINK WAIT")==0);
+    assert(strcmp(lv_label_get_text(designDetails_[1]),"Waiting for receiver link.")==0);
+    updateDesign(fixedTelemetry,OutputSafetyStatus::NeutralRequired,99,true);
+    assert(strcmp(lv_label_get_text(designDetails_[0]),"NEUTRAL WAIT")==0);
+    armRequested_=false;drawDashboard();lv_refr_now(nullptr);
+    updateDesign(fixedTelemetry,OutputSafetyStatus::Cut,99,true);
+    assert(strcmp(lv_label_get_text(designLink_),"LQ stale")==0);
+
+    auditRedrawnPixels = 0;
+    updateDesign(fixedTelemetry, OutputSafetyStatus::InputFault, 0, false);
+    lv_refr_now(nullptr);
+    assert(auditRedrawnPixels > 0);
+    assert(strcmp(lv_label_get_text(designStatus_), "Drive") == 0);
+    assert(lv_obj_get_style_bg_color(lv_obj_get_child(driveIcon_,1),0).full==colour(cRed).full);
+    assert(lv_obj_get_style_text_font(designStatus_, LV_PART_MAIN) == fontFor(16));
+    // Low voltage changes the warning colour as well as its text.
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 1, true);
+    assert(strcmp(lv_label_get_text(designLink_), "TX LOW") == 0);
+    assert(lv_obj_get_style_text_color(widgetViews_[0].values[0], LV_PART_MAIN).full == colour(cRed).full);
+    // A stopped timer, unchanged dials and a max-speed widget also stay idle.
+    dashboardLayouts_[activeModelSlot_].cells[0].style = DashboardWidgetStyle::Dials;
+    dashboardLayouts_[activeModelSlot_].cells[1].kind = DashboardWidgetKind::Sensor;
+    dashboardLayouts_[activeModelSlot_].cells[1].style = DashboardWidgetStyle::Numbers;
+    dashboardLayouts_[activeModelSlot_].cells[1].speedValue = SpeedWidgetValue::Maximum;
+    dashboardLayouts_[activeModelSlot_].cells[2].kind = DashboardWidgetKind::Timer;
+    runTimerRunning_ = false;
+    speedStatistics_.reset(millis() - 1);
+    speedStatistics_.update(123, millis(), millis(), true);
+    drawDashboard();
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+    lv_refr_now(nullptr);
+    auditRedrawnPixels = 0;
+    updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
+    lv_refr_now(nullptr);
+    assert(auditRedrawnPixels == 0);
+    assert(strcmp(lv_label_get_text(widgetViews_[1].values[0]), "12.3") == 0);
+    // Formatted updates must preserve text beyond the small stack buffer.
+    char longText[200];memset(longText, 'x', sizeof(longText)-1);longText[199] = 0;
+    uiSetTextFmt(widgetViews_[1].values[0], "%s", longText);
+    assert(strcmp(lv_label_get_text(widgetViews_[1].values[0]), longText) == 0);
+    auditDisplay->driver->monitor_cb = previousMonitor;
+    dashboardChannelValues_[0] = savedChannelValue;
+    dashboardLayouts_[activeModelSlot_] = savedLayout;
+    nextSensorSampleMs_ = savedSampleTime;
+    // Rebuilt menus render identically. Cache must suppress their transfer,
+    // while real navigation still sends changed pixels in both orientations.
+    drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);
+    uiMetrics = UiFrameMetrics{};
+    drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);
+    assert(uiMetrics.rendered > 0 && uiMetrics.sent == 0);
+    uiMetrics = UiFrameMetrics{};
+    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
+    Serial.printf("UI transition benchmark: Setup -> Tune rendered=%lu sent=%lu pixels build=%luus\n",
+        (unsigned long)uiMetrics.rendered, (unsigned long)uiMetrics.sent, (unsigned long)uiMetrics.buildUs);
+    assert(uiMetrics.sent > 0 && uiMetrics.sent < uiMetrics.rendered);
+    if (const char *prefix = getenv("JR_R1_AUDIT_CACHE_IMAGES")) {
+        char path[256];snprintf(path,sizeof(path),"%s-%s-cached.bmp",prefix,designPortrait?"portrait":"landscape");
+        simulatorSaveScreenshot(path);
+    }
+    // Invalidation guarantees a complete transfer after wake/reinitialisation.
+    pixelCache.invalidate();uiMetrics = UiFrameMetrics{};
+    lv_obj_invalidate(lv_scr_act());lv_refr_now(nullptr);
+    assert(uiMetrics.sent == kScreenWidth * kScreenHeight);
+    if (const char *prefix = getenv("JR_R1_AUDIT_CACHE_IMAGES")) {
+        char path[256];snprintf(path,sizeof(path),"%s-%s-full.bmp",prefix,designPortrait?"portrait":"landscape");
+        simulatorSaveScreenshot(path);
+    }
+    setDisplayCacheEnabled(false);
+    drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);
+    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
+    assert(uiMetrics.sent == uiMetrics.rendered && uiMetrics.sent == kScreenWidth * kScreenHeight);
+    if (const char *prefix = getenv("JR_R1_AUDIT_CACHE_IMAGES")) {
+        char path[256];snprintf(path,sizeof(path),"%s-%s-off.bmp",prefix,designPortrait?"portrait":"landscape");
+        simulatorSaveScreenshot(path);
+    }
+    setDisplayCacheEnabled(true);
+    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
+    assert(uiMetrics.sent == kScreenWidth * kScreenHeight); // Re-enable primes unknown rows.
+    drawDesignPage(UiPage::Tune);lv_refr_now(nullptr);
+    assert(uiMetrics.sent == 0);
+    // Accepted navigation action through the same page controller, then paint.
+    // Native SDL timing excludes hardware SPI and physical release debounce.
+    const uint8_t actions[] = {1,2,3,0};
+    const char *names[] = {"Tune","Data","Setup","Drive"};
+    uint32_t samples[4][7];
+    for (unsigned round = 0; round < 7; ++round) {
+        for (unsigned page = 0; page < 4; ++page) {
+            const uint32_t began = micros();
+            controlDesign(actions[page], PageControlEvent::Activate);
+            lv_obj_update_layout(lv_scr_act()); lv_refr_now(nullptr);
+            samples[page][round] = uint32_t(micros()) - began;
+        }
+    }
+    for (unsigned page = 0; page < 4; ++page) {
+        for (unsigned i = 1; i < 7; ++i) for (unsigned j = i; j && samples[page][j] < samples[page][j-1]; --j) {
+            const auto previous = samples[page][j-1]; samples[page][j-1] = samples[page][j]; samples[page][j] = previous;
+        }
+        Serial.printf("UI action-to-paint benchmark: %s median=%luus\n",names[page],(unsigned long)samples[page][3]);
+    }
+    const auto savedModel = channelModel_;
+    const auto savedHandler = safetyCutHandler_;
+    safetyCutHandler_ = auditConfigurationCut;
+    selectedChannel_ = throttleChannel(); tuneRole_ = 1;
+    for (uint8_t field : {0,1,2,3,4,7}) {
+        editorField_ = field; armRequested_ = true; safetyResetRequested_ = false;
+        const auto count = auditCutRequests;
+        applyDesignValue(designValue());
+        assert(!armRequested_ && safetyResetRequested_ && auditCutRequests == count+1);
+    }
+    armRequested_ = true; safetyResetRequested_ = false;
+    const auto oldTrim = channelModel_.parameters[selectedChannel_-1].trimPermille;
+    assert(applyChannelParameterAction(encodeChannelParameterTarget(selectedChannel_,ChannelParameterKind::Trim),oldTrim == 10 ? 20 : 10));
+    assert(armRequested_ && !safetyResetRequested_); // deliberate live trim remains live
+    const auto oldSubtrim = channelModel_.parameters[selectedChannel_-1].subtrimPermille;
+    assert(applyChannelParameterAction(encodeChannelParameterTarget(selectedChannel_,ChannelParameterKind::Subtrim),oldSubtrim == 10 ? 20 : 10));
+    assert(!armRequested_ && safetyResetRequested_);
+    channelModel_ = savedModel;
+    assert(persistChannelModel());
+    auto profile = channelModel_.responses[4]; profile.positiveRatePercent = profile.positiveRatePercent == 90 ? 100 : 90;
+    channelModel_.setResponse(5,profile);
+    settingsSavePending_ = true; settingsSaveDueMs_ = 0;
+    armRequested_ = true;
+    CrsfChannelOutputModel outputs; CrsfTelemetryState telemetry;
+    update(THROTTLE_ADC_CENTER,STEERING_ADC_CENTER,0,0,CRSF_CHANNEL_MID,
+           OutputSafetyStatus::Armed,telemetry,99,true,outputs,true);
+    assert(settingsSavePending_); // due settings never write with live outputs
+    ChannelModelController stored;
+    assert(ChannelSettingsRepository::load(activeModelSlot_,stored) == ChannelSettingsLoad::Loaded);
+    assert(stored.responses[4].positiveRatePercent == savedModel.responses[4].positiveRatePercent);
+    requestConfigurationCut();
+    lv_tick_inc(40);
+    update(THROTTLE_ADC_CENTER,STEERING_ADC_CENTER,0,0,CRSF_CHANNEL_MID,
+           OutputSafetyStatus::Cut,telemetry,99,true,outputs,false);
+    assert(!settingsSavePending_ && !channelParameterSavePending_);
+    assert(ChannelSettingsRepository::load(activeModelSlot_,stored) == ChannelSettingsLoad::Loaded);
+    assert(stored.responses[4].positiveRatePercent == profile.positiveRatePercent);
+    channelModel_ = savedModel; assert(persistChannelModel()); safetyCutHandler_ = savedHandler;
+    armRequested_ = false; safetyResetRequested_ = false;
+    Serial.println("UI edit safety: immediate CUT, live trim and deferred/coalesced persistence PASS");
+    Serial.println("UI responsiveness: unchanged draws, changed values and cached navigation PASS");
+    return true;
 }

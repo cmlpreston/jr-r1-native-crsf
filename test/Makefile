@@ -6,6 +6,8 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  channel_model_test \
+  control_engine_test \
   remote_arm_hold_test \
   rf_bench_session_test \
   model_appearance_test \
@@ -42,7 +44,20 @@ run: all
 	$(PYTHON) upload_preflight_test.py
 	$(PYTHON) flash_via_pi_test.py
 	$(PYTHON) input_monitor_test.py
+	@set -e; for test in *test.cjs; do node "$$test"; done
 	@set -e; for test in $(TESTS); do ./$(BUILD)/$$test; done
+
+$(BUILD)/control_engine_test: control_engine_test.cpp $(ROOT)/src/control_engine.cpp \
+    $(ROOT)/src/control_configuration.cpp $(ROOT)/src/proportional_input.cpp \
+    $(ROOT)/src/channel_response.cpp $(ROOT)/src/crsf_channel_output.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
+
+$(BUILD)/channel_model_test: channel_model_test.cpp $(ROOT)/src/channel_model.cpp \
+    $(ROOT)/src/channel_settings_repository.cpp $(ROOT)/simulator/preferences.cpp \
+    $(ROOT)/src/control_configuration.cpp $(ROOT)/src/channel_response.cpp $(ROOT)/src/crsf_channel_output.cpp
+	@mkdir -p $(@D)
+	$(CXX) -I$(ROOT)/simulator/include $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
 
 $(BUILD)/channel_response_test: channel_response_test.cpp $(ROOT)/src/channel_response.cpp
 	@mkdir -p $(@D)

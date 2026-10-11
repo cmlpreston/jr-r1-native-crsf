@@ -23,32 +23,12 @@ CPPFLAGS := -DJR_R1_SIMULATOR -DLV_CONF_INCLUDE_SIMPLE \
   -DJR_R1_BUILD_ENV=\"simulator\" \
   -Iinclude -I$(ROOT)/include -I$(ROOT) -I$(LVGL) \
   $(SDL_CFLAGS) $(OPENSSL_CFLAGS) $(EXTRA_CPPFLAGS)
-CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Wno-deprecated-declarations
-CFLAGS := -std=c11 -O0 -g
+CXXFLAGS := -MMD -MP -std=c++17 -O0 -g -Wall -Wextra -Wno-deprecated-declarations
+CFLAGS := -MMD -MP -std=c11 -O0 -g
 LDLIBS := $(SDL_LIBS) $(OPENSSL_LIBS)
 
-APP_CPP := \
-  main.cpp sdl_platform.cpp arduino_compat.cpp preferences.cpp \
-  crsf_management_native.cpp $(ROOT)/src/crsf_tx_config.cpp \
-  $(ROOT)/src/transmitter_ui_lvgl.cpp \
-  $(ROOT)/src/channel_response.cpp \
-  $(ROOT)/src/control_configuration.cpp \
-  $(ROOT)/src/proportional_input.cpp \
-  $(ROOT)/src/control_assignment.cpp \
-  $(ROOT)/src/binding_resolver.cpp \
-  $(ROOT)/src/physical_input.cpp \
-  $(ROOT)/src/physical_input_runtime.cpp \
-  $(ROOT)/src/r1_input_map.cpp \
-  $(ROOT)/src/crsf_channel_output.cpp \
-  $(ROOT)/src/output_safety.cpp \
-  $(ROOT)/src/jr_propo_boot_logo.cpp \
-  $(ROOT)/src/r1_evo_wordmark.cpp \
-  $(ROOT)/src/setup_portal.cpp \
-  $(ROOT)/src/offline_map.cpp \
-  $(ROOT)/src/gps_basemap.cpp \
-  $(ROOT)/src/model_image.cpp \
-  $(ROOT)/src/model_image_assets.cpp \
-  $(ROOT)/src/hyper7_icon.cpp
+include sources.mk
+APP_CPP := main.cpp sdl_platform.cpp $(SHARED_APP_CPP)
 LVGL_C := $(shell test -d $(LVGL)/src && find $(LVGL)/src -name '*.c')
 APP_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(APP_CPP)))
 LVGL_OBJ := $(patsubst $(LVGL)/src/%.c,$(BUILD)/lvgl/%.o,$(LVGL_C))
@@ -99,8 +79,9 @@ browser: all portrait
 clean:
 	rm -rf build build-portrait
 
-# UI/model headers change object layouts; rebuild every consumer together.
-$(APP_OBJ): $(wildcard $(ROOT)/include/*.h) $(wildcard include/*.h) $(ROOT)/src/transmitter_ui_wifi.inc $(ROOT)/src/transmitter_ui_design.inc $(ROOT)/src/transmitter_ui_portrait.inc $(ROOT)/src/transmitter_ui_mixing.inc ui_audit.inc
+# Compiler dependencies follow the actual consumers of headers and .inc files.
+-include $(APP_OBJ:.o=.d) $(LVGL_OBJ:.o=.d)
+$(APP_OBJ) $(LVGL_OBJ): Makefile sources.mk
 
 $(LVGL_OBJ): $(ROOT)/include/lv_conf.h
 

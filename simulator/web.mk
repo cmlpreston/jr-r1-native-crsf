@@ -17,34 +17,14 @@ CPPFLAGS := -DJR_R1_SIMULATOR -DLV_CONF_INCLUDE_SIMPLE \
   -DJR_R1_GIT_STATE=\"$(GIT_STATE)\" -DJR_R1_BUILD_ENV=\"browser-demo\" \
   -Iinclude -I$(ROOT)/include -I$(ROOT) -I$(LVGL) \
   $(if $(filter portrait,$(ORIENTATION)),-DJR_R1_UI_PORTRAIT,)
-CXXFLAGS := -std=c++17 -O2 -Wall -Wextra
-CFLAGS := -std=c11 -O2
+CXXFLAGS := -MMD -MP -std=c++17 -O2 -Wall -Wextra
+CFLAGS := -MMD -MP -std=c11 -O2
 LDLIBS := -O2 -sMODULARIZE=1 -sEXPORT_NAME=createR1Simulator \
   -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sENVIRONMENT=web \
   -sEXPORTED_RUNTIME_METHODS='["FS"]' -sFORCE_FILESYSTEM=1
 
-APP_CPP := \
-  main.cpp web_platform.cpp arduino_compat.cpp preferences.cpp \
-  crsf_management_native.cpp $(ROOT)/src/crsf_tx_config.cpp \
-  $(ROOT)/src/transmitter_ui_lvgl.cpp \
-  $(ROOT)/src/channel_response.cpp \
-  $(ROOT)/src/control_configuration.cpp \
-  $(ROOT)/src/proportional_input.cpp \
-  $(ROOT)/src/control_assignment.cpp \
-  $(ROOT)/src/binding_resolver.cpp \
-  $(ROOT)/src/physical_input.cpp \
-  $(ROOT)/src/physical_input_runtime.cpp \
-  $(ROOT)/src/r1_input_map.cpp \
-  $(ROOT)/src/crsf_channel_output.cpp \
-  $(ROOT)/src/output_safety.cpp \
-  $(ROOT)/src/jr_propo_boot_logo.cpp \
-  $(ROOT)/src/r1_evo_wordmark.cpp \
-  $(ROOT)/src/setup_portal.cpp \
-  $(ROOT)/src/offline_map.cpp \
-  $(ROOT)/src/gps_basemap.cpp \
-  $(ROOT)/src/model_image.cpp \
-  $(ROOT)/src/model_image_assets.cpp \
-  $(ROOT)/src/hyper7_icon.cpp
+include sources.mk
+APP_CPP := main.cpp web_platform.cpp $(SHARED_APP_CPP)
 LVGL_C := $(shell find $(LVGL)/src -name '*.c')
 APP_OBJ := $(patsubst %.cpp,$(BUILD)/%.o,$(notdir $(APP_CPP)))
 LVGL_OBJ := $(patsubst $(LVGL)/src/%.c,$(BUILD)/lvgl/%.o,$(LVGL_C))
@@ -71,8 +51,9 @@ $(BUILD)/lvgl/%.o: $(LVGL)/src/%.c
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-# UI/model headers change object layouts; rebuild every consumer together.
-$(APP_OBJ): $(wildcard $(ROOT)/include/*.h) $(wildcard include/*.h) $(ROOT)/src/transmitter_ui_wifi.inc $(ROOT)/src/transmitter_ui_design.inc $(ROOT)/src/transmitter_ui_portrait.inc $(ROOT)/src/transmitter_ui_mixing.inc ui_audit.inc
+# Compiler dependencies follow the actual consumers of headers and .inc files.
+-include $(APP_OBJ:.o=.d) $(LVGL_OBJ:.o=.d)
+$(APP_OBJ) $(LVGL_OBJ): web.mk sources.mk
 
 $(LVGL_OBJ): $(ROOT)/include/lv_conf.h
 

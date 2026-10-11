@@ -92,17 +92,20 @@ int TransmitterUi::designValue() const
 
 void TransmitterUi::applyDesignValue(int value)
 {
-    if(editorField_==7){profileForChannel(selectedChannel_).subtrimPercent=value;sanitizeChannelResponseProfile(profileForChannel(selectedChannel_));scheduleSettingsSave();return;}
+    if (editorField_ == 7) {
+        auto profile = profileForChannel(selectedChannel_); profile.subtrimPercent = value;
+        channelModel_.setResponse(selectedChannel_, profile); scheduleSettingsSave(); return;
+    }
     if (editorField_ >= 5) {
         applyChannelParameterAction(encodeChannelParameterTarget(selectedChannel_,
             editorField_ == 5 ? ChannelParameterKind::Trim : ChannelParameterKind::Subtrim), value * 10);
         return;
     }
-    auto &p = profileForChannel(selectedChannel_);
+    auto p = profileForChannel(selectedChannel_);
     if (editorField_ == 2 && tuneRole_ == 0) {
         p.negativeEndpointPercent = steeringEndpointDrafts_[0];
         p.positiveEndpointPercent = steeringEndpointDrafts_[1];
-        sanitizeChannelResponseProfile(p);
+        channelModel_.setResponse(selectedChannel_, p);
         scheduleSettingsSave();
         return;
     }
@@ -116,7 +119,7 @@ void TransmitterUi::applyDesignValue(int value)
         case 3: if (positive) p.positiveRampMs = value; if (negative) p.negativeRampMs = value; break;
         case 4: p.reversed = value != 0; break;
     }
-    sanitizeChannelResponseProfile(p);
+    channelModel_.setResponse(selectedChannel_, p);
     scheduleSettingsSave();
 }
 
@@ -616,22 +619,22 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         if(item==180){if(designTouchDispatch_&&lastTouchDurationMs_>=800)drawDesignPage(UiPage::WidgetSelect);else{statusReturnPage_=UiPage::Dashboard;drawDesignPage(UiPage::OutputStatus);}return;}
         if(item==181){
             if(designTouchDispatch_&&armGestureValid_&&lastTouchDurationMs_>=kDashboardArmHoldMs){
-                if(armRequested_){armRequested_=false;safetyResetRequested_=true;}
+                if(armRequested_){requestConfigurationCut();}
                 else if(!SetupPortal::active()&&(!remoteTouchActive_||remoteArmHoldDispatch_)&&!calibrationActive()){armRequested_=true;safetyResetRequested_=true;activePage_=statusReturnPage_;redrawActivePage();}
             }
             return;
         }
-        if(item==182||item==183){if(!requestDriveMode(item==182?DriveMode::Walk:DriveMode::Normal))return;armRequested_=false;safetyResetRequested_=true;saveDriveModeSettings();if(activePage_==UiPage::ModeChooser)drawDashboard();else drawDesignPage(UiPage::DriveModes);return;}
+        if(item==182||item==183){if(!requestDriveMode(item==182?DriveMode::Walk:DriveMode::Normal))return;requestConfigurationCut();saveDriveModeSettings();if(activePage_==UiPage::ModeChooser)drawDashboard();else drawDesignPage(UiPage::DriveModes);return;}
         if(item==184){driveModesReturnPage_=UiPage::Dashboard;drawDriveModesPage();return;}
-        if(item==185||item==219||item==220){driveModeSettings_.walkLimitPercent=constrain(driveModeSettings_.walkLimitPercent+(item==219||event==PageControlEvent::Decrease?-5:5),10,80);armRequested_=false;safetyResetRequested_=true;saveDriveModeSettings();drawDriveModesPage();return;}
+        if(item==185||item==219||item==220){driveModeSettings_.walkLimitPercent=constrain(driveModeSettings_.walkLimitPercent+(item==219||event==PageControlEvent::Decrease?-5:5),10,80);requestConfigurationCut();saveDriveModeSettings();drawDriveModesPage();return;}
         if(item==186){channelInputPage_=0;drawDesignPage(UiPage::ChannelInput);return;}
         if(item==187){drawDesignPage(UiPage::ChannelResponseSetup);return;}
-        if(item==188){mixingDraft_=channelMixing_[selectedChannel_-1];mixingSaveError_=false;drawDesignPage(UiPage::MixingOverview);return;}
+        if(item==188){mixingDraft_=channelModel_.mixing[selectedChannel_-1];mixingSaveError_=false;drawDesignPage(UiPage::MixingOverview);return;}
         if(item==189){channelInputPage_=1;channelRoleConflict_=false;drawDesignPage(UiPage::ChannelInput);return;}
         if(item==190){assignmentChannelContext_=selectedChannel_;assignmentBank_=0;drawControlAssignmentsPage();return;}
-        if(item==191){if(selectedChannel_==steeringChannel())channelRoleSettings_.steeringEnabled=!steeringEnabled();else if(selectedChannel_==throttleChannel())channelRoleSettings_.throttleEnabled=!throttleEnabled();else{assignmentChannelContext_=selectedChannel_;drawControlAssignmentsPage();return;}armRequested_=false;safetyResetRequested_=true;channelRolesChanged_=true;saveChannelRoleSettings();drawDesignPage(UiPage::ChannelInput);return;}
+        if(item==191){if(selectedChannel_==steeringChannel())channelRoleSettings_.steeringEnabled=!steeringEnabled();else if(selectedChannel_==throttleChannel())channelRoleSettings_.throttleEnabled=!throttleEnabled();else{assignmentChannelContext_=selectedChannel_;drawControlAssignmentsPage();return;}requestConfigurationCut();channelRolesChanged_=true;saveChannelRoleSettings();drawDesignPage(UiPage::ChannelInput);return;}
         if(item==192){if(selectedChannel_==steeringChannel())startCalibration(latestSteeringRawAdc_,true);else if(selectedChannel_==throttleChannel())drawPage();return;}
-        if(item==193||item==194){bool steer=item==193;channelRoleConflict_=selectedChannel_==(steer?throttleChannel():steeringChannel())||bindingUsesChannel(selectedChannel_,PhysicalControlId::Count);if(!channelRoleConflict_){if(steer)channelRoleSettings_.steeringChannel=selectedChannel_;else channelRoleSettings_.throttleChannel=selectedChannel_;armRequested_=false;safetyResetRequested_=true;channelRolesChanged_=true;saveChannelRoleSettings();channelInputPage_=0;}drawDesignPage(UiPage::ChannelInput);return;}
+        if(item==193||item==194){bool steer=item==193;channelRoleConflict_=selectedChannel_==(steer?throttleChannel():steeringChannel())||bindingUsesChannel(selectedChannel_,PhysicalControlId::Count);if(!channelRoleConflict_){if(steer)channelRoleSettings_.steeringChannel=selectedChannel_;else channelRoleSettings_.throttleChannel=selectedChannel_;requestConfigurationCut();channelRolesChanged_=true;saveChannelRoleSettings();channelInputPage_=0;}drawDesignPage(UiPage::ChannelInput);return;}
         if(item==195){tuneRole_=selectedChannel_==steeringChannel()?0:selectedChannel_==throttleChannel()?1:3;tuneBank_=0;drawDesignPage(UiPage::Tune);return;}
         if(item==196){responseDetailBank_=0;tuneRole_=3;drawDesignPage(UiPage::ResponseProfile);return;}
         if(item==197||item==198){
@@ -654,7 +657,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
             if(activePage_==UiPage::ModeChooser||activePage_==UiPage::DriveModes){drawDesignPage(driveModesReturnPage_);return;}
             drawMainMenu();return;
         }
-        if(item==210||item==211||item==212){armRequested_=false;safetyResetRequested_=true;SetupPortal::start();wifiWebAccess_=item==211;wifiEdit_=item==212?5:0;snprintf(wifiSsid_,sizeof(wifiSsid_),"%s",SetupPortal::state().ssid);drawWifiPage();return;}
+        if(item==210||item==211||item==212){requestConfigurationCut();SetupPortal::start();wifiWebAccess_=item==211;wifiEdit_=item==212?5:0;snprintf(wifiSsid_,sizeof(wifiSsid_),"%s",SetupPortal::state().ssid);drawWifiPage();return;}
     }
     if(item>=169&&item<=179){
         uint8_t entries[DashboardMonitorMaxEntries];const int total=dashboardMonitorEntries(0xffff,widgetDraft_.source,entries),pages=(total+4)/5;
@@ -682,20 +685,20 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     }
     if(item==152){
         wifiWebAccess_=false;
-        armRequested_=false;safetyResetRequested_=true;wifiEdit_=0;
+        requestConfigurationCut();wifiEdit_=0;
         snprintf(wifiSsid_,sizeof(wifiSsid_),"%s",SetupPortal::state().ssid);
         wifiPassword_[0]=0;SetupPortal::start();drawWifiPage();return;
     }
     if(item==0&&designTouchDispatch_&&armGestureValid_&&lastTouchDurationMs_>=kDashboardArmHoldMs){
         // Manual output changes require the full hold in either direction.
-        if(armRequested_){armRequested_=false;safetyResetRequested_=true;}
+        if(armRequested_){requestConfigurationCut();}
         else if(!SetupPortal::active()&&(!remoteTouchActive_||remoteArmHoldDispatch_)&&!calibrationActive()){armRequested_=true;safetyResetRequested_=true;}
         drawDashboard();return;
     }
     if(item<=3){
         if(item==0&&calibrationActive()){
             (calibratingSteering_?steeringInput_:triggerInput_).cancelCalibration();
-            armRequested_=false;safetyResetRequested_=true;
+            requestConfigurationCut();
         }
         designBank_=0;if(item==3)setupBank_=0;drawDesignPage(item==0?UiPage::Dashboard:item==1?UiPage::Tune:item==2?UiPage::Telemetry:UiPage::MainMenu);return;}
     if(item==4){drawModelSelectPage();return;}
@@ -822,6 +825,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             case OutputSafetyStatus::NeutralRequired:reason="Release throttle to neutral before arming.";break;
             case OutputSafetyStatus::Calibration:reason="Calibration active; output remains CUT.";break;
             case OutputSafetyStatus::InputFault:reason="Input fault. Check connections and assignments.";col=cRed;break;
+            case OutputSafetyStatus::ConfigurationFault:reason="Model settings invalid. Review channels and save before enabling output.";col=cRed;break;
             case OutputSafetyStatus::ControlStale:reason="Input data stale; output remains CUT.";col=cRed;break;
             case OutputSafetyStatus::ChannelDisabled:reason="Required channel disabled; output remains CUT.";break;
             case OutputSafetyStatus::Cut:break;
@@ -1196,7 +1200,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
 }
 
 bool TransmitterUi::dashboardBinaryChannel(uint8_t ch,int &off,int &on) const {
-    if(ch>=16||ch+1==channelRoleSettings_.steeringChannel||ch+1==channelRoleSettings_.throttleChannel||channelHasMix(channelMixing_[ch]))return false;
+    if(ch>=16||ch+1==channelRoleSettings_.steeringChannel||ch+1==channelRoleSettings_.throttleChannel||channelHasMix(channelModel_.mixing[ch]))return false;
     const ControlBinding *found=nullptr;
     for(size_t i=0;i<bindingCount_;++i){const auto &b=bindings_[i];
         if(!b.enabled||b.target!=AssignmentTarget::CrsfChannel||b.crsfChannel!=ch+1)continue;
@@ -1206,7 +1210,7 @@ bool TransmitterUi::dashboardBinaryChannel(uint8_t ch,int &off,int &on) const {
         found=&b;
     }
     if(!found)return false;
-    const auto transform=[&](int value){return constrain(int(applyChannelResponse(channelProfiles_[ch],value))+channelParameters_[ch].trimPermille+channelParameters_[ch].subtrimPermille,-1000,1000);};
+    const auto transform=[&](int value){return constrain(int(applyChannelResponse(channelModel_.responses[ch],value))+channelModel_.parameters[ch].trimPermille+channelModel_.parameters[ch].subtrimPermille,-1000,1000);};
     off=transform(found->inverted?found->maximum:found->minimum);on=transform(found->inverted?found->minimum:found->maximum);
     return abs(on-off)>50;
 }

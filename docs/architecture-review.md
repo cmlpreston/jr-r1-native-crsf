@@ -1,6 +1,61 @@
 # Control and channel architecture review
 
-Status: active incremental refactor, updated 2026-08-26
+Status: active incremental refactor, updated 2026-10-11
+
+## Safety and ownership update — 2026-10-11
+
+The pre-refactor working tree is preserved in commit `4cc5872` on branch
+`codex/safety-control-refactor`. This is a recovery checkpoint, not evidence
+that the checkpoint firmware is safe to upload.
+
+Three safety gaps are addressed:
+
+- Steering validity is checked even when no explicit mix is configured. Invalid
+  proportional inputs cannot contribute live output; invalid channel-role maps
+  and mix graphs report `ConfigurationFault`.
+- `ControlOutputMailbox` serialises CUT commands and output publication under
+  one lock. An in-flight cycle cannot overwrite a newer CUT, publish while an
+  edited configuration is pending, or publish an outdated configuration revision.
+  CUT does not refresh the sample timestamp.
+- Response, sub-trim, role, calibration, binding and mix edits require CUT and
+  explicit neutral re-arm. The UI requests CUT before potentially blocking page
+  construction or persistence. The engine independently detects structural edits
+  and inhibits arming until the arm request is released. Ordinary live trim keeps
+  its existing behaviour.
+
+`ControlEngine` now owns input conditioning, slew/mix runtime and link/neutral
+qualification. Hardware and SDL provide samples and time to the same engine.
+It performs no allocation, persistence, logging or LVGL work. Configuration
+contents must be immutable within a revision; every edit publishes a new revision.
+Graph validation/topological ordering is cached per structural configuration,
+and input validity plus mixed-throttle neutrality share one inspection pass.
+Return-link loss after arming remains advisory, preserving the existing policy;
+receiver RF-loss failsafe remains a separate protection.
+
+`ChannelModelController` owns channel responses, parameters and mixing.
+`ChannelSettingsRepository` persists these in one explicit little-endian,
+versioned, CRC32-protected record per model, verifies writes and skips identical
+records. A missing record imports legacy response/parameter blobs and mixer
+versions 1–4 without writing during load. A present invalid record inhibits output
+and never silently falls back to legacy data. Legacy blobs remain intact; older
+firmware will read its older settings, not later edits to the new record.
+
+UI channel edits use the controller/repository boundary. Touch response edits
+are coalesced and saved after painting, after the gesture ends and output is
+acknowledged safe. Portal actions are separated into `transmitter_ui_remote.inc`.
+SDL and web builds share `simulator/sources.mk` and track compiler-generated
+header dependencies.
+
+This remains an incremental refactor. Interactive calibration, role/binding and
+system persistence, display drivers and page lifecycle still have UI ownership.
+The two sub-trim stages and transport travel limits retain their current semantics;
+changing them needs a separate migration decision.
+
+Validation includes host control/mailbox/codec/migration tests, browser tests,
+XIAO portrait firmware compilation, both SDL orientations and full interaction,
+rotation, memory and display-cache audits. No firmware was uploaded. Native
+performance measurements and their limits are recorded in
+[`ui-responsiveness.md`](ui-responsiveness.md).
 
 This review defines the ownership boundaries required before steering, custom
 curves, ABS, throttle hold and multiple model profiles are added. Refactoring
@@ -74,16 +129,16 @@ not perform response calculations used by the live control path.
 | Data | Correct owner | Current state | Required change |
 |---|---|---|---|
 | ADC min/centre/max | Physical proportional input | Throttle-owned `ProportionalInput` inside UI | Create one input profile/runtime per proportional control |
-| ADC filter and deadband | Physical proportional input runtime | Filter in `main.cpp`; deadband partly in UI mapping | Move into one host-testable conditioning stage |
+| ADC filter and deadband | Physical proportional input runtime | Host-testable `ProportionalInputRuntime`, owned by `ControlEngine` | Retain the shared hardware/simulator path |
 | Steering/throttle channel numbers | Model role map | `ChannelRoleSettings` in UI | Move into versioned model configuration |
-| Endpoint/rate/expo/reverse/ramp | Output-channel response profile | Published in coherent control snapshot; ramp runtime is control-task-owned | Move persistence into versioned model configuration |
+| Endpoint/rate/expo/reverse/ramp | Output-channel response profile | `ChannelModelController`, explicit versioned persistence; ramp runtime owned by `ControlEngine` | Retain the model/runtime boundary |
 | Response curve | Output-channel response profile | Linear + expo only | Add later as a versioned optional curve |
 | Trim/sub-trim | Output channel | Two independent sub-trim mechanisms currently stack | Choose one canonical channel-offset stage and migrate values |
 | Walk/hold/ABS | Logical drive-role modifier | Walk is throttle-specific in UI | Extract role-aware drive modifiers after unified axes |
 | Binding state | Binding resolver/model | Mostly separated | Move persistence into the model profile |
 | Requested/safe channel values | Output model | Separated correctly | Retain |
 | CUT/failsafe/stale-input decision | Final safety arbiter | CRSF-task arbiter selects the complete requested or safe model immediately before framing | Add model-configurable safe values and mirror them in receiver failsafe settings |
-| UI page state | UI only | Mixed with control settings in `TransmitterUi` | Split UI controller/pages from model and processing |
+| UI page state | UI only | Channel model and control engine extracted; calibration, role/binding settings and display/page lifecycle still in `TransmitterUi` | Continue splitting focused UI modules |
 
 ## Findings and decisions required
 
@@ -157,10 +212,10 @@ not perform response calculations used by the live control path.
 
 7. **Persistence is fragmented and ABI-dependent**
 
-   Settings span many NVS namespaces. Several records are raw C++ structure
-   blobs, so field order, padding and `bool` representation are part of an
-   undocumented storage ABI. A versioned `ModelProfile` should use explicit
-   serialisation and migration.
+   Channel responses, parameters and mixes now use an explicit versioned
+   record. Remaining settings span several NVS namespaces, including raw C++
+   structure blobs whose padding and field layout remain part of their storage
+   ABI. Extend explicit serialisation and migration to those model fields.
 
 8. **Historical CH2 names obscure generic behaviour**
 
@@ -184,8 +239,9 @@ Every refactor and new feature must demonstrate:
    live throttle demand.
 3. Final safety arbitration occurs after bindings, response shaping, mixes,
    modes, hold and future ABS.
-4. A settings edit or model change forces CUT and neutral re-arm before the new
-   configuration can drive the vehicle.
+4. A structural settings edit or model change forces CUT and neutral re-arm before
+   the new configuration can drive the vehicle. Deliberately assigned live trim
+   retains its existing behaviour.
 5. Channel roles are unique and valid; no output has two unacknowledged writers.
 6. Safe values are explicit for every enabled retained channel.
 7. UI page changes cannot alter channel output unless the activated control is
@@ -253,6 +309,8 @@ not wait for LVGL, touch, NVS, I2C, USB logging or telemetry parsing.
 - [ ] Define a versioned `ModelProfile`: role map, response profiles, channel
   parameters, bindings, drive modes, battery settings and safe values.
 - [ ] Replace raw-structure NVS blobs with explicit serialisation and migration.
+  Channel responses, parameters and mixing now use an explicit versioned record;
+  role/binding/system records remain to be migrated.
 - [x] Publish an immutable `ControlConfiguration` snapshot to the control task.
 
 ### D. Unified control and safety pipeline

@@ -32,6 +32,7 @@ void testStaleControlOverridesEveryControlStatus()
         OutputSafetyStatus::InputFault,
         OutputSafetyStatus::ControlStale,
         OutputSafetyStatus::ChannelDisabled,
+        OutputSafetyStatus::ConfigurationFault,
     };
     for (OutputSafetyStatus status : statuses) {
         const OutputSafetyDecision decision =

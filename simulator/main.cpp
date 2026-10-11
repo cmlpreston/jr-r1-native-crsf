@@ -1,3 +1,4 @@
+#include "control_engine.h"
 #include "transmitter_ui.h"
 #include "setup_portal.h"
 #include "crsf_channel_output.h"
@@ -59,7 +60,7 @@ void emulateManagementRequest(const ElrsManagementRequest &request,
 
 int main(int argc, char **argv)
 {
-    bool auditUi=false;
+    bool auditUi=false, auditPerformance=false;
     std::string screenshotPath;
     std::string initialPage;
 #ifdef __EMSCRIPTEN__
@@ -73,6 +74,7 @@ int main(int argc, char **argv)
     [[maybe_unused]] uint32_t runForMs = 0;
     for (int index = 1; index < argc; ++index) {
         if (std::strcmp(argv[index], "--ui-audit") == 0) auditUi=true;
+        else if (std::strcmp(argv[index], "--ui-perf-audit") == 0) auditPerformance=true;
         else if (std::strcmp(argv[index], "--screenshot") == 0 && index + 1 < argc)
             screenshotPath = argv[++index];
         else if (std::strcmp(argv[index], "--page") == 0 && index + 1 < argc)
@@ -93,9 +95,8 @@ int main(int argc, char **argv)
     }
 
     static TransmitterUi ui;
-    static ChannelSlewRuntime channelSlew;
-    static ChannelMixRuntime channelMix;
-    static bool previousMixLive=false;
+    static ControlEngine controlEngine;
+    static uint32_t resetSequence=0, configurationRevision=0;
     static ControlConfigurationSnapshot previousMixConfiguration;
     static bool haveMixConfiguration=false;
     static SimulatorHandsetInputs handset;
@@ -103,7 +104,10 @@ int main(int argc, char **argv)
     static bool bindingsLoaded = false;
     if (!ui.begin()) return 1;
     ui.setStartupPreflight(true, 0);
-    if(auditUi)return ui.runSimulatorUiAudit()?0:1;
+    if (auditUi || auditPerformance) {
+        std::setvbuf(stdout,nullptr,_IONBF,0);
+        return (auditPerformance ? ui.runSimulatorPerformanceAudit() : ui.runSimulatorUiAudit()) ? 0 : 1;
+    }
     ui.selectSimulatorChannel(initialChannel);
     if (initialPage == "dashboard")
         ui.showSimulatorPage(UiPage::Dashboard);
@@ -201,7 +205,7 @@ int main(int argc, char **argv)
             if (!bindings.setBindings(profile, count).ok()) bindings.clear();
             bindingsLoaded = true;
             ui.applyTransmitterFunctionAction(static_cast<uint16_t>(TransmitterFunction::ArmCut), 0);
-            channelSlew.reset(now);
+            ++resetSequence;
         }
         PhysicalInputEventBuffer inputEvents;
         handset.update(controls.handsetContacts, controls.steeringPermille,
@@ -223,7 +227,7 @@ int main(int argc, char **argv)
                 ui.applyDriveModeAction(item.targetId, item.value);
         }
         const int16_t rawPermille = ui.mapAdcToPermille(rawAdc);
-        const ControlConfigurationSnapshot configuration =
+        ControlConfigurationSnapshot configuration =
             ui.controlConfigurationSnapshot();
         MixInputSnapshot mixInputs;
         for(uint8_t id=0;id<kPhysicalControlCount;++id) {
@@ -233,31 +237,28 @@ int main(int argc, char **argv)
             mixInputs.values[id]=id<2?state.value:kind==PhysicalControlKind::SpringCentredTrim?
                 (state.stableSecondary?1000:state.stablePrimary?-1000:0):(state.stablePrimary?1000:-1000);
         }
-        mixInputs.values[0]=mapProportionalInputToPermille(steeringProfile,steeringAdc);
-        mixInputs.values[1]=rawPermille;
-        CrsfChannelOutputModel channelOutputs;
-        if(!haveMixConfiguration||!equivalentControlConfiguration(configuration,previousMixConfiguration)) {
-            channelMix.reset();previousMixConfiguration=configuration;haveMixConfiguration=true;
-        }
-        bindings.applyChannelOutputs(channelOutputs,configuredRoleOwnedChannels(configuration));
-        OutputSafetyStatus safety = !configuredMixInputsValid(configuration,mixInputs,&channelOutputs)?
-            OutputSafetyStatus::InputFault:configuration.calibrationActive
-            ? OutputSafetyStatus::Calibration : ui.throttleEnabled()
-            ? (ui.armRequested() ? (controls.linkValid ? OutputSafetyStatus::Armed
-                : OutputSafetyStatus::LinkRequired) : OutputSafetyStatus::Cut)
-            : OutputSafetyStatus::ChannelDisabled;
-        if(safety==OutputSafetyStatus::Armed&&!previousMixLive&&!configuredMixedThrottleNeutral(configuration,mixInputs,&channelOutputs))
-            safety=OutputSafetyStatus::NeutralRequired;
-        const bool live=safety==OutputSafetyStatus::Armed;
-        previousMixLive=live;
-        if(!live){channelSlew.reset(now);channelMix.reset();}
-        processConfiguredMixedOutputs(configuration,channelOutputs,mixInputs,channelMix,channelSlew,now,live);
+        if (!haveMixConfiguration || !equivalentControlConfiguration(configuration, previousMixConfiguration)) {
+            configuration.revision = ++configurationRevision;
+            previousMixConfiguration = configuration;
+            haveMixConfiguration = true;
+        } else configuration.revision = configurationRevision;
+        ControlCycleInput input;
+        input.nowMs = now; input.resetSequence = resetSequence;
+        input.startupComplete = true;
+        input.throttleAdc = rawAdc; input.steeringAdc = steeringAdc;
+        input.linkValid = controls.linkValid; input.linkQuality = controls.linkQualityPercent;
+        input.digitalInputs = mixInputs;
+        bindings.applyChannelOutputs(input.bindings, configuredRoleOwnedChannels(configuration));
+        const auto result = controlEngine.update(configuration, input);
+        const auto &channelOutputs = result.outputs;
+        const auto safety = result.safety;
+        const bool live = safety == OutputSafetyStatus::Armed;
         const uint16_t crsf=live?channelOutputs.requested(ui.throttleChannel()):channelOutputs.safe(ui.throttleChannel());
         const int16_t output=permilleFromCrsfValue(crsf);
         ui.update(rawAdc, steeringAdc, rawPermille, output, crsf, safety, telemetry,
                   controls.transmitterVoltageDecivolts, true,
                   channelOutputs, safety == OutputSafetyStatus::Armed);
-        if (ui.consumeSafetyResetRequested()) {channelSlew.reset(now);channelMix.reset();}
+        if (ui.consumeSafetyResetRequested()) ++resetSequence;
         if (initialTxParameter > 0 && ui.selectSimulatorTxParameter(initialTxParameter))
             initialTxParameter = 0;
         if (initialModel >= 0) {

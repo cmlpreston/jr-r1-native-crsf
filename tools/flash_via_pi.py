@@ -108,7 +108,7 @@ def remote_script(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--environment', choices=ENVIRONMENTS, default=ENVIRONMENTS[0], help='Default: current landscape layout')
+    parser.add_argument('--environment', choices=ENVIRONMENTS, default=ENVIRONMENTS[1], help='Default: installed portrait layout')
     parser.add_argument('--host', default='pi@gateway.purplenet.online')
     parser.add_argument('--ssh-port', type=int, default=10022)
     parser.add_argument('--remote-dir', default='/home/pi/r1-dev/releases/ui-drive-20261001', help='Reuse this existing Pi checkout')

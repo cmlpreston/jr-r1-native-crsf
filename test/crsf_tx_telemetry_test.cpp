@@ -78,11 +78,16 @@ int main() {
     feed(parser,0x0e,cells,true);
     assert(parser.state().vehicleCellsUpdatedMs==10000 && parser.state().vehiclePackMv==16040);
     testNow=13000;parser.updateFreshness();assert(parser.state().vehicleCellsValid);
-    testNow=13001;parser.updateFreshness();assert(!parser.state().vehicleCellsValid);
+    testNow=13001;parser.updateFreshness();assert(parser.state().vehicleCellsValid);
+    assert(parser.state().vehiclePackMv==16040 && parser.state().vehicleCellsMv[0]==3988);
+    testNow=30000;parser.updateFreshness();assert(parser.state().vehicleCellsValid);
+    testNow=30001;parser.updateFreshness();assert(!parser.state().vehicleCellsValid);
+    feed(parser,0x0e,cells);assert(parser.state().vehicleCellsValid); // recovery on the next good packet
     assert(parser.state().receiverVoltageValid);
     testNow=UINT32_MAX-100;feed(parser,0x0e,cells);
     testNow=200;parser.updateFreshness();assert(parser.state().vehicleCellsValid);
-    testNow=4000;parser.updateFreshness();assert(!parser.state().vehicleCellsValid);
+    testNow=19899;parser.updateFreshness();assert(parser.state().vehicleCellsValid);
+    testNow=19900;parser.updateFreshness();assert(!parser.state().vehicleCellsValid);
     // Variable packs are counted from cell data; shorter packs clear old slots.
     for(unsigned count : {1U, 3U, 4U, 6U, 12U}) {
         std::vector<uint8_t> packet={0};

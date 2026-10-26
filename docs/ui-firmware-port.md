@@ -198,8 +198,9 @@ not replace testing touch feel, LCD visibility or RF operation on the handset.
 
 The ER4 trial forwards the verified FLVS ADV `0xa1/0x0300` four-cell scan
 as CRSF voltage group `0x0e`, source 0, four big-endian millivolt values.
-The transmitter accepts complete, plausible 4S groups atomically and expires
-readings after 3 seconds. These values are separate from `0x08` receiver supply.
+The transmitter accepts complete, plausible cell groups atomically and retains
+the last readings for 20 seconds without a valid cell update before showing `--`.
+This allows intermittent sensor/RF updates without flickering values. These values are separate from `0x08` receiver supply.
 No cell alarm threshold is inferred from the pack type.
 
 Open **Data → Sensors**, then the right arrow to **Drive battery 2 / 3**

@@ -16,6 +16,8 @@ constexpr uint32_t kLinkFreshMs = 3000;
 // packets. Retain the last valid voltage between reports without making a
 // disconnected receiver appear live indefinitely.
 constexpr uint32_t kBatteryFreshMs = 30000;
+// Retain drive-pack readings through intermittent sensor/RF updates.
+constexpr uint32_t kVehicleCellsFreshMs = 20000;
 constexpr uint16_t kMaximumPlausibleReceiverDecivolts = 600; // 60 V
 
 int16_t decodeRssiDbm(uint8_t raw)
@@ -214,7 +216,7 @@ void CrsfTelemetryParser::updateFreshness()
     const uint32_t now = millis();
     if (state_.fasVoltageValid && now - state_.fasVoltageUpdatedMs > 3000) state_.fasVoltageValid = false;
     if (state_.fasCurrentValid && now - state_.fasCurrentUpdatedMs > 3000) state_.fasCurrentValid = false;
-    if (state_.vehicleCellsValid && now - state_.vehicleCellsUpdatedMs > 3000) state_.vehicleCellsValid = false;
+    if (state_.vehicleCellsValid && now - state_.vehicleCellsUpdatedMs > kVehicleCellsFreshMs) state_.vehicleCellsValid = false;
     if (state_.gpsValid && now - state_.gpsUpdatedMs > 3000) state_.gpsValid = false;
     if (state_.rpmValid && now - state_.rpmUpdatedMs > 3000) state_.rpmValid = false;
     if (state_.temperatureValid && now - state_.temperatureUpdatedMs > 10000) state_.temperatureValid = false;

@@ -56,6 +56,15 @@ constexpr uint16_t STEERING_ADC_MAX = 4095;
 // and this same ADC region maps to exactly zero command while running.
 constexpr uint16_t ARM_NEUTRAL_ADC_WINDOW = 80;
 constexpr uint32_t ARM_NEUTRAL_TIME_MS = 1000;
+// Temporary user-requested bench setting (2026-10-24): allow held switches or
+// trims past startup while testing newly connected steering. Faulted inputs,
+// ADC/neutral/link checks and explicit arming remain enforced. Restore false
+// once the unconnected K1 inputs and their soldering have been repaired.
+#ifdef JR_R1_XIAO_PCB
+constexpr bool STARTUP_IGNORE_HELD_INPUTS = true;
+#else
+constexpr bool STARTUP_IGNORE_HELD_INPUTS = false;
+#endif
 // Before a CUT -> LIVE transition, require fresh returned link statistics and
 // a useful RF link continuously for this dwell. This is deliberately only a
 // pre-arm interlock: a brief telemetry outage after arming must not command an

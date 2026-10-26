@@ -37,6 +37,17 @@ int main()
     DashboardWidget speed;speed.kind=DashboardWidgetKind::Sensor;speed.style=DashboardWidgetStyle::Dials;
     assert(sanitizedDashboardWidget(0,speed).style==DashboardWidgetStyle::Dials);
     speed.source=1;assert(sanitizedDashboardWidget(0,speed).style==DashboardWidgetStyle::Numbers);
+    // Pack summaries retain IDs; old per-cell widgets migrate to the group.
+    for(uint8_t source=0;source<DashboardSensorCount;++source){
+        speed.source=source;speed.style=DashboardWidgetStyle::Graph;
+        assert(sanitizedDashboardWidget(0,speed).source==(source>=8 && source<12?0:source));
+        const uint8_t stored[]={4,3,1,1,source,1};
+        assert(dashboardWidgetFromV2(0,stored).source==(source>=8 && source<12?0:source));
+    }
+    speed.source=DashboardSensorCount;assert(sanitizedDashboardWidget(0,speed).source==0);
+    assert(nextDashboardSensorSource(7,1)==12);
+    assert(nextDashboardSensorSource(12,-1)==7);
+    assert(nextDashboardSensorSource(13,1)==0 && nextDashboardSensorSource(0,-1)==13);
     auto layout=defaultDashboardLayout();
     assert(dashboardWidgetMask(0,layout.cells[0])==3);
     auto timer=layout.cells[0];
@@ -103,6 +114,13 @@ int main()
         assert(w.width==1&&w.height==1);
         cycleDashboardWidgetSize(anchor,w,-1);cycleDashboardWidgetSize(anchor,w,1);assert(w.width==1&&w.height==1);
         w.height=2;if(anchor>=2)assert(sanitizedDashboardWidget(anchor,w).height==1);
+    }
+    for(uint8_t source=8;source<12;++source){
+        DashboardWidget old;old.kind=DashboardWidgetKind::Sensor;old.source=source;old.style=DashboardWidgetStyle::Graph;
+        auto cells=sanitizedDashboardWidget(0,old);
+        assert(cells.kind==DashboardWidgetKind::BatteryCells && cells.source==0 && cells.style==DashboardWidgetStyle::Numbers);
+        for(uint8_t count=0;count<=12;++count){cells.source=count;assert(sanitizedDashboardWidget(0,cells).source==count);}
+        cells.source=13;assert(sanitizedDashboardWidget(0,cells).source==0);
     }
     puts("dashboard_widgets_test: PASS");
 }

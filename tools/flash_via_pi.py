@@ -15,7 +15,8 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-ENVIRONMENTS = ('seeed_xiao_esp32s3-pcb', 'seeed_xiao_esp32s3-pcb-portrait')
+# User instruction 2026-10-26: landscape only for hardware uploads.
+ENVIRONMENTS = ('seeed_xiao_esp32s3-pcb',)
 USB_PORT = '/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_90:70:69:11:DE:70-if00'
 
 
@@ -36,8 +37,9 @@ def validate_hardware(root, environment):
     config.read(root / 'platformio.ini')
     section = config['env:' + environment]
     board = section.get('board')
-    if board is None:
-        board = config[section['extends']]['board']
+    while board is None and 'extends' in section:
+        section = config[section['extends']]
+        board = section.get('board')
     if board != 'seeed_xiao_esp32s3':
         raise ValueError('Unexpected board: ' + board)
     profile = (root / 'include/display_profile.h').read_text()
@@ -89,6 +91,8 @@ def remote_script(args):
         'git fetch origin main',
         'git status --short --branch',
         'git merge-base --is-ancestor origin/main HEAD',
+        q(args.remote_pio) + ' run -e ' + q(args.environment) + ' -t envdump > /dev/null',
+        'tar -xzf ' + q(args.remote_dir + '/r1-upload.tar.gz'),
         "python3 - <<'VERIFY'",
         'import hashlib,json,pathlib,subprocess',
         'm=json.load(open("r1-upload-manifest.json"))',
@@ -108,7 +112,7 @@ def remote_script(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--environment', choices=ENVIRONMENTS, default=ENVIRONMENTS[1], help='Default: installed portrait layout')
+    parser.add_argument('--environment', choices=ENVIRONMENTS, default=ENVIRONMENTS[0], help='Installed landscape layout (480x320)')
     parser.add_argument('--host', default='pi@gateway.purplenet.online')
     parser.add_argument('--ssh-port', type=int, default=10022)
     parser.add_argument('--remote-dir', default='/home/pi/r1-dev/releases/ui-drive-20261001', help='Reuse this existing Pi checkout')
@@ -163,6 +167,8 @@ def main():
                 archive.add(ROOT / name, arcname=name, recursive=False)
     files = [f'.pio/build/{args.environment}/{name}' for name in ('firmware.bin', 'bootloader.bin', 'partitions.bin')]
     files += ['platformio.ini', 'include/display_profile.h', 'tools/upload_preflight.py']
+    if args.environment == 'seeed_xiao_esp32s3-pcb-lcd-test-portrait':
+        files += ['src/waveshare_lcd_test.cpp', 'src/waveshare_startup.inc']
     boot = Path.home() / '.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin'
     manifest = {'branch': branch, 'commit': commit, 'environment': args.environment,
                 'source_snapshot_sha256': digest(snapshot), 'boot_app0_sha256': digest(boot),

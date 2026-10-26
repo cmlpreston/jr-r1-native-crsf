@@ -50,12 +50,12 @@ if "upload" in targets:
     else:
         approved_waveshare_environments = {
             "seeed_xiao_esp32s3-pcb",
-            "seeed_xiao_esp32s3-pcb-portrait",
         }
         if pio_environment not in approved_waveshare_environments:
             fail(
                 "The selected environment is '%s'. Active hardware is XIAO ESP32-S3 "
-                "with schematic (5) wiring. Other hardware requires explicit user confirmation."
+                "with schematic (5) wiring, landscape only per the 2026-10-26 user instruction. "
+                "Other profiles require explicit user confirmation."
                 % pio_environment)
         if board != "seeed_xiao_esp32s3":
             fail("Unexpected board target: %s" % board)

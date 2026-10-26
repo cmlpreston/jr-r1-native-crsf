@@ -33,7 +33,8 @@ public:
     // Maintained switches must start released and spring-centred trims must
     // start centred. A faulted mapped input is also unsafe because its actual
     // position is unknown. The bit index is PhysicalControlId.
-    uint32_t startupUnsafeMask() const;
+    // Bench override ignores positions only; faults remain unsafe.
+    uint32_t startupUnsafeMask(bool ignoreHeldPositions = false) const;
 
 private:
     PhysicalInputHardwareBinding bindings_[kPhysicalControlCount];

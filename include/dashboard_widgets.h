@@ -3,7 +3,7 @@
 
 // Persisted UI-only data. Each model has a two-column, two-row dashboard.
 // Fields are bytes (no ABI padding); version is encoded in the NVS key.
-enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, AllChannels, Count };
+enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, AllChannels, BatteryCells, Count };
 enum class DashboardWidgetStyle : uint8_t { Numbers, Bars, Dials, Graph, Switches, VerticalBars, Count };
 enum class SpeedWidgetValue : uint8_t { Current, Maximum, Average, Count };
 struct DashboardWidget {
@@ -13,6 +13,15 @@ struct DashboardWidget {
     uint8_t source = 0, secondSource = 1;
     SpeedWidgetValue speedValue = SpeedWidgetValue::Current;
 };
+// Sensor IDs 0..5 retain their persisted meanings; 6..11 are drive-pack readings,
+// and 12..13 are FAS voltage/current.
+constexpr uint8_t DashboardSensorCount = 14;
+// Individual-cell IDs 8..11 migrate to BatteryCells; other sensor IDs persist.
+inline uint8_t nextDashboardSensorSource(uint8_t source, int direction) {
+    do { source=(source+DashboardSensorCount+(direction<0?-1:1))%DashboardSensorCount; }
+    while(source>=8 && source<12);
+    return source;
+}
 struct DashboardLayout { DashboardWidget cells[4]; };
 inline uint8_t dashboardWidgetMask(uint8_t cell, const DashboardWidget &widget)
 {
@@ -36,13 +45,18 @@ inline DashboardWidget sanitizedDashboardWidget(uint8_t cell, DashboardWidget wi
 {
     if (widget.speedValue >= SpeedWidgetValue::Count) widget.speedValue = SpeedWidgetValue::Current;
     if (widget.kind >= DashboardWidgetKind::Count) widget = DashboardWidget{};
+    // Preserve old layouts while replacing individual-cell widgets with the group.
+    if (widget.kind == DashboardWidgetKind::Sensor && widget.source >= 8 && widget.source < 12) {
+        widget.kind = DashboardWidgetKind::BatteryCells; widget.source = 0;
+    }
+    if (widget.kind == DashboardWidgetKind::BatteryCells && widget.source > 12) widget.source = 0;
     if (!dashboardStyleAllowed(widget.kind, widget.style)) widget.style = DashboardWidgetStyle::Numbers;
     widget.width = widget.width == 2 && cell%2==0 ? 2 : 1;
     widget.height = widget.height == 2 && cell/2==0 ? 2 : 1;
     if(widget.kind==DashboardWidgetKind::AllChannels && widget.source>2)widget.source=0;
     if (widget.source > 15) widget.source = 0;
     if (widget.secondSource > 16) widget.secondSource = 1;
-    if (widget.kind == DashboardWidgetKind::Sensor && widget.source > 5) widget.source = 0;
+    if (widget.kind == DashboardWidgetKind::Sensor && widget.source >= DashboardSensorCount) widget.source = 0;
     if (widget.kind == DashboardWidgetKind::Sensor && widget.source != 0 && widget.style == DashboardWidgetStyle::Dials) widget.style = DashboardWidgetStyle::Numbers;
     return widget;
 }

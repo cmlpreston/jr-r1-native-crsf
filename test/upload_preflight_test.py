@@ -49,7 +49,7 @@ class UploadPreflightTest(unittest.TestCase):
         return passed, calls
 
     def test_active_targets_keep_git_checks(self):
-        for target in ('seeed_xiao_esp32s3-pcb', 'seeed_xiao_esp32s3-pcb-portrait'):
+        for target in ('seeed_xiao_esp32s3-pcb',):
             passed, calls = self.check_guard(target)
             self.assertTrue(passed)
             self.assertIn(['fetch', '--quiet', 'origin', 'main'], calls)
@@ -59,12 +59,16 @@ class UploadPreflightTest(unittest.TestCase):
         for target in ('esp32-s3-devkitc-1', 'esp32-s3-devkitc-1-portrait', 'esp32-s3-devkitc-1-btt', 'esp32-s3-devkitc-1-display-test'):
             self.assertFalse(self.check_guard(target, 'esp32-s3-devkitc-1-n16r8')[0])
 
+    def test_portrait_uploads_refused(self):
+        for target in ('seeed_xiao_esp32s3-pcb-portrait', 'seeed_xiao_esp32s3-pcb-lcd-test-portrait'):
+            self.assertFalse(self.check_guard(target)[0])
+
     def test_wrong_board_refused(self):
-        self.assertFalse(self.check_guard('seeed_xiao_esp32s3-pcb-portrait', 'esp32-s3-devkitc-1-n16r8')[0])
+        self.assertFalse(self.check_guard('seeed_xiao_esp32s3-pcb', 'esp32-s3-devkitc-1-n16r8')[0])
 
     def test_stale_branch_and_failed_fetch_refused(self):
-        self.assertFalse(self.check_guard('seeed_xiao_esp32s3-pcb-portrait', stale=True)[0])
-        self.assertFalse(self.check_guard('seeed_xiao_esp32s3-pcb-portrait', fetch_failed=True)[0])
+        self.assertFalse(self.check_guard('seeed_xiao_esp32s3-pcb', stale=True)[0])
+        self.assertFalse(self.check_guard('seeed_xiao_esp32s3-pcb', fetch_failed=True)[0])
 
 
 if __name__ == '__main__':

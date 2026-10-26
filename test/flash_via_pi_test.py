@@ -26,6 +26,10 @@ class FlashWorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             flash.validate_hardware(self.root,'esp32-s3-devkitc-1')
 
+    def test_portrait_uploads_refused(self):
+        for target in ('seeed_xiao_esp32s3-pcb-portrait','seeed_xiao_esp32s3-pcb-lcd-test-portrait'):
+            with self.assertRaises(ValueError):flash.validate_hardware(self.root,target)
+
     def test_wrong_board_and_pin_rejected(self):
         p=self.root/'platformio.ini';original=p.read_text()
         p.write_text(original.replace('board = seeed_xiao_esp32s3','board = esp32dev'))
@@ -55,6 +59,9 @@ class FlashWorkflowTests(unittest.TestCase):
         self.assertIn('unset JR_R1_ALLOW_UNSAFE_UPLOAD',script)
         self.assertIn('-t nobuild -t upload --upload-port',script)
         self.assertIn('if fuser ',script)
+        self.assertIn('-t envdump > /dev/null',script)
+        self.assertLess(script.index('-t envdump'),script.rindex('tar -xzf'))
+        self.assertLess(script.rindex('tar -xzf'),script.index("python3 - <<'VERIFY'"))
         self.assertNotIn('kill ',script)
         self.assertIn("cd '/home/pi/my firmware'",script)
         subprocess.run(['bash','-n'],input=script,text=True,check=True)

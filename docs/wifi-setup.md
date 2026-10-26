@@ -255,3 +255,44 @@ available. Hotspot-only setup cannot be used to enable outputs. Once enabling
 is requested, direct configuration writes become read-only; screen viewing
 continues. Return to CUT with the physical handset control or ordinary remote
 UI interaction, which performs the acknowledged CUT handoff.
+
+
+## Testing without the LCD or touchscreen
+
+On the XIAO production environment, failed LCD-driver/touch/expander startup now
+opens the authenticated setup hotspot automatically. LVGL continues rendering
+for the web mirror, USB input diagnostics remain available, and normal arming
+stays inhibited. No normal control task starts in this recovery loop. The
+existing separately authorized USB RF-bench path remains available.
+
+Connect USB serial at 115200 baud and send commands terminated by Enter:
+
+| Command | Effect |
+| --- | --- |
+| `WIFISETUP` | Request CUT and open setup without using the LCD. |
+| `WIFISTATUS` | Show readiness, hotspot name, addresses and the shared setup/web password. Credentials print only on this explicit USB request. |
+| `HEADLESS ON` | Request CUT, save headless mode, stop LCD transfers and physical touch handling, inhibit normal arming, and open setup. Future boots skip LCD/touch initialization. |
+| `HEADLESS OFF` | Request CUT and clear the saved headless flag. Restart to retry the hardware; the current recovery latch stays set. |
+| `WIFICLOSE` | Request CUT and close hotspot setup without the LCD. Home-network web access may stay available; this does not clear recovery or arm outputs. |
+| `INPUTMON` / `INPUTS` | Inspect physical inputs and expander availability. |
+| `BOOTLOG` / `MEMORY` | Inspect startup checkpoints and runtime memory. |
+
+After `WIFISETUP` or automatic recovery, allow a few seconds and send
+`WIFISTATUS`. Join the reported hotspot and open `http://192.168.4.1`, or use the
+reported home-network address. Log in as `r1` with the reported setup password.
+The native iOS app uses the same address/password for channel and model setup;
+use the browser portal for the live screen and advanced configuration.
+
+A working SPI driver cannot detect whether this write-only Waveshare LCD is
+physically connected or displaying an image. If boot succeeds but the panel is
+blank, use `HEADLESS ON` explicitly. It persists separately in `r1-bench` NVS;
+it does not alter model settings or the hardware pin map. Resetting/power cycling
+keeps headless mode until `HEADLESS OFF` is saved. Normal boot PIN, web
+credentials, remote write gates and RF bench authorization remain in force.
+Close hotspot setup with `WIFICLOSE` before using the existing USB RF-bench arm
+procedure; closing setup alone never enables outputs.
+
+Validation covers persisted headless selection, offscreen LVGL rendering,
+remote navigation and normal arm inhibition in both simulator orientations.
+Physical missing-screen/touch boot, hotspot access and reset/power-cycle behavior
+still require a XIAO hardware trial.

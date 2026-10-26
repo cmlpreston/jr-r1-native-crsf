@@ -442,6 +442,104 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(dashboardLayouts_[1].cells[0].kind==DashboardWidgetKind::Timer);
     assert(selectModelMemory(0));assert(dashboardLayouts_[0].cells[0].kind==DashboardWidgetKind::Map);
     dashboardLayouts_[0]=defaultDashboardLayout();saveModelMemorySettings();
+    // Real CRSF cell frame -> parser -> sensor cards, detail and persisted widget IDs.
+    {
+        const auto savedTelemetry=designTelemetry_;
+        const auto savedLayout=dashboardLayouts_[activeModelSlot_];
+        const uint8_t savedBank=sensorBank_;
+        CrsfTelemetryParser cellsParser;
+        uint8_t frame[]={0xc8,11,0x0e,0,0x0f,0x94,0x0f,0xae,0x0f,0xa6,0x0f,0xc0,0};
+        frame[12]=crc8DvbS2(frame+2,10);
+        for(auto b:frame)cellsParser.feed(b);
+        auto cells=cellsParser.state();
+        assert(cells.vehicleCellsValid && cells.vehiclePackMv==16040);
+        cells.receiverVoltageValid=true;cells.receiverVoltageDecivolts=66;
+        designTelemetry_=cells;sensorBank_=0;drawTelemetryPage();controlDesign(81,activate);
+        assert(sensorBank_==1 && activePage_==UiPage::Telemetry);
+        updateDesign(cells,OutputSafetyStatus::Cut,99,true);
+        assert(strcmp(lv_label_get_text(designValues_[0]),"16.040")==0);
+        assert(strcmp(lv_label_get_text(designValues_[1]),"3.988")==0);
+        assert(strcmp(lv_label_get_text(designValues_[2]),"3.988")==0);
+        assert(strcmp(lv_label_get_text(designValues_[5]),"4.032")==0);
+        lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+        for(unsigned i=0;i<6;++i){
+            auto panel=lv_obj_get_parent(designValues_[i]);
+            assert(lv_obj_get_y(designDetails_[i])+lv_obj_get_height(designDetails_[i])<=lv_obj_get_height(panel));
+        }
+        if(const char *prefix=getenv("JR_R1_CELL_SCREENSHOTS")){
+            char path[256];snprintf(path,sizeof(path),"%s-%s.bmp",prefix,designPortrait?"portrait":"landscape");simulatorSaveScreenshot(path);
+        }
+        cells.vehicleCellsValid=false;updateDesign(cells,OutputSafetyStatus::Cut,99,true);
+        assert(strcmp(lv_label_get_text(designValues_[0]),"--")==0);
+        assert(strcmp(lv_label_get_text(designValues_[2]),"--")==0);
+        controlDesign(72,activate);assert(sensorSelected_==8 && activePage_==UiPage::SensorDetail);
+        cells.vehicleCellsValid=true;updateDesign(cells,OutputSafetyStatus::Cut,99,true);
+        assert(strcmp(lv_label_get_text(designValues_[0]),"3.988")==0);
+        for(uint8_t slot=0;slot<4;++slot){
+            DashboardWidget widget;widget.kind=DashboardWidgetKind::Sensor;widget.source=slot+6;
+            placeDashboardWidget(dashboardLayouts_[activeModelSlot_],slot,widget);
+        }
+        drawDashboard();updateDashboardWidgets(cells,99,true);
+        assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"16.040")==0);
+        assert(dashboardLayouts_[activeModelSlot_].cells[2].kind==DashboardWidgetKind::BatteryCells);
+        assert(strcmp(lv_label_get_text(widgetViews_[2].values[0]),"1: 3.988")==0);
+        assert(strstr(lv_label_get_text(widgetViews_[2].detail),"4S"));
+        widgetCell_=0;widgetDraft_=dashboardLayouts_[activeModelSlot_].cells[0];
+        widgetDraft_.source=13;controlDesign(123,activate);
+        assert(widgetDraft_.source==0);controlDesign(123,PageControlEvent::Decrease);
+        assert(widgetDraft_.source==13);
+        // Group widget: every span, automatic 6S, explicit mismatch, stale values and persisted count.
+        for(uint8_t width=1;width<=2;++width)for(uint8_t height=1;height<=2;++height){
+            DashboardWidget group;group.kind=DashboardWidgetKind::BatteryCells;group.width=width;group.height=height;
+            placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,group);drawDashboard();
+            cells.vehicleCellCount=6;cells.vehicleCellsMv[4]=4100;cells.vehicleCellsMv[5]=4200;
+            cells.vehiclePackMv=24340;updateDashboardWidgets(cells,99,true);
+            assert(strcmp(lv_label_get_text(widgetViews_[0].values[5]),"6: 4.200")==0);
+            assert(lv_obj_has_flag(widgetViews_[0].values[6],LV_OBJ_FLAG_HIDDEN));
+            assert(strstr(lv_label_get_text(widgetViews_[0].detail),"6S"));
+            if(width==1 && height==1)if(const char *prefix=getenv("JR_R1_GROUP_SCREENSHOTS")){char path[256];snprintf(path,sizeof(path),"%s-%s.bmp",prefix,designPortrait?"portrait":"landscape");lv_refr_now(nullptr);simulatorSaveScreenshot(path);}
+            widgetCell_=0;widgetDraft_=group;widgetDraft_.source=12;controlDesign(126,activate);
+            updateDashboardWidgets(cells,99,true);
+            assert(strstr(lv_label_get_text(widgetViews_[0].detail),"Expected 12S"));
+            assert(strcmp(lv_label_get_text(widgetViews_[0].values[11]),"12: --")==0);
+            lv_obj_update_layout(lv_scr_act());
+            for(unsigned i=0;i<12;++i){
+                auto label=widgetViews_[0].values[i];
+                assert(lv_obj_get_y(label)+lv_obj_get_height(label)<=lv_obj_get_y(widgetViews_[0].detail));
+                assert(lv_obj_get_height(label)>=lv_obj_get_style_text_font(label,LV_PART_MAIN)->line_height);
+            }
+            cells.vehicleCellsValid=false;updateDashboardWidgets(cells,99,true);
+            assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"1: --")==0);
+            cells.vehicleCellsValid=true;
+        }
+        dashboardLayouts_[activeModelSlot_]=savedLayout;designTelemetry_=savedTelemetry;sensorBank_=savedBank;
+    }
+    Serial.println("Vehicle cells: CRSF parser, 4S cards, stale values, sensor detail and dashboard widgets PASS");
+    // FAS third page and widgets accept live test readings without touching RX supply.
+    {
+        const auto savedTelemetry=designTelemetry_;const auto savedLayout=dashboardLayouts_[activeModelSlot_];
+        const auto savedBank=sensorBank_;
+        CrsfTelemetryState fas{};fas.fasVoltageValid=fas.fasCurrentValid=true;
+        fas.fasVoltageMv=16040;fas.fasCurrentDeciA=11559;
+        fas.fasVoltageUpdatedMs=fas.fasCurrentUpdatedMs=millis();
+        fas.receiverVoltageValid=true;fas.receiverVoltageDecivolts=66;
+        designTelemetry_=fas;sensorBank_=2;drawTelemetryPage();updateDesign(fas,OutputSafetyStatus::Cut,99,true);
+        assert(strcmp(lv_label_get_text(designValues_[0]),"16.040")==0);
+        assert(strcmp(lv_label_get_text(designValues_[1]),"1155.9")==0);
+        assert(strcmp(lv_label_get_text(designDetails_[1]),"Over 300A")==0);
+        assert(!designValues_[2]);
+        lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+        if(const char *prefix=getenv("JR_R1_FAS_SCREENSHOTS")){
+            char path[256];snprintf(path,sizeof(path),"%s-%s.bmp",prefix,designPortrait?"portrait":"landscape");simulatorSaveScreenshot(path);
+        }
+        DashboardWidget widget;widget.kind=DashboardWidgetKind::Sensor;widget.source=13;
+        placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,widget);drawDashboard();updateDashboardWidgets(fas,99,true);
+        assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"1155.9")==0);
+        fas.fasCurrentValid=fas.fasVoltageValid=false;updateDashboardWidgets(fas,99,true);
+        assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"--")==0);
+        dashboardLayouts_[activeModelSlot_]=savedLayout;designTelemetry_=savedTelemetry;sensorBank_=savedBank;
+    }
+    Serial.println("FAS telemetry: separate voltage/current cards, range marker, widgets and stale values PASS");
     // Assigned reset clears only speed statistics, ignores release, and keeps channels/timer intact.
     speedStatistics_.update(120,1000,1000,true);speedStatistics_.update(300,2000,2000,true);
     auto speedResetId=static_cast<uint16_t>(TransmitterFunction::ResetSpeedStatistics);
@@ -865,6 +963,30 @@ bool TransmitterUi::runSimulatorUiAudit()
     lv_obj_invalidate(lv_scr_act());lv_refr_now(nullptr);
     lcdTransportReady=transport;
     assert(!armRequested());
+    // Explicit headless mode also covers a physically blank write-only LCD
+    // whose SPI driver reports success. Persist only the bench flag, keep the
+    // UI/mirror alive, and require a fresh boot to clear the recovery latch.
+    assert(setHeadlessTesting(true));
+    assert(headlessTesting() && hardwareRecovery() && !lcdTransportReady);
+    {
+        Preferences bench;
+        assert(bench.begin("r1-bench",true));
+        assert(bench.getBool("headless",false));bench.end();
+    }
+    armRequested_=true;
+    assert(!armRequested() && !controlConfigurationSnapshot().armRequested);
+    const auto sentBefore=uiMetrics.sent, renderedBefore=uiMetrics.rendered;
+    lv_obj_invalidate(lv_scr_act());lv_refr_now(nullptr);
+    assert(uiMetrics.rendered>renderedBefore && uiMetrics.sent==sentBefore);
+    assert(setHeadlessTesting(false));
+    {
+        Preferences bench;
+        assert(bench.begin("r1-bench",true));
+        assert(!bench.getBool("headless",true));bench.end();
+    }
+    assert(headlessTesting() && hardwareRecovery() && !lcdTransportReady);
+    assert(!armRequested() && !controlConfigurationSnapshot().armRequested);
+    lcdTransportReady=transport; // Restore the simulator sink for later visual audits.
     Serial.println("Hardware recovery: PIN, remote navigation, offscreen rendering and arm inhibition PASS");
     Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, endpoints, colour schemes, startup fault display, arm hold and bounds PASS");
     dashboardEnabledChannelMask_=0xffff;
@@ -960,6 +1082,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(kScreenWidth*kScreenHeight==153600&&designFooterY==kScreenHeight-(portraitUi?60:40));
         assert(lv_disp_get_hor_res(registeredDisplay)==kScreenWidth&&lv_disp_get_ver_res(registeredDisplay)==kScreenHeight);
         for(UiPage page : pages){
+            if(page==UiPage::Telemetry)sensorBank_=cycle%3; // cover all sensor banks in both orientations
             showSimulatorPage(page);lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
             assert(activePage_==page);
             for(uint8_t i=0;i<pageFocusCount_;++i){const auto &r=pageFocusTargets_[i].focus;

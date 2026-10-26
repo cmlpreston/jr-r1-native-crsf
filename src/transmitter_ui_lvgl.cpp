@@ -5,6 +5,7 @@
 #include "setup_portal.h"
 #include "offline_map.h"
 #include "ui_pixel_cache.h"
+#include "waveshare_touch_orientation.h"
 
 #include <Preferences.h>
 #include "boot_diagnostics.h"
@@ -40,7 +41,7 @@ constexpr uint8_t kWaveshareDisplayRotation = 2;
 #else
 int16_t kScreenWidth = DISPLAY_LANDSCAPE_WIDTH;
 int16_t kScreenHeight = DISPLAY_LANDSCAPE_HEIGHT;
-constexpr uint8_t kWaveshareDisplayRotation = 3;
+constexpr uint8_t kWaveshareDisplayRotation = 1;
 #endif
 bool portraitUi = kScreenWidth < kScreenHeight;
 // Separate cards share one LCD-pixel gutter in either orientation.
@@ -779,6 +780,15 @@ void TransmitterUi::setDisplayCacheEnabled(bool enabled)
 
 bool TransmitterUi::begin()
 {
+    Preferences benchPreferences;
+    if (benchPreferences.begin("r1-bench", true)) {
+        headlessTesting_ = benchPreferences.getBool("headless", false);
+        benchPreferences.end();
+    }
+    if (headlessTesting_) {
+        enterHardwareRecovery();
+        Serial.println("HEADLESS: LCD and touch skipped; remote UI available; normal arming inhibited");
+    }
     loadPinSecurity();
     loadModelMemorySettings();
     loadChannelRoleSettings();
@@ -813,11 +823,11 @@ bool TransmitterUi::begin()
     Serial.printf("PCB IO: K1=0x20 %s K2=0x21 %s\n",
                   pcbKeypad.online() ? "ONLINE" : "OFFLINE",
                   pcbControls.online() ? "ONLINE" : "OFFLINE");
-    if (pcbReady) bootDiagnosticsStage("touch");
-    const bool touchReady = pcbReady && initialiseTouchController();
-    if (pcbReady) bootDiagnosticsResult(BootCheck::Touch, touchReady);
+    if (pcbReady && !headlessTesting_) bootDiagnosticsStage("touch");
+    const bool touchReady = !headlessTesting_ && pcbReady && initialiseTouchController();
+    if (pcbReady && !headlessTesting_) bootDiagnosticsResult(BootCheck::Touch, touchReady);
 #else
-    const bool touchReady = initialiseTouchController();
+    const bool touchReady = !headlessTesting_ && initialiseTouchController();
 #endif
 
     if (DISPLAY_HAS_PWM_BACKLIGHT) {
@@ -832,22 +842,23 @@ bool TransmitterUi::begin()
     if (DISPLAY_HAS_SPI_READBACK)
         screenshotSpi.begin(TFT_SCK_PIN, TFT_MISO_PIN, TFT_MOSI_PIN, TFT_CS_PIN);
 #ifdef JR_R1_XIAO_PCB
-    if (pcbReady) bootDiagnosticsStage("display-driver");
-    displayReady_ = pcbReady && display->begin(TFT_SPI_FREQUENCY);
-    if (pcbReady) bootDiagnosticsResult(BootCheck::Display, displayReady_);
+    if (pcbReady && !headlessTesting_) bootDiagnosticsStage("display-driver");
+    displayReady_ = !headlessTesting_ && pcbReady && display->begin(TFT_SPI_FREQUENCY);
+    if (pcbReady && !headlessTesting_) bootDiagnosticsResult(BootCheck::Display, displayReady_);
 #else
-    displayReady_ = display->begin(TFT_SPI_FREQUENCY);
+    displayReady_ = !headlessTesting_ && display->begin(TFT_SPI_FREQUENCY);
 #endif
 #else
-    const bool touchReady = true;
+    const bool touchReady = !headlessTesting_;
     displayReady_ = simulatorDisplayBegin(kScreenWidth, kScreenHeight);
+    if (headlessTesting_) displayReady_ = false;
 #endif
     lcdTransportReady = displayReady_;
     const bool hardwareReady = displayReady_ && touchReady;
     (void)hardwareReady; // Only XIAO requires every peripheral for live control.
     if (!displayReady_) {
-        Serial.printf("DISPLAY: %s initialisation failed\n", DISPLAY_PROFILE_NAME);
-#if defined(JR_R1_XIAO_PCB) && !defined(JR_R1_SIMULATOR)
+        Serial.printf("DISPLAY: %s %s\n", DISPLAY_PROFILE_NAME, headlessTesting_ ? "skipped for headless testing" : "initialisation failed");
+#if defined(JR_R1_XIAO_PCB) || defined(JR_R1_SIMULATOR)
         // LVGL can still render into the web mirror without a working LCD.
         displayReady_ = true;
 #else
@@ -910,7 +921,7 @@ bool TransmitterUi::begin()
         Serial.println("DISPLAY: touch controller did not respond; LCD remains usable");
     playBuzzer(80);
 #if defined(JR_R1_XIAO_PCB) && !defined(JR_R1_SIMULATOR)
-    bootDiagnosticsResult(BootCheck::Ui, touchReady);
+    bootDiagnosticsResult(BootCheck::Ui, true);
     return hardwareReady;
 #else
     return true;
@@ -1389,6 +1400,27 @@ void TransmitterUi::scheduleSettingsSave()
     requestConfigurationCut();
     settingsSavePending_ = true;
     settingsSaveDueMs_ = millis() + kSettingsSaveDelayMs;
+}
+
+bool TransmitterUi::setHeadlessTesting(bool enabled)
+{
+    // CUT before NVS work, even when persisting the setting fails.
+    requestConfigurationCut();
+    Preferences preferences;
+    if (!preferences.begin("r1-bench", false)) return false;
+    const bool saved = preferences.putBool("headless", enabled) > 0 &&
+        preferences.getBool("headless", !enabled) == enabled;
+    preferences.end();
+    if (!saved) return false;
+    if (enabled) {
+        headlessTesting_ = true;
+        enterHardwareRecovery();
+        lcdTransportReady = false;
+        pixelCache.invalidate();
+    }
+    // Never resume LCD/touch or clear the safety latch mid-session. OFF only
+    // changes the next boot, where the full hardware preflight runs again.
+    return true;
 }
 
 void TransmitterUi::requestConfigurationCut()
@@ -5052,21 +5084,9 @@ bool TransmitterUi::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
     rawY = static_cast<uint16_t>(point[3] | (point[4] << 8U));
     rawZ = static_cast<uint16_t>(point[5] | (point[6] << 8U));
 
-if(portraitUi) {
-    // ST7796 rotation 2 is portrait rotated 180 degrees from the GT911's
-    // native 320x480 coordinate orientation.
-    x = constrain(static_cast<int32_t>(kScreenWidth - 1 - rawX),
-                  0L, static_cast<int32_t>(kScreenWidth - 1));
-    y = constrain(static_cast<int32_t>(kScreenHeight - 1 - rawY),
-                  0L, static_cast<int32_t>(kScreenHeight - 1));
-} else {
-    // Match the Waveshare example's rotation 3: landscape with the connector
-    // orientation used by the ST7796 display profile.
-    x = constrain(static_cast<int32_t>(kScreenWidth - 1 - rawY),
-                  0L, static_cast<int32_t>(kScreenWidth - 1));
-    y = constrain(static_cast<int32_t>(rawX),
-                  0L, static_cast<int32_t>(kScreenHeight - 1));
-}
+    const auto pointOnScreen = waveshareTouchPoint(rawX, rawY, portraitUi);
+    x = pointOnScreen.x;
+    y = pointOnScreen.y;
     return true;
 #else
     if (digitalRead(TOUCH_IRQ_PIN) != LOW) return false;
@@ -6261,7 +6281,7 @@ void TransmitterUi::applyDisplayRotation() {
 #ifdef JR_R1_SIMULATOR
     simulatorDisplayResize(kScreenWidth,kScreenHeight);
 #else
-    if(lcdTransportReady)display->setRotation(portraitUi?2:3);
+    if(lcdTransportReady)display->setRotation(portraitUi?2:1);
 #endif
     pixelCache.setDimensions(kScreenWidth,kScreenHeight);
     lv_disp_draw_buf_init(&drawBuffer,lineBuffer,nullptr,kScreenWidth*16);

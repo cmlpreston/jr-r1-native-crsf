@@ -114,7 +114,7 @@ void PhysicalInputRuntime::setProportionalValue(
     states_.setValue(input, value);
 }
 
-uint32_t PhysicalInputRuntime::startupUnsafeMask() const
+uint32_t PhysicalInputRuntime::startupUnsafeMask(bool ignoreHeldPositions) const
 {
     uint32_t mask = 0;
     for (size_t index = 0; index < count_; ++index) {
@@ -128,7 +128,7 @@ uint32_t PhysicalInputRuntime::startupUnsafeMask() const
         const bool displaced = inputState.stablePrimary ||
             (kind == PhysicalControlKind::SpringCentredTrim &&
              inputState.stableSecondary);
-        if (displaced || inputState.faulted)
+        if ((!ignoreHeldPositions && displaced) || inputState.faulted)
             mask |= uint32_t{1} << static_cast<uint8_t>(input);
     }
     return mask;

@@ -2,7 +2,7 @@
 
 The active hardware is the **Seeed XIAO ESP32-S3** two-expander PCB, using the
 final schematic (5) pin map in [`docs/xiao-pcb.md`](docs/xiao-pcb.md). The default
-target is `seeed_xiao_esp32s3-pcb-portrait` (Waveshare RPi LCD (F), 320×480).
+target is `seeed_xiao_esp32s3-pcb` (Waveshare RPi LCD (F), 480×320).
 Use only the XIAO until the user explicitly changes the hardware.
 
 The current control/channel architecture, invariants and staged refactor are
@@ -74,25 +74,24 @@ SDL_VIDEODRIVER=dummy ./build/jr-r1-sim \
   --run-ms 500 --screenshot /tmp/dashboard.bmp
 ```
 
-Portrait 320×480 is the default UI. To run the matching desktop build:
+Landscape 480×320 is the required transmitter layout. To run the matching
+desktop build:
 
 ```sh
 cd simulator
-make portrait-run
+make run
 ```
 
-Use `build-portrait/jr-r1-sim-portrait --page dashboard`, `--page menu`, or
-`--page calibration` with the screenshot arguments above for automated portrait
-captures. The matching Waveshare hardware build is:
+Use `build/jr-r1-sim --page dashboard`, `--page menu`, or `--page calibration`
+with the screenshot arguments above for automated landscape captures. The
+matching active hardware build is:
 
 ```sh
-pio run -e esp32-s3-devkitc-1-portrait
+.venv/bin/pio run -e seeed_xiao_esp32s3-pcb
 ```
 
-The alternative 480×320 landscape build is available through the explicit
-`esp32-s3-devkitc-1` environment. Orientation is deliberately selected
-at build time so only one layout and touch transform are active in a firmware
-image.
+Portrait simulator builds (`make portrait-run`) remain available for regression
+coverage. Hardware uploads use landscape only, as directed on 2026-10-26.
 
 The simulator also emulates the ExpressLRS UID response used by the bindphrase
 page. It does not emulate RF timing, UART electrical behaviour, ESP32 tasks or
@@ -108,8 +107,8 @@ touches and keypad actions to the simulator. It is not an HTML recreation of
 the transmitter screens. The local server uses Python's standard library and
 binds to loopback only. `Ctrl+C` stops it and both simulator processes.
 
-Portrait is the default and includes the reworked settings menus. Landscape
-remains available as an alternative.
+Landscape is the required transmitter orientation from 2026-10-26. Portrait
+builds are retained for simulator/regression coverage; hardware uploads use landscape only.
 Mouse/touch, MODE/PAGE/CLEAR/SELECT, arrow navigation, +/- edits, simulated arm
 requests, steering/throttle sliders, link loss and voltage changes are available.
 Inputs return to neutral on browser focus loss. For calibration, uncheck
@@ -521,8 +520,8 @@ does not lengthen short key clicks.
 ## Build and monitor
 
 ```sh
-pio run                                             # XIAO PCB portrait build
-pio run -e seeed_xiao_esp32s3-pcb-portrait -t upload   # Active XIAO hardware
+pio run                                             # XIAO PCB landscape build
+pio run -e seeed_xiao_esp32s3-pcb -t upload   # Active XIAO hardware
 pio device monitor -b 115200
 ```
 
@@ -548,3 +547,18 @@ RSSI, and 6.6 V from the bound ER6G.
 TX module settings are available under **LINK / TELEM**. See
 [ExpressLRS TX configuration](docs/elrs-tx-configuration.md) for controls,
 protocol limits and hardware verification.
+
+## Source backup
+
+The reviewed 2026-10-26 working snapshot is described in
+[the backup record](docs/backup-2026-10-26.md), including bench settings and
+validation limits.
+
+## Receiver S.Port telemetry firmware
+
+The ER4/ER6G receiver-integrated S.Port translator is maintained separately in
+[cmlpreston/ExpressLRS-SPort](https://github.com/cmlpreston/ExpressLRS-SPort),
+branch `codex/sport-telemetry`, based on ExpressLRS 4.1.0. Its drivers, shared
+sensor decoding, host tests, hardware builds and guarded upload workflow have
+moved there. This repository retains transmitter CRSF parsing/display/alarms
+and its original XIAO S3 upload preflight.

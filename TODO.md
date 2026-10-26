@@ -20,6 +20,11 @@ as validation. Detailed assignment status remains in its linked roadmap.
 
 ### Implemented and bench-observed
 
+- [x] 2026-10-24: repaired LCD_CS ground joint and touch I2C solder joint;
+  full portrait firmware now uses 80 MHz LCD SPI. All startup checks pass,
+  including K1/K2, touch and LCD/UI; user reports the display looks good.
+  This supersedes the older bus-speed observation below; extended stability
+  and electrical timing qualification remain outstanding.
 - [x] XIAO ESP32-S3 → Ranger → receiver → servo control demonstrated by user.
 - [x] K1/K2 initialise reliably after moving to perfboard (user report).
 - [x] Waveshare portrait display/touch and menu navigation operate on hardware.
@@ -31,6 +36,10 @@ as validation. Detailed assignment status remains in its linked roadmap.
 
 ### Implemented; hardware validation still required
 
+- [ ] Remove the temporary XIAO held-switch/trim startup bypass
+  (`STARTUP_IGNORE_HELD_INPUTS` in `include/config.h`, enabled 2026-10-24)
+  after repairing the K1 inputs. Input faults and normal arm/neutral/link checks
+  remain enforced; held trims still generate their ordinary events.
 - [ ] Validate steering calibration, filtering and response on the connected
   steering pot, then simultaneous steering/throttle under heavy UI/telemetry load.
 - [ ] Verify calibration persistence, asymmetric endpoints, reversal and model
@@ -165,6 +174,13 @@ Complete these after steering shares the generic proportional pipeline:
 - [x] Add PIN changes on LCD/web, USB recovery while CUT, and fresh PIN
   authorization for leaving Walk; retain Walk across reboot/model changes.
 - [ ] Add a configurable boot PIN enable setting.
+- [ ] Add a physical boot recovery/setup menu entered by deliberately holding
+  a K1/K2 button combination during power-on (suggestion recorded 2026-10-24).
+  Choose the combination later; require a stable hold and valid MCP reads so
+  an input fault or stuck key does not trigger it accidentally. Keep outputs
+  inhibited throughout recovery. Include Wi-Fi setup, input/display diagnostics
+  and a deliberate, confirmed PIN recovery/reset action without erasing models
+  or calibration; holding the buttons must not silently reset the PIN or arm.
 - [x] Add selectable daytime and four dark colour schemes.
 - [ ] Add dim-before-sleep and assess daytime contrast in direct sunlight.
 - [x] Port Drive/Tune/Data/Setup into LVGL with a per-model 2×2 widget grid:
@@ -182,14 +198,17 @@ Complete these after steering shares the generic proportional pipeline:
 
 - [x] Decode CRSF GPS, source-zero temperature and RPM with freshness checks.
 - [ ] Extend battery telemetry beyond voltage to current and consumed capacity.
-- [x] Create a host-tested S.Port conversion core and proposed XIAO C3/ER6G
-  wiring (`onboard/sport-crsf`).
-- [ ] Finish flashable vehicle bridge firmware, bus polling and CRSF encoding
-  for the selected GPS/temperature/cell sensors; validate on hardware.
+- [x] Move receiver-integrated S.Port firmware, ER4/ER6G adapters, shared
+  decoders, tests and upload workflow into the separate
+  [ExpressLRS-SPort fork](https://github.com/cmlpreston/ExpressLRS-SPort).
+  Receiver bench validation and upload history are tracked there.
+- [x] Decode CRSF source-zero 1–12S cell groups, show pack/minimum readings
+  and a configurable battery-cell widget; receiver trial currently forwards 4S.
 - [x] Implement instantaneous/maximum/average speed views with selectable
   primary value and assignable statistics reset, plus RPM, temperature and RX
   voltage views.
-- [ ] Complete current (amperes), consumed mAh and vehicle pack presentation.
+- [x] Present FAS300 ADV voltage and current separately from receiver supply.
+- [ ] Validate FAS current scaling against hardware and add consumed mAh.
 - [x] Implement a run timer and speed-statistics accumulation.
 - [ ] Add trip distance, odometer and consumed-capacity accumulation.
 - [x] Implement GPS trail/map views and the built-in Highfield Park offline

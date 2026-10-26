@@ -105,6 +105,8 @@ class TransmitterUi {
 public:
     bool begin();
     void setSafetyCutHandler(void (*handler)()) { safetyCutHandler_ = handler; }
+    // Clear UI arm/hold intent as well as invoking the immediate control veto.
+    void requestConfigurationCut();
     bool verifyPin(const char *pin) const;
     bool changePin(const char *current, const char *next, const char *confirm);
     bool recoverPinOverUsb(const char *next);
@@ -166,6 +168,10 @@ public:
     bool throttleEnabled() const { return channelRoleSettings_.throttleEnabled; }
     bool armRequested() const { return !hardwareRecovery_ && !rfBenchMode_ && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_; }
     void enterHardwareRecovery() { hardwareRecovery_ = true; armRequested_ = false; }
+    // ON takes effect immediately; OFF requires reboot before local hardware resumes.
+    bool setHeadlessTesting(bool enabled);
+    bool headlessTesting() const { return headlessTesting_; }
+    bool hardwareRecovery() const { return hardwareRecovery_; }
     void setRfBenchMode(bool enabled) { rfBenchMode_ = enabled; }
     bool bootPinUnlocked() const { return bootPinUnlocked_; }
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
@@ -250,6 +256,7 @@ private:
     void drawBootPin();
     bool bootPinUnlocked_ = false;
     bool hardwareRecovery_ = false;
+    bool headlessTesting_ = false;
     bool rfBenchMode_ = false;
     char bootPinDigits_[5] = {};
     bool bootPinError_ = false;
@@ -502,7 +509,7 @@ private:
     DashboardWidgetView widgetViews_[4];
     uint8_t channelWidgetPages_[4] = {};
     uint8_t tuneRole_ = 0; // steering, forward throttle, brake, selected AUX
-    uint8_t tuneBank_ = 0, designBank_ = 0, setupBank_ = 0, sensorSelected_ = 0;
+    uint8_t tuneBank_ = 0, designBank_ = 0, setupBank_ = 0, sensorSelected_ = 0, sensorBank_ = 0;
     uint8_t setupPage_ = 0, channelInputPage_ = 0;
     UiPage statusReturnPage_ = UiPage::Dashboard;
     UiPage inputMonitorReturnPage_ = UiPage::ControlAssignments;
@@ -537,8 +544,8 @@ private:
     GpsMapViewport designMapViewport_;
     lv_point_t designPoints_[33] = {};
     uint16_t channelHistory_[16][30] = {};
-    int32_t sensorHistory_[6][30] = {};
-    bool sensorHistoryValid_[6][30] = {};
+    int32_t sensorHistory_[DashboardSensorCount][30] = {};
+    bool sensorHistoryValid_[DashboardSensorCount][30] = {};
     uint8_t sensorHistoryCount_ = 0;
     SpeedStatistics speedStatistics_;
     uint32_t nextSensorSampleMs_ = 0;
@@ -614,7 +621,6 @@ private:
     bool channelRolesChanged_ = false;
     bool safetyResetRequested_ = false;
     void (*safetyCutHandler_)() = nullptr;
-    void requestConfigurationCut();
     bool bindingsChanged_ = false;
     bool armRequested_ = false;
     bool displaySleeping_ = false;

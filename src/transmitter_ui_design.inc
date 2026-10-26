@@ -1,16 +1,18 @@
 // Shared Drive / Tune / Data / Setup presentation. Included by the LVGL
 // translation unit so all screens use one colour, font and focus system.
 namespace {
-const char *const designSensorNames[] = {"SPEED", "TEMPERATURE", "RPM", "RX VOLTAGE", "LINK QUALITY", "SATELLITES"};
+const char *const designSensorNames[] = {"SPEED", "TEMPERATURE", "RPM", "RX VOLTAGE", "LINK QUALITY", "SATELLITES", "DRIVE PACK", "LOWEST CELL", "CELL 1", "CELL 2", "CELL 3", "CELL 4", "FAS VOLTAGE", "FAS CURRENT"};
 const char *const speedValueNames[] = {"Current", "Maximum", "Average"};
 const char *const speedValueTitles[] = {"SPEED", "MAX SPEED", "AVG SPEED"};
 const char *const speedValueShortNames[] = {"Now", "Max", "Avg"};
-const char *const designSensorUnits[] = {"km/h", "C", "rpm", "V", "%", "sats"};
+const char *const designSensorUnits[] = {"km/h", "C", "rpm", "V", "%", "sats", "V", "V", "V", "V", "V", "V", "V", "A"};
+static_assert(sizeof(designSensorNames)/sizeof(*designSensorNames)==DashboardSensorCount, "Sensor names must cover persisted sources");
+static_assert(sizeof(designSensorUnits)/sizeof(*designSensorUnits)==DashboardSensorCount, "Sensor units must cover persisted sources");
 const char *const designWidgetNames[] = {"Run timer", "Speed", "Temperature", "RPM", "RX voltage", "Link quality", "Satellites", "GPS trail"};
 const char *const designFieldNames[] = {"Rate", "Expo", "Endpoint", "Response speed", "Direction", "Trim", "Subtrim", "Response offset"};
 const char *const designRoleNames[] = {"Steering", "Throttle", "Brake", "Channel", "Channel"};
 const char *dashboardKindName(DashboardWidgetKind kind) {
-    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / trail","Model image","All channels"};
+    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / trail","Model image","All channels","Battery cells"};
     return names[static_cast<uint8_t>(kind)<static_cast<uint8_t>(DashboardWidgetKind::Count)?static_cast<uint8_t>(kind):0];
 }
 const char *dashboardStyleName(DashboardWidgetStyle style) {
@@ -29,12 +31,20 @@ bool sensorReading(const CrsfTelemetryState &t, uint8_t sensor, int32_t &value, 
         case 3: value = t.receiverVoltageDecivolts; stamp = t.batteryUpdatedMs; return t.receiverVoltageValid;
         case 4: value = t.uplinkLinkQuality; stamp = t.linkUpdatedMs; return t.linkValid;
         case 5: value = t.satellites; stamp = t.gpsUpdatedMs; return t.gpsValid;
+        case 6: value = t.vehiclePackMv; stamp = t.vehicleCellsUpdatedMs; return t.vehicleCellsValid;
+        case 7: value = t.vehicleMinimumCellMv; stamp = t.vehicleCellsUpdatedMs; return t.vehicleCellsValid;
+        case 8: case 9: case 10: case 11:
+            value = t.vehicleCellsMv[sensor-8]; stamp = t.vehicleCellsUpdatedMs; return t.vehicleCellsValid && sensor-8 < t.vehicleCellCount;
+        case 12: value = t.fasVoltageMv; stamp = t.fasVoltageUpdatedMs; return t.fasVoltageValid;
+        case 13: value = t.fasCurrentDeciA; stamp = t.fasCurrentUpdatedMs; return t.fasCurrentValid;
         default: value = 0; stamp = 0; return false;
     }
 }
 void sensorText(uint8_t sensor, int32_t value, char *text, size_t capacity)
 {
-    if (sensor == 0 || sensor == 1 || sensor == 3)
+    if (sensor >= 6 && sensor <= 12)
+        snprintf(text, capacity, "%ld.%03ld", static_cast<long>(value / 1000), static_cast<long>(value % 1000));
+    else if (sensor == 0 || sensor == 1 || sensor == 3 || sensor == 13)
         snprintf(text, capacity, "%s%ld.%ld", value < 0 ? "-" : "", labs(value) / 10, labs(value) % 10);
     else snprintf(text, capacity, "%ld", static_cast<long>(value));
 }
@@ -435,13 +445,18 @@ void TransmitterUi::drawDesignPage(UiPage page)
         const char *tabs[]={"Sensors","GPS","Channels","Inputs"};
         for(uint8_t i=0;i<4;++i)button(10+i*(kScreenWidth-20)/4,44,(kScreenWidth-20)/4,34,tabs[i],i==3?223:60+i,(i==0 && page!=UiPage::Gps && page!=UiPage::ChannelMonitor)||(i==1 && page==UiPage::Gps)||(i==2 && page==UiPage::ChannelMonitor));
         if(page==UiPage::Telemetry) {
-            const int cols=designPortrait?2:3, w=(kScreenWidth-20+kPanelGap)/cols, h=(designFooterY-92+kPanelGap)/(6/cols);
+            label(sensorBank_==2 ? "FAS300 ADV  3 / 3" : sensorBank_ ? "Drive battery  2 / 3" : "Radio / motion  1 / 3",12,88,12,cCyan);
+            button(kScreenWidth-90,82,36,26,LV_SYMBOL_LEFT,80);
+            button(kScreenWidth-48,82,36,26,LV_SYMBOL_RIGHT,81);
+            const int cols=designPortrait?2:3, w=(kScreenWidth-20+kPanelGap)/cols, h=(designFooterY-120+kPanelGap)/(6/cols);
             for(uint8_t i=0;i<6;++i) {
-                int x=10+i%cols*w,y=85+i/cols*h;
+                const uint8_t sensor=sensorBank_*6+i;
+                if(sensor>=DashboardSensorCount)break;
+                int x=10+i%cols*w,y=114+i/cols*h;
                 auto panel=makePanel(x,y,w-kPanelGap,h-kPanelGap,cPanel,cLine,0);
-                makeLabel(panel,designSensorNames[i],8,9,12,cDim);
+                makeLabel(panel,designSensorNames[sensor],8,9,12,cDim);
                 designValues_[i]=makeLabel(panel,"--",8,30,24);
-                makeLabel(panel,designSensorUnits[i],8,58,12,cDim);
+                makeLabel(panel,designSensorUnits[sensor],8,58,12,cDim);
                 designDetails_[i]=makeLabel(panel,"No data",w-78,58,12,cDim);
                 addPageActionTarget(x,y,w-kPanelGap,h-kPanelGap,&TransmitterUi::controlDesign,70+i);
             }
@@ -565,19 +580,20 @@ void TransmitterUi::drawDesignPage(UiPage page)
         }else{
         label("Widget settings",12,47,20);
         const bool speed=widgetDraft_.kind==DashboardWidgetKind::Sensor && widgetDraft_.source==0;
-        const char *names[]={"Type","Size","Style","Source",speed?"Large value":"Second channel"};
+        const char *names[]={"Type","Size","Style",widgetDraft_.kind==DashboardWidgetKind::BatteryCells?"Cell count":"Source",speed?"Large value":"Second channel"};
         char values[5][32];
         snprintf(values[0],32,"%s",dashboardKindName(widgetDraft_.kind));
         snprintf(values[1],32,"%u x %u",widgetDraft_.width,widgetDraft_.height);
         snprintf(values[2],32,"%s",dashboardStyleName(widgetDraft_.style));
         if(widgetDraft_.kind==DashboardWidgetKind::AllChannels && widgetDraft_.style==DashboardWidgetStyle::Bars)snprintf(values[2],32,"Horizontal bars");
-        if(widgetDraft_.kind==DashboardWidgetKind::Sensor)snprintf(values[3],32,"%s",designSensorNames[widgetDraft_.source%6]);
+        if(widgetDraft_.kind==DashboardWidgetKind::Sensor)snprintf(values[3],32,"%s",designSensorNames[widgetDraft_.source%DashboardSensorCount]);
+        else if(widgetDraft_.kind==DashboardWidgetKind::BatteryCells){if(widgetDraft_.source)snprintf(values[3],32,"%uS",widgetDraft_.source);else snprintf(values[3],32,"Auto (telemetry)");}
         else if(widgetDraft_.kind==DashboardWidgetKind::AllChannels)snprintf(values[3],32,"%s",widgetDraft_.source==1?"Hardware inputs":widgetDraft_.source==2?"Channels + inputs":"Channels");
         else snprintf(values[3],32,"CH%u",widgetDraft_.source+1);
         if(widgetDraft_.secondSource==16)snprintf(values[4],32,"None");else snprintf(values[4],32,"CH%u",widgetDraft_.secondSource+1);
         if(speed)snprintf(values[4],32,"%s",speedValueNames[static_cast<uint8_t>(widgetDraft_.speedValue)]);
         for(int i=0;i<5;++i){
-            if(i>=3 && widgetDraft_.kind!=DashboardWidgetKind::Sensor && widgetDraft_.kind!=DashboardWidgetKind::Channels && widgetDraft_.kind!=DashboardWidgetKind::AllChannels)break;
+            if(i>=3 && widgetDraft_.kind!=DashboardWidgetKind::Sensor && widgetDraft_.kind!=DashboardWidgetKind::Channels && widgetDraft_.kind!=DashboardWidgetKind::AllChannels && widgetDraft_.kind!=DashboardWidgetKind::BatteryCells)break;
             if(i==4 && widgetDraft_.kind!=DashboardWidgetKind::Channels && !speed)break;
             row(77+i*(designPortrait?51:30),names[i],values[i],120+i,designPortrait?47:28);
         }
@@ -747,11 +763,12 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         case 61:drawDesignPage(UiPage::Gps);return;
         case 62:designBank_=0;drawDesignPage(UiPage::ChannelMonitor);return;
     }
-    if(item>=70 && item<=75){sensorSelected_=item-70;drawDesignPage(UiPage::SensorDetail);return;}
+    if(item>=70 && item<=75){sensorSelected_=sensorBank_*6+item-70;drawDesignPage(UiPage::SensorDetail);return;}
     if(item==80 || item==81){
         int direction=item==80?-1:1;
         if(activePage_==UiPage::ModelSelect)modelSelectBank_=constrain(modelSelectBank_+direction,0,1);
         else if(activePage_==UiPage::MainMenu)setupBank_=constrain(setupBank_+direction,0,designPortrait?1:2);
+        else if(activePage_==UiPage::Telemetry)sensorBank_=constrain(sensorBank_+direction,0,(DashboardSensorCount-1)/6);
         else designBank_=constrain(designBank_+direction,0,3);
         drawDesignPage(activePage_);return;
     }
@@ -762,11 +779,12 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item>=110 && item<=113){widgetCell_=item-110;widgetDraft_=dashboardLayouts_[activeModelSlot_].cells[widgetCell_];widgetHiddenDraft_=dashboardHidden_[activeModelSlot_][widgetCell_];widgetInputsEditing_=false;drawDesignPage(UiPage::WidgetEditor);return;}
     if(item>=120 && item<=124){
         int direction=event==PageControlEvent::Decrease?-1:1;
-        if(item==120)widgetDraft_.kind=static_cast<DashboardWidgetKind>((static_cast<int>(widgetDraft_.kind)+direction+static_cast<int>(DashboardWidgetKind::Count))%static_cast<int>(DashboardWidgetKind::Count));
+        if(item==120){widgetDraft_.kind=static_cast<DashboardWidgetKind>((static_cast<int>(widgetDraft_.kind)+direction+static_cast<int>(DashboardWidgetKind::Count))%static_cast<int>(DashboardWidgetKind::Count));if(widgetDraft_.kind==DashboardWidgetKind::BatteryCells)widgetDraft_.source=0;}
         if(item==121)cycleDashboardWidgetSize(widgetCell_,widgetDraft_,direction);
         if(item==122){int style=static_cast<int>(widgetDraft_.style);const int styles=static_cast<int>(DashboardWidgetStyle::Count);for(int n=0;n<styles;++n){style=(style+direction+styles)%styles;if(dashboardStyleAllowed(widgetDraft_.kind,static_cast<DashboardWidgetStyle>(style)))break;}widgetDraft_.style=static_cast<DashboardWidgetStyle>(style);}
         if(item==123 && widgetDraft_.kind==DashboardWidgetKind::AllChannels)widgetDraft_.source=(widgetDraft_.source+direction+3)%3;
-        else if(item==123)widgetDraft_.source=(widgetDraft_.source+direction+(widgetDraft_.kind==DashboardWidgetKind::Sensor?6:16))%(widgetDraft_.kind==DashboardWidgetKind::Sensor?6:16);
+        else if(item==123 && widgetDraft_.kind==DashboardWidgetKind::BatteryCells)widgetDraft_.source=(widgetDraft_.source+direction+13)%13;
+        else if(item==123)widgetDraft_.source=widgetDraft_.kind==DashboardWidgetKind::Sensor ? nextDashboardSensorSource(widgetDraft_.source,direction) : (widgetDraft_.source+direction+16)%16;
         if(item==124){
             if(widgetDraft_.kind==DashboardWidgetKind::Sensor && widgetDraft_.source==0)
                 widgetDraft_.speedValue=static_cast<SpeedWidgetValue>((static_cast<int>(widgetDraft_.speedValue)+direction+3)%3);
@@ -801,7 +819,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     // Histories only contain real decoded readings; storage is fixed and bounded.
     if(static_cast<int32_t>(now-nextSensorSampleMs_)>=0){
         nextSensorSampleMs_=now+1000;
-        for(int sensor=0;sensor<6;++sensor){
+        for(int sensor=0;sensor<DashboardSensorCount;++sensor){
             for(int j=0;j<29;++j){sensorHistory_[sensor][j]=sensorHistory_[sensor][j+1];sensorHistoryValid_[sensor][j]=sensorHistoryValid_[sensor][j+1];}
             uint32_t stamp=0;sensorHistoryValid_[sensor][29]=sensorReading(t,sensor,sensorHistory_[sensor][29],stamp);
         }
@@ -856,12 +874,13 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
         uiSetTextColor(valueLabel,colour(valid?cWhite:cDim),0);
         if(detailLabel){
             if(!valid)uiSetText(detailLabel,stamp?"Stale":"No data");
+            else if(sensor==13 && value>3000)uiSetText(detailLabel,"Over 300A");
             else uiSetTextFmt(detailLabel,"%lus",static_cast<unsigned long>((now-stamp)/1000));
         }
     };
     if(activePage_==UiPage::Dashboard){
         updateDashboardWidgets(t,tx,txValid);
-    } else if(activePage_==UiPage::Telemetry){for(int i=0;i<6;++i)reading(i,designValues_[i],designDetails_[i]);}
+    } else if(activePage_==UiPage::Telemetry){for(int i=0;i<6;++i)reading(sensorBank_*6+i,designValues_[i],designDetails_[i]);}
     else if(activePage_==UiPage::SensorDetail){
         reading(sensorSelected_,designValues_[0],designDetails_[0]);
         if(sensorSelected_==0){
@@ -1010,6 +1029,14 @@ void TransmitterUi::drawDashboardWidgets()
                     if(w.style==DashboardWidgetStyle::Bars){view.bars[j]=makeBar(view.panel,8,yy+(power&&height>130?48:19),width-16,5,power?0:-1000,power?160:1000);if(!power)lv_bar_set_mode(view.bars[j],LV_BAR_MODE_SYMMETRICAL);}
                 }
             }
+        } else if(w.kind==DashboardWidgetKind::BatteryCells){
+            for(uint8_t i=0;i<CrsfTelemetryState::MaxVehicleCells;++i){
+                view.values[i]=makeLabel(view.panel,"--",8,24,12,cWhite);
+                lv_obj_add_flag(view.values[i],LV_OBJ_FLAG_HIDDEN);
+            }
+            view.detail=makeLabel(view.panel,"No cell telemetry",8,height-(height<120?16:29),10,cDim);
+            lv_obj_set_size(view.detail,width-16,height<120?14:28);
+            lv_label_set_long_mode(view.detail,LV_LABEL_LONG_CLIP);
         } else if(w.kind==DashboardWidgetKind::Sensor){
             lv_label_set_text(title,designSensorNames[w.source]);
             const bool speed=w.source==0;
@@ -1140,9 +1167,30 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 if(view.arcs[j]){lv_arc_set_range(view.arcs[j],power?0:-1000,maximum);lv_arc_set_value(view.arcs[j],valid?value:0);uiSetArcColor(view.arcs[j],colour(low?cRed:valid?cCyan:cDim),LV_PART_INDICATOR);}
                 if(view.bars[j]){lv_bar_set_range(view.bars[j],power?0:-1000,maximum);lv_bar_set_value(view.bars[j],valid?value:0,LV_ANIM_OFF);uiSetBgColor(view.bars[j],colour(low?cRed:cCyan),LV_PART_INDICATOR);}
             }
+        } else if(w.kind==DashboardWidgetKind::BatteryCells){
+            lv_obj_update_layout(view.panel);
+            const uint8_t reported=min<uint8_t>(t.vehicleCellCount,CrsfTelemetryState::MaxVehicleCells);
+            const uint8_t count=max<uint8_t>(w.source,reported);
+            const int width=lv_obj_get_width(view.panel),height=lv_obj_get_height(view.panel);
+            const int columns=width>=200?3:2,rows=max(1,(count+columns-1)/columns);
+            const int rowHeight=max(1,(height-(height<120?43:53))/rows),columnWidth=(width-16)/columns;
+            for(uint8_t i=0;i<CrsfTelemetryState::MaxVehicleCells;++i){
+                if(i>=count){lv_obj_add_flag(view.values[i],LV_OBJ_FLAG_HIDDEN);continue;}
+                lv_obj_clear_flag(view.values[i],LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_pos(view.values[i],8+(i%columns)*columnWidth,24+(i/columns)*rowHeight);
+                lv_obj_set_size(view.values[i],columnWidth,rowHeight);
+                lv_label_set_long_mode(view.values[i],LV_LABEL_LONG_CLIP);
+                lv_obj_set_style_text_font(view.values[i],fontFor(rowHeight>=16?12:10),0);
+                if(t.vehicleCellsValid && i<reported)uiSetTextFmt(view.values[i],"%u: %u.%03u",i+1,t.vehicleCellsMv[i]/1000,t.vehicleCellsMv[i]%1000);
+                else uiSetTextFmt(view.values[i],"%u: --",i+1);
+            }
+            if(!t.vehicleCellsValid)uiSetText(view.detail,t.vehicleCellsUpdatedMs?"Cell telemetry stale":"No cell telemetry");
+            else if(w.source && w.source!=reported)uiSetTextFmt(view.detail,"Expected %uS; received %uS\nCheck pack / telemetry",w.source,reported);
+            else if(height<120)uiSetTextFmt(view.detail,"%uS  %u.%02uV  Low %u.%02uV",reported,t.vehiclePackMv/1000,(t.vehiclePackMv%1000)/10,t.vehicleMinimumCellMv/1000,(t.vehicleMinimumCellMv%1000)/10);
+            else uiSetTextFmt(view.detail,"%uS  %u.%03u V\nMin %u.%03u V",reported,t.vehiclePackMv/1000,t.vehiclePackMv%1000,t.vehicleMinimumCellMv/1000,t.vehicleMinimumCellMv%1000);
         } else if(w.kind==DashboardWidgetKind::Sensor){
             int32_t value=0;uint32_t stamp=0;bool valid=sensorReading(t,w.source,value,stamp);char text[24];sensorText(w.source,value,text,sizeof(text));
-            if(w.source!=0){uiSetText(view.values[0],valid?text:"--");uiSetTextFmt(view.detail,"%s%s",designSensorUnits[w.source],valid?"":stamp?" / stale":" / no data");}
+            if(w.source!=0){uiSetText(view.values[0],valid?text:"--");uiSetTextFmt(view.detail,"%s%s",designSensorUnits[w.source],valid?(w.source==13 && value>3000?" / check range":""):stamp?" / stale":" / no data");}
             if(w.source==0){
                 uiSetText(view.detail,"km/h");
                 char readings[3][16];

@@ -60,5 +60,64 @@ int main() {
     testNow=UINT32_MAX-100;feed(parser,0x02,gps);
     testNow=200;parser.updateFreshness();assert(parser.state().gpsValid);
     testNow=4000;parser.updateFreshness();assert(!parser.state().gpsValid);
-    puts("CRSF telemetry transport, GPS, RPM, temperature and freshness tests passed");
+    // Captured 4S values, separate from the receiver's own supply voltage.
+    testNow=10000;
+    feed(parser,0x08,{0,66,0,0,0,0,0,0});
+    const std::vector<uint8_t> cells={0,0x0f,0x94,0x0f,0xae,0x0f,0xa6,0x0f,0xc0};
+    feed(parser,0x0e,cells);
+    assert(parser.state().vehicleCellsValid && parser.state().vehiclePackMv==16040);
+    assert(parser.state().vehicleCellsMv[0]==3988 && parser.state().vehicleCellsMv[1]==4014);
+    assert(parser.state().vehicleCellsMv[2]==4006 && parser.state().vehicleCellsMv[3]==4032);
+    assert(parser.state().vehicleMinimumCellMv==3988 && parser.state().receiverVoltageDecivolts==66);
+    testNow=11000;
+    auto invalid=cells;invalid[0]=1;feed(parser,0x0e,invalid);
+    invalid=cells;invalid.pop_back();feed(parser,0x0e,invalid);
+    invalid=cells;invalid.push_back(0);feed(parser,0x0e,invalid);
+    invalid=cells;invalid[8]=0;invalid[7]=0;feed(parser,0x0e,invalid);
+    invalid=cells;invalid[7]=0xff;feed(parser,0x0e,invalid);
+    feed(parser,0x0e,cells,true);
+    assert(parser.state().vehicleCellsUpdatedMs==10000 && parser.state().vehiclePackMv==16040);
+    testNow=13000;parser.updateFreshness();assert(parser.state().vehicleCellsValid);
+    testNow=13001;parser.updateFreshness();assert(!parser.state().vehicleCellsValid);
+    assert(parser.state().receiverVoltageValid);
+    testNow=UINT32_MAX-100;feed(parser,0x0e,cells);
+    testNow=200;parser.updateFreshness();assert(parser.state().vehicleCellsValid);
+    testNow=4000;parser.updateFreshness();assert(!parser.state().vehicleCellsValid);
+    // Variable packs are counted from cell data; shorter packs clear old slots.
+    for(unsigned count : {1U, 3U, 4U, 6U, 12U}) {
+        std::vector<uint8_t> packet={0};
+        for(unsigned i=0;i<count;++i){packet.push_back(0x0f);packet.push_back(0xa0+i);}
+        feed(parser,0x0e,packet);
+        assert(parser.state().vehicleCellCount==count && parser.state().vehicleCellsValid);
+        assert(parser.state().vehiclePackMv==count*4000+count*(count-1)/2);
+        assert(parser.state().vehicleMinimumCellMv==4000);
+        if(count<12)assert(parser.state().vehicleCellsMv[count]==0);
+    }
+    auto last=parser.state();
+    std::vector<uint8_t> tooMany(27,0x0f);tooMany[0]=0;
+    feed(parser,0x0e,tooMany);
+    assert(parser.state().vehicleCellCount==last.vehicleCellCount && parser.state().vehiclePackMv==last.vehiclePackMv);
+    feed(parser,0x0e,{0,0x0f,0xa0});
+    assert(parser.state().vehicleCellCount==1 && parser.state().vehicleCellsMv[11]==0);
+    testNow=20000;
+    feed(parser,0x08,{0,66,0,0,0,0,0,0});
+    const std::vector<uint8_t> fasCurrent={0,0,0x2d,0x27,0,0,0,0,1};
+    feed(parser,0x08,fasCurrent);feed(parser,0x0e,{128,0,0});
+    assert(parser.state().fasCurrentValid && parser.state().fasCurrentDeciA==11559);
+    assert(parser.state().fasVoltageValid && parser.state().fasVoltageMv==0);
+    assert(parser.state().receiverVoltageDecivolts==66 && parser.state().receiverVoltageValid);
+    auto saved=parser.state();testNow=21000;
+    auto badFas=fasCurrent;badFas[8]=2;feed(parser,0x08,badFas);
+    badFas=fasCurrent;badFas.push_back(0);feed(parser,0x08,badFas);
+    feed(parser,0x08,fasCurrent,true);feed(parser,0x0e,{128,0xff,0xff});
+    feed(parser,0x0e,{128,0,0,0,0});feed(parser,0x0e,{129,0,0});
+    assert(parser.state().fasCurrentUpdatedMs==saved.fasCurrentUpdatedMs);
+    assert(parser.state().fasVoltageUpdatedMs==saved.fasVoltageUpdatedMs);
+    feed(parser,0x0e,{128,0x3e,0xa8});assert(parser.state().fasVoltageMv==16040);
+    testNow=24001;parser.updateFreshness();
+    assert(!parser.state().fasCurrentValid && !parser.state().fasVoltageValid && parser.state().receiverVoltageValid);
+    testNow=UINT32_MAX-100;feed(parser,0x08,fasCurrent);feed(parser,0x0e,{128,0,0});
+    testNow=200;parser.updateFreshness();assert(parser.state().fasCurrentValid && parser.state().fasVoltageValid);
+    feed(parser,0x08,{0,67,0,0,0,0,0,0,0});assert(parser.state().receiverVoltageDecivolts==67);
+    puts("CRSF telemetry transport, GPS, RPM, temperature, 1–12S cells, FAS voltage/current and freshness tests passed");
 }

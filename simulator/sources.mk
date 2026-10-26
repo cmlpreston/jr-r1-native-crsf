@@ -15,6 +15,7 @@ SHARED_APP_CPP := \
   $(ROOT)/src/physical_input_runtime.cpp \
   $(ROOT)/src/r1_input_map.cpp \
   $(ROOT)/src/crsf_channel_output.cpp \
+  $(ROOT)/src/crsf_telemetry.cpp \
   $(ROOT)/src/output_safety.cpp \
   $(ROOT)/src/jr_propo_boot_logo.cpp \
   $(ROOT)/src/r1_evo_wordmark.cpp \

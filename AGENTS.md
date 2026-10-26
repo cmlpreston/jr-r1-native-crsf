@@ -12,9 +12,11 @@ Before uploading to an ESP32-S3:
 3. Confirm the selected PlatformIO environment, board, display profile and pin
    map against the connected hardware. As directed by the user on 2026-09-16,
    use only the Seeed XIAO ESP32-S3 until the user explicitly says otherwise.
-   The default environment is `seeed_xiao_esp32s3-pcb-portrait`, with the
-   Waveshare 3.5-inch RPi LCD (F) and final schematic (5) pin allocation in
-   `docs/xiao-pcb.md`. `seeed_xiao_esp32s3-pcb` is the landscape alternative.
+   As directed on 2026-10-26, use LANDSCAPE ONLY for transmitter uploads.
+   The default and approved environment is `seeed_xiao_esp32s3-pcb` (480×320),
+   with the Waveshare 3.5-inch RPi LCD (F) and final schematic (5) pin allocation
+   in `docs/xiao-pcb.md`. Portrait upload targets require a new explicit user
+   instruction; retaining portrait simulator/build coverage is permitted.
    DevKitC, BTT and diagnostic environments are legacy and require explicit
    user authorization before uploading.
 4. Build and run the available tests before upload.

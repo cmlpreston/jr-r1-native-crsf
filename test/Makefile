@@ -89,7 +89,7 @@ $(BUILD)/physical_input_test: physical_input_test.cpp \
 
 $(BUILD)/physical_input_runtime_test: physical_input_runtime_test.cpp \
     $(ROOT)/src/physical_input_runtime.cpp $(ROOT)/src/physical_input.cpp \
-    $(ROOT)/src/control_assignment.cpp
+    $(ROOT)/src/control_assignment.cpp $(ROOT)/include/waveshare_touch_orientation.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
 

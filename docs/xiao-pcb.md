@@ -2,14 +2,14 @@
 
 This profile implements the wiring in `Schematic PDF_[No Variations] (5).pdf`
 reviewed on 2026-09-13. Since 2026-09-16, this is the only active hardware until
-the user explicitly changes it. Portrait is the default. Build with:
+the user explicitly changes it. Landscape is required from 2026-10-26. Build with:
 
 ```sh
-.venv/bin/pio run -e seeed_xiao_esp32s3-pcb-portrait
+.venv/bin/pio run -e seeed_xiao_esp32s3-pcb
 ```
 
 PlatformIO board: `seeed_xiao_esp32s3`; display: Waveshare RPi LCD (F).
-The upload preflight approves the XIAO PCB portrait and landscape environments
+The upload preflight approves only the XIAO PCB landscape environment
 with the `seeed_xiao_esp32s3` board definition, while retaining branch and display
 checks. No unsafe override is needed for normal XIAO uploads. The DevKitC targets
 retain legacy prototype wiring and must not be uploaded without explicit user

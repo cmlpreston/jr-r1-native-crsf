@@ -697,6 +697,40 @@ void printInputMonitorSnapshot()
     Serial.printf("@INPUT_END\t%u\n", static_cast<unsigned>(kPhysicalControlCount));
 }
 
+// Read-only telemetry snapshot for RF bench verification over USB.
+void printCellTelemetrySnapshot()
+{
+    const auto t = readTelemetrySnapshot();
+    Serial.printf("@CELLS valid=%u age_ms=%lu link=%u lq=%u rx_valid=%u rx_dv=%u frames=%lu crc_errors=%lu\n",
+        t.vehicleCellsValid, static_cast<unsigned long>(millis()-t.vehicleCellsUpdatedMs),
+        t.linkValid, t.uplinkLinkQuality, t.receiverVoltageValid, t.receiverVoltageDecivolts,
+        static_cast<unsigned long>(t.validFrames), static_cast<unsigned long>(t.crcErrors));
+    Serial.printf("@FAS voltage_valid=%u voltage_mv=%u voltage_raw_cv=%u current_valid=%u current_raw_da=%u within_300a=%u temperature_valid=%u temperature_dc=%d\n",
+        t.fasVoltageValid,t.fasVoltageMv,t.fasVoltageMv/10,t.fasCurrentValid,t.fasCurrentDeciA,
+        t.fasCurrentDeciA<=3000,t.temperatureValid,t.temperatureDeciC);
+    if (t.vehicleCellsValid)
+        Serial.printf("@CELLS_MV %u %u %u %u total=%u minimum=%u\n",
+            t.vehicleCellsMv[0],t.vehicleCellsMv[1],t.vehicleCellsMv[2],t.vehicleCellsMv[3],
+            t.vehiclePackMv,t.vehicleMinimumCellMv);
+}
+
+void printWifiSetupStatus()
+{
+    const auto &wifi = SetupPortal::state();
+    Serial.printf("WIFI: %s; %s; recovery=%s headless=%s\n", wifi.message,
+        wifi.running ? "web server ready" : "web server not ready",
+        transmitterUi.hardwareRecovery() ? "yes" : "no",
+        transmitterUi.headlessTesting() ? "yes" : "no");
+    if (wifi.hotspot)
+        Serial.printf("WIFI: join %s then open http://192.168.4.1\n", wifi.apName);
+    if (wifi.connected)
+        Serial.printf("WIFI: home address http://%s or http://%s.local\n", wifi.ip, wifi.activeHostname);
+    // Only an explicit USB command prints credentials; never periodic logs.
+    if (wifi.running && wifi.apPassword[0])
+        Serial.printf("WIFI: username=r1 setup-password=%s (boot PIN is separate)\n", wifi.apPassword);
+    else Serial.println("WIFI: wait for setup, then send WIFISTATUS again");
+}
+
 bool consumeScreenshotCommand()
 {
     while (Serial.available() > 0) {
@@ -746,7 +780,7 @@ bool consumeScreenshotCommand()
                     !state.calibrating && !transmitterUi.calibrationActive() &&
                     !SetupPortal::active() &&
                     abs(int(state.adc) - int(transmitterUi.throttleCentreAdc())) <= ARM_NEUTRAL_ADC_WINDOW &&
-                    physicalInputs.startupUnsafeMask() == 0 && inputExpanderReady;
+                    physicalInputs.startupUnsafeMask(STARTUP_IGNORE_HELD_INPUTS) == 0 && inputExpanderReady;
                 requestControlReset(); // Every explicit arm requires a fresh neutral/link dwell.
                 portENTER_CRITICAL(&rfBenchMux);
                 const bool accepted = rfBenchSession.requestArm(millis(), ready);
@@ -754,7 +788,30 @@ bool consumeScreenshotCommand()
                 Serial.println(accepted ? "@RF_REPLY Arm requested; waiting for receiver link and neutral checks." :
                     "@RF_REPLY Arm rejected: centre controls, close Wi-Fi setup/calibration, check inputs and bench session.");
             }
+            if (strcmp(usbCommand, "HEADLESS ON") == 0) {
+                if (transmitterUi.setHeadlessTesting(true)) {
+                    SetupPortal::start();
+                    Serial.println("HEADLESS: saved ON; LCD/touch disabled; normal arming inhibited. Send WIFISTATUS for access details.");
+                } else Serial.println("HEADLESS: setting save failed; outputs requested CUT; retry before reboot");
+            }
+            if (strcmp(usbCommand, "HEADLESS OFF") == 0) {
+                Serial.println(transmitterUi.setHeadlessTesting(false) ?
+                    "HEADLESS: saved OFF for next boot; restart to retest LCD/touch. Current recovery latch unchanged." :
+                    "HEADLESS: setting save failed; outputs requested CUT");
+            }
+            if (strcmp(usbCommand, "WIFISETUP") == 0) {
+                transmitterUi.requestConfigurationCut();
+                SetupPortal::start();
+                Serial.println("WIFI: setup requested; outputs CUT. Send WIFISTATUS for access details.");
+            }
+            if (strcmp(usbCommand, "WIFICLOSE") == 0) {
+                transmitterUi.requestConfigurationCut();
+                SetupPortal::stop();
+                Serial.println("WIFI: closing hotspot setup; recovery/arming latch unchanged; home web access may remain available.");
+            }
+            if (strcmp(usbCommand, "WIFISTATUS") == 0) printWifiSetupStatus();
             if (strcmp(usbCommand, "INPUTMON") == 0) printInputMonitorSnapshot();
+            if (strcmp(usbCommand, "TELEMETRY") == 0) printCellTelemetrySnapshot();
             if(strcmp(usbCommand,"MEMORY")==0||strcmp(usbCommand,"memory")==0)MemoryDiagnostics::print(Serial);
             if (strcmp(usbCommand, "BOOTLOG") == 0 || strcmp(usbCommand, "bootlog") == 0)
                 bootDiagnosticsDump();
@@ -848,7 +905,7 @@ void setup()
     const uint32_t heapBeforeUi = ESP.getFreeHeap();
 #ifdef JR_R1_XIAO_PCB
     if (!transmitterUi.begin()) {
-        Serial.println("PCB STARTUP FAILED: check K1/K2, LCD and touch; reset to retry. Outputs remain safe.");
+        Serial.println("PCB RECOVERY: peripheral startup incomplete or headless testing enabled. Remote UI/input tests available; outputs remain safe.");
         // No control task or arming path starts after an incomplete hardware
         // sequence. The already-running CRSF task keeps sending safe frames.
         bootDiagnosticsStage("halted-safe");
@@ -857,7 +914,11 @@ void setup()
         configureDirectGpioInputs();
         transmitterUi.enterHardwareRecovery();
         SetupPortal::begin(&transmitterUi);
+        SetupPortal::start();
+        Serial.println("RECOVERY: Wi-Fi setup requested automatically. USB: WIFISTATUS for credentials, BOOTLOG, INPUTMON, MEMORY; HEADLESS ON to skip LCD/touch on future boots.");
+        MemoryDiagnostics::configure(crsfTaskHandle, nullptr, true);
         for (;;) {
+            MemoryDiagnostics::sample();
             // Sample only; never feed events to bindings or start live control.
             latestPcbInputs[0].available = pcbKeypad.online() && pcbKeypad.read(latestPcbInputs[0].levels);
             latestPcbInputs[1].available = pcbControls.online() && pcbControls.read(latestPcbInputs[1].levels);
@@ -885,7 +946,7 @@ void setup()
             transmitterUi.update(throttle, steering, 0, 0, CRSF_CHANNEL_MID,
                 OutputSafetyStatus::ControlStale, readTelemetrySnapshot(), battery,
                 battery >= 25, CrsfChannelOutputModel{}, false);
-            // Safe by construction: no live control task can run until reboot.
+            // Safe until the separately authorized RF bench path above starts control.
             SetupPortal::tick(true, true);
             delay(20);
         }
@@ -1010,7 +1071,7 @@ void loop()
             if (startupInputSettledAtMs == 0)
                 startupInputSettledAtMs = nowMs;
             if (nowMs - startupInputSettledAtMs >= STARTUP_INPUT_SETTLE_MS) {
-                const uint32_t mask = physicalInputs.startupUnsafeMask();
+                const uint32_t mask = physicalInputs.startupUnsafeMask(STARTUP_IGNORE_HELD_INPUTS);
                 if (mask != startupWarningMask) {
                     startupWarningMask = mask;
                     Serial.printf("STARTUP CHECK: unsafe mask=0x%08lX\n",
@@ -1021,7 +1082,9 @@ void loop()
                     startupPreflightComplete = true;
                     transmitterUi.setStartupPreflight(true, 0);
                     completeStartupPreflight();
-                    Serial.println("STARTUP CHECK: controls safe; arm available");
+                    Serial.println(STARTUP_IGNORE_HELD_INPUTS ?
+                        "STARTUP CHECK: BENCH held-switch/trim check bypassed; faults and normal arming checks retained" :
+                        "STARTUP CHECK: controls safe; arm available");
                 }
             }
         }

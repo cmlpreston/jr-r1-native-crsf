@@ -91,15 +91,14 @@ constexpr uint32_t CONTROL_I2C_FREQUENCY = 400000;
 
 constexpr int16_t DISPLAY_LANDSCAPE_WIDTH = 480;
 constexpr int16_t DISPLAY_LANDSCAPE_HEIGHT = 320;
-#ifdef JR_R1_DISPLAY_DIAGNOSTIC
+#if defined(JR_R1_DISPLAY_DIAGNOSTIC) || defined(JR_R1_PCB_LCD_TEST)
 // Slow enough for a 24 Msps hobby logic analyser to resolve cleanly while
 // diagnosing the panel cable and connectors.
 constexpr uint32_t TFT_SPI_FREQUENCY = 1000000;
 #elif defined(JR_R1_XIAO_PCB)
 // SPIClass backend with mode established under LCD reset; CS remains grounded.
-// Restore the previously tested 80 MHz PCB LCD clock at the user's request.
-//constexpr uint32_t TFT_SPI_FREQUENCY = 80000000;
-constexpr uint32_t TFT_SPI_FREQUENCY = 4000000;
+// Full firmware: 80 MHz trial after repair of LCD CS and touch I2C solder joints.
+constexpr uint32_t TFT_SPI_FREQUENCY = 80000000;
 #else
 // Legacy prototype's trial speed; the active XIAO profile is set above.
 constexpr uint32_t TFT_SPI_FREQUENCY = 30000000;

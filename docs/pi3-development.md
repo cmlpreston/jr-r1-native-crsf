@@ -46,7 +46,7 @@ For artifact-only uploads, preserve the matching source snapshot, environment,
 Git identity and checksums alongside the firmware, bootloader and partition
 images. Continue using PlatformIO's upload target and upload preflight; do not
 bypass these with a direct esptool command. Verify the transferred artifacts
-before any upload. Use `pio run -e seeed_xiao_esp32s3-pcb-portrait -t nobuild
+before any upload. Use `pio run -e seeed_xiao_esp32s3-pcb -t nobuild
 -t upload --upload-port PORT` on the Pi after copying `firmware.bin`,
 `bootloader.bin` and `partitions.bin` into the matching `.pio/build/` environment
 directory. Verify that the installed framework’s `boot_app0.bin` also matches
@@ -57,7 +57,7 @@ Optional on-Pi build:
 
 ```sh
 cd /home/pi/r1-dev/firmware
-/home/pi/r1-dev/venv/bin/pio run -e seeed_xiao_esp32s3-pcb-portrait -j 1
+/home/pi/r1-dev/venv/bin/pio run -e seeed_xiao_esp32s3-pcb -j 1
 make -C test run
 ```
 
@@ -87,7 +87,7 @@ unsafe override. For example, after replacing PORT with the verified device:
 git fetch origin main
 git status --short --branch
 git merge-base --is-ancestor origin/main HEAD
-/home/pi/r1-dev/venv/bin/pio run -e seeed_xiao_esp32s3-pcb-portrait -j 1 -t upload --upload-port PORT
+/home/pi/r1-dev/venv/bin/pio run -e seeed_xiao_esp32s3-pcb -j 1 -t upload --upload-port PORT
 /home/pi/r1-dev/venv/bin/pio device monitor --port PORT --baud 115200
 ```
 
@@ -135,7 +135,7 @@ From the project directory on the Mac:
 ./tools/flash_via_pi.py
 ```
 
-Defaults to the currently installed landscape layout, gateway SSH on port
+Defaults to the installed landscape layout, gateway SSH on port
 10022 and the existing Pi upload checkout. It fetches main, refuses stale or
 unrelated branches, validates the XIAO/Waveshare pin allocation, builds locally,
 runs native/browser tests and the matching SDL UI audit, then transfers only
@@ -151,10 +151,10 @@ Local checks without an upload:
 ./tools/flash_via_pi.py --check
 ```
 
-For an explicitly selected portrait layout:
+To specify the approved landscape layout explicitly:
 
 ```sh
-./tools/flash_via_pi.py --environment seeed_xiao_esp32s3-pcb-portrait
+./tools/flash_via_pi.py --environment seeed_xiao_esp32s3-pcb
 ```
 
 The complete tested source snapshot and binary manifest remain in the printed

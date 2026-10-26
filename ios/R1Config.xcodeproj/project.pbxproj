@@ -1,0 +1,203 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00000000000000000000000E /* Core/Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000B /* Core/Models.swift */; };
+		00000000000000000000000F /* Core/PortalClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000C /* Core/PortalClient.swift */; };
+		000000000000000000000010 /* UI/R1ConfigApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000D /* UI/R1ConfigApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000006 /* R1Config.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = R1Config.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		00000000000000000000000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		00000000000000000000000B /* Core/Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Models.swift; sourceTree = "<group>"; };
+		00000000000000000000000C /* Core/PortalClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/PortalClient.swift; sourceTree = "<group>"; };
+		00000000000000000000000D /* UI/R1ConfigApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/R1ConfigApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		000000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000003 /* R1Config */,
+				000000000000000000000004 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000003 /* R1Config */ = {
+			isa = PBXGroup;
+			children = (
+				00000000000000000000000B /* Core/Models.swift */,
+				00000000000000000000000C /* Core/PortalClient.swift */,
+				00000000000000000000000D /* UI/R1ConfigApp.swift */,
+				00000000000000000000000A /* Info.plist */,
+			);
+			path = R1Config;
+			sourceTree = "<group>";
+		};
+		000000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000006 /* R1Config.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		000000000000000000000005 /* R1Config */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000012 /* Build configuration list for PBXNativeTarget "R1Config" */;
+			buildPhases = (
+				000000000000000000000007 /* Sources */,
+				000000000000000000000008 /* Frameworks */,
+				000000000000000000000009 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = R1Config;
+			productName = R1Config;
+			productReference = 000000000000000000000006 /* R1Config.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		000000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = 000000000000000000000011 /* Build configuration list for PBXProject "R1Config" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 000000000000000000000002;
+			productRefGroup = 000000000000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				000000000000000000000005 /* R1Config */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00000000000000000000000E /* Core/Models.swift in Sources */,
+				00000000000000000000000F /* Core/PortalClient.swift in Sources */,
+				000000000000000000000010 /* UI/R1ConfigApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		000000000000000000000013 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		000000000000000000000014 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		000000000000000000000015 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 3FKNP8W9MY;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = R1Config/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = local.r1evo.config;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		000000000000000000000016 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 3FKNP8W9MY;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = R1Config/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = local.r1evo.config;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		000000000000000000000011 /* Build configuration list for PBXProject "R1Config" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000013 /* Debug */,
+				000000000000000000000014 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000012 /* Build configuration list for PBXNativeTarget "R1Config" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000015 /* Debug */,
+				000000000000000000000016 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 000000000000000000000001 /* Project object */;
+}

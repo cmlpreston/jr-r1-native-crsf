@@ -101,10 +101,13 @@ outstanding; the built-in local map is implemented.
 
 ## Validation and hardware trial
 
+Receiver S.Port firmware and compatibility tests now live in the separate
+[ExpressLRS-SPort fork](https://github.com/cmlpreston/ExpressLRS-SPort). Run
+`make -C sport test` from that receiver checkout.
+
 ```sh
 make -C test run
 make -C simulator -j6 audit
-make -C onboard/sport-crsf test
 .venv/bin/pio run -e esp32-s3-devkitc-1-portrait -e seeed_xiao_esp32s3-pcb-portrait
 # Activate Emscripten 4.0.15 before:
 sh simulator/build_web.sh
@@ -189,3 +192,58 @@ physical Close ends the manual setup session under the existing network policy.
 
 Validation uses the actual native LVGL callbacks in both orientations. It does
 not replace testing touch feel, LCD visibility or RF operation on the handset.
+
+
+### Four-cell S.Port telemetry (2026-10-18)
+
+The ER4 trial forwards the verified FLVS ADV `0xa1/0x0300` four-cell scan
+as CRSF voltage group `0x0e`, source 0, four big-endian millivolt values.
+The transmitter accepts complete, plausible 4S groups atomically and expires
+readings after 3 seconds. These values are separate from `0x08` receiver supply.
+No cell alarm threshold is inferred from the pack type.
+
+Open **Data → Sensors**, then the right arrow to **Drive battery 2 / 3**
+for pack total, lowest cell and cells 1–4, shown to three decimal places in volts.
+Tap a reading for its history. Sensor dashboard widgets also offer these six
+sources after the original six; existing persisted sensor IDs are unchanged.
+Missing/stale readings show `--` and do not become zero-voltage measurements.
+The read-only USB command `TELEMETRY` reports validity/link/age and, when fresh,
+`@CELLS_MV` readings for bench verification without enabling outputs.
+
+The host UI audit feeds an actual-format CRSF frame through the production
+parser, checks cards, details, widgets and missing values, and renders the cells
+page. RF reception remains a hardware check; receiver WiFi mode stops RF.
+
+### Combined battery cells widget
+
+Dashboard → widget settings → Type **Battery cells** groups the vehicle pack's
+individual cell voltages in one panel. All four dashboard sizes are supported.
+The widget includes the detected cell count, pack total and lowest cell. Old
+single-cell dashboard widgets migrate to this group; pack-total and lowest-cell
+sensor widgets retain their original IDs.
+
+**Cell count** defaults to **Auto (telemetry)**, or can be set to 1S–12S in each
+widget's saved settings. Auto uses the number of individual cells reported by
+CRSF source 0 voltage-group telemetry, not an estimate from total pack voltage.
+A manual count specifies expected cells: missing measurements remain `--`, and
+a count mismatch is reported rather than inventing voltages. Stale measurements
+are cleared from the live display. The transmitter parser accepts 1–12 individual readings;
+the current receiver trial forwards 4S, so larger packs require receiver work.
+
+
+### FAS300 ADV bench forwarding (2026-10-26)
+
+The receiver trial profiles now select the captured `0x22` FAS300 ADV source:
+`0x0400` temperature, `0x0200` current (0.1 A), `0x0210` voltage (0.01 V).
+Temperature uses the existing sensor card. FAS voltage and current are on
+**Data → Sensors → right arrow twice → FAS300 ADV 3 / 3**, and are available
+as dashboard Sensor sources. Existing widget IDs are preserved.
+
+CRSF battery `0x08` ID 1 supplies current; legacy/no-ID and explicit ID 0 retain
+receiver supply. General-voltage group `0x0e` source 128 retains FAS voltage
+at millivolt precision, separate from the drive cells. Voltage and current become stale
+after 3 seconds (Temperature retains its existing 10-second policy), and a zero
+remains a valid reported value. Current above 300 A
+is displayed with **Check range** for FrSky comparison rather than suppressed.
+The USB `TELEMETRY` command includes `@FAS` raw/scaled values. Hardware readings
+must still be compared with the known FrSky setup before relying on calibration.

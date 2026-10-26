@@ -267,3 +267,21 @@ re-arm to test the changed travel. Cancel leaves the applied profile unchanged.
 Validation covers normal/reversed steering, touch Apply through the production
 CRSF output calculation, persistence, and output changes after a fresh arm dwell.
 Physical servo travel and handset touch latency remain hardware checks.
+
+
+### Live endpoint comparison (2026-10-26, R1 03a9333)
+
+USB INPUTMON captures with the user moving the wheel fully both ways showed:
+
+| Applied left/right endpoints | Normalized steering input | Reported live steering CRSF command |
+| --- | --- | --- |
+| 50% / 50% | -1000 to +1000 | 582 to 1401 (77 live samples) |
+| 100% / 100% | -1000 to +1000 | 172 to 1811 (78 live samples) |
+
+Centre was 992; steering was reversed. This establishes that the running XIAO
+control path changes the reported steering command with endpoint settings. It
+is not an independent capture of the UART, on-air data, receiver PWM or servo
+position. The user saw unchanged servo travel and identified a likely steering
+gyro between receiver and servo. Next isolate that stage by testing the servo
+directly on the receiver output that feeds the gyro. The gyro model and mode
+are not yet established; no further firmware change was justified by this trace.

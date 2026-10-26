@@ -44,7 +44,11 @@ void sensorText(uint8_t sensor, int32_t value, char *text, size_t capacity)
 {
     if (sensor >= 6 && sensor <= 12)
         snprintf(text, capacity, "%ld.%03ld", static_cast<long>(value / 1000), static_cast<long>(value % 1000));
-    else if (sensor == 0 || sensor == 1 || sensor == 3 || sensor == 13)
+    // The selected S.Port temperature source reports whole degrees C; CRSF
+    // transports tenths, but that scaling does not add sensor resolution.
+    else if (sensor == 1)
+        snprintf(text, capacity, "%ld", static_cast<long>(value / 10));
+    else if (sensor == 0 || sensor == 3 || sensor == 13)
         snprintf(text, capacity, "%s%ld.%ld", value < 0 ? "-" : "", labs(value) / 10, labs(value) % 10);
     else snprintf(text, capacity, "%ld", static_cast<long>(value));
 }

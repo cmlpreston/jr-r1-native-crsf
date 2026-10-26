@@ -235,7 +235,10 @@ the current receiver trial forwards 4S, so larger packs require receiver work.
 
 The receiver trial profiles now select the captured `0x22` FAS300 ADV source:
 `0x0400` temperature, `0x0200` current (0.1 A), `0x0210` voltage (0.01 V).
-Temperature uses the existing sensor card. FAS voltage and current are on
+Temperature uses the existing sensor card and displays whole degrees C, matching
+the S.Port source resolution. CRSF still carries tenths internally (24 C is
+encoded as 240); the same whole-degree display applies to details, history
+labels and dashboard widgets. FAS voltage and current are on
 **Data → Sensors → right arrow twice → FAS300 ADV 3 / 3**, and are available
 as dashboard Sensor sources. Existing widget IDs are preserved.
 

@@ -28,6 +28,18 @@ struct ChannelResponseProfile {
     bool reversed = false;
 };
 
+// UI left/right endpoints follow the output direction after reversal, while
+// persisted endpoint fields retain their existing input-side meaning.
+inline uint8_t channelEndpointForOutput(const ChannelResponseProfile &profile, bool positive)
+{
+    return positive != profile.reversed ? profile.positiveEndpointPercent : profile.negativeEndpointPercent;
+}
+inline void setChannelEndpointForOutput(ChannelResponseProfile &profile, bool positive, uint8_t percent)
+{
+    if (positive != profile.reversed) profile.positiveEndpointPercent = percent;
+    else profile.negativeEndpointPercent = percent;
+}
+
 // Clamp a profile loaded from persistence or edited by a UI to the supported
 // envelope. Kept outside the UI so every future frontend uses identical rules.
 void sanitizeChannelResponseProfile(ChannelResponseProfile &profile);

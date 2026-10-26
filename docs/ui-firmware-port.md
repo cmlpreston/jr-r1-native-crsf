@@ -251,3 +251,19 @@ remains a valid reported value. Current above 300 A
 is displayed with **Check range** for FrSky comparison rather than suppressed.
 The USB `TELEMETRY` command includes `@FAS` raw/scaled values. Hardware readings
 must still be compared with the known FrSky setup before relying on calibration.
+
+
+### Steering endpoint direction and editing response
+
+Tune → Steering → Endpoint uses the selected steering channel's reversal when
+selecting Left/Right from calibrated input. Labels, stored draft values, preview
+curve and Apply share that mapping; the underlying input-side response storage
+and channel processing are unchanged. Existing models need no migration.
+
+Side changes and +/−, Reset and Fine/Coarse update existing controls in place,
+keeping touch targets alive and limiting redraw to the affected labels/curve.
+Apply still commits both drafts and puts outputs in CUT; return to Drive and
+re-arm to test the changed travel. Cancel leaves the applied profile unchanged.
+Validation covers normal/reversed steering, touch Apply through the production
+CRSF output calculation, persistence, and output changes after a fresh arm dwell.
+Physical servo travel and handset touch latency remain hardware checks.

@@ -1060,6 +1060,7 @@ bool TransmitterUi::captureScreenshot(Stream &output)
 void TransmitterUi::resetLvglObjects()
 {
     detailOutputLabel=nullptr;detailDriveIcon=nullptr;
+    steeringEndpointButtons_[0]=steeringEndpointButtons_[1]=editorStepButton_=nullptr;
     driveProgress_=driveHint_=driveIcon_=nullptr;
     wifiKeyPreview_ = nullptr;
     for (auto &view : widgetViews_) view = DashboardWidgetView{};

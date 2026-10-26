@@ -64,6 +64,26 @@ static void testStructuralEditsAndLiveTrim() {
     c.modelStorageValid = false; ++c.revision;
     assert(e.update(c, input(11512)).safety == OutputSafetyStatus::ConfigurationFault);
 }
+static void testAppliedSteeringEndpointReachesOutputAfterRearm() {
+    for(bool reversed : {false,true}) {
+        auto c=configuration();c.channelProfiles[0].reversed=reversed;
+        ControlEngine e;qualify(e,c,10);
+        auto turn=input(1514);turn.steeringAdc=reversed?3000:1000;
+        assert(e.update(c,turn).outputs.requested(1)==crsfValueFromPermille(-1000));
+        setChannelEndpointForOutput(c.channelProfiles[0],false,60);
+        c.armRequested=false;++c.revision;
+        assert(e.update(c,input(1600)).safety==OutputSafetyStatus::Cut);
+        c.armRequested=true;++c.revision;qualify(e,c,2000);
+        turn.nowMs=3504;
+        auto result=e.update(c,turn);
+        assert(result.safety==OutputSafetyStatus::Armed);
+        assert(result.outputs.requested(1)==crsfValueFromPermille(-600));
+        assert(result.outputs.requested(2)==CRSF_CHANNEL_MID);
+        turn.steeringAdc=reversed?1000:3000;turn.nowMs=3508;
+        assert(e.update(c,turn).outputs.requested(1)==crsfValueFromPermille(1000));
+    }
+}
+
 static void testArmingVetoes() {
     auto c = configuration(); ControlEngine e;
     auto i = input(0); i.startupComplete = false;
@@ -132,6 +152,7 @@ static void testMixCompilation() {
     assert(!compileConfiguredMixing(c).valid);
 }
 int main() {
+    testAppliedSteeringEndpointReachesOutputAfterRearm();
     testSafety(); testArmingVetoes(); testStructuralEditsAndLiveTrim(); testResetPublicationOrder(); testMixCompilation();
     puts("Control engine: input faults, dwell, edits, reset publication, compiled mixes and wrap PASS");
 }

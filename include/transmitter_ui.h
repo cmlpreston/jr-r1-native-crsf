@@ -523,6 +523,9 @@ private:
     int8_t steeringEndpointInputSide_ = 0;
     bool steeringEndpointEditor() const;
     void selectSteeringEndpoint(uint8_t side);
+    void refreshSteeringEndpointEditor(bool curveChanged);
+    lv_obj_t *steeringEndpointButtons_[2] = {};
+    lv_obj_t *editorStepButton_ = nullptr;
     void updateSteeringEndpointSelection();
     UiPage editorReturn_ = UiPage::Tune;
     bool editorFine_ = false;

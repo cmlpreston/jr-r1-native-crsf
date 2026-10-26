@@ -117,8 +117,8 @@ void TransmitterUi::applyDesignValue(int value)
     }
     auto p = profileForChannel(selectedChannel_);
     if (editorField_ == 2 && tuneRole_ == 0) {
-        p.negativeEndpointPercent = steeringEndpointDrafts_[0];
-        p.positiveEndpointPercent = steeringEndpointDrafts_[1];
+        setChannelEndpointForOutput(p, false, steeringEndpointDrafts_[0]);
+        setChannelEndpointForOutput(p, true, steeringEndpointDrafts_[1]);
         channelModel_.setResponse(selectedChannel_, p);
         scheduleSettingsSave();
         return;
@@ -145,10 +145,11 @@ void TransmitterUi::openDesignEditor(uint8_t field, UiPage returnPage)
     editorFine_ = false;
     if (field == 2 && tuneRole_ == 0) {
         const auto &profile = profileForChannel(selectedChannel_);
-        steeringEndpointDrafts_[0] = profile.negativeEndpointPercent;
-        steeringEndpointDrafts_[1] = profile.positiveEndpointPercent;
+        steeringEndpointDrafts_[0] = channelEndpointForOutput(profile, false);
+        steeringEndpointDrafts_[1] = channelEndpointForOutput(profile, true);
         steeringEndpointInputSide_ = 0;
-        const int input = latestSteeringRawAdc_ <= 4095 ? steeringInput_.mapToPermille(latestSteeringRawAdc_) : 0;
+        int input = latestSteeringRawAdc_ <= 4095 ? steeringInput_.mapToPermille(latestSteeringRawAdc_) : 0;
+        if (profile.reversed) input = -input;
         if (input < -150) steeringEndpointInputSide_ = -1;
         else if (input > 150) steeringEndpointInputSide_ = 1;
         if (steeringEndpointInputSide_) steeringEndpointSide_ = steeringEndpointInputSide_ > 0;
@@ -169,16 +170,44 @@ void TransmitterUi::selectSteeringEndpoint(uint8_t side)
     steeringEndpointSide_ = side;
     editorDraft_ = steeringEndpointDrafts_[side];
     lastInteractionMs_ = millis();
-    drawDesignPage(UiPage::ValueEditor);
+    refreshSteeringEndpointEditor(false);
+}
+
+void TransmitterUi::refreshSteeringEndpointEditor(bool curveChanged)
+{
+    // Keep buttons and touch targets alive while editing; only dirty pixels
+    // for changed labels, the selected side and the response curve.
+    for (uint8_t side=0; side<2; ++side) {
+        auto button=steeringEndpointButtons_[side];
+        if (!button) continue;
+        uiSetTextFmt(lv_obj_get_child(button,0), "%s%s  %d%%", side?"Right":"Left",
+            side==steeringEndpointSide_?" *":"",steeringEndpointDrafts_[side]);
+        uiSetBgColor(button,colour(side==steeringEndpointSide_?cPanel2:cPanel),0);
+        uiSetTextColor(lv_obj_get_child(button,0),colour(side==steeringEndpointSide_?cCyan:cWhite),0);
+    }
+    if (editorStepButton_) uiSetText(lv_obj_get_child(editorStepButton_,0),editorFine_?"Fine":"Coarse");
+    if (curveChanged && designCurve_) {
+        auto draft=profileForChannel(selectedChannel_);
+        setChannelEndpointForOutput(draft,false,steeringEndpointDrafts_[0]);
+        setChannelEndpointForOutput(draft,true,steeringEndpointDrafts_[1]);
+        const int graphH=designPortrait?118:60;
+        for (int i=0;i<33;++i) {
+            const int output=applyChannelResponse(draft,-1000+i*2000/32);
+            designPoints_[i]={static_cast<lv_coord_t>(4+i*(kScreenWidth-34)/32),static_cast<lv_coord_t>(graphH/2-output*(graphH-8)/2400)};
+        }
+        lv_line_set_points(designCurve_,designPoints_,33);
+    }
+    lastInteractionMs_=millis();
 }
 
 void TransmitterUi::updateSteeringEndpointSelection()
 {
     if (!channelRoleSettings_.steeringEnabled || !steeringEndpointEditor() || latestSteeringRawAdc_ > 4095) return;
-    // Select from calibrated physical input, before trim, rate or reversal.
+    // Follow the calibrated direction after reversal, independent of trim/rate.
     // Hysteresis rejects centre noise. A tap overrides a held wheel until the
     // wheel enters a new side; returning to centre retains the selected side.
-    const int input = steeringInput_.mapToPermille(latestSteeringRawAdc_);
+    int input = steeringInput_.mapToPermille(latestSteeringRawAdc_);
+    if (profileForChannel(selectedChannel_).reversed) input = -input;
     int8_t side = steeringEndpointInputSide_;
     if (input < -150) side = -1;
     else if (input > 150) side = 1;
@@ -387,7 +416,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
             char value[32]; int v=designValue();
             if (field == 2 && tuneRole_ == 0) {
                 const auto &p = profileForChannel(selectedChannel_);
-                snprintf(value,sizeof(value),"L %u / R %u%%",p.negativeEndpointPercent,p.positiveEndpointPercent);
+                snprintf(value,sizeof(value),"L %u / R %u%%",channelEndpointForOutput(p,false),channelEndpointForOutput(p,true));
             }
             else if (field == 4) snprintf(value,sizeof(value),"%s",v ? "Reversed" : "Normal");
             else snprintf(value,sizeof(value),"%d%s",v,field==3 ? " ms" : "%");
@@ -405,7 +434,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
             for (uint8_t side=0; side<2; ++side) {
                 char text[32];snprintf(text,sizeof(text),"%s%s  %d%%",side?"Right":"Left",
                     side==steeringEndpointSide_?" *":"",steeringEndpointDrafts_[side]);
-                button(12+side*(kScreenWidth/2),83,kScreenWidth/2-24,
+                steeringEndpointButtons_[side] = button(12+side*(kScreenWidth/2),83,kScreenWidth/2-24,
                        designPortrait?62:38,text,150+side,side==steeringEndpointSide_);
             }
         } else {
@@ -424,7 +453,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
             case 0: if(pos)draft.positiveRatePercent=editorDraft_;if(neg)draft.negativeRatePercent=editorDraft_;break;
             case 1: if(pos)draft.positiveExpoPercent=editorDraft_;if(neg)draft.negativeExpoPercent=editorDraft_;break;
             case 2:
-                if(steeringEndpoints){draft.negativeEndpointPercent=steeringEndpointDrafts_[0];draft.positiveEndpointPercent=steeringEndpointDrafts_[1];}
+                if(steeringEndpoints){setChannelEndpointForOutput(draft,false,steeringEndpointDrafts_[0]);setChannelEndpointForOutput(draft,true,steeringEndpointDrafts_[1]);}
                 else {if(pos)draft.positiveEndpointPercent=editorDraft_;if(neg)draft.negativeEndpointPercent=editorDraft_;}
                 break;
             case 4: draft.reversed=editorDraft_!=0;break;
@@ -440,9 +469,9 @@ void TransmitterUi::drawDesignPage(UiPage page)
         if(editorField_==3 || (editorField_>=5&&editorField_<=6)) { lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN); makeLabel(graph,editorField_==3 ? "Time to reach requested output" : "Offset from channel neutral",10,graphH/2-7,12,cDim); }
         if (steeringEndpoints) label("Steer or tap a side, then use + / -",12,designPortrait?282:190,10,cDim);
         const int y=designPortrait ? 302 : 204, w=(kScreenWidth-44)/4;
-        button(10,y,w,38,"-",30); button(18+w,y,w,38,editorFine_ ? "Fine" : "Coarse",32);
+        button(10,y,w,38,"-",30); editorStepButton_=button(18+w,y,w,38,editorFine_ ? "Fine" : "Coarse",32);
         button(26+w*2,y,w,38,"+",31); button(34+w*3,y,w,38,"Reset",33);
-        boundedLabel(label(editorField_==7?"Response offset is separate from channel trim / subtrim.":"Changes take effect only after Apply",12,designPortrait ? 352 : 249,12,cDim),kScreenWidth-24);
+        boundedLabel(label(editorField_==7?"Response offset is separate from channel trim / subtrim.":steeringEndpoints?"Apply puts outputs in CUT; re-arm in Drive to test":"Changes take effect only after Apply",12,designPortrait ? 352 : 249,12,cDim),kScreenWidth-24);
         button(10,designFooterY,kScreenWidth/2-15,36,"Cancel",34);
         button(kScreenWidth/2+5,designFooterY,kScreenWidth/2-15,36,"Apply",35,true);
     } else if (data) {
@@ -748,8 +777,11 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         int low=editorField_==1?-100:editorField_>=5?-20:editorField_==2?50:0;
         int high=editorField_==3?2000:editorField_==4?1:editorField_>=5?20:100;
         editorDraft_=constrain(editorDraft_,low,high);
-        if(steeringEndpointEditor()) steeringEndpointDrafts_[steeringEndpointSide_]=editorDraft_;
-        drawDesignPage(UiPage::ValueEditor);return;
+        if(steeringEndpointEditor()) {
+            steeringEndpointDrafts_[steeringEndpointSide_]=editorDraft_;
+            refreshSteeringEndpointEditor(item!=32);
+        } else drawDesignPage(UiPage::ValueEditor);
+        return;
     }
     switch(item){
         case 40:drawModelSelectPage();return;

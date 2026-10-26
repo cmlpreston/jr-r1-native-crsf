@@ -40,8 +40,11 @@ In **Tune → Steering → Endpoint**, steer left/right or tap the **Left / Righ
 value to select a side, then use the on-screen or handset **+ / −** keys.
 Returning to centre keeps the selected side. Both drafts are retained while
 switching sides; **Apply** saves them and **Cancel** discards them. **Reset**
-resets only the selected endpoint. Selection follows physical steering before
-channel reversal. Throttle and brake endpoints remain separate Tune tabs.
+resets only the selected endpoint. Selection and Left/Right labels follow the
+calibrated direction after channel reversal. Both sides map back to their
+existing stored response settings. Apply puts outputs in CUT; return to Drive
+and re-arm to test travel. Editing a value or changing sides updates the controls
+and curve in place. Throttle and brake endpoints remain separate Tune tabs.
 
 ## Desktop UI simulator
 

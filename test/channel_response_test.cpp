@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <initializer_list>
 
 #include "channel_response.h"
 
@@ -45,6 +46,19 @@ void testReversalDoesNotExchangePhysicalSideSettings()
     assert(applyChannelResponse(profile, 1000) == -800);
 }
 
+void testOutputSideEndpointsFollowReversal()
+{
+    for (bool reversed : {false,true}) {
+        ChannelResponseProfile profile;profile.reversed=reversed;
+        setChannelEndpointForOutput(profile,false,60);
+        setChannelEndpointForOutput(profile,true,90);
+        assert(channelEndpointForOutput(profile,false)==60);
+        assert(channelEndpointForOutput(profile,true)==90);
+        assert(applyChannelResponse(profile,reversed?1000:-1000)==-600);
+        assert(applyChannelResponse(profile,reversed?-1000:1000)==900);
+    }
+}
+
 void testSubtrimTranslatesAndClampsExtendedEnvelope()
 {
     ChannelResponseProfile profile;
@@ -79,6 +93,7 @@ void testSanitiseRejectsPersistedOutOfRangeValues()
 
 int main()
 {
+    testOutputSideEndpointsFollowReversal();
     testDefaultProfileIsLinear();
     testPositiveAndNegativeSidesAreIndependent();
     testExpoMatchesExistingResponseShape();

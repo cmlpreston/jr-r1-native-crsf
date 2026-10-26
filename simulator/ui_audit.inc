@@ -244,45 +244,69 @@ bool TransmitterUi::runSimulatorUiAudit()
     tuneRole_=2;openDesignEditor(0,UiPage::Tune);editorDraft_=70;controlDesign(35,activate);
     assert(profileForChannel(selectedChannel_).positiveRatePercent==55 && profileForChannel(selectedChannel_).negativeRatePercent==70);
     profileForChannel(selectedChannel_)=original;saveSettings();
-    // Steering selects independent drafts from physical input or a side tap.
+    // Steering sides follow output reversal and keep live controls intact.
     tuneRole_=0;selectedChannel_=channelRoleSettings_.steeringChannel;
     const auto steeringOriginal=profileForChannel(selectedChannel_);
     auto &steering=profileForChannel(selectedChannel_);
-    steering.negativeEndpointPercent=81;steering.positiveEndpointPercent=93;
-    steering.reversed=true; // Selection follows the wheel, not output reversal.
-    latestSteeringRawAdc_=steeringInput_.calibration().minimum;
-    openDesignEditor(2,UiPage::Tune);
-    assert(steeringEndpointSide_==0 && editorDraft_==81 && editorFine_);
-    adjustPageFocus(-1);assert(editorDraft_==80);
-    assert(steering.negativeEndpointPercent==81 && steering.positiveEndpointPercent==93);
-    latestSteeringRawAdc_=steeringInput_.calibration().maximum;
-    updateSteeringEndpointSelection();assert(steeringEndpointSide_==1 && editorDraft_==93);
-    adjustPageFocus(1);assert(editorDraft_==94 && steeringEndpointDrafts_[0]==80);
-    latestSteeringRawAdc_=steeringInput_.centre()+5;
-    updateSteeringEndpointSelection();assert(steeringEndpointSide_==1);
-    latestSteeringRawAdc_=steeringInput_.calibration().maximum;
-    updateSteeringEndpointSelection();controlDesign(150,activate);
-    updateSteeringEndpointSelection();assert(steeringEndpointSide_==0 && editorDraft_==80);
-    // A tap wins over a held wheel; centre then right reselects right.
-    latestSteeringRawAdc_=steeringInput_.centre();updateSteeringEndpointSelection();
-    latestSteeringRawAdc_=steeringInput_.calibration().maximum;updateSteeringEndpointSelection();
-    assert(steeringEndpointSide_==1 && editorDraft_==94);
-    latestSteeringRawAdc_=65535;updateSteeringEndpointSelection();assert(steeringEndpointSide_==1);
-    controlDesign(35,activate);assert(!armRequested_);
-    assert(steering.negativeEndpointPercent==80 && steering.positiveEndpointPercent==94 && steering.reversed);
-    saveSettings();loadSettings();
-    assert(steering.negativeEndpointPercent==80 && steering.positiveEndpointPercent==94);
-    latestSteeringRawAdc_=steeringInput_.centre();
-    openDesignEditor(2,UiPage::Tune);controlDesign(150,activate);controlDesign(33,activate);
-    assert(steeringEndpointDrafts_[0]==100 && steeringEndpointDrafts_[1]==94);
-    controlDesign(34,activate);assert(steering.negativeEndpointPercent==80);
-    openDesignEditor(2,UiPage::Tune);controlDesign(150,activate);
-    for(int i=0;i<70;++i)adjustPageFocus(-1);
-    assert(editorDraft_==50 && steeringEndpointDrafts_[1]==94);
-    controlDesign(151,activate);for(int i=0;i<20;++i)adjustPageFocus(1);
-    assert(editorDraft_==100 && steeringEndpointDrafts_[0]==50);
-    controlDesign(34,activate);assert(steering.negativeEndpointPercent==80 && steering.positiveEndpointPercent==94);
+    for(bool reversed : {false,true}) {
+        steering=ChannelResponseProfile{};steering.reversed=reversed;
+        setChannelEndpointForOutput(steering,false,81);
+        setChannelEndpointForOutput(steering,true,93);
+        latestSteeringRawAdc_=reversed?steeringInput_.calibration().maximum:steeringInput_.calibration().minimum;
+        openDesignEditor(2,UiPage::Tune);
+        assert(steeringEndpointSide_==0 && editorDraft_==81 && editorFine_);
+        auto leftButton=steeringEndpointButtons_[0],rightButton=steeringEndpointButtons_[1],curve=designCurve_;
+        lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+        const auto renderedBefore=uiMetrics.rendered;
+        // Exercise the actual touch dispatch, not just the draft setter.
+        assert(dispatchPageControlTouch(20,designPortrait?312:214));
+        assert(editorDraft_==80);
+        assert(channelEndpointForOutput(steering,false)==81); // still a draft
+        latestSteeringRawAdc_=reversed?steeringInput_.calibration().minimum:steeringInput_.calibration().maximum;
+        updateSteeringEndpointSelection();assert(steeringEndpointSide_==1 && editorDraft_==93);
+        adjustPageFocus(1);assert(editorDraft_==94 && steeringEndpointDrafts_[0]==80);
+        lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+        assert(steeringEndpointButtons_[0]==leftButton && steeringEndpointButtons_[1]==rightButton && designCurve_==curve);
+        assert(uiMetrics.rendered-renderedBefore<uint32_t(kScreenWidth*kScreenHeight));
+        latestSteeringRawAdc_=steeringInput_.centre()+5;
+        updateSteeringEndpointSelection();assert(steeringEndpointSide_==1);
+        latestSteeringRawAdc_=reversed?steeringInput_.calibration().minimum:steeringInput_.calibration().maximum;
+        updateSteeringEndpointSelection();controlDesign(150,activate);
+        updateSteeringEndpointSelection();assert(steeringEndpointSide_==0 && editorDraft_==80);
+        latestSteeringRawAdc_=steeringInput_.centre();updateSteeringEndpointSelection();
+        latestSteeringRawAdc_=reversed?steeringInput_.calibration().minimum:steeringInput_.calibration().maximum;
+        updateSteeringEndpointSelection();assert(steeringEndpointSide_==1 && editorDraft_==94);
+        latestSteeringRawAdc_=65535;updateSteeringEndpointSelection();assert(steeringEndpointSide_==1);
+        assert(dispatchPageControlTouch(kScreenWidth-30,designFooterY+10)); // Apply
+        assert(activePage_==UiPage::Tune && !armRequested_);
+        assert(channelEndpointForOutput(steering,false)==80 && channelEndpointForOutput(steering,true)==94);
+        saveSettings();loadSettings();
+        assert(channelEndpointForOutput(steering,false)==80 && channelEndpointForOutput(steering,true)==94);
+        // UI Apply -> published configuration -> production mixed output -> CRSF.
+        auto config=controlConfigurationSnapshot();const auto ch=selectedChannel_;
+        config.channelParameters[ch-1]={};config.mixing[ch-1]={};
+        MixInputSnapshot inputs;inputs.valid=3;inputs.values[1]=0;
+        ChannelMixRuntime mix;ChannelSlewRuntime slew;CrsfChannelOutputModel outputs;
+        inputs.values[0]=reversed?1000:-1000;
+        processConfiguredMixedOutputs(config,outputs,inputs,mix,slew,100,false);
+        assert(outputs.requested(ch)==crsfValueFromPermille(-800));
+        inputs.values[0]=reversed?-1000:1000;
+        processConfiguredMixedOutputs(config,outputs,inputs,mix,slew,104,false);
+        assert(outputs.requested(ch)==crsfValueFromPermille(940));
+        latestSteeringRawAdc_=steeringInput_.centre();
+        openDesignEditor(2,UiPage::Tune);controlDesign(150,activate);controlDesign(33,activate);
+        assert(steeringEndpointDrafts_[0]==100 && steeringEndpointDrafts_[1]==94);
+        controlDesign(34,activate);assert(channelEndpointForOutput(steering,false)==80);
+        openDesignEditor(2,UiPage::Tune);controlDesign(150,activate);
+        for(int i=0;i<70;++i)adjustPageFocus(-1);
+        assert(editorDraft_==50 && steeringEndpointDrafts_[1]==94);
+        controlDesign(151,activate);for(int i=0;i<20;++i)adjustPageFocus(1);
+        assert(editorDraft_==100 && steeringEndpointDrafts_[0]==50);
+        controlDesign(34,activate);
+        assert(channelEndpointForOutput(steering,false)==80 && channelEndpointForOutput(steering,true)==94);
+    }
     steering=steeringOriginal;saveSettings();
+    Serial.println("Steering endpoints: reversed sides, real touch Apply, CRSF output, persistence, cancel and partial redraw PASS");
     // Throttle and brake retain their existing independent endpoint edits.
     tuneRole_=1;selectedChannel_=channelRoleSettings_.throttleChannel;
     openDesignEditor(2,UiPage::Tune);editorDraft_=75;controlDesign(35,activate);

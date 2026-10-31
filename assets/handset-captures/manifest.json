@@ -1,0 +1,226 @@
+{
+  "captured": "2026-11-01",
+  "firmware_commit": "7d13dbf",
+  "hardware": "Seeed XIAO ESP32-S3 / Waveshare 3.5-inch RPi LCD (F)",
+  "source": "USB SCREENSHOT command, actual LVGL flush pixels; no LCD readback or simulator",
+  "state": "CUT; module link paused; no injected telemetry",
+  "privacy": "PNG IHDR/IDAT/IEND only; no EXIF, XMP or GPS metadata",
+  "captures": [
+    {
+      "file": "channel-setup.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "52508f31be41bdc4ccf4b26ec3b4ce82e63937f185d42927388c7e503fd993cb"
+    },
+    {
+      "file": "colour-schemes.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "90c24a0e74a3e3e40303c6e27b9785322f233b615babb0a74555406343b442db"
+    },
+    {
+      "file": "control-map.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "3de5727e79f07eab3da77adac0f485dbb9a06fd282ad06a38084683c64565c7f"
+    },
+    {
+      "file": "cut-status.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "6db2767c50699cc9d23c84793803e3fd45e3442dbc6da71d48af8d95c39c2ff9"
+    },
+    {
+      "file": "dashboard-layout.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "2999950e2a83e473b00e8d8d8e205ce99967a9ee695922c9d95f667c0722dd92"
+    },
+    {
+      "file": "data-sensors.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "da7ba919460f2b2508aed7e052a790d367a009ff45f4165fb3c6a33e33a75784"
+    },
+    {
+      "file": "display-settings.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "45bc2af72004ca6e2094bf5b36e8c123e7d2ddb8ea5f43543acead6c4be60438"
+    },
+    {
+      "file": "drive-modes.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "9cb818e677b658c87f628234c24557132fa1f4ae1fc10a9dcd1d651e09ee9412"
+    },
+    {
+      "file": "drive.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "86965e1cb16499aa9b73fa13961785040b8649442c5d94afdfbd5551c6f811de"
+    },
+    {
+      "file": "hardware-inputs.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "a59265d5f2cde250b4162df4d0bd8c284dc06adca022c56c63f795ad9adf90fb"
+    },
+    {
+      "file": "mix-curve.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "967d1e6ceca3361bf56204ba93b9888993edb0e8636d7d02ead41a6648498e49"
+    },
+    {
+      "file": "mix-overview.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "ffeddef9bfd3fbe72ac8b1bc4d8ada8f448d9941096702333d00e7b256300ec6"
+    },
+    {
+      "file": "mix-settings.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "4321def3cf6fe646ee2d9727c4a8c0b0b6a49cbd86e4b0caa674156a5a9983ad"
+    },
+    {
+      "file": "model-appearance.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "9c143fd2b7cf83ca18ec9fc0907a43ee41edaa3c57dbf3d2429c2d9a721ad6df"
+    },
+    {
+      "file": "model-buggy.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "6cb524ac74afcda3082dee941755bb31286cc4f60e684d0c633e8036e395b174"
+    },
+    {
+      "file": "model-crawler.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "fd5b7a3b8606dce6c242d1daf1730e9eb00fe9d353edb7ede2d31ad58e9c746b"
+    },
+    {
+      "file": "model-custom-paint.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "e3eb04d7ed27b9ae421aa1684437575e66e847fc18ea2df15a9f015b3d2bbcab"
+    },
+    {
+      "file": "model-f1.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "ff0b4ad3916a0922c21c30493975f84805e7ab5950f9d03e857a8223bb7e246a"
+    },
+    {
+      "file": "model-hyper7.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "93659466f3a17f08b609e4be75cb64019f825d7fd6b3dc6e37bd4df47db81ed7"
+    },
+    {
+      "file": "model-monster-truck.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "05fa7266fa039a7d1214f0faad92858abf01a53304534c21ab345d636be960da"
+    },
+    {
+      "file": "model-paint-settings.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "c775dbdd1aa6bb4d381e9674fa456aa4c11d92a2054dc48e0ba511f497bc73ca"
+    },
+    {
+      "file": "model-short-course.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "a25af2fe80aea67400ccd63f4b3fe758f3e71b35dc281c60aa9cc0be99fcbb9e"
+    },
+    {
+      "file": "model-touring.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "127af540efa1ef0020ae512edca58f884a249bc5e7a92468b6b3dfda42286f02"
+    },
+    {
+      "file": "model-truggy.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "e3c725b4ee48a933e1cb05e537d8a31203fa6748217632dd8529228db836e4cd"
+    },
+    {
+      "file": "pin-entry.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "a0e9c1b875d560c1800f71b62cf6c4d4fff78ca29cc6d3aae94a04777a4d8776"
+    },
+    {
+      "file": "pin-recovery.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "66a7159bfe6942029075b86cb1d2361496ca898e9f0b7aa5e901bd81970bc21f"
+    },
+    {
+      "file": "setup-handset.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "87b9b0c6b421ec1d80f4c16a2ab8d7c50f3889f7d705c1ea78b4e37df017ee60"
+    },
+    {
+      "file": "setup-model.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "99f5a01a6e42c55f3c76d69bfca3a5c2ec68ab8935cacbec2bf48d5596e7ed83"
+    },
+    {
+      "file": "theme-graphite.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "86965e1cb16499aa9b73fa13961785040b8649442c5d94afdfbd5551c6f811de"
+    },
+    {
+      "file": "theme-light.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "e0d0b4dc3df497f1e9d87c8a9b8968a9f56026db03b6e20a193d4dacd5280b7c"
+    },
+    {
+      "file": "theme-midnight.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "53d0ce0b3494baf28da4cf4d8e35657ad43214f648a8794311e1ecee6f3adf95"
+    },
+    {
+      "file": "theme-slate.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "4da275f59d9298a73e7ba6b521102a8d660c09ce7cde3815cf769dd3adb5c677"
+    },
+    {
+      "file": "theme-warm.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "2605fc89f7ee5f8af9272fb831e1d856692ec4ce4b40a02993b09ba67be496b6"
+    },
+    {
+      "file": "tune.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "6cd2419052382a2cce125cc474cb8cc79a02c22d0e29a14b68822701d2d0bad3"
+    },
+    {
+      "file": "tx-battery-settings.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "67924aeaa2778f66ffc93d2777e1966b24f12943b749c08b32207242dcec0c45"
+    },
+    {
+      "file": "widget-settings.png",
+      "width": 480,
+      "height": 320,
+      "sha256": "40d3e27246ebcf042bcd0c42572a7a32999624abdaa8de84c727c8d758b026cb"
+    }
+  ]
+}

@@ -26,7 +26,7 @@ LVGL interface and CRSF integration; the RF link relies on ExpressLRS.
 
 ## What we have built
 
-This describes the development prototype as of **31 October 2026**. Features
+This describes the development prototype as of **1 November 2026**. Features
 have been built and exercised incrementally; this is not a finished commercial
 radio or a claim that every sensor/hardware combination has been validated.
 Recent development is also tracked on
@@ -206,24 +206,29 @@ extension, not a capability claimed by the current screenshots.
 
 ## A look around the interface
 
-These are **simulator captures**, rendered by the shared C++/LVGL UI from
-firmware checkpoint `8dda44e`. They are not fully pixel-perfect reproductions
-of the installed LCD: scaling, colours, viewing angle, touch response, timing
-and simulated data differ. Example values below are fictional, not a vehicle test.
+These are **captures from the running XIAO handset**, taken over USB on
+1 November 2026 from firmware `7d13dbf`. They contain the actual native
+480×320 LVGL pixels sent toward the installed Waveshare LCD, rather than
+simulator output. They are rendered screenshots, not photographs or physical
+LCD readback. Outputs remained CUT and the module link stayed paused throughout;
+unavailable sensor readings are shown honestly as no data.
 
 | Drive: configurable dashboard | Tune: steering, throttle and brake |
 | --- | --- |
-| ![Simulator Drive dashboard](assets/ui-captures/drive.png) | ![Simulator Tune menu](assets/ui-captures/tune.png) |
+| ![Handset Drive dashboard](assets/handset-captures/drive.png) | ![Handset Tune menu](assets/handset-captures/tune.png) |
 | Data: sensors and telemetry | Setup: model configuration |
-| ![Simulator Data page](assets/ui-captures/data-sensors.png) | ![Simulator Setup menu](assets/ui-captures/setup-model.png) |
+| ![Handset Data page](assets/handset-captures/data-sensors.png) | ![Handset Setup menu](assets/handset-captures/setup-model.png) |
 
-| GPS map / trail (fictional circuit) | Channel mixing curve |
+| Light colour scheme | Formula / F1 model artwork |
 | --- | --- |
-| ![Simulator GPS map](assets/ui-captures/gps-map.png) | ![Simulator mixing response graph](assets/ui-captures/mix-curve.png) |
+| ![Handset light theme](assets/handset-captures/theme-light.png) | ![Handset with F1 artwork](assets/handset-captures/model-f1.png) |
 
-The [screen gallery](docs/ui-gallery.md) also shows handset settings, channel
-setup, control mapping, mix settings, dashboard layout, widget configuration,
-output status and PIN entry.
+The [screen gallery](docs/ui-gallery.md) includes all five colour schemes,
+eight vehicle artwork choices, primary/accent/base paint, channel and mixing
+configuration, hardware-control mapping, dashboard layout and PIN screens.
+Artwork and themes were temporarily selected in one model memory for these
+examples, then the original selections and timer widget were restored.
+Simulator and browser-fixture examples remain separately labelled in the gallery.
 
 ## From original radio to R-1 EVO
 
@@ -472,8 +477,15 @@ whereas the desktop simulator supplies simulated inputs and telemetry.
 It **does not read back the physical Waveshare LCD**, whose installed connection
 is write-only. A rendered screenshot cannot reveal cable faults, panel
 corruption, viewing angle or reflections, or verify that the panel displayed
-the pixels correctly. The existing gallery's simulator captures remain labelled
-as simulator captures.
+the pixels correctly.
+
+For a reliable capture without Wi-Fi, the USB `SCREENSHOT` command exports the
+same rendered pixels on the installed write-only display profile. Run
+`python3 tools/capture_tft.py screenshot.png --port /dev/ttyACM0` on a computer
+connected to the XIAO (use its actual serial-port name). The helper writes a
+native-resolution PNG without location metadata. USB `UITAP x y` supports
+configuration navigation while CUT, retaining the normal PIN and interaction
+guards; it does not synthesize a hold-to-arm gesture.
 
 The embedded web UI includes an **authenticated firmware updater**. Build the
 approved XIAO landscape firmware, then run `python3 tools/package_ota.py` to
@@ -483,8 +495,8 @@ image and transfer checksum, writes the inactive application slot and restarts
 in CUT after validation. Models, maps and Wi-Fi settings are preserved. An
 interrupted or rejected upload leaves the current application selected.
 
-The initial updater installation needs USB; later compatible application
-updates can use Wi-Fi. Keep power connected throughout. USB remains necessary
+The updater has been installed over USB; a complete Wi-Fi upload/reboot test
+is still pending. Later compatible application updates can use Wi-Fi. Keep power connected throughout. USB remains necessary
 for recovery, bootloader or partition-layout changes. Packages are authenticated
 by the web login/session; the checksum detects damage and is not a firmware
 signature. Use this HTTP interface on a trusted network.

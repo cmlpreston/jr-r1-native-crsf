@@ -107,7 +107,7 @@ bool TransmitterUi::portalRequestRemoteControl() {
     lastInteractionMs_=millis();return true;
 }
 bool TransmitterUi::portalDriveHoldBounds(int &x,int &y,int &w,int &h) const {
-    if(portalScreenNeedsWake())return false;
+    if(portalScreenNeedsWake() || (moduleLinkManaged_&&!moduleLink_.enabled()))return false;
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None||hardwareRecovery_||rfBenchMode_||calibrationActive())return false;
     if(SetupPortal::active()&&(!SetupPortal::state().connected||!SetupPortal::state().autoConnect))return false;
     if(driveProgress_){x=0;y=kScreenHeight-(portraitUi?60:40);w=kScreenWidth/4;h=portraitUi?40:40;return true;}

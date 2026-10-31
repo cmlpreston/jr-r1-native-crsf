@@ -257,6 +257,7 @@ int main(int argc, char **argv)
         const bool live = safety == OutputSafetyStatus::Armed;
         const uint16_t crsf=live?channelOutputs.requested(ui.throttleChannel()):channelOutputs.safe(ui.throttleChannel());
         const int16_t output=permilleFromCrsfValue(crsf);
+        ui.updateModulePower(controls.transmitterVoltageDecivolts>=25,now);
         ui.update(rawAdc, steeringAdc, rawPermille, output, crsf, safety, telemetry,
                   controls.transmitterVoltageDecivolts, true,
                   channelOutputs, safety == OutputSafetyStatus::Armed);

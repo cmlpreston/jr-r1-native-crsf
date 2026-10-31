@@ -6,6 +6,7 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  module_link_test \
   channel_model_test \
   control_engine_test \
   remote_arm_hold_test \
@@ -35,6 +36,10 @@ TESTS := \
 .PHONY: all run clean
 
 all: $(addprefix $(BUILD)/,$(TESTS))
+
+$(BUILD)/module_link_test: module_link_test.cpp $(ROOT)/include/module_link.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/rf_bench_session_test: rf_bench_session_test.cpp $(ROOT)/include/rf_bench_session.h
 	@mkdir -p $(@D)

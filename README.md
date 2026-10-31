@@ -138,6 +138,15 @@ CRSF channel frames.** The control/transport safety layers send configured safe
 values instead of the live requested values. Auxiliary CUT overrides can be
 configured separately; they are not receiver RF-loss failsafe settings.
 
+A separate **Module link** control is prepared for bench validation. It defaults
+CRSF communication off at boot, asks for physical approval after detecting the
+TX battery feed, and leaves outputs CUT after approval. Hold the LQ/status area
+to reopen it, or use Output status → Module link. Pausing requires CUT first;
+loss of the sensed supply revokes approval. TX voltage sensing must be enabled.
+This is not a hardware power switch: the reviewed ExpressLRS firmware stops its
+RF timer after handset-link timeout, but that behaviour still needs checking on
+the installed Ranger. Guaranteed RF-off requires switched module power.
+
 The transmitter starts with outputs inhibited. CUT is also used for structural
 channel/mix/control edits, model and mode changes, calibration, hardware recovery
 and remote interactions that need to enter configuration safely. Faults such as

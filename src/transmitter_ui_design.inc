@@ -66,7 +66,7 @@ bool TransmitterUi::designPage() const
         case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor:
         case UiPage::Telemetry: case UiPage::Gps: case UiPage::ChannelMonitor:
         case UiPage::SensorDetail: case UiPage::MainMenu: case UiPage::Channels:
-        case UiPage::OutputStatus: case UiPage::ModeChooser: case UiPage::ChannelPlaceholder:
+        case UiPage::ModuleLink: case UiPage::OutputStatus: case UiPage::ModeChooser: case UiPage::ChannelPlaceholder:
         case UiPage::ChannelInput: case UiPage::ChannelResponseSetup: case UiPage::ParameterControlPicker: case UiPage::ResponseProfile: case UiPage::MixingOverview:
         case UiPage::NetworkOptions: case UiPage::Setup: case UiPage::SystemMenu: case UiPage::DriveModes:
         case UiPage::ModelSelect: case UiPage::WidgetSelect: case UiPage::WidgetEditor: case UiPage::BatteryMenu: return true;
@@ -301,6 +301,17 @@ void TransmitterUi::drawDesignPage(UiPage page)
         const char *modes[]={"Normal","Walk"};const uint8_t actions[]={183,182};
         drawPageTabs(modes,actions,2,driveModeSettings_.activeMode==DriveMode::Walk?1:0,&TransmitterUi::controlDesign);
         drawDashboardWidgets();
+    } else if(page==UiPage::ModuleLink) {
+        label("Module link",12,52,UiText::Heading);
+        label(moduleLink_.enabled()?"Pause module communication?":moduleLink_.present()?"Enable module communication?":"TX battery not detected",12,100,UiText::Menu,cCyan);
+        const bool live=armRequested_||designSafety_==OutputSafetyStatus::Armed;
+        label(moduleLink_.enabled()&&live?"Apply CUT before pausing module link.":"Enabling starts CRSF. Outputs stay CUT.",12,142,UiText::Caption,cWhite);
+        label("Pausing stops all CRSF traffic.",12,166,UiText::Caption,cWhite);
+        label("Ranger RF stop needs bench verification.",12,190,UiText::Caption,cAmber);
+        const int by=designPortrait?300:235;
+        button(12,by,(kScreenWidth-32)/2,36,"Cancel",241);
+        if(moduleLink_.enabled()&&!live)button(kScreenWidth/2+4,by,(kScreenWidth-32)/2,36,"Pause",242);
+        else if(!moduleLink_.enabled()&&moduleLink_.present())button(kScreenWidth/2+4,by,(kScreenWidth-32)/2,36,"Enable",240);
     } else if(page==UiPage::OutputStatus) {
         label("Output status",12,48,UiText::Heading);
         designDetails_[0]=label("",12,94,UiText::Menu,cCyan);boundedLabel(designDetails_[0],kScreenWidth-24);
@@ -308,6 +319,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
         label("Physical handset only. Unlocking never arms.",12,designPortrait?190:158,UiText::Caption,cDim);
         auto arm=button(12,designPortrait?238:184,kScreenWidth-24,48,"Enable output",181);
         armProgress_=makeBar(arm,4,41,kScreenWidth-32,4,0,800);
+        if(SetupPortal::active())button(12,designPortrait?296:238,kScreenWidth-24,32,"Finish Wi-Fi setup",238);
+        else if(moduleLinkManaged_)button(12,designPortrait?296:238,kScreenWidth-24,32,"Module link",239);
 
     } else if(page==UiPage::ModeChooser || page==UiPage::DriveModes) {
         label(page==UiPage::ModeChooser?"Choose mode":"Drive modes",12,48,UiText::Heading);
@@ -632,6 +645,22 @@ void TransmitterUi::drawDesignPage(UiPage page)
 void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
 {
     playKeyClick();
+    if(item>=239&&item<=242){
+        if(remoteTouchActive_){remoteTouchRejected_=true;return;}
+        if(item==239){moduleLinkReturnPage_=activePage_;drawDesignPage(UiPage::ModuleLink);return;}
+        if(activePage_!=UiPage::ModuleLink)return;
+        if(item==240){if(moduleLink_.enabled()||!moduleLink_.enable())return;requestConfigurationCut();}
+        else if(item==242){
+            if(armRequested_||designSafety_==OutputSafetyStatus::Armed)return;
+            requestConfigurationCut();moduleLink_.pause();
+        }
+        else moduleLink_.dismiss();
+        activePage_=moduleLinkReturnPage_;redrawActivePage();return;
+    }
+    if(item==238){
+        if(remoteTouchActive_){remoteTouchRejected_=true;return;}
+        requestConfigurationCut();SetupPortal::stop();drawDesignPage(UiPage::OutputStatus);return;
+    }
     if(item==231||item==232){tuneRole_=item==231?3:4;drawDesignPage(UiPage::ResponseProfile);return;}
     if(item>=233&&item<=235){const uint8_t fields[2][3]={{0,1,2},{3,4,7}};openDesignEditor(fields[responseDetailBank_][item-233],UiPage::ResponseProfile);return;}
     if(item==236){responseDetailBank_^=1;drawDesignPage(UiPage::ResponseProfile);return;}
@@ -655,6 +684,9 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         if(item==181){
             if(designTouchDispatch_&&armGestureValid_&&lastTouchDurationMs_>=kDashboardArmHoldMs){
                 if(armRequested_){requestConfigurationCut();}
+                else if(moduleLinkManaged_&&!moduleLink_.enabled()){
+                    moduleLinkReturnPage_=UiPage::OutputStatus;drawDesignPage(UiPage::ModuleLink);return;
+                }
                 else if(!SetupPortal::active()&&(!remoteTouchActive_||remoteArmHoldDispatch_)&&!calibrationActive()){armRequested_=true;safetyResetRequested_=true;activePage_=statusReturnPage_;redrawActivePage();}
             }
             return;
@@ -737,7 +769,13 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item==0&&designTouchDispatch_&&armGestureValid_&&lastTouchDurationMs_>=kDashboardArmHoldMs){
         // Manual output changes require the full hold in either direction.
         if(armRequested_){requestConfigurationCut();}
-        else if(!SetupPortal::active()&&(!remoteTouchActive_||remoteArmHoldDispatch_)&&!calibrationActive()){armRequested_=true;safetyResetRequested_=true;}
+        else if(moduleLinkManaged_&&!moduleLink_.enabled()){
+            moduleLinkReturnPage_=UiPage::Dashboard;drawDesignPage(UiPage::ModuleLink);return;
+        }
+        else if(SetupPortal::active()){
+            statusReturnPage_=UiPage::Dashboard;drawDesignPage(UiPage::OutputStatus);return;
+        }
+        else if((!remoteTouchActive_||remoteArmHoldDispatch_)&&!calibrationActive()){armRequested_=true;safetyResetRequested_=true;}
         drawDashboard();return;
     }
     if(item<=3){
@@ -889,7 +927,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             uiSetText(designDetails_[0],safety==OutputSafetyStatus::Armed?"LIVE - output enabled":
                 safety==OutputSafetyStatus::LinkRequired?"LINK WAIT":
                 safety==OutputSafetyStatus::NeutralRequired?"NEUTRAL WAIT":"CUT - output inhibited");
-            uiSetText(designDetails_[1],hardwareRecovery_?"Hardware fault; arming inhibited.":SetupPortal::active()?"Setup session active; close it on the handset to arm.":reason);
+            uiSetText(designDetails_[1],hardwareRecovery_?"Hardware fault; arming inhibited.":SetupPortal::active()?"Finish Wi-Fi setup before enabling output.":moduleLinkManaged_&&!moduleLink_.enabled()?"Module link paused; enable it before arming.":reason);
             if(armProgress_)uiSetText(lv_obj_get_child(lv_obj_get_parent(armProgress_),0),armRequested_?"Hold to cut (0.8 s)":"Enable output");
         }
         if(hardwareRecovery_&&!rfBenchMode_)col=cRed;
@@ -898,11 +936,13 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     }
 
     if(designLink_){
-        if(safety==OutputSafetyStatus::LinkRequired)uiSetText(designLink_,"Link wait");
+        if(moduleLinkManaged_&&!moduleLink_.enabled())uiSetText(designLink_,"Link off");
+        else if(SetupPortal::active())uiSetText(designLink_,"Setup");
+        else if(safety==OutputSafetyStatus::LinkRequired)uiSetText(designLink_,"Link wait");
         else if(lowTx || lowRx)uiSetText(designLink_,lowTx?"TX LOW":"RX LOW");
         else if(t.linkValid)uiSetTextFmt(designLink_,"%u LQ",t.uplinkLinkQuality);
         else uiSetText(designLink_,t.linkUpdatedMs?"LQ stale":"LQ --");
-        uiSetTextColor(designLink_,safety==OutputSafetyStatus::LinkRequired?colour(cAmber):lv_color_hex(lowTx||lowRx?0xff746a:t.linkValid?0xa4d6ae:0xa9bbc5),0);
+        uiSetTextColor(designLink_,(SetupPortal::active() || (moduleLinkManaged_&&!moduleLink_.enabled()) || safety==OutputSafetyStatus::LinkRequired)?colour(cAmber):lv_color_hex(lowTx||lowRx?0xff746a:t.linkValid?0xa4d6ae:0xa9bbc5),0);
     }
     auto reading=[&](uint8_t sensor,lv_obj_t *valueLabel,lv_obj_t *detailLabel){
         if(!valueLabel)return;

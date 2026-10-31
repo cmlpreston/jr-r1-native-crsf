@@ -331,6 +331,7 @@ static void routes() {
     server.on("/api/state",HTTP_GET,[]{
         if(!authorized())return;
         DynamicJsonDocument d(10000);d["version"]=1;d["controlAllowed"]=canControl();d["token"]=token;d["model"]=handset->portalModelName();d["slot"]=handset->portalModelSlot()+1;d["modelImage"]=handset->portalModelImage();d["modelColour"]=handset->portalModelColour();d["modelAccent"]=handset->portalModelAccent();d["modelBase"]=handset->portalModelBase();
+        d["moduleLinkEnabled"]=handset->moduleLinkEnabled();d["moduleBatteryDetected"]=handset->moduleBatteryDetected();
         d["wifiAttempts"]=wifiAttemptCount;d["lastDisconnectReason"]=lastDisconnectReason.load();
         d["ipReadyMs"]=ipReadyMs;d["webReadyMs"]=webReadyMs;d["uptimeMs"]=millis();
         d["hostname"]=info.hostname;d["activeHostname"]=info.activeHostname;d["ssid"]=info.ssid;d["ip"]=info.ip;d["storage"]=info.storageReady;d["map"]=OfflineMap::current().name;

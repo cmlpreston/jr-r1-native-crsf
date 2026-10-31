@@ -355,3 +355,37 @@ inventing a count. No GPS reading changes output safety or arming.
 
 This is prepared/tested software; live ER6G reception and the installed GPS
 sensor chain still need a powered bench test and authorised firmware uploads.
+
+## Module link approval and setup feedback — 31 October 2026
+
+The XIAO now starts with all CRSF writes to the Ranger disabled, including
+management frames. With TX voltage sensing enabled in the battery settings,
+a valid pack reading held for 250 ms makes an approval prompt pending. It opens
+on Drive after PIN unlock, without interrupting an editor or accepting a finger
+already resting on the screen. No voltage, Cancel, or a reboot leaves the link
+paused. Loss of detected voltage revokes approval; restoring voltage requires a
+new confirmation. This controls the sensed `TX_BATTERY_ADC` feed, independently
+of the `5V_SYS` supply powering the XIAO/display.
+
+Enable is a physical-handset action and always leaves outputs CUT. A separate
+normal arm gesture, fresh receiver link and neutral checks are still required.
+Hold the LQ / Link off header area for 0.8 seconds to reopen Module link; Output
+status also has a Module link button. Pause requires outputs already CUT, then
+stops both channel and management traffic; it cannot withdraw the link live.
+Approval is not saved to NVS. The web API reports
+`moduleLinkEnabled` and `moduleBatteryDetected`, but cannot approve the link.
+
+**This is not a hardware RF power switch.** In the reviewed ExpressLRS 4.1.0
+source, `CRSFHandset::UARTwdt()` detects a missing handset and calls
+`UARTdisconnected()`, which stops the RF timer and enters `noCrossfire`. The
+watchdog checks at one-second intervals and can need two checks to observe no
+good packets. This behaviour needs verification on the installed Ranger Nano;
+`DEBUG_TX_FREERUN`, different firmware, Wi-Fi/backpack radios and an in-flight
+packet are not covered by a claim of RF silence. Use switched module power if
+absolute RF-off is required. The UI deliberately calls this **Module link** /
+**Link off**, not a verified RF-off indication.
+
+A Drive hold rejected by an active manual Wi-Fi setup session now opens Output
+status with the reason and a physical **Finish Wi-Fi setup** action. The header
+also shows Setup while the session is active (unless Module link is paused).
+Finishing setup does not arm; home Wi-Fi web access can remain running.

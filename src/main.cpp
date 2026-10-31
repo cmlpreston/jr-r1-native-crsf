@@ -1,6 +1,7 @@
 #include "remote_control_policy.h"
 #include "rf_bench_session.h"
 #include <Arduino.h>
+#include <atomic>
 #include <Wire.h>
 #include "input_bench_mode.h"
 #include <driver/gpio.h>
@@ -37,6 +38,9 @@ namespace {
 // latency-sensitive single-wire CRSF handset connection. ExpressLRS uses the
 // same UART on ESP32 targets for its proven half-duplex implementation.
 HardwareSerial rangerSerial(0);
+// Defaults off before either task starts. No channel OR management frame may
+// revive the Ranger's handset watchdog without a physical confirmation.
+std::atomic<bool> moduleLinkEnabled{false};
 
 constexpr uart_port_t RANGER_UART = UART_NUM_0;
 constexpr uint32_t CONTROL_TASK_PERIOD_MS = 4;
@@ -237,8 +241,9 @@ void setCrsfBusTransmit()
     gpio_matrix_out(CRSF_SIGNAL_PIN, U0TXD_OUT_IDX, true, false);
 }
 
-void transmitCrsfFrame(const uint8_t *frame, size_t length)
+bool transmitCrsfFrame(const uint8_t *frame, size_t length)
 {
+    if(!moduleLinkEnabled.load())return false;
     setCrsfBusTransmit();
     rangerSerial.write(frame, length);
     // Poll the hardware directly. Waiting through the UART driver's event path
@@ -254,14 +259,14 @@ void transmitCrsfFrame(const uint8_t *frame, size_t length)
     if (!uart_ll_is_tx_idle(UART_LL_GET_HW(RANGER_UART)))
         ++crsfRuntimeOwned.transmitTimeouts;
     setCrsfBusReceive();
+    return true;
 }
 
 void sendChannelsFrame(const CrsfChannelOutputModel &model, bool live)
 {
     uint8_t frame[CRSF_FRAME_BYTES];
     buildCrsfChannelsFrame(model, live, frame);
-    transmitCrsfFrame(frame, sizeof(frame));
-    ++crsfRuntimeOwned.channelFramesSent;
+    if(transmitCrsfFrame(frame, sizeof(frame)))++crsfRuntimeOwned.channelFramesSent;
 }
 
 bool queueManagementRequest(const ElrsManagementRequest &request)
@@ -295,7 +300,7 @@ void sendManagementRequest(const ElrsManagementRequest &request)
     uint8_t frame[64];
     const size_t length = buildElrsManagementFrame(request, frame, sizeof(frame));
     if (length == 0) return;
-    transmitCrsfFrame(frame, length);
+    if(!transmitCrsfFrame(frame, length))return;
     if (request.action == ElrsManagementAction::TxParameter) return;
     Serial.printf("ELRS MGMT: sent %s to %s (%u-byte phrase)\n",
         request.action == ElrsManagementAction::ReadUid ? "UID request" : "bindphrase",
@@ -613,12 +618,16 @@ void crsfTask(void *)
                 safetyDecision.status = OutputSafetyStatus::Cut;
                 safetyDecision.transmitRequested = false;
             }
+            const bool moduleEnabled=moduleLinkEnabled.load();
+            if(!moduleEnabled){safetyDecision.status=OutputSafetyStatus::Cut;safetyDecision.transmitRequested=false;}
             crsfRuntimeOwned.outputSafetyStatus = safetyDecision.status;
             ElrsManagementRequest management;
             const bool requested = takeManagementRequest(management);
             const bool followup = !requested && uidFollowupPending &&
                 static_cast<int32_t>(millis() - uidFollowupDueMs) >= 0;
-            if (requested || followup) {
+            if(!moduleEnabled){
+                uidFollowupPending=false; // Discard queued requests while paused.
+            } else if (requested || followup) {
                 if (followup) {
                     management = ElrsManagementRequest{};
                     management.action = ElrsManagementAction::ReadUid;
@@ -1142,6 +1151,8 @@ void loop()
     } else {
         filteredTxBatteryAdcMv = 0;
     }
+    transmitterUi.updateModulePower(txVoltageValid,nowMs);
+    moduleLinkEnabled.store(transmitterUi.moduleLinkEnabled());
     const SharedChannelOutputState channelOutputs = readChannelOutputs();
     transmitterUi.update(control.adc, control.steeringAdc, control.rawPermille,
                       control.outputPermille,
@@ -1151,8 +1162,9 @@ void loop()
                       channelOutputs.model,
                       crsfRuntime.outputSafetyStatus ==
                           OutputSafetyStatus::Armed);
+    moduleLinkEnabled.store(transmitterUi.moduleLinkEnabled());
     ElrsManagementRequest management;
-    if (transmitterUi.consumeElrsManagementRequest(management)) {
+    if (transmitterUi.consumeElrsManagementRequest(management) && moduleLinkEnabled.load()) {
         requestControlReset();
         if (!queueManagementRequest(management))
             Serial.println("ELRS MGMT: queue busy; request discarded");

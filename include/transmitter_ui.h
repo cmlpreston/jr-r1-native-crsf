@@ -11,6 +11,7 @@
 #include "channel_model.h"
 #include "control_assignment.h"
 #include "remote_arm_hold.h"
+#include "module_link.h"
 #include "crsf_telemetry.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
@@ -103,11 +104,15 @@ enum class UiPage : uint8_t {
     QuickNavigation,
     FieldResetConfirmation,
     TimerControl,
+    ModuleLink,
 };
 
 class TransmitterUi {
 public:
     bool begin();
+    void updateModulePower(bool detected, uint32_t now);
+    bool moduleLinkEnabled() const { return moduleLinkManaged_ && moduleLink_.enabled(); }
+    bool moduleBatteryDetected() const { return moduleLinkManaged_ && moduleLink_.present(); }
     void setSafetyCutHandler(void (*handler)()) { safetyCutHandler_ = handler; }
     // Clear UI arm/hold intent as well as invoking the immediate control veto.
     void requestConfigurationCut();
@@ -171,7 +176,7 @@ public:
     uint8_t throttleChannel() const { return channelRoleSettings_.throttleChannel; }
     bool steeringEnabled() const { return channelRoleSettings_.steeringEnabled; }
     bool throttleEnabled() const { return channelRoleSettings_.throttleEnabled; }
-    bool armRequested() const { return !hardwareRecovery_ && !rfBenchMode_ && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_; }
+    bool armRequested() const { return (!moduleLinkManaged_ || moduleLink_.enabled()) && !hardwareRecovery_ && !rfBenchMode_ && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_; }
     void enterHardwareRecovery() { hardwareRecovery_ = true; armRequested_ = false; }
     // ON takes effect immediately; OFF requires reboot before local hardware resumes.
     bool setHeadlessTesting(bool enabled);
@@ -657,6 +662,9 @@ private:
     void (*safetyCutHandler_)() = nullptr;
     bool bindingsChanged_ = false;
     bool armRequested_ = false;
+    bool moduleLinkManaged_ = false;
+    ModuleLink moduleLink_;
+    UiPage moduleLinkReturnPage_ = UiPage::Dashboard;
     bool displaySleeping_ = false;
     bool rotationPending_ = false;
     // A touch-triggered sleep can leave the controller IRQ asserted for the

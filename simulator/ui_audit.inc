@@ -58,6 +58,49 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlBootPin(4,activate);assert(bootPinUnlocked()&&!armRequested());
     assert(activePage_==UiPage::StartupWarning); // Unlock does not dismiss preflight.
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard);
+    const auto auditModuleLink=[&](){
+        moduleLinkManaged_=false;moduleLink_=ModuleLink{};
+        SetupPortal::start();drawDashboard();
+        lastTouchDurationMs_=800;armGestureValid_=designTouchDispatch_=true;
+        controlDesign(0,activate);designTouchDispatch_=armGestureValid_=false;
+        assert(activePage_==UiPage::OutputStatus&&!armRequested_);
+        assert(strstr(lv_label_get_text(designDetails_[1]),"Finish Wi-Fi setup"));
+        assert(touchAction(&TransmitterUi::controlDesign,238));
+        assert(!SetupPortal::active()&&!armRequested_);
+        updateModulePower(false,1000);assert(!moduleLinkEnabled());
+        controlDesign(239,activate);assert(activePage_==UiPage::ModuleLink);
+        controlDesign(240,activate);assert(!moduleLinkEnabled()); // No supply.
+        navigateBack();assert(!moduleLinkEnabled());drawDashboard();
+        updateModulePower(true,1100);updateModulePower(true,1350);
+        CrsfChannelOutputModel outputs;CrsfTelemetryState telemetry;
+        update(THROTTLE_ADC_CENTER,STEERING_ADC_CENTER,0,0,CRSF_CHANNEL_MID,
+               OutputSafetyStatus::Cut,telemetry,99,true,outputs,false);
+        assert(activePage_==UiPage::ModuleLink&&!armRequested_);
+        if(const char *prefix=getenv("JR_R1_MODULE_LINK_IMAGES")){
+            lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+            snprintf(path,sizeof(path),"%s-%s.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);
+        }
+        remoteTouchActive_=true;controlDesign(240,activate);remoteTouchActive_=false;
+        assert(!moduleLinkEnabled()); // A remote browser cannot enable it.
+        controlDesign(241,activate);assert(!moduleLinkEnabled()&&!moduleLink_.prompt());
+        controlDesign(239,activate);controlDesign(240,activate);
+        assert(moduleLinkEnabled()&&!armRequested_&&!controlConfigurationSnapshot().armRequested);
+        controlDesign(239,activate);armRequested_=true;controlDesign(242,activate);
+        assert(moduleLinkEnabled()&&armRequested_); // Cannot withdraw the link live.
+        armRequested_=false;controlDesign(242,activate);
+        assert(!moduleLinkEnabled()&&!armRequested_);
+        controlDesign(239,activate);controlDesign(240,activate);armRequested_=true;
+        controlDesign(239,activate); // Keep the dialog open across a supply change.
+        updateModulePower(false,1400);assert(!moduleLinkEnabled()&&!armRequested_);
+        assert(discardTouchUntilRelease_); // A redrawn prompt needs a fresh press.
+        updateModulePower(true,1500);updateModulePower(true,1750);
+        assert(moduleLink_.prompt()&&!moduleLinkEnabled());
+        moduleLinkManaged_=false;moduleLink_=ModuleLink{};remoteTouchRejected_=false;
+        discardTouchUntilRelease_=touchWasDown_=false;touchIgnoreUntilMs_=0;
+        lastTouchDurationMs_=0;drawDashboard();
+        Serial.println("Module link UI: setup warning, physical-only approval, deferred prompt, pause and power loss PASS");
+    };
+    if(getenv("JR_R1_MODULE_LINK_AUDIT_ONLY")){auditModuleLink();return true;}
     const auto auditSportGps=[&](){
         CrsfTelemetryState sportGps{};sportGps.gpsValid=true;sportGps.satellites=0;
         sportGps.latitudeE7=GpsMap::DemoLat;sportGps.longitudeE7=GpsMap::DemoLon;
@@ -72,6 +115,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         Serial.println("S.Port GPS: unknown fix display, speed, map position and stale handling PASS");
     };
     if(getenv("JR_R1_GPS_AUDIT_ONLY")){auditSportGps();return true;}
+    auditModuleLink();
 
     // Real handset key timing, quick shortcuts, drafts and safety invariants.
     {

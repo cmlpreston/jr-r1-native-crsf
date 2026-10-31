@@ -689,6 +689,7 @@ void formatUid(const uint8_t *uid, char *text, size_t capacity)
 const char *uiPageName(UiPage page)
 {
     switch (page) {
+        case UiPage::ModuleLink:return "module-link";
         case UiPage::WifiSetup: return "wifi-setup";
         case UiPage::OutputStatus:return "output-status";
         case UiPage::ModeChooser:return "mode-chooser";
@@ -2433,7 +2434,7 @@ ControlConfigurationSnapshot TransmitterUi::controlConfigurationSnapshot() const
     snapshot.throttleChannel = channelRoleSettings_.throttleChannel;
     snapshot.steeringEnabled = channelRoleSettings_.steeringEnabled;
     snapshot.throttleEnabled = channelRoleSettings_.throttleEnabled;
-    snapshot.armRequested = !hardwareRecovery_ && !rfBenchMode_ && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_ && !SetupPortal::active();
+    snapshot.armRequested = (!moduleLinkManaged_ || moduleLink_.enabled()) && !hardwareRecovery_ && !rfBenchMode_ && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_ && !SetupPortal::active();
     snapshot.calibrationActive = calibrationActive() ||
         activePage_ == UiPage::ElrsTxConfig;
     snapshot.driveMode = driveModeSettings_.activeMode;
@@ -2991,7 +2992,7 @@ bool TransmitterUi::navigationIsModal() const
         case UiPage::ValueEditor: case UiPage::WidgetEditor:
         case UiPage::ParameterControlPicker: case UiPage::MixingOverview:
         case UiPage::ChannelMixing: case UiPage::BindingEditor:
-        case UiPage::ElrsBinding: return true;
+        case UiPage::ElrsBinding: case UiPage::ModuleLink: return true;
         case UiPage::WifiSetup: return wifiEdit_ != 0;
         case UiPage::ElrsTxConfig: return txConfigSelected_ != 0;
         default: return false;
@@ -3592,6 +3593,7 @@ void TransmitterUi::controlNavigation(uint8_t item, PageControlEvent)
 
 void TransmitterUi::navigateBack()
 {
+    if(activePage_==UiPage::ModuleLink){controlDesign(241,PageControlEvent::Activate);return;}
     if(activePage_==UiPage::QuickNavigation){drawDesignPage(keypadReturnPage_);return;}
     if(activePage_==UiPage::FieldResetConfirmation){drawDesignPage(UiPage::ValueEditor);return;}
     if(activePage_==UiPage::WifiSetup){
@@ -6011,6 +6013,11 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
     if(activePage_==UiPage::Gps&&gpsFullScreen_){
         gpsFullScreen_=false;lastInteractionMs_=millis();armGestureValid_=false;drawDesignPage(UiPage::Gps);return;
     }
+    if(!navigationIsModal() && designLink_ && moduleLinkManaged_ && lastTouchDurationMs_>=800 &&
+       touchStartX_>=kScreenWidth-110 && touchStartX_<kScreenWidth-44 && touchStartY_<44 &&
+       x>=kScreenWidth-110 && x<kScreenWidth-44 && y<44){
+        moduleLinkReturnPage_=activePage_;drawDesignPage(UiPage::ModuleLink);return;
+    }
     if(sectionNavigationVisible_ && y>=kScreenHeight-(portraitUi?60:40) && y<kScreenHeight-(portraitUi?20:0)){
         designTouchDispatch_=true;controlSectionNavigation(min<int>(3,x/(kScreenWidth/4)),PageControlEvent::Activate);designTouchDispatch_=false;return;
     }
@@ -6225,6 +6232,18 @@ void TransmitterUi::updateTouch()
     armGestureValid_=false;
 }
 
+void TransmitterUi::updateModulePower(bool detected, uint32_t now)
+{
+    moduleLinkManaged_=true;
+    const bool wasEnabled=moduleLink_.enabled(),wasPresent=moduleLink_.present();
+    moduleLink_.update(detected,now);
+    if(wasEnabled&&!moduleLink_.enabled())requestConfigurationCut();
+    if(activePage_==UiPage::ModuleLink&&wasPresent!=moduleLink_.present()){
+        touchWasDown_=false;discardTouchUntilRelease_=true;armGestureValid_=false;
+        drawDesignPage(UiPage::ModuleLink);
+    }
+}
+
 void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
                         int16_t rawInputPermille,
                         int16_t outputPermille,
@@ -6234,9 +6253,17 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
                         const CrsfChannelOutputModel &channelOutputs,
                         bool channelOutputsLive)
 {
-    if (hardwareRecovery_ || rfBenchMode_) armRequested_ = false;
+    if (hardwareRecovery_ || rfBenchMode_ || (moduleLinkManaged_&&!moduleLink_.enabled())) armRequested_ = false;
     updateKeypad(millis());
     updatePinTimeout(millis());
+    if(moduleLinkManaged_ && moduleLink_.prompt() && bootPinUnlocked_ &&
+       pinPurpose_==PinPurpose::None && activePage_==UiPage::Dashboard && !touchWasDown_){
+        moduleLinkReturnPage_=UiPage::Dashboard;
+        // A finger already resting on the dashboard must not confirm a popup
+        // that appeared underneath it. Require release and a new press.
+        discardTouchUntilRelease_=true;armGestureValid_=false;
+        drawDesignPage(UiPage::ModuleLink);
+    }
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None){armRequested_=false;if(activePage_!=UiPage::BootSplash&&activePage_!=UiPage::BootPin)drawBootPin();}
     speedStatistics_.update(telemetry.groundSpeedDeciKmh, telemetry.gpsUpdatedMs, millis(),
                             gpsPositionAvailable(telemetry,millis()));

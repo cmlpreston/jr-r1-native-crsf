@@ -37,3 +37,14 @@ capture dates. CAD renders and UI captures are labelled separately from photogra
 | [2026-09-13-pcb-cad.jpg](2026-09-13-pcb-cad.jpg) | 2026-09-13 | CAD render |
 | [2026-09-25-pcb-and-lcd.jpg](2026-09-25-pcb-and-lcd.jpg) | 2026-09-25 | Hardware photograph |
 | [2026-08-11-ui-capture.jpg](2026-08-11-ui-capture.jpg) | 2026-08-11 | UI capture (capture method unspecified) |
+
+## Further development evidence
+
+| Image | Date / description |
+| --- | --- |
+| [early-throttle-bench.jpg](early-throttle-bench.jpg) | Undated; source photo has no capture timestamp |
+| [2026-09-16-pcb-production.jpg](2026-09-16-pcb-production.jpg) | WhatsApp filename date; JLCPCB production update |
+| [2026-09-16-ui-progress.jpg](2026-09-16-ui-progress.jpg) | WhatsApp filename date; historical UI capture |
+| [2026-09-22-xiao-assembly.jpg](2026-09-22-xiao-assembly.jpg) | WhatsApp filename date; XIAO and sockets |
+| [2026-09-20-web-controls.jpg](2026-09-20-web-controls.jpg) | WhatsApp filename date; historical control-mapping web UI |
+| [2026-10-25-solder-bridge.jpg](2026-10-25-solder-bridge.jpg) | WhatsApp filename date; input track shorted to grounded pin |

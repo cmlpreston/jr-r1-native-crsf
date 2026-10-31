@@ -58,6 +58,35 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlBootPin(4,activate);assert(bootPinUnlocked()&&!armRequested());
     assert(activePage_==UiPage::StartupWarning); // Unlock does not dismiss preflight.
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard);
+    const auto auditDisplay=[&](){
+        const auto saved=systemSettings_;
+        systemSettings_.screenTimeoutSeconds=60;systemSettings_.displayBrightnessPercent=100;
+        displaySetupBank_=0;drawDisplayPage();
+        assert(sectionNavigationVisible_&&!detailContentCompacted_);
+        auto capture=[&](const char *page){if(const char *prefix=getenv("JR_R1_DISPLAY_IMAGES")){
+            lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+            snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",page);simulatorSaveScreenshot(path);
+        }};
+        capture("1");
+        const auto decrease=[&](uint8_t row){
+            for(uint8_t i=0;i<pageFocusCount_;++i){const auto t=pageFocusTargets_[i];
+                if(t.handler==&TransmitterUi::controlDisplay&&t.argument==row){
+                    assert(t.decrease.width>0);dispatchPageControlTouch(t.decrease.x+t.decrease.width/2,t.decrease.y+t.decrease.height/2);return;}}
+            assert(false);
+        };
+        decrease(0);assert(systemSettings_.screenTimeoutSeconds==30);
+        decrease(2);assert(systemSettings_.displayBrightnessPercent==90);
+        assert(handlePageSwipe(250,150,100,154,400)&&displaySetupBank_==1);
+        capture("2");
+        assert(touchAction(&TransmitterUi::controlPageDot,0)&&displaySetupBank_==0);
+        controlDisplay(3,activate);assert(activePage_==UiPage::ColourScheme);
+        navigateBack();assert(activePage_==UiPage::DisplaySetup);
+        assert(touchAction(&TransmitterUi::controlNavigation,0)&&activePage_==UiPage::MainMenu);
+        systemSettings_=saved;saveSystemSettings();uiBrightnessPercent=saved.displayBrightnessPercent;applyBacklight(uiBrightnessPercent);
+        displaySetupBank_=0;drawDashboard();
+        Serial.println("Display settings: shared rows, actual +/- targets, swipe/dots, colour chooser and Back PASS");
+    };
+    if(getenv("JR_R1_DISPLAY_AUDIT_ONLY")){auditDisplay();return true;}
     const auto auditModuleLink=[&](){
         moduleLinkManaged_=false;moduleLink_=ModuleLink{};
         SetupPortal::start();drawDashboard();
@@ -115,6 +144,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         Serial.println("S.Port GPS: unknown fix display, speed, map position and stale handling PASS");
     };
     if(getenv("JR_R1_GPS_AUDIT_ONLY")){auditSportGps();return true;}
+    auditDisplay();
     auditModuleLink();
 
     // Real handset key timing, quick shortcuts, drafts and safety invariants.

@@ -432,7 +432,6 @@ private:
     void drawRxBatteryRow(int row);
     void drawDisplayPage();
     void drawColourSchemePage();
-    void drawDisplayRow(int row, int visibleRow);
     void drawFirmwareInfoPage();
     void drawElrsBindingPage();
     void drawElrsTxConfigPage();

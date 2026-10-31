@@ -145,25 +145,6 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         action("TX battery",8,357,148,&TransmitterUi::controlSetup,6);
         action("RX battery",164,357,148,&TransmitterUi::controlSetup,7);
         makePageActionButton(8,410,304,42,"Firmware info",UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlSetup,8);
-    } else if (page == UiPage::DisplaySetup) {
-        makeHeader("Display", "Back");
-        const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now","Orientation"};
-        const int first=displaySetupBank_*4;
-        for(int i=first;i<min(first+4,6);++i){
-            if(i==0){if(systemSettings_.screenTimeoutSeconds)snprintf(text,sizeof(text),"%u seconds",systemSettings_.screenTimeoutSeconds);else snprintf(text,sizeof(text),"Never");}
-            if(i==1)snprintf(text,sizeof(text),"%s",systemSettings_.logoScreensaverEnabled?"Logo saver":"Display off");
-            if(i==2)snprintf(text,sizeof(text),"%u%%",systemSettings_.displayBrightnessPercent);
-            if(i==3)snprintf(text,sizeof(text),"%s",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme));
-            if(i==5)snprintf(text,sizeof(text),"Portrait / rotate");
-            if(i==4)snprintf(text,sizeof(text),"%s",systemSettings_.logoScreensaverEnabled?"Show logo":"Sleep");
-            row(names[i],text,54+(i-first)*70,&TransmitterUi::controlDisplay,i,i!=0&&i!=2);
-        }
-        note("Logo saver dims to 25%. Display off saves the most power.",354);
-        action("<",8,414,60,&TransmitterUi::controlDisplay,10);
-        note(displaySetupBank_?"Display 2 / 2":"Display 1 / 2",444);
-        // Centre pagination text between the two controls.
-        lv_obj_t *last=lv_obj_get_child(lv_scr_act(),-1);lv_obj_set_pos(last,96,428);lv_obj_set_width(last,145);
-        action(">",252,414,60,&TransmitterUi::controlDisplay,11);
     } else if(page==UiPage::TxBatterySetup || page==UiPage::RxBatterySetup) {
         const bool tx=page==UiPage::TxBatterySetup;
         makeHeader(tx?"TX battery":"RX battery","Back");

@@ -3050,6 +3050,7 @@ void TransmitterUi::controlPageDot(uint8_t page,PageControlEvent event)
     else if(activePage_==UiPage::Telemetry&&page<(DashboardSensorCount+5)/6){sensorBank_=page;drawDesignPage(activePage_);}
     else if(activePage_==UiPage::ChannelMonitor&&page<4){designBank_=page;drawDesignPage(activePage_);}
     else if(activePage_==UiPage::MainMenu&&page<2){setupPage_=page;drawMainMenu();}
+    else if(activePage_==UiPage::DisplaySetup&&page<2){displaySetupBank_=page;drawDisplayPage();}
     else if(activePage_==UiPage::InputMonitor&&page<(kPhysicalControlCount+4)/5){inputMonitorBank_=page;drawInputMonitorPage();}
 }
 
@@ -3058,6 +3059,7 @@ bool TransmitterUi::handlePageSwipe(int16_t x,int16_t y,int16_t endX,int16_t end
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None)return false;
     uint8_t page=0,count=0;
     switch(activePage_){
+        case UiPage::DisplaySetup:page=displaySetupBank_;count=2;break;
         case UiPage::Tune:page=tuneBank_;count=2;break;
         case UiPage::Telemetry:page=sensorBank_;count=(DashboardSensorCount+5)/6;break;
         case UiPage::ChannelMonitor:page=designBank_;count=4;break;
@@ -3610,7 +3612,7 @@ void TransmitterUi::navigateBack()
         if (activePage_ == UiPage::ValueEditor) drawDesignPage(editorReturn_);
         else if (activePage_ == UiPage::WidgetEditor) drawDesignPage(UiPage::WidgetSelect);
         else if (activePage_ == UiPage::SensorDetail || activePage_ == UiPage::Gps || activePage_ == UiPage::ChannelMonitor) drawTelemetryPage();
-        else if (activePage_ == UiPage::WidgetSelect || activePage_ == UiPage::Channels || activePage_ == UiPage::ModelSelect || activePage_ == UiPage::BatteryMenu) drawMainMenu();
+        else if (activePage_ == UiPage::DisplaySetup || activePage_ == UiPage::WidgetSelect || activePage_ == UiPage::Channels || activePage_ == UiPage::ModelSelect || activePage_ == UiPage::BatteryMenu) drawMainMenu();
         else drawDashboard();
         return;
     }
@@ -4681,50 +4683,6 @@ void TransmitterUi::drawEscProgrammingPage()
     finishPageFocus();
 }
 
-void TransmitterUi::drawDisplayRow(int row, int visibleRow)
-{
-    static const char *labels[] = {
-        "SCREEN TIMEOUT", "IDLE ACTION", "UI BRIGHTNESS", "COLOUR SCHEME",
-        "ACTIVATE NOW", "ORIENTATION"
-    };
-    const int16_t y = 56 + visibleRow * 50;
-    if(row==5){auto panel=makePanel(10,y,460,44);makeLabel(panel,"ORIENTATION",12,12,UiText::Menu,cCyan);makePageActionButton(353,y+4,106,36,"Rotate",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDisplay,5);return;}
-    lv_obj_t *panel = makePanel(10, y, 460, 44);
-    if (row == 3) {
-        makeLabel(panel, labels[row], 12, 3, UiText::Caption, cDim);
-        makeLabel(panel, colourSchemeName(systemSettings_.nightMode, systemSettings_.darkColourScheme), 12, 20, UiText::Secondary, cWhite);
-        makeButton(353, y + 4, 106, 36, "CHOOSE", UiText::Secondary);
-        return;
-    }
-    makeLabel(panel, labels[row], 12, 12, UiText::Menu, cCyan);
-    char value[24];
-    if (row == 0) {
-        if (systemSettings_.screenTimeoutSeconds == 0) snprintf(value, sizeof(value), "NEVER");
-        else snprintf(value, sizeof(value), "%u sec", systemSettings_.screenTimeoutSeconds);
-    } else if (row == 1) {
-        snprintf(value, sizeof(value), "%s",
-                 systemSettings_.logoScreensaverEnabled ? "LOGO SAVER" : "DISPLAY OFF");
-    } else if (row == 2) {
-        snprintf(value, sizeof(value), "%u%%", systemSettings_.displayBrightnessPercent);
-    } else {
-        snprintf(value, sizeof(value), "%s",
-                 systemSettings_.logoScreensaverEnabled ? "SHOW LOGO" : "DISPLAY OFF");
-    }
-    makeLabel(panel, value, 220, 12, UiText::Menu, cWhite);
-    if (row == 0 || row == 2) {
-        makeButton(353, y + 4, 48, 36, "-", UiText::Heading);
-        makeButton(411, y + 4, 48, 36, "+", UiText::Heading);
-    } else {
-        const bool activateRow = row == 4;
-        makeButton(353, y + 4, 106, 36,
-                   activateRow
-                       ? (systemSettings_.logoScreensaverEnabled ? "START" : "SLEEP")
-                       : "TOGGLE",
-                   UiText::Secondary, activateRow ? cAmber : cPanel2,
-                   activateRow ? cBlack : cWhite);
-    }
-}
-
 void TransmitterUi::controlColourScheme(uint8_t choice, PageControlEvent event)
 {
     if (event != PageControlEvent::Activate || choice > darkColourSchemeCount) return;
@@ -4766,42 +4724,7 @@ void TransmitterUi::drawColourSchemePage()
 
 void TransmitterUi::drawDisplayPage()
 {
-    if (portraitUi) { drawPortraitDetails(UiPage::DisplaySetup); return; }
-    activePage_ = UiPage::DisplaySetup;
-    startScreen();
-    resetLvglObjects();
-    makeHeader("DISPLAY", "BACK");
-    beginPageFocus();
-    const int firstRow = displaySetupBank_ * 4;
-    const int rowCount = min(4, 6 - firstRow);
-    for (int visibleRow = 0; visibleRow < rowCount; ++visibleRow) {
-        const int row = firstRow + visibleRow;
-        drawDisplayRow(row, visibleRow);
-        if (row == 0 || row == 2) {
-            addPageEditorTarget(10, 56 + visibleRow * 50, 460, 44,
-                                353, 60 + visibleRow * 50, 48, 36,
-                                411, 60 + visibleRow * 50, 48, 36,
-                                &TransmitterUi::controlDisplay, row);
-        } else {
-            addPageActionTarget(10, 56 + visibleRow * 50, 460, 44,
-                                &TransmitterUi::controlDisplay, row);
-        }
-    }
-    makeLabel(lv_scr_act(), "Logo saver dims to 25%; display off saves most power.",
-              20, 258, UiText::Caption, cDim);
-    makeButton(10, 274, 50, 35, "<", UiText::Heading, cPanel2,
-               displaySetupBank_ == 0 ? cDim : cWhite);
-    lv_obj_t *pageLabel = makeLabel(
-        lv_scr_act(), displaySetupBank_ == 0 ? "DISPLAY 1/2" : "DISPLAY 2/2",
-        0, 284, UiText::Caption, cCyan);
-    lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 284);
-    makeButton(420, 274, 50, 35, ">", UiText::Heading, cPanel2,
-               displaySetupBank_ == 1 ? cDim : cWhite);
-    addPageActionTarget(10, 274, 50, 35,
-                        &TransmitterUi::controlDisplay, 10);
-    addPageActionTarget(420, 274, 50, 35,
-                        &TransmitterUi::controlDisplay, 11);
-    finishPageFocus();
+    drawDesignPage(UiPage::DisplaySetup);
 }
 
 void TransmitterUi::drawTxBatteryRow(int row)

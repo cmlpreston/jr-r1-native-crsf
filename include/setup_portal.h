@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 class TransmitterUi;
+class Stream;
 namespace SetupPortal {
 struct Network { char ssid[33] = {}; int rssi = 0; bool secure = true; };
 struct State {
@@ -33,6 +34,8 @@ bool setAutoConnect(bool enabled);
 bool setHostname(const char *hostname);
 void captureScreen(int x,int y,int width,int height,const uint16_t *pixels);
 void screenChanged();
+bool beginUsbScreenshot();
+bool writeUsbScreenshot(Stream &output);
 void resizeScreen(int width,int height);
 // Shared hotspot/web credential; saved separately from home Wi-Fi settings.
 bool changePassword(const char *password);

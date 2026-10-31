@@ -40,15 +40,44 @@ static void serviceRestart(bool outputsSafe){
 }
 static RemoteScreen remoteScreen;
 static uint16_t *remotePixels=nullptr;
+static bool usbScreenshotActive=false;
 static uint32_t screenEpoch=1;
 void resizeScreen(int width,int height){if(remotePixels)remoteScreen.attach(remotePixels,width,height);screenChanged();}
 void screenChanged(){if(++screenEpoch==0)screenEpoch=1;}
 void captureScreen(int x,int y,int width,int height,const uint16_t *pixels){
-    if(info.running)remoteScreen.capture(x,y,width,height,pixels);
+    if(info.running||usbScreenshotActive)remoteScreen.capture(x,y,width,height,pixels);
 }
 static void releaseScreen(){free(remotePixels);remotePixels=nullptr;remoteScreen.attach(nullptr,0,0);}
 
 static TransmitterUi *handset = nullptr;
+bool beginUsbScreenshot(){
+    if(!handset)return false;
+    if(!remotePixels){
+        const int w=handset->screenWidth(),h=handset->screenHeight();
+        remotePixels=OfflineMap::allocatePixels(w*h);
+        if(!remotePixels)return false;
+        remoteScreen.attach(remotePixels,w,h);
+    }
+    usbScreenshotActive=true;return true;
+}
+bool writeUsbScreenshot(Stream &output){
+    if(!usbScreenshotActive||!remotePixels)return false;
+    const int w=remoteScreen.width(),h=remoteScreen.height();
+    char header[64];snprintf(header,sizeof(header),"TFTSHOT1 %d %d RGB888 %u\n",w,h,unsigned(w*h*3));
+    output.print(header);
+    static uint8_t row[480*3];
+    for(int y=0;y<h;++y){
+        for(int x=0;x<w;++x){
+            const uint16_t v=remoteScreen.data()[y*w+x];
+            const uint8_t r=(v>>11)&31,g=(v>>5)&63,b=v&31;
+            row[x*3]=(r<<3)|(r>>2);row[x*3+1]=(g<<2)|(g>>4);row[x*3+2]=(b<<3)|(b>>2);
+        }
+        if(output.write(row,w*3)!=size_t(w*3)){usbScreenshotActive=false;return false;}
+        delay(0);
+    }
+    output.print("\nTFTSHOT-END\n");output.flush();usbScreenshotActive=false;return true;
+}
+
 static bool passwordRestartPending = false;
 static char savedPassword[64]={};
 #ifndef JR_R1_SIMULATOR

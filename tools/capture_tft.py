@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture the TFT35 framebuffer over the ESP32-S3 native USB serial port."""
+"""Capture the handset UI over native USB (LVGL pixels on write-only LCD profiles)."""
 
 from __future__ import annotations
 

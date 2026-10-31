@@ -2,6 +2,7 @@
 // only with JR_R1_SIM_STATE pointed at a disposable directory.
 #include <cassert>
 #include <cstdlib>
+#include <vector>
 static uint64_t auditRedrawnPixels = 0;
 static unsigned auditCutRequests = 0;
 static void auditConfigurationCut() { ++auditCutRequests; }
@@ -58,6 +59,25 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlBootPin(4,activate);assert(bootPinUnlocked()&&!armRequested());
     assert(activePage_==UiPage::StartupWarning); // Unlock does not dismiss preflight.
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard);
+    if(getenv("JR_R1_USB_CAPTURE_AUDIT_ONLY")){
+        struct CaptureStream:Stream{
+            std::vector<uint8_t> bytes;
+            size_t write(const uint8_t *p,size_t n)override{bytes.insert(bytes.end(),p,p+n);return n;}
+        } output;
+        SetupPortal::begin(this);requestConfigurationCut();
+        assert(SetupPortal::beginUsbScreenshot());
+        lv_obj_invalidate(lv_scr_act());lv_refr_now(nullptr);
+        assert(SetupPortal::writeUsbScreenshot(output));
+        char header[64];snprintf(header,sizeof(header),"TFTSHOT1 %d %d RGB888 %u\n",kScreenWidth,kScreenHeight,unsigned(kScreenWidth*kScreenHeight*3));
+        const size_t prefix=strlen(header),pixels=kScreenWidth*kScreenHeight*3;
+        assert(output.bytes.size()==prefix+pixels+13);
+        assert(memcmp(output.bytes.data(),header,prefix)==0);
+        assert(memcmp(output.bytes.data()+prefix+pixels,"\nTFTSHOT-END\n",13)==0);
+        assert(!SetupPortal::writeUsbScreenshot(output));
+        assert(!controlConfigurationSnapshot().armRequested);
+        Serial.println("USB rendered screenshot: native dimensions, complete payload/footer, single capture and CUT PASS");
+        return true;
+    }
     const auto auditWifiShortcut=[&](){
         SetupPortal::stop();armRequested_=true;setupBank_=0;
         const auto cuts=auditCutRequests;drawDashboard();

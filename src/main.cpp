@@ -818,6 +818,13 @@ bool consumeScreenshotCommand()
                 SetupPortal::stop();
                 Serial.println("WIFI: closing hotspot setup; recovery/arming latch unchanged; home web access may remain available.");
             }
+            if(strncmp(usbCommand,"UITAP ",6)==0){
+                int x=-1,y=-1;char extra=0;
+                const bool valid=sscanf(usbCommand+6,"%d %d %c",&x,&y,&extra)==2&&
+                    x>=0&&y>=0&&x<transmitterUi.screenWidth()&&y<transmitterUi.screenHeight();
+                const bool ok=valid&&transmitterUi.portalRemoteInput(x,y,0);
+                Serial.println(ok?"@UI_REPLY Tap applied":"@UI_REPLY Tap rejected; requires CUT, web setup and normal PIN guards");
+            }
             if (strcmp(usbCommand, "WIFISTATUS") == 0) printWifiSetupStatus();
             if (strcmp(usbCommand, "INPUTMON") == 0) printInputMonitorSnapshot();
             if (strcmp(usbCommand, "TELEMETRY") == 0) printCellTelemetrySnapshot();

@@ -991,9 +991,14 @@ bool TransmitterUi::captureScreenshot(Stream &output)
     if (!displayReady_) return false;
 #ifndef JR_R1_SIMULATOR
     if (!DISPLAY_HAS_SPI_READBACK) {
-        output.print("TFTSHOT-ERROR display readback is not wired on this profile\n");
-        output.flush();
-        return false;
+        if(displaySleeping_)wakeDisplay();
+        requestConfigurationCut();
+        if(!SetupPortal::beginUsbScreenshot()){
+            output.print("TFTSHOT-ERROR insufficient screenshot memory\n");return false;
+        }
+        // Capture the actual LVGL flush pixels; no panel readback or MISO needed.
+        lv_obj_invalidate(lv_scr_act());lv_refr_now(nullptr);
+        return SetupPortal::writeUsbScreenshot(output);
     }
 #endif
     if (displaySleeping_) wakeDisplay();

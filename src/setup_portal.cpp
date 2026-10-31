@@ -21,6 +21,8 @@
 namespace SetupPortal {
 static State info;
 static char browserSession[33]={};
+static bool updateInProgress=false;
+bool firmwareUpdating(){return updateInProgress;}
 static bool restartPending=false;
 static uint32_t restartAt=0;
 bool requestRestart(){
@@ -147,6 +149,9 @@ void forget() {Preferences p;if(p.begin("r1-wifi",false)){p.putString("ssid","")
 #else
 #include <WiFi.h>
 #include <WebServer.h>
+#include <Update.h>
+#include <esp_ota_ops.h>
+#include "firmware_package.h"
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <LittleFS.h>
@@ -204,6 +209,58 @@ static bool authorized(bool write=false) {
     server.sendHeader("Cache-Control","no-store");
     server.sendHeader("X-Content-Type-Options","nosniff");
     return true;
+}
+// The HTTP handler runs on the UI task. Keep setup active throughout an upload
+// so the independently running control task cannot receive an arm request.
+static uint8_t firmwareHeader[FirmwarePackage::HeaderSize];
+static size_t firmwareHeaderBytes=0, firmwareBytes=0;
+static FirmwarePackage::Header firmwareInfo;
+static bool firmwareAccepted=false,firmwareComplete=false;
+static const char *firmwareError="No firmware upload received";
+static void failFirmware(const char *reason){
+    if(Update.isRunning())Update.abort();
+    firmwareAccepted=false;firmwareError=reason;
+}
+static void receiveFirmware(){
+    auto &u=server.upload();
+    if(u.status==UPLOAD_FILE_START){
+        firmwareAccepted=firmwareComplete=false;firmwareHeaderBytes=firmwareBytes=0;
+        firmwareInfo={};firmwareError="Upload incomplete";
+        if(!authenticated()){firmwareError="Firmware authentication failed";return;}
+        if(server.header("X-R1-Token")!=token){firmwareError="Invalid setup session";return;}
+        if(!canControl()||restartPending){firmwareError="Firmware update requires CUT and no pending restart";return;}
+#if !defined(JR_R1_XIAO_PCB) || defined(JR_R1_UI_PORTRAIT)
+        firmwareError="OTA is supported only by the installed XIAO landscape profile";return;
+#endif
+        info.active=true;updateInProgress=true;firmwareAccepted=true;
+        message("Firmware updating; keep power connected");
+        Serial.println("OTA: authenticated upload started; outputs CUT");
+    }else if(u.status==UPLOAD_FILE_WRITE&&firmwareAccepted){
+        if(!canControl()){failFirmware("Firmware upload interrupted: outputs must remain CUT");return;}
+        size_t offset=0;
+        if(firmwareHeaderBytes<sizeof(firmwareHeader)){
+            const size_t remaining=sizeof(firmwareHeader)-firmwareHeaderBytes;
+            const size_t n=u.currentSize<remaining?u.currentSize:remaining;
+            memcpy(firmwareHeader+firmwareHeaderBytes,u.buf,n);firmwareHeaderBytes+=n;offset=n;
+            if(firmwareHeaderBytes<sizeof(firmwareHeader))return;
+            const auto *partition=esp_ota_get_next_update_partition(nullptr);
+            if(!partition||!FirmwarePackage::decode(firmwareHeader,sizeof(firmwareHeader),partition->size,firmwareInfo)){
+                failFirmware("Invalid firmware package, target or size. Use tools/package_ota.py");return;}
+            if(!Update.begin(firmwareInfo.size,U_FLASH)||!Update.setMD5(firmwareInfo.md5)){
+                failFirmware("Could not open inactive firmware slot");return;}
+        }
+        const size_t n=u.currentSize-offset;
+        if(n>firmwareInfo.size-firmwareBytes){failFirmware("Firmware package exceeds declared image size");return;}
+        if(n&&Update.write(u.buf+offset,n)!=n){failFirmware("Firmware write failed; current firmware retained");return;}
+        firmwareBytes+=n;
+    }else if(u.status==UPLOAD_FILE_END&&firmwareAccepted){
+        if(firmwareHeaderBytes!=sizeof(firmwareHeader)||firmwareBytes!=firmwareInfo.size){failFirmware("Incomplete firmware image; current firmware retained");return;}
+        if(!canControl()||!Update.end()){failFirmware("Firmware validation failed; current firmware retained");return;}
+        firmwareComplete=true;Serial.printf("OTA: validated %u application bytes\n",unsigned(firmwareBytes));
+    }else if(u.status==UPLOAD_FILE_ABORTED){
+        failFirmware("Firmware upload disconnected; current firmware retained");
+        updateInProgress=false;message(firmwareError);
+    }
 }
 static bool number(const char *key,int low,int high,int &out) {
     if(!server.hasArg(key))return false;
@@ -468,6 +525,13 @@ static void routes() {
         ChannelResponseProfile p;p.negativeEndpointPercent=v[1];p.positiveEndpointPercent=v[2];p.negativeRatePercent=v[3];p.positiveRatePercent=v[4];p.negativeExpoPercent=v[5];p.positiveExpoPercent=v[6];p.negativeRampMs=v[7];p.positiveRampMs=v[8];p.subtrimPercent=v[9];p.reversed=v[10];
         bool ok=handset->portalSetChannel(v[0],p,v[11],v[12]);server.send(ok?200:500,"text/plain",ok?"Channel saved; outputs remain CUT":"Save failed");
     });
+    server.on("/api/firmware",HTTP_POST,[]{
+        if(!authorized(true)){if(Update.isRunning())Update.abort();updateInProgress=false;return;}
+        if(!firmwareComplete){server.send(400,"text/plain",firmwareError);updateInProgress=false;message(firmwareError);return;}
+        // end() has validated the image and selected the inactive slot for next boot.
+        requestRestart();
+        server.send(202,"text/plain","Firmware verified. Restarting in CUT; wait for Wi-Fi, then reload.");
+    },receiveFirmware);
     server.on("/api/restart",HTTP_POST,[]{
         if(!authorized(true))return;
         if(server.arg("confirm")!="restart"){server.send(400,"text/plain","Restart confirmation required");return;}

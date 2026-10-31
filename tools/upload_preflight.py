@@ -94,3 +94,11 @@ if "upload" in targets:
         if dirty_text:
             print("  note   : uploading tested working-tree changes")
         print()
+
+    # Wi-Fi uses the same target, ancestry and hardware guards as USB uploads.
+    if os.environ.get("JR_R1_OTA_URL"):
+        import sys
+        import shlex
+        command = shlex.quote(sys.executable) + " " + shlex.quote(
+            os.path.join(project_dir, "tools", "upload_wifi.py")) + ' "$SOURCE"'
+        env.Replace(UPLOADCMD=command)

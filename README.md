@@ -38,9 +38,10 @@ Recent development is also tracked on
 | Tuning and mixing | Reversal, calibration, trims, rates, expo, independent endpoints, response speed, channel-to-channel mixes, switch conditions and graphs showing the resulting response. |
 | Models | Saved model configurations, names, selectable vehicle artwork and primary/accent/base colour choices, including an F1-style car. |
 | Dashboard | Configurable widgets in 1×1, 2×1, 1×2 and 2×2 sizes; analogue channel bars, binary switch states, selectable physical inputs, speed dial, timer, power readings and a combined battery-cell panel. |
-| Telemetry | CRSF link and sensor decoding, freshness/no-data handling, history views and alarms; custom receiver integration for S.Port cells and FAS sensor measurements. |
+| Telemetry | CRSF link and sensor decoding, freshness/no-data handling, history views and alarms; custom receiver integration for S.Port cells and FAS sensor measurements. S.Port GPS forwarding is prepared for hardware validation. |
 | Maps | Address search, pan/zoom and selection of street or satellite imagery in the browser; image packages stored on the handset, GPS trail overlay and a map view that hides its controls when idle. |
 | Operating modes | CUT/re-arm workflow with readiness reasons, Normal/Walk selection, PIN-protected exit from Walk, boot PIN and USB PIN recovery. |
+| Module link | Prepared CRSF enable/pause control with physical approval after TX battery detection; approval expires on power loss or reboot. Installed Ranger RF shutdown still needs validation. |
 | Connectivity | Saved home Wi-Fi with automatic connection/retry, optional setup hotspot, configurable hostname and onboard configuration/remote-control web UI. |
 | Development tools | Shared-code desktop/browser simulator, screenshot and layout checks, host tests, boot logs, memory diagnostics, serial input monitor and local-build/Pi-USB flashing workflow. |
 
@@ -133,19 +134,27 @@ monitor distinguishes requested values from the actual safe values sent.
 
 ## CUT, Normal/Walk and PIN protection
 
-**CUT inhibits live control output; it does not turn off the RF module or stop
-CRSF channel frames.** The control/transport safety layers send configured safe
-values instead of the live requested values. Auxiliary CUT overrides can be
+**CUT inhibits live control output; it does not turn off the RF module. While
+the module link is enabled, CRSF channel frames continue.** The control/transport
+safety layers send configured safe values instead of the live requested values. Auxiliary CUT overrides can be
 configured separately; they are not receiver RF-loss failsafe settings.
 
-A separate **Module link** control is prepared for bench validation. It defaults
-CRSF communication off at boot, asks for physical approval after detecting the
-TX battery feed, and leaves outputs CUT after approval. Hold the LQ/status area
-to reopen it, or use Output status → Module link. Pausing requires CUT first;
-loss of the sensed supply revokes approval. TX voltage sensing must be enabled.
-This is not a hardware power switch: the reviewed ExpressLRS firmware stops its
-RF timer after handset-link timeout, but that behaviour still needs checking on
-the installed Ranger. Guaranteed RF-off requires switched module power.
+A separate **Module link** control is prepared for bench validation. CRSF
+communication defaults off at every boot. Detecting a stable TX battery feed
+prompts for physical approval; choosing Cancel keeps communication paused.
+Approval starts communication while leaving outputs CUT, so enabling the
+module link and enabling live controls remain separate actions. Hold the
+LQ/status area to reopen the dialog, or use Output status → Module link.
+
+Pausing requires CUT first. Loss of the sensed supply or a reboot revokes
+approval; it is not saved for the next power session. TX voltage sensing must
+be enabled. The pause covers both CRSF channel frames and module-management
+traffic, while the handset UI and web configuration remain available.
+
+This is not a hardware power switch. The reviewed ExpressLRS firmware stops
+its normal RF transmission timer after handset-link timeout, but that behaviour
+still needs checking on the installed Ranger. Pausing CRSF must not be treated
+as verified RF silence; guaranteed RF-off requires switched module power.
 
 The transmitter starts with outputs inhibited. CUT is also used for structural
 channel/mix/control edits, model and mode changes, calibration, hardware recovery
@@ -385,16 +394,35 @@ for voltage, current and temperature. Bench captures, parser tests and handset
 displays are documented separately from end-to-end RF validation. Some sensor
 paths and the ER6G profile still require further hardware checks. GPS forwarding
 is enabled in the newly prepared receiver trial builds; installation and
-end-to-end RF validation remain hardware steps. Satellite count/fix quality
-are unavailable from standard S.Port GPS, so the handset labels them unknown.
+end-to-end RF validation remain hardware steps. The prepared GPS path keeps one
+sensor source selected until restart and
+requires fresh latitude, longitude, speed, course and altitude before forwarding
+a position. Satellite count/fix quality are unavailable from standard S.Port
+GPS, so the handset shows **Fix unknown** rather than inventing a satellite
+count. Fresh reported positions and speed can still feed the map, trail and
+speed display; stale data and an unknown-fix 0,0 placeholder are not plotted.
 The handset can display 1–12 individual cell readings, but the current receiver
 cell trial forwards **4S**.
 Selecting a higher cell count cannot create measurements the receiver has not sent.
+
+The **RadioMaster ERS-GPS** is a different integration path: it uses CRSF/UART,
+rather than the FrSky S.Port bus. It must not be wired or configured as an
+S.Port sensor. ERS-GPS end-to-end operation with this prototype has not yet
+been validated.
 
 This is a **custom fork**, not a claim of upstream ExpressLRS S.Port support or
 universal support for every S.Port sensor. See the
 [receiver status and test instructions](https://github.com/cmlpreston/ExpressLRS-SPort/blob/codex/sport-telemetry/sport/README.md)
 for the precise scope.
+
+## Planned timer extensions
+
+The current run timer supports start, stop and reset. The [roadmap](TODO.md)
+also tracks lap recording inspired by the original R-1: Lap/Up/Down modes,
+thumb-button recording, up to 100 lap records, best/average/total times and a
+lap-aware dashboard widget. Optional throttle-auto-start, countdown/target-lap
+alarms and a per-model accumulated on-time counter are planned. These are
+future work, not features of the currently installed firmware.
 
 ## The same UI on the desktop
 
@@ -435,11 +463,31 @@ It also provides an authenticated live view with remote touch interaction and
 PIN entry, making setup possible when the physical screen is out of reach.
 Configuration and output-changing actions retain their respective safety checks.
 
-The live view uses pixels rendered by the firmware. It **does not read back the
-physical Waveshare LCD**, whose installed connection is write-only. We can
-capture the rendered interface, but a framebuffer capture cannot verify that
-the physical screen is displaying it correctly. The simulator and live web
-view serve different purposes, even when they look similar.
+The live view also provides a way to capture **screenshots from the real
+handset's rendering**, at its native 480 × 320 landscape or 320 × 480 portrait
+resolution. It mirrors pixels from the LCD flush stream, so no LCD MISO wire
+is needed. These captures show the running handset's settings and telemetry,
+whereas the desktop simulator supplies simulated inputs and telemetry.
+
+It **does not read back the physical Waveshare LCD**, whose installed connection
+is write-only. A rendered screenshot cannot reveal cable faults, panel
+corruption, viewing angle or reflections, or verify that the panel displayed
+the pixels correctly. The existing gallery's simulator captures remain labelled
+as simulator captures.
+
+The embedded web UI includes an **authenticated firmware updater**. Build the
+approved XIAO landscape firmware, then run `python3 tools/package_ota.py` to
+create its `.r1ota` package. In the web page's Handset → Firmware update section,
+choose that package and upload while CUT. The updater checks the target, size,
+image and transfer checksum, writes the inactive application slot and restarts
+in CUT after validation. Models, maps and Wi-Fi settings are preserved. An
+interrupted or rejected upload leaves the current application selected.
+
+The initial updater installation needs USB; later compatible application
+updates can use Wi-Fi. Keep power connected throughout. USB remains necessary
+for recovery, bootloader or partition-layout changes. Packages are authenticated
+by the web login/session; the checksum detects damage and is not a firmware
+signature. Use this HTTP interface on a trusted network.
 
 The [web UI gallery](docs/ui-gallery.md#embedded-web-ui) shows model and hardware-control
 configuration and the map selection/preview/upload flow. Those captures use the

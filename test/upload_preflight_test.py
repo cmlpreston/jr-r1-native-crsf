@@ -21,6 +21,9 @@ class Environment:
     def Append(self, **kwargs):
         pass
 
+    def Replace(self, **kwargs):
+        self.upload_command=kwargs.get("UPLOADCMD")
+
 
 class UploadPreflightTest(unittest.TestCase):
     def check_guard(self, target, board='seeed_xiao_esp32s3', stale=False, fetch_failed=False):
@@ -38,7 +41,7 @@ class UploadPreflightTest(unittest.TestCase):
         def exit_guard(code):
             raise SystemExit(code)
         output = io.StringIO()
-        with patch.dict(os.environ, {'JR_R1_ALLOW_UNSAFE_UPLOAD': '0'}), patch('subprocess.run', git_run), contextlib.redirect_stdout(output):
+        with patch.dict(os.environ, {'JR_R1_ALLOW_UNSAFE_UPLOAD': '0', 'JR_R1_OTA_URL': 'http://127.0.0.1:8785'}), patch('subprocess.run', git_run), contextlib.redirect_stdout(output):
             try:
                 runpy.run_path(str(ROOT / 'tools/upload_preflight.py'), init_globals={
                     'Import': lambda name: None, 'env': Environment(target, board),
@@ -54,6 +57,9 @@ class UploadPreflightTest(unittest.TestCase):
             self.assertTrue(passed)
             self.assertIn(['fetch', '--quiet', 'origin', 'main'], calls)
             self.assertIn(['merge-base', '--is-ancestor', 'origin/main', 'HEAD'], calls)
+
+    def test_wifi_transport_still_refuses_stale_branch(self):
+        self.assertFalse(self.check_guard('seeed_xiao_esp32s3-pcb', stale=True)[0])
 
     def test_legacy_hardware_refused(self):
         for target in ('esp32-s3-devkitc-1', 'esp32-s3-devkitc-1-portrait', 'esp32-s3-devkitc-1-btt', 'esp32-s3-devkitc-1-display-test'):

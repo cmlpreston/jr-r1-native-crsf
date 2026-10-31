@@ -2439,7 +2439,7 @@ ControlConfigurationSnapshot TransmitterUi::controlConfigurationSnapshot() const
     snapshot.throttleChannel = channelRoleSettings_.throttleChannel;
     snapshot.steeringEnabled = channelRoleSettings_.steeringEnabled;
     snapshot.throttleEnabled = channelRoleSettings_.throttleEnabled;
-    snapshot.armRequested = (!moduleLinkManaged_ || moduleLink_.enabled()) && !hardwareRecovery_ && !rfBenchMode_ && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_ && !SetupPortal::active();
+    snapshot.armRequested = (!moduleLinkManaged_ || moduleLink_.enabled()) && !hardwareRecovery_ && !rfBenchMode_ && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_ && !SetupPortal::active() && !SetupPortal::firmwareUpdating();
     snapshot.calibrationActive = calibrationActive() ||
         activePage_ == UiPage::ElrsTxConfig;
     snapshot.driveMode = driveModeSettings_.activeMode;

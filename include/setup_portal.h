@@ -18,6 +18,7 @@ struct State {
 const State &state();
 bool active();
 bool canControl();
+bool firmwareUpdating();
 void begin(TransmitterUi *ui);
 void start();
 void stop();

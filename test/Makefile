@@ -6,6 +6,7 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  firmware_package_test \
   module_link_test \
   channel_model_test \
   control_engine_test \
@@ -46,6 +47,7 @@ $(BUILD)/rf_bench_session_test: rf_bench_session_test.cpp $(ROOT)/include/rf_ben
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 run: all
+	$(PYTHON) package_ota_test.py
 	$(PYTHON) upload_preflight_test.py
 	$(PYTHON) flash_via_pi_test.py
 	$(PYTHON) input_monitor_test.py
@@ -165,5 +167,9 @@ $(BUILD)/model_appearance_test: model_appearance_test.cpp $(ROOT)/include/model_
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/remote_arm_hold_test: remote_arm_hold_test.cpp $(ROOT)/include/remote_arm_hold.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/firmware_package_test: firmware_package_test.cpp $(ROOT)/include/firmware_package.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@

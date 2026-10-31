@@ -145,18 +145,17 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         action("TX battery",8,357,148,&TransmitterUi::controlSetup,6);
         action("RX battery",164,357,148,&TransmitterUi::controlSetup,7);
         makePageActionButton(8,410,304,42,"Firmware info",UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlSetup,8);
-    } else if(page==UiPage::TxBatterySetup || page==UiPage::RxBatterySetup) {
-        const bool tx=page==UiPage::TxBatterySetup;
-        makeHeader(tx?"TX battery":"RX battery","Back");
-        const char *names[]={"Chemistry","Cell count","Low alarm",tx?"Voltage sensing":"Alarm enabled"};
+    } else if(page==UiPage::RxBatterySetup) {
+        makeHeader("RX battery","Back");
+        const char *names[]={"Chemistry","Cell count","Low alarm","Alarm enabled"};
         for(int i=0;i<4;++i){
-            if(i==0)snprintf(text,sizeof(text),"%s",batteryChemistryName(tx?txBatterySettings_.chemistry:rxBatterySettings_.chemistry));
-            if(i==1)snprintf(text,sizeof(text),"%uS",tx?txBatterySettings_.cellCount:rxBatterySettings_.cellCount);
-            if(i==2){auto v=tx?txBatterySettings_.lowAlarmDecivolts:rxBatterySettings_.lowAlarmDecivolts;snprintf(text,sizeof(text),"%u.%u V",v/10,v%10);}
-            if(i==3)snprintf(text,sizeof(text),"%s",(tx?txBatterySettings_.voltageSenseEnabled:rxBatterySettings_.alarmEnabled)?"On":"Off");
-            row(names[i],text,54+i*70,tx?&TransmitterUi::controlTxBattery:&TransmitterUi::controlRxBattery,i,i==0||i==3);
+            if(i==0)snprintf(text,sizeof(text),"%s",batteryChemistryName(rxBatterySettings_.chemistry));
+            if(i==1)snprintf(text,sizeof(text),"%uS",rxBatterySettings_.cellCount);
+            if(i==2){auto v=rxBatterySettings_.lowAlarmDecivolts;snprintf(text,sizeof(text),"%u.%u V",v/10,v%10);}
+            if(i==3)snprintf(text,sizeof(text),"%s",rxBatterySettings_.alarmEnabled?"On":"Off");
+            row(names[i],text,54+i*70,&TransmitterUi::controlRxBattery,i,i==0||i==3);
         }
-        note(tx?"Battery voltage uses the board's ADC divider.":"Voltage is supplied by receiver telemetry.",354);
+        note("Voltage is supplied by receiver telemetry.",354);
     }
     finishPageFocus();
 }

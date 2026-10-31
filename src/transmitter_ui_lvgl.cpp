@@ -3616,7 +3616,7 @@ void TransmitterUi::navigateBack()
         if (activePage_ == UiPage::ValueEditor) drawDesignPage(editorReturn_);
         else if (activePage_ == UiPage::WidgetEditor) drawDesignPage(UiPage::WidgetSelect);
         else if (activePage_ == UiPage::SensorDetail || activePage_ == UiPage::Gps || activePage_ == UiPage::ChannelMonitor) drawTelemetryPage();
-        else if (activePage_ == UiPage::DisplaySetup || activePage_ == UiPage::WidgetSelect || activePage_ == UiPage::Channels || activePage_ == UiPage::ModelSelect || activePage_ == UiPage::BatteryMenu) drawMainMenu();
+        else if (activePage_ == UiPage::TxBatterySetup || activePage_ == UiPage::DisplaySetup || activePage_ == UiPage::WidgetSelect || activePage_ == UiPage::Channels || activePage_ == UiPage::ModelSelect || activePage_ == UiPage::BatteryMenu) drawMainMenu();
         else drawDashboard();
         return;
     }
@@ -4731,82 +4731,9 @@ void TransmitterUi::drawDisplayPage()
     drawDesignPage(UiPage::DisplaySetup);
 }
 
-void TransmitterUi::drawTxBatteryRow(int row)
-{
-    static const char *labels[] = {"CHEMISTRY", "CELL COUNT", "LOW ALARM", "VOLT SENSE"};
-    const int16_t y = 56 + row * 50;
-    lv_obj_t *panel = makePanel(10, y, 460, 44);
-    makeLabel(panel, labels[row], 12, 12, UiText::Menu, cCyan);
-    char value[24];
-    if (row == 0) {
-        snprintf(value, sizeof(value), "%s", batteryChemistryName(txBatterySettings_.chemistry));
-    } else if (row == 1) {
-        snprintf(value, sizeof(value), "%uS", txBatterySettings_.cellCount);
-    } else if (row == 2) {
-        snprintf(value, sizeof(value), "%u.%u V",
-                 txBatterySettings_.lowAlarmDecivolts / 10,
-                 txBatterySettings_.lowAlarmDecivolts % 10);
-    } else {
-        snprintf(value, sizeof(value), "%s",
-                 txBatterySettings_.voltageSenseEnabled ? "ON" : "OFF");
-    }
-    makeLabel(panel, value, 212, 12, UiText::Menu,
-              row == 3 && txBatterySettings_.voltageSenseEnabled ? cGreen : cWhite);
-
-    if (row == 0 || row == 3) {
-        lv_obj_t *toggle = lv_obj_create(panel);
-        position(toggle, 343, 3, 106, 36);
-        lv_obj_set_style_bg_color(toggle,
-            colour(row == 3 && txBatterySettings_.voltageSenseEnabled ? cGreen : cPanel2), 0);
-        lv_obj_set_style_border_color(toggle, colour(cLine), 0);
-        lv_obj_set_style_border_width(toggle, 1, 0);
-        lv_obj_set_style_radius(toggle, kUiCornerRadius, 0);
-        lv_obj_set_style_pad_all(toggle, 0, 0);
-        lv_obj_t *label = makeLabel(toggle, row == 0 ? "NEXT" : "TOGGLE", 0, 0, UiText::Secondary,
-            row == 3 && txBatterySettings_.voltageSenseEnabled ? cBlack : cWhite);
-        lv_obj_center(label);
-    } else {
-        lv_obj_t *minus = lv_obj_create(panel); position(minus, 343, 3, 48, 36);
-        lv_obj_set_style_bg_color(minus, colour(cPanel2), 0);
-        lv_obj_set_style_border_color(minus, colour(cLine), 0);
-        lv_obj_set_style_border_width(minus, 1, 0);
-        lv_obj_set_style_radius(minus, kUiCornerRadius, 0);
-        lv_obj_set_style_pad_all(minus, 0, 0);
-        lv_obj_t *ml = makeLabel(minus, "-", 0, 0, UiText::Heading); lv_obj_center(ml);
-        lv_obj_t *plus = lv_obj_create(panel); position(plus, 401, 3, 48, 36);
-        lv_obj_set_style_bg_color(plus, colour(cPanel2), 0);
-        lv_obj_set_style_border_color(plus, colour(cLine), 0);
-        lv_obj_set_style_border_width(plus, 1, 0);
-        lv_obj_set_style_radius(plus, kUiCornerRadius, 0);
-        lv_obj_set_style_pad_all(plus, 0, 0);
-        lv_obj_t *pl = makeLabel(plus, "+", 0, 0, UiText::Heading); lv_obj_center(pl);
-    }
-}
-
 void TransmitterUi::drawTxBatteryPage()
 {
-    if (portraitUi) { drawPortraitDetails(UiPage::TxBatterySetup); return; }
-    activePage_ = UiPage::TxBatterySetup;
-    startScreen();
-    resetLvglObjects();
-    makeHeader("TX BATTERY", "BACK");
-    beginPageFocus();
-    for (int row = 0; row < 4; ++row) {
-        drawTxBatteryRow(row);
-        if (row == 1 || row == 2) {
-            addPageEditorTarget(10, 56 + row * 50, 460, 44,
-                                343, 59 + row * 50, 48, 36,
-                                401, 59 + row * 50, 48, 36,
-                                &TransmitterUi::controlTxBattery, row);
-        } else {
-            addPageActionTarget(343, 59 + row * 50, 106, 36,
-                                &TransmitterUi::controlTxBattery, row);
-        }
-    }
-    lv_obj_t *note = makeLabel(lv_scr_act(),
-        "GPIO5 via 47k/10k divider", 0, 280, UiText::Caption, cDim);
-    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
-    finishPageFocus();
+    drawDesignPage(UiPage::TxBatterySetup);
 }
 
 void TransmitterUi::drawRxBatteryRow(int row)

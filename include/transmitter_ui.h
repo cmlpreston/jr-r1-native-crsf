@@ -302,6 +302,8 @@ private:
     void controlPortraitBank(uint8_t item, PageControlEvent event);
     using PageControlHandler = void (TransmitterUi::*)(uint8_t,
                                                      PageControlEvent);
+    void drawSettingsRow(const char *title,const char *value,int y,int height,
+                         PageControlHandler handler,uint8_t action,bool numeric);
     void addPageActionTarget(int16_t x, int16_t y, int16_t width,
                              int16_t height, PageControlHandler handler,
                              uint8_t argument);
@@ -427,7 +429,6 @@ private:
     void drawSetupPage();
     void drawSetupRow(int row);
     void drawTxBatteryPage();
-    void drawTxBatteryRow(int row);
     void drawRxBatteryPage();
     void drawRxBatteryRow(int row);
     void drawDisplayPage();

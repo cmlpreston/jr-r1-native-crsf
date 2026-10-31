@@ -58,6 +58,34 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlBootPin(4,activate);assert(bootPinUnlocked()&&!armRequested());
     assert(activePage_==UiPage::StartupWarning); // Unlock does not dismiss preflight.
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard);
+    const auto auditTxBattery=[&](){
+        const auto saved=txBatterySettings_;
+        txBatterySettings_.chemistry=BatteryChemistry::LiFe;txBatterySettings_.cellCount=3;
+        txBatterySettings_.lowAlarmDecivolts=90;txBatterySettings_.voltageSenseEnabled=false;
+        drawTxBatteryPage();assert(sectionNavigationVisible_&&!detailContentCompacted_);
+        if(const char *prefix=getenv("JR_R1_TX_BATTERY_IMAGES")){
+            lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+            snprintf(path,sizeof(path),"%s-%s.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);
+        }
+        const auto adjust=[&](uint8_t row,bool increase){
+            for(uint8_t i=0;i<pageFocusCount_;++i){const auto t=pageFocusTargets_[i];
+                if(t.handler==&TransmitterUi::controlTxBattery&&t.argument==row){
+                    const auto r=increase?t.increase:t.decrease;assert(r.width>0);
+                    dispatchPageControlTouch(r.x+r.width/2,r.y+r.height/2);return;}}
+            assert(false);
+        };
+        adjust(1,false);assert(txBatterySettings_.cellCount==2);
+        adjust(1,true);assert(txBatterySettings_.cellCount==3);
+        adjust(2,false);assert(txBatterySettings_.lowAlarmDecivolts==89);
+        adjust(2,true);assert(txBatterySettings_.lowAlarmDecivolts==90);
+        assert(touchAction(&TransmitterUi::controlTxBattery,0)&&txBatterySettings_.chemistry==BatteryChemistry::LiPo);
+        assert(touchAction(&TransmitterUi::controlTxBattery,3)&&txBatterySettings_.voltageSenseEnabled);
+        loadTxBatterySettings();assert(txBatterySettings_.voltageSenseEnabled&&txBatterySettings_.chemistry==BatteryChemistry::LiPo);
+        assert(touchAction(&TransmitterUi::controlNavigation,0)&&activePage_==UiPage::MainMenu);
+        txBatterySettings_=saved;saveTxBatterySettings();drawDashboard();
+        Serial.println("TX battery: shared rows, actual touch targets, chemistry, cells, alarm, sensing, persistence and Back PASS");
+    };
+    if(getenv("JR_R1_TX_BATTERY_AUDIT_ONLY")){auditTxBattery();return true;}
     const auto auditDisplay=[&](){
         const auto saved=systemSettings_;
         systemSettings_.screenTimeoutSeconds=60;systemSettings_.displayBrightnessPercent=100;
@@ -144,6 +172,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         Serial.println("S.Port GPS: unknown fix display, speed, map position and stale handling PASS");
     };
     if(getenv("JR_R1_GPS_AUDIT_ONLY")){auditSportGps();return true;}
+    auditTxBattery();
     auditDisplay();
     auditModuleLink();
 

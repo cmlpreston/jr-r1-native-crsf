@@ -66,7 +66,7 @@ bool TransmitterUi::designPage() const
         case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor:
         case UiPage::Telemetry: case UiPage::Gps: case UiPage::ChannelMonitor:
         case UiPage::SensorDetail: case UiPage::MainMenu: case UiPage::Channels:
-        case UiPage::DisplaySetup: case UiPage::ModuleLink: case UiPage::OutputStatus: case UiPage::ModeChooser: case UiPage::ChannelPlaceholder:
+        case UiPage::TxBatterySetup: case UiPage::DisplaySetup: case UiPage::ModuleLink: case UiPage::OutputStatus: case UiPage::ModeChooser: case UiPage::ChannelPlaceholder:
         case UiPage::ChannelInput: case UiPage::ChannelResponseSetup: case UiPage::ParameterControlPicker: case UiPage::ResponseProfile: case UiPage::MixingOverview:
         case UiPage::NetworkOptions: case UiPage::Setup: case UiPage::SystemMenu: case UiPage::DriveModes:
         case UiPage::ModelSelect: case UiPage::WidgetSelect: case UiPage::WidgetEditor: case UiPage::BatteryMenu: return true;
@@ -248,6 +248,24 @@ void TransmitterUi::drawGpsMapView(bool fullScreen)
     }
 }
 
+void TransmitterUi::drawSettingsRow(const char *title,const char *value,int y,int height,
+                                    PageControlHandler handler,uint8_t action,bool numeric)
+{
+    const int width=kScreenWidth-20;
+    auto panel=makePanel(10,y,width,height,cBlack,cLine,0);
+    lv_obj_set_style_border_side(panel,LV_BORDER_SIDE_BOTTOM,0);
+    makeLabel(panel,title,10,designPortrait?6:(height-UiText::font(UiText::Menu)->line_height)/2,UiText::Menu,cWhite);
+    auto v=makeLabel(panel,value,0,0,UiText::Menu,cCyan);
+    if(designPortrait){lv_obj_set_pos(v,10,35);boundedLabel(v,width-(numeric?112:20));}
+    else lv_obj_align(v,LV_ALIGN_RIGHT_MID,numeric?-104:-10,0);
+    if(numeric){
+        const int bx=kScreenWidth-102,by=y+(height-32)/2;
+        makeButton(bx,by,36,32,"-",UiText::Menu);
+        makeButton(bx+44,by,36,32,"+",UiText::Menu);
+        addPageEditorTarget(10,y,width,height,bx,by,36,32,bx+44,by,36,32,handler,action);
+    }else addPageActionTarget(10,y,width,height,handler,action);
+}
+
 void TransmitterUi::drawDesignPage(UiPage page)
 {
     if(page==UiPage::Gps&&activePage_!=UiPage::Gps){gpsFullScreen_=false;lastInteractionMs_=millis();}
@@ -301,6 +319,19 @@ void TransmitterUi::drawDesignPage(UiPage page)
         const char *modes[]={"Normal","Walk"};const uint8_t actions[]={183,182};
         drawPageTabs(modes,actions,2,driveModeSettings_.activeMode==DriveMode::Walk?1:0,&TransmitterUi::controlDesign);
         drawDashboardWidgets();
+    } else if(page==UiPage::TxBatterySetup) {
+        label("TX battery",12,48,UiText::Heading);
+        const char *names[]={"Chemistry","Cell count","Low alarm","Voltage sensing"};
+        const int step=designPortrait?70:40;
+        for(uint8_t i=0;i<4;++i){
+            char value[32];
+            if(i==0)snprintf(value,sizeof(value),"%s >",batteryChemistryName(txBatterySettings_.chemistry));
+            else if(i==1)snprintf(value,sizeof(value),"%uS",txBatterySettings_.cellCount);
+            else if(i==2)snprintf(value,sizeof(value),"%u.%u V",txBatterySettings_.lowAlarmDecivolts/10,txBatterySettings_.lowAlarmDecivolts%10);
+            else snprintf(value,sizeof(value),"%s >",txBatterySettings_.voltageSenseEnabled?"On":"Off");
+            drawSettingsRow(names[i],value,80+i*step,step-2,&TransmitterUi::controlTxBattery,i,i==1||i==2);
+        }
+        boundedLabel(label("Voltage sensing reads the TX battery feed.",20,designPortrait?378:252,UiText::Caption,cDim),kScreenWidth-40);
     } else if(page==UiPage::DisplaySetup) {
         label("Display",12,48,UiText::Heading);
         const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now","Orientation"};
@@ -313,20 +344,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
             else if(i==3)snprintf(value,sizeof(value),"%s >",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme));
             else if(i==4)snprintf(value,sizeof(value),"%s >",systemSettings_.logoScreensaverEnabled?"Show logo":"Display off");
             else snprintf(value,sizeof(value),"%s >",designPortrait?"Portrait":"Landscape");
-            const int y=80+(i-first)*step,height=step-2,width=kScreenWidth-20;
-            auto panel=makePanel(10,y,width,height,cBlack,cLine,0);
-            lv_obj_set_style_border_side(panel,LV_BORDER_SIDE_BOTTOM,0);
-            makeLabel(panel,names[i],10,designPortrait?6:(height-UiText::font(UiText::Menu)->line_height)/2,UiText::Menu,cWhite);
-            auto v=makeLabel(panel,value,0,0,UiText::Menu,cCyan);
-            const bool numeric=i==0||i==2;
-            if(designPortrait){lv_obj_set_pos(v,10,35);boundedLabel(v,width-(numeric?112:20));}
-            else lv_obj_align(v,LV_ALIGN_RIGHT_MID,numeric?-104:-10,0);
-            if(numeric){
-                const int bx=kScreenWidth-102,by=y+(height-32)/2;
-                makeButton(bx,by,36,32,"-",UiText::Menu);
-                makeButton(bx+44,by,36,32,"+",UiText::Menu);
-                addPageEditorTarget(10,y,width,height,bx,by,36,32,bx+44,by,36,32,&TransmitterUi::controlDisplay,i);
-            }else addPageActionTarget(10,y,width,height,&TransmitterUi::controlDisplay,i);
+            drawSettingsRow(names[i],value,80+(i-first)*step,step-2,&TransmitterUi::controlDisplay,i,i==0||i==2);
         }
         if(displaySetupBank_){
             boundedLabel(label("Logo saver dims to 25%.",20,designPortrait?252:184,UiText::Caption,cDim),kScreenWidth-40);

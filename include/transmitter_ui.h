@@ -7,6 +7,7 @@
 #include "channel_response.h"
 #include "dashboard_widgets.h"
 #include "speed_statistics.h"
+#include "race_timer.h"
 #include "control_configuration.h"
 #include "channel_model.h"
 #include "control_assignment.h"
@@ -219,6 +220,9 @@ public:
     bool consumeSafetyResetRequested();
     bool consumeElrsManagementRequest(ElrsManagementRequest &request);
 
+    const RaceTimer &portalTimer() const { return timers_[activeModelSlot_]; }
+    bool portalSetTimerSettings(const TimerSettings &settings);
+    bool portalTimerAction(unsigned action);
 private:
     bool designPage() const;
     void drawDesignPage(UiPage page);
@@ -569,8 +573,20 @@ private:
     bool editorFine_ = false;
     bool designTouchDispatch_ = false;
     bool armGestureValid_ = false;
-    bool runTimerRunning_ = false;
-    uint32_t runTimerStartedMs_ = 0, runTimerElapsedMs_ = 0;
+    RaceTimer timers_[kModelMemoryCount];
+    uint8_t timerBank_=0,timerSettingsPage_=0,timerLapPage_=0,timerConfirmation_=0;
+    uint32_t timerTickMs_=0,timerOnRemainder_=0,timerLastSavedOn_=0,timerNextSaveMs_=0;
+    bool timerClockSet_=false;
+    char timerNotice_[64]={};
+    lv_obj_t *timerSummary_=nullptr;
+    void loadTimerSettings();
+    bool saveTimerSettings();
+    void updateRaceTimer(uint32_t now);
+    void drawTimerPage();
+    void controlTimer(uint8_t item,PageControlEvent event);
+    void timerAction(unsigned action);
+    const char *timerPrimaryLabel()const;
+
     OutputSafetyStatus designSafety_ = OutputSafetyStatus::Cut;
     CrsfTelemetryState designTelemetry_;
     uint16_t designTxVoltage_ = 0;

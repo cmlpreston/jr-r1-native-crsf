@@ -87,10 +87,17 @@ $(LVGL_OBJ): $(ROOT)/include/lv_conf.h
 
 .PHONY: audit
 # Each audit changes preferences, so use a fresh disposable state directory.
-audit: all portrait
+audit: all portrait timer-audit
 	@set -e; for binary in ./$(TARGET) ./build-portrait/jr-r1-sim-portrait; do \
 	  audit_state=$$(mktemp -d /tmp/jr-r1-ui-audit.XXXXXX); \
 	  JR_R1_SIM_STATE="$$audit_state" SDL_VIDEODRIVER=dummy "$$binary" --ui-audit; \
 	done
 
 $(BUILD)/gps_basemap.o: $(ROOT)/src/highfield_map_data.inc
+
+.PHONY: timer-audit
+timer-audit: all portrait
+	@set -e; for binary in ./$(TARGET) ./build-portrait/jr-r1-sim-portrait; do \
+	  timer_state=$$(mktemp -d /tmp/jr-r1-timer-audit.XXXXXX); \
+	  JR_R1_SIM_STATE="$$timer_state" JR_R1_TIMER_AUDIT_ONLY=1 SDL_VIDEODRIVER=dummy "$$binary" --ui-audit; \
+	done

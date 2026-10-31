@@ -60,6 +60,11 @@ void TransmitterUi::keypadPage(int direction)
 {
     int page=0,count=0;
     switch(activePage_){
+        case UiPage::TimerControl:
+            if(timerBank_==2)controlTimer(direction<0?20:21,PageControlEvent::Activate);
+            else if(timerBank_==1)controlTimer(direction<0?13:14,PageControlEvent::Activate);
+            else controlTimer(11,PageControlEvent::Activate);
+            return;
         case UiPage::Tune:page=tuneBank_;count=2;break;
         case UiPage::Telemetry:page=sensorBank_;count=(DashboardSensorCount+5)/6;break;
         case UiPage::ChannelMonitor:page=designBank_;count=4;break;
@@ -80,7 +85,8 @@ void TransmitterUi::keypadPage(int direction)
 
 void TransmitterUi::keypadTab(int direction)
 {
-    if(activePage_==UiPage::Tune){tuneRole_=constrain(int(tuneRole_)+direction,tuneRole_<3?0:3,tuneRole_<3?2:4);drawDesignPage(UiPage::Tune);}
+    if(activePage_==UiPage::TimerControl){controlTimer(10+(timerBank_+direction+3)%3,PageControlEvent::Activate);}
+    else if(activePage_==UiPage::Tune){tuneRole_=constrain(int(tuneRole_)+direction,tuneRole_<3?0:3,tuneRole_<3?2:4);drawDesignPage(UiPage::Tune);}
     else if(activePage_==UiPage::MainMenu)controlDesign(direction<0?140:141,PageControlEvent::Activate);
     else if(activePage_==UiPage::Telemetry||activePage_==UiPage::Gps||activePage_==UiPage::ChannelMonitor||
             (activePage_==UiPage::InputMonitor&&inputMonitorReturnPage_==UiPage::Telemetry)){
@@ -134,10 +140,7 @@ void TransmitterUi::keypadAction(PhysicalControlId key,bool held,bool repeat)
 void TransmitterUi::drawKeypadPage()
 {
     if(activePage_==UiPage::TimerControl){
-        makeLabel(lv_scr_act(),"Timer",12,48,UiText::Heading,cWhite);
-        designValues_[0]=makeLabel(lv_scr_act(),"00:00",12,100,UiText::Hero,cWhite);
-        makePageActionButton(12,portraitUi?220:180,kScreenWidth/2-18,42,runTimerRunning_?"Stop":"Start",UiText::Menu,cPanel2,cWhite,cLine,&TransmitterUi::controlKeypadMenu,9);
-        makePageActionButton(kScreenWidth/2+6,portraitUi?220:180,kScreenWidth/2-18,42,"Reset",UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlKeypadMenu,10);return;
+        drawTimerPage();return;
     }
     if(activePage_==UiPage::FieldResetConfirmation){
         makeLabel(lv_scr_act(),"Reset this field?",12,58,UiText::Heading,cWhite);
@@ -159,8 +162,8 @@ void TransmitterUi::controlKeypadMenu(uint8_t item,PageControlEvent event)
     if(event!=PageControlEvent::Activate)return;
     if(activePage_==UiPage::TimerControl){
         if(item==9)toggleRunTimer();
-        else if(item==10){runTimerElapsedMs_=0;runTimerStartedMs_=millis();}
-        drawDesignPage(UiPage::TimerControl);return;
+        else if(item==10)timerAction(2);
+        return;
     }
     if(activePage_==UiPage::FieldResetConfirmation){
         if(item==1){editorDraft_=(editorField_==0||editorField_==2)?100:0;

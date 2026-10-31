@@ -401,6 +401,37 @@ static void routes() {
         const bool ok=setHostname(server.arg("hostname").c_str());
         server.send(ok?200:400,"text/plain",info.message);
     });
+    server.on("/api/timer",HTTP_GET,[]{
+        if(!authorized())return;
+        const auto &timer=handset->portalTimer();const auto &s=timer.settings;
+        DynamicJsonDocument d(4096);d["slot"]=handset->portalModelSlot()+1;d["mode"]=unsigned(s.mode);d["duration"]=s.durationSeconds;
+        d["minimumLap"]=s.minimumLapSeconds;d["target"]=s.targetSeconds;d["autoStart"]=s.autoStart;d["raceAlarm"]=s.raceAlarm;
+        d["onSeconds"]=s.onSeconds;d["elapsedMs"]=timer.elapsed();d["running"]=timer.running();d["ready"]=timer.ready();
+        d["bestMs"]=timer.bestLap();d["averageMs"]=timer.averageLap();d["totalMs"]=timer.totalLaps();
+        auto laps=d.createNestedArray("laps");for(unsigned i=0;i<timer.lapCount();++i)laps.add(timer.lap(i));
+        String body;serializeJson(d,body);server.send(200,"application/json",body);
+    });
+    server.on("/api/timer",HTTP_POST,[]{
+        if(!authorized(true))return;
+        int slot;if(!number("slot",1,10,slot)||slot!=handset->portalModelSlot()+1){
+            server.send(409,"text/plain","Model changed; refresh the timer before making changes");return;}
+        if(server.hasArg("action")){
+            int action;if(!number("action",0,8,action)||(action==5&&server.arg("confirm")!="clear-laps")){
+                server.send(400,"text/plain","Invalid timer action or missing clear confirmation");return;}
+            if(action==3&&!handset->portalTimer().settings.autoStart){server.send(409,"text/plain","Enable throttle auto-start before choosing Ready");return;}
+            const bool ok=handset->portalTimerAction(action);
+            server.send(ok?200:409,"text/plain",ok?"Timer updated; output state unchanged":"Pause the timer before clearing laps");return;
+        }
+        int mode,duration,minimum,target,autoStart,race;
+        if(!number("mode",0,2,mode)||!number("duration",1,5999,duration)||!number("minimumLap",1,60,minimum)||
+           !number("target",0,5999,target)||!number("autoStart",0,1,autoStart)||!number("raceAlarm",0,1,race)){
+            server.send(400,"text/plain","Invalid timer settings");return;}
+        auto settings=handset->portalTimer().settings;settings.mode=static_cast<TimerMode>(mode);
+        settings.durationSeconds=duration;settings.minimumLapSeconds=minimum;settings.targetSeconds=target;
+        settings.autoStart=autoStart;settings.raceAlarm=race;
+        const bool ok=handset->portalSetTimerSettings(settings);
+        server.send(ok?200:409,"text/plain",ok?"Timer settings saved; clock reset, lap history retained":"Timer settings rejected");
+    });
     server.on("/api/memory",HTTP_GET,[]{
         if(!authorized())return;
         const auto m=MemoryDiagnostics::snapshot();

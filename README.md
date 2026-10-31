@@ -37,7 +37,7 @@ Recent development is also tracked on
 | Controls and outputs | Native 16-channel CRSF output; original steering, throttle, trims, grip controls, switches and eight-button keypad; configurable control assignments and channel roles. |
 | Tuning and mixing | Reversal, calibration, trims, rates, expo, independent endpoints, response speed, channel-to-channel mixes, switch conditions and graphs showing the resulting response. |
 | Models | Saved model configurations, names, selectable vehicle artwork and primary/accent/base colour choices, including an F1-style car. |
-| Dashboard | Configurable widgets in 1×1, 2×1, 1×2 and 2×2 sizes; analogue channel bars, binary switch states, selectable physical inputs, speed dial, timer, power readings and a combined battery-cell panel. |
+| Dashboard | Configurable widgets in 1×1, 2×1, 1×2 and 2×2 sizes; analogue channel bars, binary switch states, selectable physical inputs, speed dial, lap/stopwatch/countdown timer, power readings and a combined battery-cell panel. |
 | Telemetry | CRSF link and sensor decoding, freshness/no-data handling, history views and alarms; custom receiver integration for S.Port cells and FAS sensor measurements. S.Port GPS forwarding is prepared for hardware validation. |
 | Maps | Address search, pan/zoom and selection of street or satellite imagery in the browser; image packages stored on the handset, GPS trail overlay and a map view that hides its controls when idle. |
 | Operating modes | CUT/re-arm workflow with readiness reasons, Normal/Walk selection, PIN-protected exit from Walk, boot PIN and USB PIN recovery. |
@@ -420,14 +420,43 @@ universal support for every S.Port sensor. See the
 [receiver status and test instructions](https://github.com/cmlpreston/ExpressLRS-SPort/blob/codex/sport-telemetry/sport/README.md)
 for the precise scope.
 
-## Planned timer extensions
+## Timers and lap recording
 
-The current run timer supports start, stop and reset. The [roadmap](TODO.md)
-also tracks lap recording inspired by the original R-1: Lap/Up/Down modes,
-thumb-button recording, up to 100 lap records, best/average/total times and a
-lap-aware dashboard widget. Optional throttle-auto-start, countdown/target-lap
-alarms and a per-model accumulated on-time counter are planned. These are
-future work, not features of the currently installed firmware.
+Each model has **Up (stopwatch), Down (countdown) and Lap** timer modes, inspired
+by the original R-1 manual. Tap the Timer widget's title/time area, or use the
+keypad quick menu (**MODE**, then **−**), to open Controls, Laps and Settings.
+The timer widget shows the current clock/lap; larger widgets also show last
+and best laps. PAGE still navigates pages; it has no hidden timer-specific role.
+
+- **Lap:** the first thumb-button press starts timing; subsequent presses record
+  laps. The default three-second minimum rejects accidental double presses.
+  Up/Down use the same primary action to start or pause. Separate pause/resume,
+  lap, reset and Ready actions can be assigned in the Control map.
+- **History:** up to 100 laps per model, with individual, last, best, average
+  and total times. Pauses are excluded. A full history stops accepting new laps
+  until cleared; it does not overwrite earlier results.
+- **Reset and clear:** resetting stops/zeros the clock while retaining lap
+  records. Clearing records is a separate, confirmed operation while paused.
+- **Throttle auto-start:** optional and never automatic at boot. Explicitly
+  choose Ready, centre a valid throttle input, then pull forward past 10%.
+  This starts only the timer; it cannot enable output or the module link.
+- **Alarms:** configurable race/countdown duration (up to 99:59), optional
+  race-end alarm and repeating target-lap alerts. Countdown shows overtime
+  with a `+` after zero. Lap acceptance has a short audible acknowledgement.
+- **Accumulated on-time:** a resettable counter for the active model, saved
+  on model changes/configuration and checkpointed each minute. A sudden power
+  loss can lose the final unsaved minute. Resetting it requires confirmation.
+
+Settings and accumulated on-time survive reboot. Lap records are retained
+between model selections **during the current power session**, in RAM; they
+are not saved across power loss. The authenticated web UI also provides timer
+settings, controls, statistics and **CSV export** of lap records. Refresh before
+exporting to include the latest laps. Web changes retain the CUT requirement.
+
+New model profiles map the thumb timer button to the primary timer action.
+Existing customised bindings are preserved: assign **TIMER START/STOP** for
+mode-dependent Start/Lap behaviour, or **TIMER LAP** and **TIMER PAUSE/RESUME**
+separately. Timer actions never arm, release CUT or enable module communication.
 
 ## The same UI on the desktop
 

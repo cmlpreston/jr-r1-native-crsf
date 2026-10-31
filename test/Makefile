@@ -6,6 +6,7 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  race_timer_test \
   firmware_package_test \
   module_link_test \
   channel_model_test \
@@ -171,5 +172,9 @@ $(BUILD)/remote_arm_hold_test: remote_arm_hold_test.cpp $(ROOT)/include/remote_a
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/firmware_package_test: firmware_package_test.cpp $(ROOT)/include/firmware_package.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/race_timer_test: race_timer_test.cpp $(ROOT)/include/race_timer.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@

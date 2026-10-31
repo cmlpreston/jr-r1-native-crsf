@@ -78,6 +78,51 @@ bool TransmitterUi::runSimulatorUiAudit()
         Serial.println("USB rendered screenshot: native dimensions, complete payload/footer, single capture and CUT PASS");
         return true;
     }
+    if(getenv("JR_R1_TIMER_AUDIT_ONLY")){
+        auto &timer=timers_[activeModelSlot_];const auto savedSettings=timer.settings;
+        armRequested_=true;const auto savedLayout=dashboardLayouts_[activeModelSlot_];
+        dashboardLayouts_[activeModelSlot_]=defaultDashboardLayout();drawDashboard();
+        assert(touchAction(&TransmitterUi::controlDesign,7));assert(timer.running()&&activePage_==UiPage::Dashboard&&armRequested_);
+        timer.reset(millis());assert(touchAction(&TransmitterUi::controlDesign,130));assert(activePage_==UiPage::TimerControl);
+        dashboardLayouts_[activeModelSlot_]=savedLayout;
+        timerBank_=2;timerSettingsPage_=0;drawDesignPage(UiPage::TimerControl);
+        assert(touchAction(&TransmitterUi::controlTimer,31));assert(timer.settings.mode==TimerMode::Down&&armRequested_);
+        assert(touchAction(&TransmitterUi::controlTimer,31));assert(timer.settings.mode==TimerMode::Lap&&armRequested_);
+        assert(touchAction(&TransmitterUi::controlTimer,10));
+        assert(touchAction(&TransmitterUi::controlTimer,0));assert(timer.running()&&armRequested_);
+        delay(3050);assert(touchAction(&TransmitterUi::controlTimer,0));assert(timer.lapCount()==1);
+        const auto lap=timer.lastLap();assert(lap>=3000&&lap<5000);
+        assert(touchAction(&TransmitterUi::controlTimer,0));assert(timer.lapCount()==1);
+        assert(touchAction(&TransmitterUi::controlTimer,1));assert(!timer.running()&&armRequested_);
+        assert(touchAction(&TransmitterUi::controlTimer,2));assert(timer.lapCount()==1&&timer.elapsed()==0);
+        timer.settings.autoStart=true;assert(touchAction(&TransmitterUi::controlTimer,3));assert(timer.ready()&&!timer.running()&&armRequested_);
+        assert(touchAction(&TransmitterUi::controlTimer,0));assert(timer.running());timer.pause(millis());
+        const auto rawSaved=latestRawAdc_;auto &throttle=physicalInputStates_[static_cast<unsigned>(PhysicalControlId::ThrottleTrigger)];const auto inputSaved=throttle;
+        const uint32_t now=millis();timer.setReady(now);throttle.mapped=true;throttle.faulted=false;
+        latestRawAdc_=triggerInput_.centre();updateRaceTimer(now);assert(timer.ready());
+        const auto calibration=triggerInput_.calibration();latestRawAdc_=mapAdcToPermille(calibration.maximum)>100?calibration.maximum:calibration.minimum;
+        assert(mapAdcToPermille(latestRawAdc_)>=100);throttle.faulted=true;updateRaceTimer(now);
+        throttle.faulted=false;updateRaceTimer(now);assert(!timer.running());
+        const auto forward=latestRawAdc_;latestRawAdc_=triggerInput_.centre();updateRaceTimer(now);latestRawAdc_=forward;updateRaceTimer(now);
+        assert(timer.running()&&armRequested_);timer.pause(now);throttle=inputSaved;latestRawAdc_=rawSaved;
+        timerNotice_[0]=0;
+        timerBank_=0;drawDesignPage(UiPage::TimerControl);lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);auditTypography(lv_scr_act());
+        if(const char *prefix=getenv("JR_R1_TIMER_IMAGES")){char path[256];snprintf(path,sizeof(path),"%s-%s-controls.png",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);}
+        timerBank_=1;drawDesignPage(UiPage::TimerControl);
+        if(const char *prefix=getenv("JR_R1_TIMER_IMAGES")){lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-laps.png",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);}
+        assert(touchAction(&TransmitterUi::controlTimer,17));assert(timerConfirmation_==1&&timer.lapCount()==1);
+        assert(touchAction(&TransmitterUi::controlTimer,15));assert(timer.lapCount()==1);
+        timerBank_=2;timerSettingsPage_=1;drawDesignPage(UiPage::TimerControl);
+        if(const char *prefix=getenv("JR_R1_TIMER_IMAGES")){lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-settings.png",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);}
+        const auto slot=activeModelSlot_;armRequested_=false;latestRawAdc_=triggerInput_.centre();
+        saveTimerSettings();assert(selectModelMemory((slot+1)%kModelMemoryCount));assert(timers_[activeModelSlot_].lapCount()==0);
+        assert(selectModelMemory(slot));assert(timer.lapCount()==1&&!timer.running());
+        timer.settings=TimerSettings{};loadTimerSettings();assert(timer.settings.mode==TimerMode::Lap&&timer.settings.autoStart);
+        timerBank_=1;drawDesignPage(UiPage::TimerControl);assert(touchAction(&TransmitterUi::controlTimer,17));assert(touchAction(&TransmitterUi::controlTimer,16));assert(!timer.lapCount());
+        assert(!armRequested_&&!controlConfigurationSnapshot().armRequested);
+        timer.settings=savedSettings;saveTimerSettings();
+        Serial.println("Timer UI: real touch targets, Lap/Down modes, min lap, pause/reset/clear, Ready, persistence, model isolation and no arming PASS");return true;
+    }
     const auto auditWifiShortcut=[&](){
         SetupPortal::stop();armRequested_=true;setupBank_=0;
         const auto cuts=auditCutRequests;drawDashboard();
@@ -264,8 +309,8 @@ bool TransmitterUi::runSimulatorUiAudit()
         press(PhysicalControlId::KeyPlus);assert(setupBank_==1);
         press(PhysicalControlId::KeyMode,true);assert(activePage_==UiPage::Dashboard&&armRequested_&&!safetyResetRequested_);
         press(PhysicalControlId::KeyMode);press(PhysicalControlId::KeyMinus);assert(activePage_==UiPage::TimerControl);
-        const bool wasRunning=runTimerRunning_;controlKeypadMenu(9,activate);assert(runTimerRunning_!=wasRunning&&armRequested_);
-        controlKeypadMenu(9,activate);assert(runTimerRunning_==wasRunning);
+        const bool wasRunning=timers_[activeModelSlot_].running();controlKeypadMenu(9,activate);assert(timers_[activeModelSlot_].running()!=wasRunning&&armRequested_);
+        controlKeypadMenu(9,activate);assert(timers_[activeModelSlot_].running()==wasRunning);
         press(PhysicalControlId::KeyMode,true);
         press(PhysicalControlId::KeyMode);press(PhysicalControlId::KeyUp);
         assert(activePage_==UiPage::ValueEditor&&editorField_==1&&armRequested_);
@@ -834,7 +879,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlDesign(126,activate);
     for(int cell=1;cell<4;++cell)if(retainedLayout.cells[cell].kind!=DashboardWidgetKind::Empty)assert(widgetViews_[cell].panel);
     widgetDraft_.width=widgetDraft_.height=2;controlDesign(126,activate);
-    toggleRunTimer();assert(runTimerRunning_);drawTelemetryPage();assert(runTimerRunning_);toggleRunTimer();assert(!runTimerRunning_);
+    toggleRunTimer();assert(timers_[activeModelSlot_].running());drawTelemetryPage();assert(timers_[activeModelSlot_].running());toggleRunTimer();assert(!timers_[activeModelSlot_].running());
     // Model changes remain gated by CUT and neutral throttle.
     armRequested_=true;assert(!selectModelMemory(1));armRequested_=false;
     latestRawAdc_=triggerInput_.centre()+ARM_NEUTRAL_ADC_WINDOW+10;assert(!selectModelMemory(1));
@@ -1633,7 +1678,7 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     dashboardLayouts_[activeModelSlot_].cells[1].style = DashboardWidgetStyle::Numbers;
     dashboardLayouts_[activeModelSlot_].cells[1].speedValue = SpeedWidgetValue::Maximum;
     dashboardLayouts_[activeModelSlot_].cells[2].kind = DashboardWidgetKind::Timer;
-    runTimerRunning_ = false;
+    timers_[activeModelSlot_].pause(millis());
     speedStatistics_.reset(millis() - 1);
     speedStatistics_.update(123, millis(), millis(), true);
     drawDashboard();

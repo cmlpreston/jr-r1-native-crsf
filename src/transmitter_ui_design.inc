@@ -82,10 +82,7 @@ void TransmitterUi::resetSpeedStatistics()
 
 void TransmitterUi::toggleRunTimer()
 {
-    if (runTimerRunning_) runTimerElapsedMs_ += millis() - runTimerStartedMs_;
-    else runTimerStartedMs_ = millis();
-    runTimerRunning_ = !runTimerRunning_;
-    if (activePage_ == UiPage::Dashboard) drawDashboard();
+    timerAction(0);
 }
 
 int TransmitterUi::designValue() const
@@ -838,7 +835,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item==5){statusReturnPage_=activePage_;drawDesignPage(UiPage::OutputStatus);return;}
     if(item==6){driveModesReturnPage_=UiPage::Dashboard;drawDesignPage(UiPage::ModeChooser);return;}
     if(item==7){toggleRunTimer();return;}
-    if(item==8){runTimerElapsedMs_=0;runTimerStartedMs_=millis();return;}
+    if(item==8){timerAction(2);return;}
 
     if(item>=10 && item<=12){tuneRole_=item-10;drawDesignPage(UiPage::Tune);return;}
     if(item>=20 && item<=26){
@@ -928,7 +925,8 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item==148){resetSpeedStatistics();return;}
     if(item==147){dashboardLayouts_[activeModelSlot_]=defaultDashboardLayout();saveModelMemorySettings();drawDashboard();return;}
     if(item>=130 && item<=133){const auto &w=dashboardLayouts_[activeModelSlot_].cells[item-130];
-        if(w.kind==DashboardWidgetKind::AllChannels || w.kind==DashboardWidgetKind::BatteryCells){++channelWidgetPages_[item-130];drawDashboard();}
+        if(w.kind==DashboardWidgetKind::Timer){timerBank_=0;timerConfirmation_=0;drawDesignPage(UiPage::TimerControl);}
+        else if(w.kind==DashboardWidgetKind::AllChannels || w.kind==DashboardWidgetKind::BatteryCells){++channelWidgetPages_[item-130];drawDashboard();}
         else if(w.kind==DashboardWidgetKind::Map)drawDesignPage(UiPage::Gps);
         else if(w.kind==DashboardWidgetKind::Channels){designBank_=w.source/4;drawDesignPage(UiPage::ChannelMonitor);}
         else if(w.kind==DashboardWidgetKind::Sensor){sensorSelected_=w.source;drawDesignPage(UiPage::SensorDetail);}
@@ -1006,8 +1004,11 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
         }
     };
     if(activePage_==UiPage::TimerControl){
-        const uint32_t seconds=(runTimerElapsedMs_+(runTimerRunning_?millis()-runTimerStartedMs_:0))/1000;
-        if(designValues_[0])uiSetTextFmt(designValues_[0],"%02lu:%02lu",static_cast<unsigned long>(seconds/60),static_cast<unsigned long>(seconds%60));
+        auto &timer=timers_[activeModelSlot_];char text[32];formatTimer(text,sizeof(text),timer.display(),true);
+        if(designValues_[0])uiSetText(designValues_[0],text);
+        if(timerSummary_){char last[24],best[24],average[24];formatTimer(last,sizeof(last),timer.lastLap(),true);formatTimer(best,sizeof(best),timer.bestLap(),true);formatTimer(average,sizeof(average),timer.averageLap(),true);
+            uiSetTextFmt(timerSummary_,"Lap %u%s | Last %s\nBest %s | Avg %s",timer.full()?timer.lapCount():timer.lapCount()+1,timer.full()?" (full)":"",last,best,average);}
+
     }else if(activePage_==UiPage::Dashboard){
         updateDashboardWidgets(t,tx,txValid);
     } else if(activePage_==UiPage::Telemetry){for(int i=0;i<6;++i)reading(sensorBank_*6+i,designValues_[i],designDetails_[i]);}
@@ -1086,10 +1087,13 @@ void TransmitterUi::drawDashboardWidgets()
             view.heldOutputIcon=makeHeldOutputIcon(view.panel);
             if(dashboardOutputsLive_)lv_obj_add_flag(view.heldOutputIcon,LV_OBJ_FLAG_HIDDEN);
         }
-        if(w.kind!=DashboardWidgetKind::Timer)addPageActionTarget(x,y,width,height,&TransmitterUi::controlDesign,130+cell);
+        addPageActionTarget(x,y,width,w.kind==DashboardWidgetKind::Timer?height-(designPortrait?45:31):height,&TransmitterUi::controlDesign,130+cell);
         if(w.kind==DashboardWidgetKind::Timer){
-            view.values[0]=makeLabel(view.panel,"00:00",8,30,width>220&&height>130?UiText::Hero:UiText::Reading);
-            makePageActionButton(x+8,y+height-(designPortrait?45:31),width/2-12,designPortrait?40:26,runTimerRunning_?"Stop":"Start",UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,7);
+            view.values[0]=makeLabel(view.panel,"00:00",8,24,height>130?UiText::Reading:UiText::Menu);
+            view.values[1]=makeLabel(view.panel,"",8,height>130?76:44,UiText::Caption,cDim);
+            if(height>130){view.values[2]=makeLabel(view.panel,"",8,100,UiText::Caption,cDim);}
+
+            makePageActionButton(x+8,y+height-(designPortrait?45:31),width/2-12,designPortrait?40:26,timerPrimaryLabel(),UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,7);
             makePageActionButton(x+width/2+4,y+height-(designPortrait?45:31),width/2-12,designPortrait?40:26,"Reset",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,8);
         } else if(w.kind==DashboardWidgetKind::AllChannels){
             uint8_t channels[DashboardMonitorMaxEntries];const int total=dashboardMonitorEntries(dashboardEnabledChannelMask_,w.source,channels,dashboardHidden_[activeModelSlot_][cell]);
@@ -1252,8 +1256,13 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             else if(!dashboardOutputsLive_&&hidden)lv_obj_clear_flag(view.heldOutputIcon,LV_OBJ_FLAG_HIDDEN);
         }
         if(w.kind==DashboardWidgetKind::Timer){
-            uint32_t seconds=(runTimerElapsedMs_+(runTimerRunning_?millis()-runTimerStartedMs_:0))/1000;
-            uiSetTextFmt(view.values[0],"%02lu:%02lu",static_cast<unsigned long>(seconds/60),static_cast<unsigned long>(seconds%60));
+            auto &timer=timers_[activeModelSlot_];char text[32],last[24],best[24];formatTimer(text,sizeof(text),timer.display());
+            uiSetText(view.values[0],text);formatTimer(last,sizeof(last),timer.lastLap(),true);formatTimer(best,sizeof(best),timer.bestLap(),true);
+            if(view.values[1]){
+                if(timer.settings.mode==TimerMode::Lap)uiSetTextFmt(view.values[1],"Lap %u%s",timer.full()?timer.lapCount():timer.lapCount()+1,timer.ready()?" ready":"");
+                else uiSetTextFmt(view.values[1],"%s / %s",timerModeName(timer.settings.mode),timer.ready()?"Ready":timer.running()?"Running":"Paused");
+            }
+            if(view.values[2])uiSetTextFmt(view.values[2],"Last %s\nBest %s",last,best);
         } else if(w.kind==DashboardWidgetKind::AllChannels){
             uint8_t channels[DashboardMonitorMaxEntries];const int total=dashboardMonitorEntries(dashboardEnabledChannelMask_,w.source,channels,dashboardHidden_[activeModelSlot_][cell]);
             const bool vertical=w.style==DashboardWidgetStyle::VerticalBars;

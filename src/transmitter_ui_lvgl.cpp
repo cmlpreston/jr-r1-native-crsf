@@ -135,6 +135,10 @@ const char *colourSchemeName(bool night, uint8_t scheme)
 constexpr TransmitterFunction kEditableTransmitterFunctions[] = {
     TransmitterFunction::TimerStartStop,
     TransmitterFunction::TimerReset,
+    TransmitterFunction::TimerLap,
+    TransmitterFunction::TimerPauseResume,
+    TransmitterFunction::TimerReady,
+    TransmitterFunction::TimerClearLaps,
     TransmitterFunction::ResetSpeedStatistics,
     TransmitterFunction::OpenMenu,
     TransmitterFunction::Dashboard,
@@ -756,6 +760,7 @@ void TransmitterUi::setDisplayCacheEnabled(bool enabled)
 }
 
 
+#include "transmitter_ui_timer.inc"
 #include "transmitter_ui_design.inc"
 #include "transmitter_ui_portrait.inc"
 #ifdef JR_R1_SIMULATOR
@@ -775,6 +780,7 @@ bool TransmitterUi::begin()
     }
     loadPinSecurity();
     loadModelMemorySettings();
+    loadTimerSettings();
     loadChannelRoleSettings();
     loadSettings();
     loadSystemSettings();
@@ -1273,12 +1279,15 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
 
     requestConfigurationCut();
     saveCurrentModelMemory();
-    runTimerRunning_ = false; runTimerElapsedMs_ = 0;
+    timers_[activeModelSlot_].pause(millis());saveTimerSettings();
+    timerOnRemainder_=0;timerConfirmation_=0;timerBank_=timerLapPage_=0;
     resetSpeedStatistics();
     gpsCount_ = sensorHistoryCount_ = 0;
     gpsLastSampleMs_ = designTelemetry_.gpsUpdatedMs;
     memset(sensorHistoryValid_, 0, sizeof(sensorHistoryValid_));
     activeModelSlot_ = slot;
+    timerLastSavedOn_=timers_[slot].settings.onSeconds;
+    timers_[slot].tick(millis());
     saveModelMemorySettings();
     loadChannelRoleSettings();
     loadSettings();
@@ -1695,8 +1704,8 @@ void TransmitterUi::restoreDefaultBindings()
     bindingCount_ = 1;
     bindings_[0] = defaultBindingForInput(PhysicalControlId::TimerButton);
     bindings_[0].target = AssignmentTarget::TransmitterFunction;
-    bindings_[0].targetId = static_cast<uint16_t>(TransmitterFunction::NextPage);
-    bindings_[0].contexts = ContextDashboard;
+    bindings_[0].targetId = static_cast<uint16_t>(TransmitterFunction::TimerStartStop);
+    bindings_[0].contexts = ContextAlways;
     bindings_[0].event = InputEvent::Pressed;
     bindings_[0].behaviour = ControlBehaviour::Momentary;
     bindings_[0].crsfChannel = 0;
@@ -2547,11 +2556,23 @@ bool TransmitterUi::applyTransmitterFunctionAction(uint16_t targetId, int16_t va
         case TransmitterFunction::TimerStartStop:
             if (value > 0) toggleRunTimer();
             return true;
+        case TransmitterFunction::TimerLap:
+            if(value>0)timerAction(8);
+            return true;
+        case TransmitterFunction::TimerPauseResume:
+            if(value>0)timerAction(1);
+            return true;
+        case TransmitterFunction::TimerReady:
+            if(value>0)timerAction(3);
+            return true;
+        case TransmitterFunction::TimerClearLaps:
+            if(value>0){timerConfirmation_=1;drawDesignPage(UiPage::TimerControl);}
+            return true;
         case TransmitterFunction::ResetSpeedStatistics:
             if (value > 0) resetSpeedStatistics();
             return true;
         case TransmitterFunction::TimerReset:
-            if (value > 0) { runTimerElapsedMs_ = 0; runTimerStartedMs_ = millis(); }
+            if (value > 0) timerAction(2);
             return true;
         case TransmitterFunction::OpenMenu:
             if (value > 0) { playKeyClick(); drawMainMenu(); }
@@ -3069,6 +3090,7 @@ bool TransmitterUi::handlePageSwipe(int16_t x,int16_t y,int16_t endX,int16_t end
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None)return false;
     uint8_t page=0,count=0;
     switch(activePage_){
+        case UiPage::TimerControl:page=timerBank_==2?timerSettingsPage_:timerBank_==1?timerLapPage_:0;count=timerBank_==2?3:timerBank_==1?max<unsigned>(1,(timers_[activeModelSlot_].lapCount()+4)/5):1;break;
         case UiPage::DisplaySetup:page=displaySetupBank_;count=2;break;
         case UiPage::Tune:page=tuneBank_;count=2;break;
         case UiPage::Telemetry:page=sensorBank_;count=(DashboardSensorCount+5)/6;break;
@@ -3086,7 +3108,10 @@ bool TransmitterUi::handlePageSwipe(int16_t x,int16_t y,int16_t endX,int16_t end
     if(duration>1200||abs(dx)<60||abs(dy)>35||abs(dx)<2*abs(dy)||
        y<top||endY<top||y>=bottom||endY>=bottom)return true;
     const int next=constrain(int(page)+(dx<0?1:-1),0,int(count)-1);
-    if(next!=page)controlPageDot(next,PageControlEvent::Activate);
+    if(next!=page){
+        if(activePage_==UiPage::TimerControl){if(timerBank_==2)timerSettingsPage_=next;else timerLapPage_=next;drawDesignPage(activePage_);}
+        else controlPageDot(next,PageControlEvent::Activate);
+    }
     return true;
 }
 
@@ -6174,6 +6199,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     designTelemetry_ = telemetry; designSafety_ = safetyStatus;
     designTxVoltage_ = txVoltageDecivolts; designTxValid_ = txVoltageValid;
     latestRawAdc_ = rawAdc;
+    updateRaceTimer(millis());
     latestSteeringRawAdc_ = steeringRawAdc;
     updateSteeringEndpointSelection();
     // Dashboard controls preview requested positions even in CUT. Keep the

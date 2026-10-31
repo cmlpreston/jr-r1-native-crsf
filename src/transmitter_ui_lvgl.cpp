@@ -790,6 +790,11 @@ bool TransmitterUi::begin()
     setToneChannel(BUZZER_LEDC_CHANNEL);
     pinMode(BUZZER_PIN, OUTPUT);
     digitalWrite(BUZZER_PIN, LOW);
+#endif
+    // Audible power-on acknowledgement precedes peripheral startup, so a
+    // missing LCD or touch controller cannot hide it. Honour the sound setting.
+    playBuzzer(180);
+#ifndef JR_R1_SIMULATOR
     Wire.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN);
     Wire.setClock(CONTROL_I2C_FREQUENCY);
     Serial.printf("I2C: SDA=%d SCL=%d clock=%lu Hz\n", TOUCH_SDA_PIN, TOUCH_SCL_PIN,
@@ -903,7 +908,6 @@ bool TransmitterUi::begin()
                   touchReady ? "ready" : "offline", 16U);
     if (!touchReady)
         Serial.println("DISPLAY: touch controller did not respond; LCD remains usable");
-    playBuzzer(80);
 #if defined(JR_R1_XIAO_PCB) && !defined(JR_R1_SIMULATOR)
     bootDiagnosticsResult(BootCheck::Ui, true);
     return hardwareReady;

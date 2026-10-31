@@ -1,550 +1,364 @@
-# JR R1 native CRSF controller
+# JR R-1 EVO
 
-The active hardware is the **Seeed XIAO ESP32-S3** two-expander PCB, using the
-final schematic (5) pin map in [`docs/xiao-pcb.md`](docs/xiao-pcb.md). The default
-target is `seeed_xiao_esp32s3-pcb-portrait` (Waveshare RPi LCD (F), 320×480).
-Use only the XIAO until the user explicitly changes the hardware.
+**A new computer for a favourite old radio: custom ESP32-S3 transmitter firmware, a replacement PCB, colour touchscreen, and ExpressLRS with S.Port sensor telemetry.**
 
-The current control/channel architecture, invariants and staged refactor are
-documented in [`docs/architecture-review.md`](docs/architecture-review.md).
-Pure host-side modules can be checked with `make -C test run`.
+<p align="center">
+  <img src="assets/project/2026-10-31-r1-evo.jpg" width="480" alt="The rebuilt JR R-1 with its original wheel and controls, Ranger Nano antenna and landscape touchscreen dashboard">
+  <br><em>The working R-1 EVO, photographed on 31 October 2026.</em>
+</p>
 
-This is the first, deliberately small firmware scaffold for replacing the JR R1
-computer with an ESP32-S3 DevKitC-1. It reads the original 5 kΩ throttle pot and
-sends a standard 16-channel CRSF channels frame to a RadioMaster Ranger Nano.
+The aim is to keep what makes the JR PROPO R-1 enjoyable to use—its pistol grip,
+steering wheel, trigger, trims and physical buttons—while replacing the ageing
+computer and radio system with electronics and software we can develop ourselves.
+The result is an ongoing, working conversion rather than a new transmitter shell:
+a custom PCB inside the R-1, a Seeed XIAO ESP32-S3, a 3.5-inch touchscreen and a
+RadioMaster Ranger Nano running ExpressLRS.
 
-The throttle role defaults to CRSF channel 2 but can be moved to any of the 16
-channels from the TFT. Channel 1 is reserved for future steering input by
-default; all inputs not yet implemented remain centred. A selectable display
-profile supports the Waveshare 3.5inch RPi LCD (F) by default and retains the
-BIGTREETECH TFT35 SPI V2.1 as a build-time fallback. The touchscreen UI provides
-persistent role, endpoint, trim, direction, rate and exponential configuration.
+The project covers **both ends of the link**: independently developed handset
+firmware in this repository and a customised ExpressLRS receiver firmware fork
+that adds direct FrSky S.Port sensor support. The handset software is **not an
+OpenTX or EdgeTX fork**. It implements its own control pipeline, model settings,
+LVGL interface and CRSF integration; the RF link relies on ExpressLRS.
 
-Current wiring and GPIO allocation are in [`docs/xiao-pcb.md`](docs/xiao-pcb.md).
-[`docs/hardware-pinout.md`](docs/hardware-pinout.md) preserves the legacy DevKitC wiring. The original R1 control
-inventory and future assignment plan is in
-[`docs/r1-control-map.md`](docs/r1-control-map.md).
-Deferred work is tracked in [`TODO.md`](TODO.md).
+[Build story](#from-original-radio-to-r-1-evo) · [Features](#what-we-have-built) ·
+[Simulator](#the-same-ui-on-the-desktop) · [Web UI](#the-web-ui-inside-the-transmitter) ·
+[Schematics](#hardware-and-schematics) · [Development guide](DEVELOPMENT.md)
 
-The integrated LVGL UI now has configurable Drive widgets and Drive/Tune/Data/Setup
-navigation. See the [firmware port and retained-menu audit](docs/ui-firmware-port.md)
-for widget controls, telemetry assumptions and remaining hardware validation.
+## What we have built
 
-Choose **Setup → Handset → Display → Colour scheme** for Light, Graphite / teal,
-Midnight / ice blue, Warm charcoal / ivory, or Slate / soft lilac. The choice
-applies immediately and persists across restarts. The assignable **Night mode**
-action switches between Light and the last selected dark scheme. Safety colours
-and the red JR wordmark remain consistent across schemes.
+This describes the development prototype as of **31 October 2026**. Features
+have been built and exercised incrementally; this is not a finished commercial
+radio or a claim that every sensor/hardware combination has been validated.
+Recent development is also tracked on
+[`codex/safety-control-refactor`](https://github.com/cmlpreston/jr-r1-native-crsf/tree/codex/safety-control-refactor).
 
-In **Tune → Steering → Endpoint**, steer left/right or tap the **Left / Right**
-value to select a side, then use the on-screen or handset **+ / −** keys.
-Returning to centre keeps the selected side. Both drafts are retained while
-switching sides; **Apply** saves them and **Cancel** discards them. **Reset**
-resets only the selected endpoint. Selection follows physical steering before
-channel reversal. Throttle and brake endpoints remain separate Tune tabs.
+| Area | Implemented in the prototype |
+| --- | --- |
+| Controls and outputs | Native 16-channel CRSF output; original steering, throttle, trims, grip controls, switches and eight-button keypad; configurable control assignments and channel roles. |
+| Tuning and mixing | Reversal, calibration, trims, rates, expo, independent endpoints, response speed, channel-to-channel mixes, switch conditions and graphs showing the resulting response. |
+| Models | Saved model configurations, names, selectable vehicle artwork and primary/accent/base colour choices, including an F1-style car. |
+| Dashboard | Configurable widgets in 1×1, 2×1, 1×2 and 2×2 sizes; analogue channel bars, binary switch states, selectable physical inputs, speed dial, timer, power readings and a combined battery-cell panel. |
+| Telemetry | CRSF link and sensor decoding, freshness/no-data handling, history views and alarms; custom receiver integration for S.Port cells and FAS sensor measurements. |
+| Maps | Address search, pan/zoom and selection of street or satellite imagery in the browser; image packages stored on the handset, GPS trail overlay and a map view that hides its controls when idle. |
+| Operating modes | CUT/re-arm workflow with readiness reasons, Normal/Walk selection, PIN-protected exit from Walk, boot PIN and USB PIN recovery. |
+| Connectivity | Saved home Wi-Fi with automatic connection/retry, optional setup hotspot, configurable hostname and onboard configuration/remote-control web UI. |
+| Development tools | Shared-code desktop/browser simulator, screenshot and layout checks, host tests, boot logs, memory diagnostics, serial input monitor and local-build/Pi-USB flashing workflow. |
 
-## Desktop UI simulator
+The channel monitor can show live control positions while CUT holds transmitted
+outputs safe. A display value is therefore not, by itself, proof of servo output.
+The transmitter's CUT state also does not replace receiver/ESC failsafe setup.
 
-The complete LVGL touchscreen UI can be built and exercised on macOS without
-the transmitter, Ranger, receiver or display connected. This is the real
-`TransmitterUi` implementation—not a separate visual mock. SDL replaces the LCD
-and touch controller, a small compatibility layer replaces Arduino NVS and
-timing, and simulated CRSF data supplies link quality and pack voltage.
+### Channel setup and hardware-control mapping
 
-Install the host dependencies once, fetch the same LVGL 8.4 release used by
-PlatformIO, then build and run:
+Configuration is organised around the output channel and the physical control
+that drives it. Steering/throttle roles can be assigned to different CRSF
+channels; they are not permanently tied to CH1 and CH2.
+
+| Configuration | Available settings |
+| --- | --- |
+| Per-channel response | Normal/reversed direction; separate negative/positive endpoints, rates, expo and response times; trim and subtrim; channel setup linked to its control assignment. |
+| Physical-input calibration | Steering/trigger calibration and neutral handling belong to the physical input; output travel/endpoints belong to the channel. |
+| Mix sources | Two independently enabled mix contributions per destination; physical inputs, CH1–16, or configured steering/throttle as sources; include the existing channel input or use mixes only. |
+| Mix calculation | Add or replace; positive/negative weights; follow source trim; constant contribution; final minimum/maximum; auxiliary-channel CUT value; reset to default settings. |
+| Mix activation | Always, selected switch low/high, Walk or Normal; proportional source or above/below threshold with trigger point and hysteresis. |
+| Switched rates | Select a physical switch; independent negative/positive rates for low and high positions, with configurable transition time. |
+| Mix preview | Contribution/output bars and a response graph; sweep an input and inspect switch/mode effects without transmitting the preview. |
+| Control assignment | Enable/disable; select a supported transmitter function, model parameter, drive-mode action or CRSF output; choose the channel/parameter and when the binding applies. |
+| Control behaviour | Proportional, momentary, toggle, two-position, spring-return three-position, stepped, three-position selector or pulse, as appropriate to the chosen control and target. |
+| Assignment range/state | Minimum/maximum, step, reverse control, initial and safe values, pulse duration and retained state where supported. |
+| Assignment context | Always, dashboard, menus, CUT only or armed only. Unavailable combinations are rejected rather than silently assigned. |
+| Monitor visibility | Choose channels/physical controls shown in All Channels, including timer switch and grip trims; horizontal or vertical analogue bars, binary indicators for suitable switch assignments. |
+
+A practical mix example is **throttle → CH3 gyro gain**: start with a constant
+gain, add a negative throttle contribution, and limit the final gain range so
+it stays on the intended side of the gyro's mode boundary. A switch can enable
+the mix or select rates. This configures the receiver's gain channel; the
+handset does not itself implement a vehicle stabilisation gyro.
+
+### Other configuration areas
+
+- **Models and dashboard:** model selection/name, vehicle image and three
+  colours; widget type, size, position and display options. Enlarging a widget
+  preserves obscured widgets for when it shrinks again.
+- **Drive and timer:** Normal/Walk and forward Walk limit; deliberate CUT/re-arm;
+  timer start/stop/reset. Some operations require neutral and fresh inputs/link.
+- **Telemetry and battery:** selectable sensor widgets and histories, battery
+  chemistry/cell-count/alarm settings, transmitter voltage sensing, vehicle-cell
+  widget Auto or expected 1S–12S, and stale/missing-data indication. Expected
+  cell count does not estimate individual cell voltages from pack total.
+- **ExpressLRS module:** device discovery, supported module-provided settings,
+  bindphrase/UID workflow and parameter readback. Packet rate, telemetry ratio,
+  power and other choices depend on the connected module's advertised parameters.
+- **Maps:** street/satellite style, address/location, zoom and download area,
+  map name/source attribution, import/export/upload and storage preparation;
+  map zoom, trail visibility/reset and fullscreen controls on the handset.
+- **Handset:** display orientation, colour scheme, brightness/night behaviour,
+  screensaver, PIN change/recovery, input calibration, saved Wi-Fi connection,
+  automatic connection option, setup hotspot, hostname and software restart.
+
+Some source enums and prototype menus reserve future actions such as macros,
+logging or ESC programming. Their presence in code is not a claim that those
+features are complete. Per-receiver output mapping and failsafe configuration
+also remain distinct from transmitter channel setup.
+
+## From original radio to R-1 EVO
+
+Initial work began independently, three days before SourceTX's public
+[31 July 2026 announcement](https://www.reddit.com/r/rccars/comments/1vbqozz/introducing_sourcetx_modern_touchscreen_rc_car/),
+according to the project's development recollection. SourceTX subsequently
+became an inspiration for a modern surface-radio interface. The first commit
+in this repository is dated **9 August 2026**; it is not the start of the earlier
+exploration.
+
+### August: understand the R-1, then make it talk CRSF
+
+The first step was opening the radio and identifying the controls worth keeping.
+Its original electronics, steering assembly, switches and connectors provided
+the mechanical starting point. Early prototypes used external wiring and a
+breadboard before committing to a replacement PCB.
+
+<p align="center">
+  <img src="assets/project/2026-08-07-original-electronics.jpg" width="280" alt="Original R-1 circuit board inside the opened handset">
+  <img src="assets/project/2026-08-26-breadboard.jpg" width="280" alt="Opened handset connected to a breadboard and a working colour display">
+  <br><em>7 August: the original electronics. 26 August: the breadboard conversion and working boot screen.</em>
+</p>
+
+By 9 August, the photographed display already showed a model, receiver supply,
+link quality and a 16-channel monitor. The first interface was deliberately
+instrument-heavy; later revisions would make everyday driving and tuning simpler.
+
+<p align="center">
+  <img src="assets/project/2026-08-09-early-dashboard.jpg" width="600" alt="Early physical LCD dashboard with model, power, link and sixteen channel bars">
+  <br><em>9 August: an early dashboard running on the actual display.</em>
+</p>
+
+Mechanical work progressed alongside the firmware. PCB CAD and printed fit
+checks helped work around the existing shell, trigger and button positions.
+
+<p align="center">
+  <img src="assets/project/2026-08-30-pcb-fit-cad.jpg" width="390" alt="CAD view of the replacement board and printed fit-check supports">
+  <img src="assets/project/2026-08-31-fit-prototypes.jpg" width="200" alt="Two physical 3D printed board-fit prototypes">
+  <br><em>30–31 August: CAD planning and physical fit prototypes.</em>
+</p>
+
+### September: a board shaped to fit the original handset
+
+The replacement board uses a XIAO ESP32-S3 and two MCP23017 I/O expanders to
+retain the many original buttons, switches and trims. Much of the construction
+is through-hole, making hand assembly and troubleshooting practical. The
+original steering and trigger mechanisms and small associated boards remain.
+
+<p align="center">
+  <img src="assets/project/2026-09-13-pcb-cad.jpg" width="600" alt="CAD render of the custom PCB, showing the XIAO, two DIP expanders and eight buttons">
+  <br><em>13 September: the replacement PCB design.</em>
+</p>
+
+<p align="center">
+  <img src="assets/project/2026-09-22-pcb-fit.jpg" width="390" alt="Bare manufactured PCB fitted into the R-1 case">
+  <img src="assets/project/2026-09-22-keypad.jpg" width="390" alt="Hand-soldered replacement button bank and expander">
+  <br><em>22 September: the manufactured board fits the case, and assembly begins.</em>
+</p>
+
+The screen and PCB could then be tested together. Photos from this period show
+portrait experiments; the installed transmitter now uses **480×320 landscape**.
+The UI evolved towards Drive, Tune, Data and Setup, with configurable widgets
+and more consistent editors and navigation.
+
+<p align="center">
+  <img src="assets/project/2026-09-25-pcb-and-lcd.jpg" width="390" alt="Working portrait touchscreen beside the populated replacement PCB">
+  <img src="assets/project/2026-09-25-control-wiring.jpg" width="260" alt="Replacement board installed with original control wiring connected">
+  <br><em>25 September: the new computer and display working together, and wiring the retained controls.</em>
+</p>
+
+### October: bring the hardware and interface together
+
+A printed display enclosure brought the screen into the handset. Debugging was
+not all software: LCD chip-select and I²C solder joints caused real faults that
+were isolated with display tests, boot logs and logic-analyser captures. The
+working installed display has since been exercised at an 80 MHz SPI setting.
+
+<p align="center">
+  <img src="assets/project/2026-10-03-display-mount.jpg" width="270" alt="Handheld R-1 with its new LCD enclosure fitted">
+  <img src="assets/project/2026-10-25-assembled-radio.jpg" width="270" alt="Assembled R-1 running the landscape dashboard">
+  <br><em>3 October: display enclosure fitted. 25 October: the assembled transmitter operating with its new dashboard.</em>
+</p>
+
+By 31 October, work had moved on to harmonising typography, menus, paging and
+keypad navigation, while continuing receiver telemetry development. The old
+R-1's controls are part of the interface, rather than decorations around a
+separate touchscreen computer.
+
+These images document successive prototypes, so older screen layouts and
+wiring should not be treated as current build instructions. Photo dates come
+from capture metadata where available; additional WhatsApp exports use their
+filename dates, as recorded in the [image provenance](assets/project/README.md).
+
+## Custom receiver firmware: S.Port sensors over ExpressLRS
+
+The companion [ExpressLRS-SPort repository](https://github.com/cmlpreston/ExpressLRS-SPort/tree/codex/sport-telemetry)
+contains our receiver changes, based on ExpressLRS 4.1.0. This adds a direct
+S.Port poller/parser and sensor-to-CRSF forwarding to selected PWM receivers.
+It addresses a capability absent from the upstream version we started with:
+connecting existing FrSky S.Port sensors directly to the receiver and bringing
+their measurements back to this handset, without a flight controller or an
+additional telemetry bridge.
+
+```text
+R-1 controls → XIAO handset firmware → CRSF → Ranger Nano → ExpressLRS RF → receiver → servos
+                                                                            ↑
+                                                                     S.Port sensor bus
+                                                                            │
+R-1 telemetry UI ← CRSF telemetry ← Ranger Nano ← ExpressLRS RF ← custom receiver decoder
+```
+
+Work includes **ER4/ESP8285** and **ER6G/ESP32** implementations. The ER4 uses
+two UART pins joined into the sensor bus; the ER6G implementation supports a
+single shared signal pin. Exact wiring and output assignments belong to the
+[receiver documentation](https://github.com/cmlpreston/ExpressLRS-SPort/blob/codex/sport-telemetry/sport/README.md),
+not to a generic pinout shared between receivers.
+
+The development has used FLVS ADV cell telemetry and FAS300 ADV measurements
+for voltage, current and temperature. Bench captures, parser tests and handset
+displays are documented separately from end-to-end RF validation. Some sensor
+paths and the ER6G profile still require further hardware checks; GPS forwarding
+is not selected in the current receiver trial. The handset can display 1–12
+individual cell readings, but the current receiver cell trial forwards **4S**.
+Selecting a higher cell count cannot create measurements the receiver has not sent.
+
+This is a **custom fork**, not a claim of upstream ExpressLRS S.Port support or
+universal support for every S.Port sensor. See the
+[receiver status and test instructions](https://github.com/cmlpreston/ExpressLRS-SPort/blob/codex/sport-telemetry/sport/README.md)
+for the precise scope.
+
+## The same UI on the desktop
+
+The simulator builds the actual C++ `TransmitterUi` and LVGL screens, with SDL
+standing in for the LCD and touch controller. It supplies simulated inputs and
+telemetry, and persists model/settings state locally. We can navigate, tune,
+try dashboard layouts and capture screenshots without having the handset on
+the desk. A browser bridge shows those rendered frames and sends touch and
+keypad events back to the simulator.
 
 ```sh
 brew install sdl2 openssl@3
-cd simulator
-make bootstrap
-make run
+make -C simulator bootstrap
+make -C simulator browser
+# Open http://127.0.0.1:8767
 ```
 
-Use the mouse as the touchscreen. Hold `W` for forward or `S` for brake,
-press `L` to toggle the simulated ELRS link, and use `[`/`]` to vary receiver
-voltage. `F12` saves `simulator/screenshot.bmp`; `Esc` exits. Settings are
-persisted beneath `simulator/state/`, so configuration changes survive a
-restart. Delete that ignored directory to simulate erased NVS.
-
-For automated layout checks without opening a visible window:
-
-```sh
-SDL_VIDEODRIVER=dummy ./build/jr-r1-sim \
-  --run-ms 500 --screenshot /tmp/dashboard.bmp
-```
-
-Portrait 320×480 is the default UI. To run the matching desktop build:
-
-```sh
-cd simulator
-make portrait-run
-```
-
-Use `build-portrait/jr-r1-sim-portrait --page dashboard`, `--page menu`, or
-`--page calibration` with the screenshot arguments above for automated portrait
-captures. The matching Waveshare hardware build is:
-
-```sh
-pio run -e esp32-s3-devkitc-1-portrait
-```
-
-The alternative 480×320 landscape build is available through the explicit
-`esp32-s3-devkitc-1` environment. Orientation is deliberately selected
-at build time so only one layout and touch transform are active in a firmware
-image.
-
-The simulator also emulates the ExpressLRS UID response used by the bindphrase
-page. It does not emulate RF timing, UART electrical behaviour, ESP32 tasks or
-receiver failsafe operation; those remain hardware-in-the-loop tests. QEMU is
-therefore unnecessary for normal UI work and would provide less useful touch
-and screenshot iteration than the shared-code SDL build.
-
-### Browser demo of the current interface
-
-Run `make -C simulator browser`, then open <http://127.0.0.1:8767>.
-The browser displays frames rendered by the actual C++/LVGL UI and forwards
-touches and keypad actions to the simulator. It is not an HTML recreation of
-the transmitter screens. The local server uses Python's standard library and
-binds to loopback only. `Ctrl+C` stops it and both simulator processes.
-
-Portrait is the default and includes the reworked settings menus. Landscape
-remains available as an alternative.
-Mouse/touch, MODE/PAGE/CLEAR/SELECT, arrow navigation, +/- edits, simulated arm
-requests, steering/throttle sliders, link loss and voltage changes are available.
-Inputs return to neutral on browser focus loss. For calibration, uncheck
-`Return to centre when released` to hold a sample at an endpoint.
-
-Demo preferences persist separately under `simulator/state-browser/landscape`
-and `simulator/state-browser/portrait`. The existing native simulator state and
-hardware settings are unaffected. TX configuration and binding replies are
-emulated; this demo does not reproduce the ESP32 task scheduler, full physical
-binding pipeline, RF timing or receiver/ESC failsafe behaviour.
-
-The standalone browser version is published at
-[jr-r1-demo.vercel.app](https://jr-r1-demo.vercel.app/). It runs the same C++/LVGL
-UI through WebAssembly and needs no local simulator server. Build and Vercel
-update instructions are in [simulator/web/README.md](simulator/web/README.md).
-
-The CRSF output path maintains requested, safe and enabled state independently
-for all 16 channels. The control task publishes a complete atomic snapshot to
-the CRSF task. A final, host-tested arbiter applies stale-control precedence
-immediately before each channel frame and resolves the entire snapshot to
-requested values only while Armed. Steering, throttle and proportional AUX
-bindings share one response/adjustment/slew pipeline, while the complete
-22-contact R1 digital-input layer is mapped through one MCP23017 plus six direct
-GPIOs. Unassigned controls generate diagnostic events but cannot affect output
-channels until given an explicit binding.
-
-## Capturing a TFT screenshot
-
-The simulator can write screenshots directly. The firmware also accepts
-`SCREENSHOT` over native USB when built for the BTT profile, reading display
-memory through its SPI `MISO` connection. The production Waveshare PHD cable is
-write-only (`LCD_MISO` is not fitted), so physical-panel capture is deliberately
-disabled for that profile. Capturing on a supported profile forces throttle CUT
-because the main control loop pauses during the transfer.
-
-Stop PlatformIO's serial monitor so the capture tool can open the port, then run:
-
-```sh
-./.venv/bin/python tools/capture_tft.py dashboard.png
-```
-
-The script automatically selects a single `/dev/cu.usbmodem*` device. Use
-`--port /dev/cu.usbmodem101` if more than one is connected. If the first capture
-has red and blue exchanged, repeat it with `--swap-rb`; `--flip-x` and `--flip-y`
-are available for diagnosing controller read orientation.
-
-The dashboard channel monitor is adaptive and displays enabled channels only.
-Steering and throttle remain prominent labelled horizontal bars. When enabled
-auxiliary outputs are added by the future 16-channel output model, up to six are
-shown as a compact vertical bank on the right (`+N` reports further enabled
-outputs). Link quality and RSSI share one line, while the Link/Safety card
-changes background and border colour for CUT, LIVE, waiting, and fault states.
-
-## Safety
-
-For the first test, disconnect the buggy motor from the ESC or place the buggy on
-a secure stand. Every boot starts in **CUT** with the arm request cleared. Select
-Walk or Normal, tap the dashboard safety panel, and leave the trigger near its
-configured centre for one second. Assignment, role, mode and calibration changes
-immediately publish neutral and require this process again.
-
-The CRSF task independently checks the age of the last control-loop update. If
-it exceeds 250 ms, the final arbiter transmits the complete safe channel model
-even if the UI/core has stalled. Implausible ADC values, calibration and a
-disabled throttle assignment also fail closed. These deterministic safe frames
-are the first protection layer; if the S3 or CRSF serial stream fails entirely,
-the receiver's separately configured ExpressLRS failsafe remains the backup.
-Future model-profile persistence will make every safe position explicitly
-configurable and allow it to be matched at the receiver.
-
-Control sampling and response processing run in a dedicated 4 ms high-priority
-task, independently of LVGL rendering. Full-screen page changes therefore
-cannot interrupt steering/throttle updates; the CRSF task's 250 ms stale check
-monitors this control task rather than the display loop.
-
-Always fit the Ranger antenna before powering the module. Begin at the lowest RF
-power setting.
-
-## Throttle potentiometer wiring
-
-Do **not** use GPIO20. On the ESP32-S3 DevKitC-1, GPIO20 is native USB D+, while
-GPIO19 is USB D-. Using it can break the USB programming/monitor connection.
-
-Use GPIO1 for the initial analogue input:
-
-```text
-ESP32-S3 3V3 ---------------- throttle pot end A
-ESP32-S3 GND ---------------- throttle pot end B
-throttle pot wiper -- 1 kΩ -- GPIO1
-                                  |
-                                100 nF
-                                  |
-                                 GND
-```
-
-Reversing the two end wires reverses trigger direction. Do not feed the pot from
-5 V: an ESP32 GPIO must never receive more than 3.3 V.
-
-## Ranger Nano wiring
-
-The module-bay interface is a single-wire, half-duplex CRSF bus at 400 kbaud.
-A Saleae connected to the physical signal wire decodes it as ordinary
-non-inverted 8N1 UART. On this ESP32-S3 implementation, both UART directions
-use the GPIO-matrix inversion flag to reproduce/read that measured waveform.
-The receive setting has also been checked experimentally: removing its matrix
-inversion produces no valid Ranger return frames.
-
-```text
-ESP32-S3 GPIO17 -- 220–470 Ω -- Ranger Nano SIGNAL / CRSF
-ESP32-S3 GND ------------------ Ranger Nano GND
-
-separate regulated 6–8.4 V ---- Ranger Nano VCC
-supply negative --------------- common GND
-```
-
-The Ranger Nano's official XT30 specification is 6–16.8 V, while its module-bay
-diagram labels the bay supply 5–12 V. Do not power it from the ESP32 3.3 V pin.
-For the current bench setup, its main USB port may instead be powered from the
-separate USB battery pack, with grounds joined and the VCC pin left disconnected.
-
-The 220–470 Ω series resistor limits contention current if both sides briefly
-drive the half-duplex bus. The ESP32 CRSF logic level is 3.3 V.
-
-### ELRS bindphrase from the touchscreen
-
-With ExpressLRS 4.1 or newer on the addressed device, open
-`MENU > LINK / TELEM`. The page implements ExpressLRS's MSP command `0x2D`
-inside CRSF `MSP_REQ`/`MSP_WRITE` frames. Its on-screen keyboard accepts up to
-51 characters and stores the desired phrase locally in ESP32 NVS.
-
-`SET TX` addresses the locally connected Ranger Nano and therefore works even
-when no receiver is bound. The module reboots after the write; firmware waits
-1.2 seconds and automatically asks it for its six-byte UID. The displayed UID
-is compared with the UID calculated locally from the phrase and reports
-`MATCH` or `DIFFERS`. `UID TX` performs the read without changing anything.
-
-`SET RX` and `UID RX` remain disabled until valid RF link telemetry is present:
-an unbound receiver cannot receive these commands. When changing a linked pair,
-write the receiver first and the transmitter second. All management operations
-force CUT and require the normal neutral/arm process afterwards. `CLEAR` only
-clears the text entry; blank writes are deliberately refused to prevent an
-accidental unbind.
-
-## Transmitter battery voltage
-
-The local transmitter pack is measured by the ESP32 rather than obtained from
-the CRSF receiver telemetry. Connect the switched pack positive to GPIO5 through
-a 47 kΩ / 10 kΩ divider, with a 100 nF capacitor from GPIO5 to ground:
-
-```text
-switched pack + ---- 47 kΩ ----+---- GPIO5
-                               |
-                              10 kΩ
-                               |
-                              GND
-
-GPIO5 ------------------ 100 nF ---- GND
-```
-
-This divider is safe through a 4S lithium pack. A fully charged 3S LiFe pack
-(about 10.8–10.95 V) presents about 1.9 V to GPIO5. Configure chemistry, cell
-count, low alarm and voltage-sense enable under `SETUP > TX BATTERY`. Defaults
-are 3S LiFe and a 9.0 V low alarm. Voltage sensing is disabled by default so an
-unwired ADC input cannot create false readings or alarms during USB testing.
-
-Receiver-pack voltage arrives through ER6G CRSF telemetry. Configure its pack
-chemistry, cell count, low-voltage alarm and alarm enable independently under
-`SETUP > RX BATTERY`. The RX defaults are 2S LiFe and 6.0 V. LiFe, LiPo,
-Li-ion and NiMH profiles are available; changing chemistry or cell count proposes
-a suitable threshold, which can then be adjusted manually.
-
-## Calibration
-
-Tap `CAL` on the selected throttle-channel page. While calibration is active,
-the selected output is held at neutral. Move the trigger to full brake/reverse,
-then full forward, then release it and
-leave it centred for approximately 1.5 seconds. The measured minimum, centre and
-maximum are validated and saved in ESP32 NVS, and are restored at the next boot.
-Calibration applies an additional exponential moving average (1/8 new sample,
-7/8 previous value). After the trigger settles in either endpoint region for
-about 120 ms, its endpoint estimate continuously follows that filtered value
-for as long as the endpoint remains held. It therefore progressively forgets
-the transition toward the stop and converges on the resting endpoint instead
-of latching one extreme sample. Neutral likewise uses the settled filtered
-value. This rejects transition samples and prevents a single ADC noise spike
-from becoming a permanent calibration value. Hold each endpoint briefly—the
-longer it remains held, the more completely the estimate settles—before
-returning to neutral.
-
-The calibration state machine and ADC-to-permille mapping live in the generic
-`ProportionalInput` component. Calibration belongs to the physical input rather
-than its assigned CRSF output, so remapping the trigger from channel 2 does not
-move or duplicate its calibration. The trigger uses the `jr-r1-trigger` NVS
-namespace; an existing calibration in the former `jr-r1-ch2` namespace is used
-as a migration default. Steering and other proportional controls can each use
-another `ProportionalInput` instance and their own input-scoped NVS namespace.
-
-The compiled `THROTTLE_ADC_*` values remain as safe defaults if NVS does not yet
-contain a valid calibration. Direction is selected separately on the CH2 page.
-
-At 100% rate and endpoint the transmitter sends the standard CRSF travel range
-of 172–1811 (992 neutral). ExpressLRS normally maps that to approximately
-988–2012 us PWM at the receiver. Although CRSF can encode the wider absolute
-range 0–2047, 1811 is conventional full servo/ESC travel; dashboard bars are
-scaled to 172–1811 so this is displayed as full scale. Before calibrating an
-ESC, confirm the USB log reaches `requested=1811` at full forward and
-`requested=172` at full brake/reverse (and the same `sent` values when safely
-armed), then teach the ESC those actual receiver endpoints according to its own
-calibration procedure.
-
-## Display profiles
-
-The installed display is selected centrally in `include/display_profile.h`.
-The normal build defaults to `DISPLAY_PROFILE_WAVESHARE_RPI_35F`. To reconnect
-the original BTT panel without editing source, build or upload the dedicated
-fallback environment:
-
-```sh
-pio run -e esp32-s3-devkitc-1-btt -t upload
-```
-
-Both profiles preserve the common SPI and I2C pins. Controller type, reset,
-touch implementation and backlight behaviour are isolated behind the profile.
-
-### Legacy DevKitC Waveshare 3.5inch RPi LCD (F) wiring
-
-For the active XIAO, use [the PCB pin map](docs/xiao-pcb.md).
-
-The production PCB uses a JST PHD 14-way (2x7, 2.0 mm) connector and adapts it
-to the panel's 13-way connector; PHD pin 14 is spare. The official ESP32-S3
-example powers the panel connector from **3.3 V**. An external regulated 3.3 V
-supply is suitable; join its ground to the ESP32 ground before connecting
-signal wires.
-
-| LCD signal | ESP32-S3 DevKitC pin | Purpose |
-|---|---:|---|
-| `VCC` | External regulated `3.3V` | Panel power |
-| `GND` | `GND` | Common ground |
-| `LCD_MISO` | Not connected | Not required for normal display operation |
-| `LCD_MOSI` | GPIO11 | LCD SPI data from ESP32 |
-| `LCD_CLK` | GPIO12 | LCD SPI clock |
-| `LCD_CS` | GND | Permanently selected; LCD is the only SPI peripheral |
-| `LCD_DC` | GPIO9 | LCD data/command |
-| `LCD_RST` | GPIO40 | ST7796 reset |
-| `LCD_BL` | GPIO41 | Backlight PWM |
-| `TP_SDA` | GPIO8 | GT911 touch I2C data |
-| `TP_SCL` | GPIO18 | GT911 touch I2C clock |
-| `TP_INT` | GPIO16 | GT911 touch interrupt |
-| `TP_RST` | GPIO42 | GT911 reset/address select |
-
-The firmware uses ST7796 rotation 3, GT911 address `0x5D`, and real 5 kHz
-backlight PWM. Display sleep therefore turns both the controller and backlight
-off, and the brightness setting controls the physical backlight.
-
-### BIGTREETECH TFT35 SPI V2.1 wiring (fallback)
-
-The screen board takes **5 V power**, but its LCD, touch and interrupt signals
-are **3.3 V logic** and connect directly to the ESP32-S3.
-
-| TFT35 label | ESP32-S3 DevKitC pin | Purpose |
-|---|---:|---|
-| `+5V` | `5V`/regulated 5 V | LCD and backlight power |
-| `GND` | `GND` | Common ground |
-| `MISO` | GPIO13 | LCD SPI data to ESP32 |
-| `MOSI` | GPIO11 | LCD SPI data from ESP32 |
-| `SCK` | GPIO12 | LCD SPI clock |
-| `NSS` | GPIO10 | LCD chip select |
-| `RS` | GPIO9 | LCD data/command |
-| `SDA` | GPIO8 | NS2009 touch I2C data |
-| `SCL` | GPIO18 | NS2009 touch I2C clock |
-| `IDRQ` | GPIO16 | NS2009 touch interrupt, active low |
-
-For a bench test, use a regulated 5 V source and retain the common ground. Never
-connect TFT `+5V` to ESP32 `3V3`.
-
-The first UI constrains each endpoint to 50–100% and sub-trim to +/-20%.
-Sub-trim shifts neutral and both endpoints together instead of clipping travel
-at one end. The +/-20% limit retains the normal full travel inside CRSF's
-absolute 0–2047 channel envelope. As with the original R1, endpoint positions
-should be checked again after changing sub-trim. Touch raw and mapped coordinates
-are printed over USB; use those readings to refine the four
-`TOUCH_RAW_*` calibration constants in `include/display_profile.h` if required.
-
-`CHANNELS > ROLES` selects the steering and throttle CRSF channel numbers; the
-same channel cannot hold both roles. Every channel fed by an assigned
-proportional control exposes its own persistent `RESPONSE / RAMP` editor from
-the channel page. The main-menu `RESPONSE` shortcut opens the assigned throttle
-channel. Each profile provides independent positive/negative endpoints, rate,
-expo and ramp, plus sub-trim and direction. Labels follow the assigned role:
-steering uses right/left, throttle uses forward/brake-reverse, and other
-proportional channels use positive/negative. The live graph shows the
-unmodified linear response in grey, the effective configured response in cyan,
-endpoint rails and the translated sub-trim neutral in amber, and the current
-input/output point. The output axis spans +/-120% so retained travel after
-sub-trim remains visible instead of being clipped at the ordinary +/-100%
-bounds.
-Rate is 0–100%. Expo is -100% to +100%; positive expo softens response around
-neutral, while negative expo makes it more aggressive. Processing order is:
-
-```text
-physical input side -> expo -> rate -> endpoint -> direction reverse -> sub-trim
-```
-
-This ordering is deliberate: `FORWARD` and `BRAKE/REV` always describe the
-physical trigger actions. Reversing the output changes which CRSF end those
-actions drive, without accidentally exchanging their endpoint or response
-settings. `BRAKE/REV` is used because a car ESC commonly brakes on the first
-reverse-trigger command and supplies reverse drive only after stopping.
-
-`CONTROL MAP` is the first functional version of the generic
-input-to-function-to-channel assignment layer. Its paged TFT list covers all
-nineteen physical controls. Steering and trigger open the primary role editor;
-each digital switch, trim or button opens an assignment editor that can enable
-or disable the input, select a non-reserved CRSF channel, choose a compatible
-momentary/toggle/pulse/two-position/trim behaviour, save it, or remove it.
-Spring-return trims can instead target `TRIM` or `SUBTRIM` on any channel. The
-same assignment is visible from that channel's configuration page, where one
-of the five R1 trim controls can be selected or the parameter left unassigned.
-Trim values use 1% steps over +/-20%, survive restarts in `jr-r1-chparam`, and
-are applied to the role-owned steering/throttle output paths. Subtrim translates
-the full output envelope; ordinary trim remains within conventional travel.
-Enabled bindings cannot share an output channel or take the steering/throttle
-role channels. Assignments are saved in the versioned `jr-r1-bind` NVS
-namespace. Saving or removing one forces CUT and requires neutral re-arm before
-the new map becomes live. The Timer button to CH4 proof binding is installed as
-the default profile when no valid stored profile exists.
-
-`DRIVE MODES` selects WALK or NORMAL. WALK scales physical forward drive to an
-adjustable limit (35% by default) while retaining the fully configured
-brake/reverse output. The physical trigger direction is used, so channel
-reversal cannot accidentally limit braking instead. Sub-trim remains an
-invariant centre offset and is never scaled by WALK. Arm/CUT is a separate safety state controlled from the
-dashboard's `LINK / SAFETY` panel. Every boot and every drive-mode change forces
-CUT; the trigger must return to neutral before the user can arm again. CUT,
-calibration, control reset and stale-control protection all hold the configured
-trimmed neutral rather than jumping to the untrimmed CRSF midpoint.
-The neutral-interlock ADC window is also the throttle output deadband. Normal
-spring-return/pot variation inside that window therefore produces exactly zero
-drive demand, while travel outside it is remapped to retain both full endpoints.
-
-The per-channel `RAMP` page configures independent positive and negative
-neutral-to-endpoint slew times for any assigned proportional channel. A value
-of `0 ms` is direct response. Labels follow the assigned role (`RIGHT/LEFT` for
-steering and `FORWARD/BRAKE-REV` for throttle), while other proportional AUX
-channels use `POSITIVE/NEGATIVE`.
-
-`SETUP > DISPLAY` provides timeout, brightness, night palette and immediate
-blanking. It sends the standard DCS `Display OFF` command (`0x28`) and
-wakes with `Display ON` (`0x29`). `Sleep IN` (`0x10`) is deliberately not
-combined with blanking because that left this TFT35-SPI V2.1 panel solid white.
-Touch wakes the panel. The Waveshare profile also switches its exposed
-backlight PWM fully off. Because the BTT connector does not expose backlight
-control, its software dimming or blanking may not eliminate the measured
-backlight current; that needs a transistor/MOSFET-controlled backlight or 5 V
-rail.
-
-The transmitter boots into a scalable main menu. `CHANNELS`, `RESPONSE`,
-`CONTROL MAP`, `DRIVE MODES`, and `SETUP` are active; deferred sections remain
-dimmed:
-
-Every non-dashboard page reserves the top-right header position for a Home
-icon that returns directly to the dashboard. The page-local Back, Cancel, or
-primary action remains immediately to its left. Using Home during input
-calibration safely cancels calibration, retains the previous calibration, and
-returns the transmitter to CUT.
-
-Touch actions are dispatched on release. A gesture beginning during the short
-post-action guard interval is discarded through its complete release rather
-than being promoted into a tap on the newly drawn page. Coordinates are also
-filtered across the gesture to suppress resistive-panel lift-off drift.
-
-- `MODELS`: select/name/copy/reset models and later transfer/import/export;
-- `CHANNELS`: names, reverse, calibration, sub-trim and endpoints per channel;
-- `RESPONSE`: dual rate, exponential, throttle curves and speed limiting;
-- `CONTROL MAP`: current input enable/assignment and future programmable mixes;
-- `DRIVE MODES`: walk/normal now; ABS, 4WS and throttle curves later;
-- `TIMERS`: run, countdown and lap timers;
-- `LINK/TELEM`: ELRS link, failsafe, RF settings and telemetry pages;
-- `SETUP`: display, sound, controls, warnings and system preferences.
-
-The programmable physical-control architecture, proposed default R1 bindings,
-safety constraints and implementation checklist are maintained in
-[`docs/control-assignment-roadmap.md`](docs/control-assignment-roadmap.md).
-
-This reorganises the original R1 System/Function menus without duplicating
-their historical navigation constraints. The channel browser exposes all 16
-CRSF channels in two banks. Whichever channel has the throttle role opens the
-implemented throttle configuration page; other channel entries remain stable
-placeholders until their input and configuration pages are implemented.
-
-## Original R1 passive piezo buzzer
-
-The original two-wire buzzer measures open circuit and is treated as a passive
-piezo transducer. Connect it directly to GPIO4 through a protective series
-resistor:
-
-```text
-ESP32-S3 GPIO4 -- 220-330 ohm -- piezo terminal 1
-ESP32-S3 GND ------------------ piezo terminal 2
-```
-
-Do not connect either piezo terminal to 5 V in this direct-drive arrangement.
-The `SETUP` page provides persistent buzzer on/off, key-click on/off, pitch and
-click-duration settings plus a test button. These global settings use the
-`jr-r1-system` NVS namespace and are independent of the CH2/model settings.
-Timed tones are stopped by the ESP32's dedicated tone task, so TFT redraw time
-does not lengthen short key clicks.
-
-## Build and monitor
-
-```sh
-pio run                                             # XIAO PCB portrait build
-pio run -e seeed_xiao_esp32s3-pcb-portrait -t upload   # Active XIAO hardware
-pio device monitor -b 115200
-```
-
-The historical DevKitC build used 145,864 of 327,680 bytes of statically allocated
-internal RAM (44.5%) and 822,937 of 6,553,600 application-flash bytes (12.6%).
-The editable nineteen-input binding table is small compared with LVGL and its
-display buffers, so assignments do not create a practical memory risk. Boot
-logging reports total/free/minimum/largest heap, flash size, PSRAM size and the
-heap consumed by UI initialisation for ongoing runtime monitoring. The project-
-local `esp32-s3-devkitc-1-n16r8` PlatformIO board definition matches the fitted
-ESP32-S3-WROOM-1-N16R8: 16 MB quad flash, the standard 16 MB OTA partition table,
-and 8 MB octal PSRAM. A flashed-board check reported 16,777,216 flash bytes and
-8,386,295 usable PSRAM bytes. The firmware detects PSRAM but does not yet depend
-on it.
-
-UART0 operates the Ranger connection as a single-wire half-duplex CRSF bus on
-GPIO17. Firmware alternates the GPIO matrix between transmit and receive while
-leaving the UART driver installed, closely matching the handset transport used
-by ExpressLRS. It currently decodes CRSF link statistics (RSSI and link quality)
-and receiver/battery voltage. A bench capture confirmed LQ 100%, roughly -35 dBm
-RSSI, and 6.6 V from the bound ER6G.
-
-TX module settings are available under **LINK / TELEM**. See
-[ExpressLRS TX configuration](docs/elrs-tx-configuration.md) for controls,
-protocol limits and hardware verification.
+Native SDL operation, screenshot commands and regression checks are in the
+[development guide](DEVELOPMENT.md#desktop-ui-simulator). The simulator is useful
+for checking layout and behaviour, but does not reproduce the LCD's viewing
+angle, colour, touch electronics, SPI timing, radio timing or receiver failsafe.
+The hardware photographs above are deliberately presented as photographs.
+
+## The web UI inside the transmitter
+
+The XIAO also runs its **own embedded web server**. This is distinct from the
+desktop simulator: it connects to the real handset, its saved settings and its
+running UI. Home Wi-Fi can connect automatically at boot; an optional setup
+hotspot supports local configuration.
+
+The browser provides model/channel/control configuration, mixing settings,
+map search and download, map storage/upload, hostname settings and restart.
+It also provides an authenticated live view with remote touch interaction and
+PIN entry, making setup possible when the physical screen is out of reach.
+Configuration and output-changing actions retain their respective safety checks.
+
+The live view uses pixels rendered by the firmware. It **does not read back the
+physical Waveshare LCD**, whose installed connection is write-only. We can
+capture the rendered interface, but a framebuffer capture cannot verify that
+the physical screen is displaying it correctly. The simulator and live web
+view serve different purposes, even when they look similar.
+
+Street imagery uses OpenStreetMap; the satellite selector uses Esri imagery.
+Map packages keep their attribution. Stored images load into PSRAM for display;
+PSRAM itself is volatile and is not the persistent map store.
+
+## Hardware and schematics
+
+| Component | Current installation |
+| --- | --- |
+| Handset | JR PROPO R-1, retaining the original controls and enclosure |
+| Main processor | Seeed Studio XIAO ESP32-S3 |
+| Additional I/O | Two MCP23017 expanders, K1 and K2 |
+| Display | Waveshare 3.5-inch RPi LCD (F), touch, 480×320 landscape |
+| RF module | RadioMaster Ranger Nano, ExpressLRS, native CRSF connection |
+| Power monitoring | Switched transmitter-pack voltage divider feeding the XIAO ADC; separate 5V_SYS supply rail |
+| Mechanical work | Replacement PCB and printed display enclosure/fit prototypes |
+
+The **[revision (5) schematic PDF](docs/hardware/r1-evo-schematic-rev5.pdf)** is
+published with the project. The [hardware notes](docs/hardware/README.md) explain
+its provenance and how to interpret it alongside the
+[current XIAO GPIO and expander pin map](docs/xiao-pcb.md). Earlier prototype
+hardware remains documented for history; the approved transmitter build is
+`seeed_xiao_esp32s3-pcb`, landscape only.
+
+## Built with extensive Codex / ChatGPT collaboration
+
+This project is also an example of what sustained collaboration with coding
+models can produce. Codex/ChatGPT was used extensively for firmware development,
+architecture review, UI design and iteration, protocol research, receiver
+telemetry work, tests, simulator tooling, diagnostics and interpreting logic
+captures. The work crossed embedded C++, browser code, hardware documentation
+and the development/upload tools rather than stopping at a screen mock-up.
+
+The project owner supplied the goals and operating requirements, made the
+hardware and mechanical decisions, assembled and soldered the boards, connected
+sensors and controls, and tested the radio. Photos, measurements, serial logs
+and captures fed back into the next software revision. The result came from
+that repeated hardware/software loop; a successful build or simulator run was
+not treated as a substitute for testing the actual transmitter.
+
+For historical context, these were the model generations during the build:
+
+| Period | Model context and evidence |
+| --- | --- |
+| July–August 2026 | GPT-5.6 Sol, Terra and Luna were available across Codex/ChatGPT Work during the early project period. This records contemporary availability; the retained local session metadata does not establish which model handled every early discussion. |
+| 10–30 September 2026 | The retained project session metadata records `gpt-6-astra` during this period. |
+| 30 September–31 October 2026 | The retained project session metadata records `gpt-6.1-sol`. OpenAI's changelog dates the GPT-6.1 Sol introduction to 29 September. |
+
+Availability is documented in OpenAI's
+[July product history](https://learn.chatgpt.com/docs/whats-new) and
+[ChatGPT/Codex changelog](https://learn.chatgpt.com/docs/changelog).
+The usage dates above come from local session model identifiers, not an inference
+that a model must have been used because it had been released. Private session
+transcripts and credentials are not part of this repository. Model names date
+the experiment; they are not a dependency required to build or run the radio.
+
+## Credits and influences
+
+- **[ExpressLRS](https://github.com/ExpressLRS/ExpressLRS)** supplies the RF
+  foundation and device ecosystem. Our receiver work extends that project;
+  it does not replace its contribution or imply upstream endorsement.
+- **[SourceTX](https://www.reddit.com/r/rccars/comments/1vbqozz/introducing_sourcetx_modern_touchscreen_rc_car/)**
+  was an inspiration after its public introduction, particularly the idea of
+  a modern touchscreen surface radio driving an ExpressLRS module natively.
+  R-1 EVO began independently; it is not a SourceTX firmware fork.
+- **[EdgeTX](https://manual.edgetx.org/color-radios/user-interface)** and
+  RadioMaster TX16S interface references informed configurable widgets,
+  model organisation, input/mix/output thinking and clear parameter editing.
+  OpenTX and EdgeTX are important precedents, but this handset's firmware is
+  independently implemented rather than derived from their codebases.
+- **[DJI RC Plus](https://enterprise-insights.dji.com/blog/dji-rc-plus-top-5-features)**
+  informed our review of readable operating views, persistent status and
+  physical shortcuts.
+- **[Spektrum iXSR / RaceWare](https://www.spektrumrc.com/product/spektrum-ixsr-12-channel-dsmr-transmitter-with-sr515-receiver/SPM6425.html)**
+  informed the review of surface-radio tuning, telemetry organisation and
+  channel/curve displays. Our [design notes](docs/ui-design-direction.md)
+  distinguish references and proposals from implemented behaviour.
+- **[LVGL](https://lvgl.io/)** provides the embedded UI framework;
+  **[Arduino_GFX](https://github.com/moononournation/Arduino_GFX)** provides
+  the display driver layer. SDL supports the desktop simulator.
+- **JR PROPO** created the original R-1 hardware and identity we are preserving.
+  This is an independent conversion project, with no claimed affiliation with
+  JR, RadioMaster, FrSky, SourceTX, DJI or Spektrum.
+
+## Explore or contribute
+
+Start with the [development guide](DEVELOPMENT.md),
+[current PCB wiring](docs/xiao-pcb.md), [control inventory](docs/r1-control-map.md),
+[architecture review](docs/architecture-review.md) and [TODO list](TODO.md).
+The [receiver project](https://github.com/cmlpreston/ExpressLRS-SPort/tree/codex/sport-telemetry)
+is maintained separately. Build and upload instructions must be matched to the
+actual hardware; the repository's [upload rules](AGENTS.md) apply to firmware work.

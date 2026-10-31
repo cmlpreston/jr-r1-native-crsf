@@ -163,8 +163,10 @@ int main(int argc, char **argv)
     auto frame = []() {
         simulatorPollEvents();
         uint16_t action; int16_t actionValue;
-        while (simulatorConsumeAction(action, actionValue))
-            ui.applyTransmitterFunctionAction(action, actionValue);
+        while (simulatorConsumeAction(action, actionValue)) {
+            if(action>=32&&action<40)ui.handleKeypadEvent(static_cast<PhysicalControlId>(int(PhysicalControlId::KeyMode)+action-32),static_cast<InputEvent>(actionValue),millis());
+            else ui.applyTransmitterFunctionAction(action, actionValue);
+        }
         const uint32_t now = millis();
         const uint32_t elapsed = now - previousMs;
         previousMs = now;

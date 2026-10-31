@@ -9,14 +9,39 @@ static void auditRefreshMonitor(lv_disp_drv_t *, uint32_t, uint32_t pixels)
 {
     auditRedrawnPixels += pixels;
 }
+static void auditTypography(lv_obj_t *object)
+{
+    if(lv_obj_check_type(object,&lv_label_class)){
+        const auto *font=lv_obj_get_style_text_font(object,LV_PART_MAIN);
+        bool allowed=false;
+        for(auto style:{UiText::Caption,UiText::Secondary,UiText::Menu,UiText::Heading,UiText::Reading,UiText::Hero})
+            allowed|=font==UiText::font(style);
+        assert(allowed && "Rendered labels must use the shared six-style scale");
+    }
+    for(uint32_t i=0;i<lv_obj_get_child_cnt(object);++i)auditTypography(lv_obj_get_child(object,i));
+}
 bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    const auto touchAction=[&](PageControlHandler handler,uint8_t argument){
+        for(uint8_t i=0;i<pageFocusCount_;++i){const auto t=pageFocusTargets_[i];
+            if(t.handler==handler && t.argument==argument){
+                handleTouch(t.activate.x+t.activate.width/2,t.activate.y+t.activate.height/2);return true;}}
+        return false;
+    };
     // Boot PIN cannot be bypassed by bound arm actions or remote taps.
     assert(!bootPinUnlocked());drawBootPin();
     lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
     if(const char *path=getenv("JR_R1_PIN_SCREENSHOT"))simulatorSaveScreenshot(path);
+    assert(touchAction(&TransmitterUi::controlBootPin,13));
+    assert(pinRecoveryHelp_&&activePage_==UiPage::BootPin&&!bootPinUnlocked()&&!armRequested());
+    auditTypography(lv_scr_act());
+    if(const char *path=getenv("JR_R1_PIN_HELP_SCREENSHOT")){
+        lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);simulatorSaveScreenshot(path);
+    }
+    controlBootPin(1,activate);assert(!bootPinDigits_[0]);
+    assert(touchAction(&TransmitterUi::controlBootPin,14));assert(!pinRecoveryHelp_&&!bootPinUnlocked());
     armRequested_=true;assert(!controlConfigurationSnapshot().armRequested);
     assert(!applyDriveModeAction(static_cast<uint16_t>(DriveModeSelection::CutArm),1));
     assert(!applyTransmitterFunctionAction(static_cast<uint16_t>(TransmitterFunction::OpenMenu),1));
@@ -28,10 +53,106 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlBootPin(11,activate);assert(!bootPinUnlocked()&&bootPinError_);
     controlBootPin(1,activate);controlBootPin(10,activate);assert(!bootPinDigits_[0]);
     setStartupPreflight(false,1);assert(activePage_==UiPage::BootPin);
-    for(int d:{1,2,3,4})controlBootPin(d,activate);
-    controlBootPin(11,activate);assert(bootPinUnlocked()&&!armRequested());
+    for(int d:{1,2,3})controlBootPin(d,activate);
+    assert(!bootPinUnlocked()&&strlen(bootPinDigits_)==3);
+    controlBootPin(4,activate);assert(bootPinUnlocked()&&!armRequested());
     assert(activePage_==UiPage::StartupWarning); // Unlock does not dismiss preflight.
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard);
+    // Real handset key timing, quick shortcuts, drafts and safety invariants.
+    {
+        uint32_t keyTime=millis();
+        auto press=[&](PhysicalControlId key,bool held=false){
+            assert(handleKeypadEvent(key,InputEvent::Pressed,keyTime));
+            if(held)updateKeypad(keyTime+700);
+            assert(handleKeypadEvent(key,InputEvent::Released,keyTime+(held?800:80)));
+            keyTime+=held?900:150;
+        };
+        drawDashboard();armRequested_=true;safetyResetRequested_=false;
+        press(PhysicalControlId::KeyMode);assert(activePage_==UiPage::QuickNavigation&&armRequested_&&!safetyResetRequested_);
+        if(const char *prefix=getenv("JR_R1_KEYPAD_IMAGES")){
+            lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+            snprintf(path,sizeof(path),"%s-%s-quick.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);
+        }
+        press(PhysicalControlId::KeyMode);assert(activePage_==UiPage::MainMenu);
+        press(PhysicalControlId::KeyPlus);assert(setupBank_==1);
+        press(PhysicalControlId::KeyMode,true);assert(activePage_==UiPage::Dashboard&&armRequested_&&!safetyResetRequested_);
+        press(PhysicalControlId::KeyMode);press(PhysicalControlId::KeyMinus);assert(activePage_==UiPage::TimerControl);
+        const bool wasRunning=runTimerRunning_;controlKeypadMenu(9,activate);assert(runTimerRunning_!=wasRunning&&armRequested_);
+        controlKeypadMenu(9,activate);assert(runTimerRunning_==wasRunning);
+        press(PhysicalControlId::KeyMode,true);
+        press(PhysicalControlId::KeyMode);press(PhysicalControlId::KeyUp);
+        assert(activePage_==UiPage::ValueEditor&&editorField_==1&&armRequested_);
+        const auto savedProfile=profileForChannel(selectedChannel_);const int draft=editorDraft_;
+        press(PhysicalControlId::KeyPlus);assert(editorDraft_>draft);
+        const int edited=editorDraft_;press(PhysicalControlId::KeyMode);
+        assert(activePage_==UiPage::ValueEditor&&editorDraft_==edited&&pageFocusVisible_);
+        press(PhysicalControlId::KeyClear,true);assert(activePage_==UiPage::FieldResetConfirmation);
+        controlKeypadMenu(1,activate);assert(activePage_==UiPage::ValueEditor&&editorDraft_==0);
+        assert(profileForChannel(selectedChannel_).positiveExpoPercent==savedProfile.positiveExpoPercent);
+        press(PhysicalControlId::KeyClear);assert(activePage_==UiPage::Tune);
+        assert(profileForChannel(selectedChannel_).positiveExpoPercent==savedProfile.positiveExpoPercent);
+        tuneRole_=0;tuneBank_=0;drawDesignPage(UiPage::Tune);
+        press(PhysicalControlId::KeyPage);assert(tuneBank_==1);
+        press(PhysicalControlId::KeyPage,true);assert(tuneBank_==0);
+        press(PhysicalControlId::KeyPlus);assert(tuneRole_==1);
+        press(PhysicalControlId::KeyMinus);assert(tuneRole_==0);
+        press(PhysicalControlId::KeyMode);assert(activePage_==UiPage::QuickNavigation);
+        handleKeypadEvent(PhysicalControlId::KeyClear,InputEvent::Pressed,keyTime);
+        handleKeypadEvent(PhysicalControlId::KeyClear,InputEvent::InvalidState,keyTime+10);
+        handleKeypadEvent(PhysicalControlId::KeyClear,InputEvent::Released,keyTime+80);
+        assert(activePage_==UiPage::QuickNavigation); // cancelled pointer / failed input
+        press(PhysicalControlId::KeyClear);assert(activePage_==UiPage::Dashboard);
+        bootPinUnlocked_=false;pinPurpose_=PinPurpose::Boot;drawBootPin();
+        press(PhysicalControlId::KeyMode,true);assert(activePage_==UiPage::BootPin&&!armRequested());
+        controlBootPin(1,activate);press(PhysicalControlId::KeyClear);assert(!bootPinDigits_[0]&&!bootPinUnlocked());
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;drawDashboard();
+        Serial.println("Handset keypad: short/hold separation, quick menu, paging, tabs, cancelled inputs, draft reset/cancel and PIN/arm guards PASS");
+    }
+    // Shared navigation works from old detail pages, new detail pages and
+    // the web touch path. Ordinary navigation never changes CUT/arm state.
+    // Swipes page within a section without activating rows or changing output.
+    tuneBank_=0;drawDesignPage(UiPage::Tune);
+    armRequested_=true;safetyResetRequested_=false;
+    assert(handlePageSwipe(250,150,100,154,400)&&tuneBank_==1);
+    assert(armRequested_&&!safetyResetRequested_&&activePage_==UiPage::Tune);
+    assert(handlePageSwipe(250,150,100,154,400)&&tuneBank_==1); // no wrap
+    assert(handlePageSwipe(100,150,250,154,400)&&tuneBank_==0);
+    assert(handlePageSwipe(250,150,100,230,400)&&tuneBank_==0); // diagonal consumed
+    assert(handlePageSwipe(250,150,100,154,1400)&&tuneBank_==0); // long drag consumed
+    assert(handlePageSwipe(250,50,100,54,400)&&tuneBank_==0); // subsection tabs excluded
+    assert(!handlePageSwipe(100,150,104,152,100)&&tuneBank_==0); // tap untouched
+    assert(touchAction(&TransmitterUi::controlPageDot,1)&&tuneBank_==1);
+    assert(armRequested_&&!safetyResetRequested_);armRequested_=false;
+    drawTelemetryPage();sensorBank_=0;
+    assert(handlePageSwipe(250,150,100,154,400)&&sensorBank_==1);
+    assert(handlePageSwipe(250,150,100,154,400)&&sensorBank_==2);
+    assert(handlePageSwipe(250,150,100,154,400)&&sensorBank_==2);
+    assert(touchAction(&TransmitterUi::controlPageDot,0)&&sensorBank_==0);
+    controlDesign(62,activate);assert(handlePageSwipe(250,150,100,154,400)&&designBank_==1);
+    drawMainMenu();setupPage_=0;assert(handlePageSwipe(250,150,100,154,400)&&setupPage_==1);
+    inputMonitorBank_=0;drawInputMonitorPage();assert(handlePageSwipe(250,150,100,154,400)&&inputMonitorBank_==1);
+    drawDashboard();const auto modeBeforeSwipe=driveMode();
+    assert(!handlePageSwipe(250,150,100,154,400)&&driveMode()==modeBeforeSwipe&&!armRequested());
+    beginPin(PinPurpose::WalkExit,UiPage::Dashboard);
+    assert(!handlePageSwipe(250,150,100,154,400)&&pinPurpose_==PinPurpose::WalkExit);
+    controlBootPin(12,activate);
+    Serial.println("Page swipes: section paging, dots, bounds, drag rejection and output/PIN guards PASS");
+    drawDisplayPage();assert(sectionNavigationVisible_);
+    assert(touchAction(&TransmitterUi::controlSectionNavigation,2));assert(activePage_==UiPage::Telemetry);
+    assert(touchAction(&TransmitterUi::controlSectionNavigation,0));assert(activePage_==UiPage::Dashboard&&!armRequested_);
+    drawChannelsPage();assert(touchAction(&TransmitterUi::controlNavigation,0));assert(activePage_==UiPage::MainMenu);
+    drawDisplayPage();assert(touchAction(&TransmitterUi::controlNavigation,0));assert(activePage_==UiPage::MainMenu);
+    selectedChannel_=steeringChannel();tuneRole_=0;openDesignEditor(4,UiPage::Tune);
+    assert(!sectionNavigationVisible_);const bool savedDirection=profileForChannel(selectedChannel_).reversed;
+    editorDraft_=!savedDirection;navigateBack();assert(profileForChannel(selectedChannel_).reversed==savedDirection);
+    assert(activePage_==UiPage::Tune);
+    drawDesignPage(UiPage::WidgetEditor);assert(!sectionNavigationVisible_);navigateBack();assert(activePage_==UiPage::WidgetSelect);
+    drawDesignPage(UiPage::BatteryMenu);navigateBack();assert(activePage_==UiPage::MainMenu);
+    modelAppearanceEditing_=true;drawModelSelectPage();navigateBack();assert(activePage_==UiPage::ModelSelect&&!modelAppearanceEditing_);
+    widgetInputsEditing_=true;drawDesignPage(UiPage::WidgetEditor);navigateBack();assert(activePage_==UiPage::WidgetEditor&&!widgetInputsEditing_);
+    navigateBack();assert(activePage_==UiPage::WidgetSelect);
+    drawDisplayPage();lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+    if(const char *path=getenv("JR_R1_NAV_SCREENSHOT"))simulatorSaveScreenshot(path);
     // Refined navigation: CUT stays readable, role collisions are refused and
     // entering/changing modes never grants an arm request.
     armRequested_=false;drawDashboard();designTouchDispatch_=true;armGestureValid_=true;
@@ -46,21 +167,53 @@ bool TransmitterUi::runSimulatorUiAudit()
     armGestureValid_=false;lastTouchDurationMs_=1000;controlDesign(0,activate);assert(armRequested_);armGestureValid_=true;
     lastTouchDurationMs_=799;controlDesign(0,activate);assert(armRequested_);
     lastTouchDurationMs_=800;controlDesign(0,activate);assert(!armRequested_);designTouchDispatch_=false;
-    drawDashboard();controlDesign(6,activate);assert(activePage_==UiPage::ModeChooser);
-    controlDesign(182,activate);assert(activePage_==UiPage::Dashboard&&driveMode()==DriveMode::Walk&&!armRequested_);
+    // Drive mode tabs select directly, without the old chooser. Reselecting
+    // the active mode preserves a live request; changing modes always CUTs.
+    drawDashboard();armRequested_=true;safetyResetRequested_=false;
+    assert(touchAction(&TransmitterUi::controlDesign,183));
+    assert(activePage_==UiPage::Dashboard&&driveMode()==DriveMode::Normal&&armRequested_&&!safetyResetRequested_);
+    assert(touchAction(&TransmitterUi::controlDesign,182));
+    assert(activePage_==UiPage::Dashboard&&driveMode()==DriveMode::Walk&&!armRequested_&&safetyResetRequested_);
+    armRequested_=true;safetyResetRequested_=false;
+    assert(touchAction(&TransmitterUi::controlDesign,182));
+    assert(armRequested_&&!safetyResetRequested_);armRequested_=false;
+    if(const char *prefix=getenv("JR_R1_DRIVE_MODE_IMAGES")){
+        char path[256];snprintf(path,sizeof(path),"%s-%s-walk.bmp",prefix,designPortrait?"portrait":"landscape");
+        lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);simulatorSaveScreenshot(path);
+    }
+    // Walk exit expires after ten idle seconds, clears entered digits, and
+    // preserves Walk/CUT. A keypad action restarts the idle interval.
+    beginPin(PinPurpose::WalkExit,UiPage::Dashboard);
+    controlBootPin(13,activate);updatePinTimeout(pinLastInputMs_+10000);
+    assert(pinRecoveryHelp_&&pinPurpose_==PinPurpose::WalkExit&&driveMode()==DriveMode::Walk&&!armRequested());
+    controlBootPin(14,activate);assert(!pinRecoveryHelp_);
+    const uint32_t pinStarted=pinLastInputMs_;
+    updatePinTimeout(pinStarted+9999);assert(pinPurpose_==PinPurpose::WalkExit);
+    controlBootPin(1,activate);assert(strcmp(bootPinDigits_,"1")==0);
+    const uint32_t pinTyped=pinLastInputMs_;
+    updatePinTimeout(pinTyped+9999);assert(activePage_==UiPage::BootPin);
+    updatePinTimeout(pinTyped+10000);
+    assert(activePage_==UiPage::Dashboard&&pinPurpose_==PinPurpose::None);
+    assert(driveMode()==DriveMode::Walk&&!armRequested()&&!bootPinDigits_[0]);
+    loadPinSecurity();loadDriveModeSettings();assert(driveMode()==DriveMode::Walk);
+    beginPin(PinPurpose::WalkExit,UiPage::MainMenu);pinLastInputMs_=UINT32_MAX-5000;
+    updatePinTimeout(4999);assert(activePage_==UiPage::Dashboard&&driveMode()==DriveMode::Walk);
+    beginPin(PinPurpose::Boot,UiPage::Dashboard);
+    updatePinTimeout(pinLastInputMs_+10000);assert(pinPurpose_==PinPurpose::Boot);
+    pinPurpose_=PinPurpose::None;
     // Leaving Walk requires a fresh PIN, survives restart/profile reload, and
     // cannot arm. Cancel and incorrect PIN preserve Walk.
     loadPinSecurity();loadDriveModeSettings();assert(driveMode()==DriveMode::Walk);
-    controlDesign(6,activate);controlDesign(183,activate);
+    drawDashboard();assert(touchAction(&TransmitterUi::controlDesign,183));
     assert(activePage_==UiPage::BootPin&&driveMode()==DriveMode::Walk&&!armRequested());
     if(const char *prefix=getenv("JR_R1_SECURITY_SCREENSHOTS")){
         lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
         char path[256];snprintf(path,sizeof(path),"%s-walk.bmp",prefix);simulatorSaveScreenshot(path);
     }
-    handleTouch(portraitUi?40:110,portraitUi?180:140);
+    assert(touchAction(&TransmitterUi::controlBootPin,1));
     assert(strcmp(bootPinDigits_,"1")==0);controlBootPin(10,activate);
     for(int d:{9,9,9,9})controlBootPin(d,activate);
-    controlBootPin(11,activate);assert(bootPinError_&&driveMode()==DriveMode::Walk);
+    assert(bootPinError_&&driveMode()==DriveMode::Walk&&!bootPinDigits_[0]);
     controlBootPin(12,activate);assert(driveMode()==DriveMode::Walk&&pinPurpose_==PinPurpose::None);
     const auto walkSelection=static_cast<uint16_t>(DriveModeSelection::WalkNormal);
     assert(!applyDriveModeAction(walkSelection,1));assert(pinPurpose_==PinPurpose::WalkExit);
@@ -69,7 +222,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(applyDriveModeAction(walkSelection,-1));
     assert(!applyDriveModeAction(walkSelection,1));
     for(int d:{1,2,3,4})controlBootPin(d,activate);
-    controlBootPin(11,activate);assert(driveMode()==DriveMode::Normal&&!armRequested());
+    assert(driveMode()==DriveMode::Normal&&!armRequested());
     loadPinSecurity();loadDriveModeSettings();assert(driveMode()==DriveMode::Normal);
     // PIN changes require current PIN and matching confirmation; persisted PIN
     // is also used by USB RF bench authorization. Recovery never unlocks Walk.
@@ -81,7 +234,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     }
     controlDesign(237,activate);assert(pinPurpose_==PinPurpose::ChangeCurrent);
     for(int d:{1,2,3,4})controlBootPin(d,activate);
-    controlBootPin(11,activate);assert(pinPurpose_==PinPurpose::ChangeNew);
+    assert(pinPurpose_==PinPurpose::ChangeNew);
     for(int d:{5,6,7,8})controlBootPin(d,activate);
     controlBootPin(11,activate);assert(pinPurpose_==PinPurpose::ChangeConfirm);
     for(int d:{5,6,7,9})controlBootPin(d,activate);
@@ -94,7 +247,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     armRequested_=true;assert(!recoverPinOverUsb("4567"));armRequested_=false;
     requestDriveMode(DriveMode::Normal);
     for(int d:{1,2,3,4})controlBootPin(d,activate);
-    controlBootPin(11,activate);assert(driveMode()==DriveMode::Normal);
+    assert(driveMode()==DriveMode::Normal);
 
     selectedChannel_=throttleChannel();drawChannelPlaceholder();controlDesign(186,activate);assert(activePage_==UiPage::ChannelInput);
     controlDesign(189,activate);const auto existingRoles=channelRoleSettings_;controlDesign(193,activate);
@@ -230,6 +383,42 @@ bool TransmitterUi::runSimulatorUiAudit()
     }
     lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
     if(const char *path=getenv("JR_R1_AUDIT_INPUT_SCREENSHOT")) simulatorSaveScreenshot(path);
+    {
+        const auto layout=dashboardLayouts_[activeModelSlot_];
+        const auto hidden0=dashboardHidden_[activeModelSlot_][0],hidden2=dashboardHidden_[activeModelSlot_][2];
+        dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+        auto &channels=dashboardLayouts_[activeModelSlot_].cells[0];
+        channels.kind=DashboardWidgetKind::Channels;channels.style=DashboardWidgetStyle::Bars;
+        channels.width=2;channels.source=0;channels.secondSource=1;
+        auto &all=dashboardLayouts_[activeModelSlot_].cells[2];
+        all.kind=DashboardWidgetKind::AllChannels;all.style=DashboardWidgetStyle::Bars;all.width=2;all.source=0;
+        dashboardHidden_[activeModelSlot_][0]=dashboardHidden_[activeModelSlot_][2]=0;
+        CrsfTelemetryState previewTelemetry;
+        CrsfChannelOutputModel preview;
+        preview.configure(1,crsfValueFromPermille(650),CRSF_CHANNEL_MID,true);
+        preview.configure(2,crsfValueFromPermille(-400),CRSF_CHANNEL_MID,true);
+        uint8_t before[CRSF_FRAME_BYTES],after[CRSF_FRAME_BYTES];buildCrsfChannelsFrame(preview,false,before);
+        drawDashboard();nextDisplayUpdateMs_=0;nextSensorSampleMs_=0;
+        update(triggerInput_.centre(),steeringInput_.centre(),-400,0,CRSF_CHANNEL_MID,
+               OutputSafetyStatus::Cut,previewTelemetry,99,true,preview,false);
+        lv_obj_update_layout(lv_scr_act());updateDashboardWidgets(previewTelemetry,99,true);
+        const int steer=permilleFromCrsfValue(preview.requested(1)),throttle=permilleFromCrsfValue(preview.requested(2));
+        assert(lv_bar_get_value(widgetViews_[0].bars[0])==steer);
+        assert(lv_bar_get_value(widgetViews_[0].bars[1])==throttle);
+        assert(lv_bar_get_value(widgetViews_[2].bars[0])==steer);
+        assert(lv_bar_get_value(widgetViews_[2].bars[1])==throttle);
+        assert(channelHistory_[0][29]==preview.requested(1)&&channelHistory_[1][29]==preview.requested(2));
+        assert(dashboardChannelValues_[0]==CRSF_CHANNEL_MID&&dashboardChannelValues_[1]==CRSF_CHANNEL_MID&&!armRequested());
+        buildCrsfChannelsFrame(preview,false,after);assert(memcmp(before,after,sizeof(before))==0);
+        if(const char *path=getenv("JR_R1_CUT_PREVIEW_SCREENSHOT")){lv_refr_now(nullptr);simulatorSaveScreenshot(path);}
+        designBank_=0;drawDesignPage(UiPage::ChannelMonitor);updateDesign(previewTelemetry,OutputSafetyStatus::Cut,99,true);
+        char expected[40];snprintf(expected,sizeof(expected),"%+d / %+d%% ",steer/10,0);
+        assert(strcmp(lv_label_get_text(designValues_[0]),expected)==0);
+        dashboardLayouts_[activeModelSlot_]=layout;
+        dashboardHidden_[activeModelSlot_][0]=hidden0;dashboardHidden_[activeModelSlot_][2]=hidden2;
+        activePage_=UiPage::Channel2;drawPage();
+        Serial.println("CUT dashboard: requested controls and histories stay live; Data sent values and CRSF safe frame unchanged PASS");
+    }
     systemSettings_.screenTimeoutSeconds = oldTimeout;
     // Drafts must not affect channel output settings until explicitly applied.
     tuneRole_=1;selectedChannel_=channelRoleSettings_.throttleChannel;
@@ -527,11 +716,25 @@ bool TransmitterUi::runSimulatorUiAudit()
             assert(strstr(lv_label_get_text(widgetViews_[0].detail),"Expected 12S"));
             assert(strcmp(lv_label_get_text(widgetViews_[0].values[11]),"12: --")==0);
             lv_obj_update_layout(lv_scr_act());
-            for(unsigned i=0;i<12;++i){
-                auto label=widgetViews_[0].values[i];
-                assert(lv_obj_get_y(label)+lv_obj_get_height(label)<=lv_obj_get_y(widgetViews_[0].detail));
-                assert(lv_obj_get_height(label)>=lv_obj_get_style_text_font(label,LV_PART_MAIN)->line_height);
+            uint16_t seenCells=0;
+            const auto checkVisibleCells=[&](){
+                unsigned visible=0;
+                for(unsigned i=0;i<12;++i){
+                    auto label=widgetViews_[0].values[i];
+                    if(lv_obj_has_flag(label,LV_OBJ_FLAG_HIDDEN))continue;
+                    seenCells|=uint16_t{1}<<i;++visible;
+                    assert(lv_obj_get_y(label)+lv_obj_get_height(label)<=lv_obj_get_y(widgetViews_[0].detail));
+                    assert(lv_obj_get_height(label)>=lv_obj_get_style_text_font(label,LV_PART_MAIN)->line_height);
+                }
+                assert(visible>0);
+            };
+            checkVisibleCells();
+            designTelemetry_=cells;
+            for(unsigned page=0;page<12 && seenCells!=0x0fff;++page){
+                controlDesign(130,activate);updateDashboardWidgets(cells,99,true);
+                lv_obj_update_layout(lv_scr_act());checkVisibleCells();
             }
+            assert(seenCells==0x0fff); // All 12 cells remain readable/reachable in every span.
             cells.vehicleCellsValid=false;updateDashboardWidgets(cells,99,true);
             assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"1: --")==0);
             cells.vehicleCellsValid=true;
@@ -645,12 +848,13 @@ bool TransmitterUi::runSimulatorUiAudit()
     if(designPortrait){
         drawMainMenu();dispatchPageControlTouch(250,60);assert(setupBank_==1);
         dispatchPageControlTouch(80,110);assert(activePage_==UiPage::DisplaySetup);
-        dispatchPageControlTouch(239,22);assert(activePage_==UiPage::MainMenu);
+        dispatchPageControlTouch(40,22);assert(activePage_==UiPage::MainMenu);
         drawChannelRolesPage();auto oldRole=channelRoleSettings_.steeringChannel;
-        dispatchPageControlTouch(282,94);assert(channelRoleSettings_.steeringChannel!=oldRole);
-        dispatchPageControlTouch(231,94);assert(channelRoleSettings_.steeringChannel==oldRole);
-        drawThrottleResponsePage();dispatchPageControlTouch(282,434);assert(portraitResponseBank_==1);
-        dispatchPageControlTouch(33,434);assert(portraitResponseBank_==0);
+        const auto detailY=[&](int y){return 44+(y-44)*(kScreenHeight-60-4-44)/(kScreenHeight-20-44);};
+        dispatchPageControlTouch(282,detailY(94));assert(channelRoleSettings_.steeringChannel!=oldRole);
+        dispatchPageControlTouch(231,detailY(94));assert(channelRoleSettings_.steeringChannel==oldRole);
+        drawThrottleResponsePage();dispatchPageControlTouch(282,detailY(434));assert(portraitResponseBank_==1);
+        dispatchPageControlTouch(33,detailY(434));assert(portraitResponseBank_==0);
         drawElrsBindingPage();auto length=strlen(elrsBindPhrase_);
         dispatchPageControlTouch(15,245);assert(strlen(elrsBindPhrase_)==length+1);
         dispatchPageControlTouch(271,434);assert(strlen(elrsBindPhrase_)==length);
@@ -680,10 +884,16 @@ bool TransmitterUi::runSimulatorUiAudit()
     loadSystemSettings();assert(uiNightMode && uiDarkColourScheme==0);
     systemSettings_=originalSystem;saveSystemSettings();loadSystemSettings();
     // Exercise every established menu in the primary hardware orientation.
-    const UiPage pages[]={UiPage::Dashboard,UiPage::Tune,UiPage::Telemetry,UiPage::Gps,UiPage::ChannelMonitor,UiPage::MainMenu,UiPage::ModelSelect,UiPage::Channels,UiPage::ChannelRoles,UiPage::Channel2,UiPage::ThrottleResponse,UiPage::ChannelSpeed,UiPage::ControlAssignments,UiPage::BindingEditor,UiPage::InputMonitor,UiPage::DriveModes,UiPage::ChannelPlaceholder,UiPage::Setup,UiPage::TxBatterySetup,UiPage::RxBatterySetup,UiPage::DisplaySetup,UiPage::ColourScheme,UiPage::FirmwareInfo,UiPage::ElrsBinding,UiPage::ElrsTxConfig,UiPage::EscProgramming,UiPage::WidgetSelect,UiPage::WidgetEditor,UiPage::RadioDiagnostics,UiPage::BatteryMenu,UiPage::Calibration,UiPage::OutputStatus,UiPage::ModeChooser,UiPage::ChannelInput,UiPage::ChannelResponseSetup,UiPage::ParameterControlPicker,UiPage::ResponseProfile,UiPage::MixingOverview,UiPage::NetworkOptions,UiPage::SystemMenu};
+    const UiPage pages[]={UiPage::QuickNavigation,UiPage::FieldResetConfirmation,UiPage::TimerControl,UiPage::Dashboard,UiPage::Tune,UiPage::Telemetry,UiPage::Gps,UiPage::ChannelMonitor,UiPage::MainMenu,UiPage::ModelSelect,UiPage::Channels,UiPage::ChannelRoles,UiPage::Channel2,UiPage::ThrottleResponse,UiPage::ChannelSpeed,UiPage::ControlAssignments,UiPage::BindingEditor,UiPage::InputMonitor,UiPage::DriveModes,UiPage::ChannelPlaceholder,UiPage::Setup,UiPage::TxBatterySetup,UiPage::RxBatterySetup,UiPage::DisplaySetup,UiPage::ColourScheme,UiPage::FirmwareInfo,UiPage::ElrsBinding,UiPage::ElrsTxConfig,UiPage::EscProgramming,UiPage::WidgetSelect,UiPage::WidgetEditor,UiPage::RadioDiagnostics,UiPage::BatteryMenu,UiPage::Calibration,UiPage::OutputStatus,UiPage::ModeChooser,UiPage::ChannelInput,UiPage::ChannelResponseSetup,UiPage::ParameterControlPicker,UiPage::ResponseProfile,UiPage::MixingOverview,UiPage::NetworkOptions,UiPage::SystemMenu};
     for(auto page:pages){
         showSimulatorPage(page);lv_obj_update_layout(lv_scr_act());
         assert(activePage_==page && pageFocusCount_>0);
+        if(page==UiPage::Tune || page==UiPage::Telemetry || page==UiPage::MainMenu){
+            if(const char *prefix=getenv("JR_R1_TAB_IMAGES")){
+                char path[256];snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,designPortrait?"portrait":"landscape",uiPageName(page));
+                lv_refr_now(nullptr);simulatorSaveScreenshot(path);
+            }
+        }
         if(page==UiPage::RadioDiagnostics){
             if(const char *path=getenv("JR_R1_RADIO_SCREENSHOT")){
                 lv_refr_now(nullptr);simulatorSaveScreenshot(path);
@@ -742,7 +952,8 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(strcmp(SetupPortal::state().apPassword,"bench-test-1234")==0);
     assert(SetupPortal::changePassword(initialSetupPassword));SetupPortal::tick(true);
     armRequested_=true;assert(!controlConfigurationSnapshot().armRequested);
-    navigateBack();assert(activePage_==UiPage::WifiSetup);
+    navigateBack();assert(activePage_==UiPage::NetworkOptions && SetupPortal::active() && !armRequested_);
+    drawWifiPage();
     armRequested_=false;
     assert(!SetupPortal::connect("Home","short"));
     controlWifi(3,activate);assert(wifiEdit_==3);
@@ -798,16 +1009,21 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(!bootPinUnlocked());
     drawBootPin();
     const auto remoteKey=[&](int index){
-        const int w=portraitUi?272:288,cell=(w-12)/3,h=portraitUi?56:34;
-        return portalRemoteInput((kScreenWidth-w)/2+(index%3)*(cell+6)+cell/2,
-                                 (portraitUi?168:126)+(index/3)*(h+6)+h/2,0);
+        const uint8_t action=index==9?10:index==10?0:index==11?11:index+1;
+        for(uint8_t i=0;i<pageFocusCount_;++i){const auto target=pageFocusTargets_[i];
+            if(target.handler==&TransmitterUi::controlBootPin&&target.argument==action)
+                return portalRemoteInput(target.activate.x+target.activate.width/2,
+                                         target.activate.y+target.activate.height/2,0);
+        }
+        return false;
     };
     assert(!portalRemoteInput(0,0,1)&&!portalRemoteInput(0,0,2));
     for(int i=0;i<4;++i)assert(remoteKey(0));
-    assert(remoteKey(11));assert(!bootPinUnlocked()&&bootPinError_);
+    assert(!bootPinUnlocked()&&bootPinError_);
     assert(remoteKey(0));assert(remoteKey(9));assert(!bootPinDigits_[0]);
-    for(int i=0;i<4;++i)assert(remoteKey(i));
-    assert(remoteKey(11));assert(bootPinUnlocked()&&!armRequested());
+    for(int i=0;i<3;++i)assert(remoteKey(i));
+    assert(!bootPinUnlocked());assert(remoteKey(3));
+    assert(bootPinUnlocked()&&!armRequested());
     assert(!controlConfigurationSnapshot().armRequested);
     drawWifiPage();
     lv_refr_now(nullptr);
@@ -832,8 +1048,8 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlWifi(3,activate);controlWifi(70,activate);assert(wifiEdit_==0);
 
     assert(portalEnableScreen());assert(!portalRemoteInput(-1,0,0));
-    assert(portalRemoteInput(20,20,0));assert(activePage_==UiPage::WifiSetup&&SetupPortal::active());
-    assert(portalRemoteInput(kScreenWidth-18,20,0));
+    assert(portalRemoteInput(20,20,0));assert(activePage_==UiPage::NetworkOptions&&SetupPortal::active());
+    assert(portalRemoteInput(30,kScreenHeight-(portraitUi?40:20),0));
     assert(activePage_==UiPage::Dashboard&&SetupPortal::active()&&!armRequested_);
     assert(portalRemoteInput(0,0,2));
 
@@ -845,18 +1061,22 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(portalRemoteInput(0,0,2));assert(activePage_==UiPage::WifiSetup);
     wifiEdit_=1;assert(!portalRemoteInput(0,0,1));wifiEdit_=0;
     touchWasDown_=true;assert(!portalRemoteInput(100,100,0));touchWasDown_=false;
-    assert(portalRemoteInput(portraitUi?230:375,20,0));
+    assert(portalRemoteInput(30,kScreenHeight-(portraitUi?40:20),0));
     assert(SetupPortal::active()&&activePage_==UiPage::Dashboard&&!armRequested_);
     assert(portalRemoteInput(0,0,2));
-    const int wifiY=portraitUi?162:140;
-    assert(!portalRemoteInput(kScreenWidth/2+20,wifiY+45,0)); // Connect
-    assert(!portalRemoteInput(30,wifiY+80,0)); // Forget
-    assert(portalRemoteInput(30,wifiY+126,0)); // Open web access without reconnecting
+    const auto remoteWifiAction=[&](uint8_t action){
+        for(uint8_t i=0;i<pageFocusCount_;++i){const auto t=pageFocusTargets_[i];
+            if(t.handler==&TransmitterUi::controlWifi && t.argument==action)
+                return portalRemoteInput(t.activate.x+t.activate.width/2,t.activate.y+t.activate.height/2,0);}
+        assert(false && "Wi-Fi action must be visible");return false;
+    };
+    assert(!remoteWifiAction(6)); // Connect remains blocked remotely.
+    assert(!remoteWifiAction(7)); // Forget remains blocked remotely.
+    assert(remoteWifiAction(80)); // Credentials opens without reconnecting.
     assert(wifiWebAccess_);
-    const int credentialsY=portraitUi?328:274;
-    assert(!portalRemoteInput(30,credentialsY+10,0)); // Change password
+    assert(!remoteWifiAction(15)); // Change password remains blocked remotely.
     assert(SetupPortal::active()&&SetupPortal::hasSavedNetwork("Home Wi-Fi"));
-    assert(portalRemoteInput(kScreenWidth/2+20,credentialsY+10,0)); // Hostname editor
+    assert(remoteWifiAction(19)); // Hostname editor
     assert(wifiEdit_==6&&SetupPortal::active());
     strcpy(wifiHostname_,"bad.local");controlWifi(13,activate);assert(wifiEdit_==6);
     strcpy(wifiHostname_,"My-Handset");controlWifi(13,activate);assert(wifiEdit_==0);
@@ -864,7 +1084,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(strcmp(SetupPortal::state().activeHostname,"r1evo")==0); // No connection change before restart
     SetupPortal::begin(this);assert(strcmp(SetupPortal::state().activeHostname,"my-handset")==0);
     assert(SetupPortal::setHostname("r1evo"));SetupPortal::begin(this);
-    assert(portalRemoteInput(portraitUi?230:375,20,0)); // Header still closes setup
+    assert(remoteWifiAction(2)); // Remote Finish setup leaves its transport connected
     assert(SetupPortal::active()&&activePage_==UiPage::Dashboard&&!armRequested_);
     controlWifi(2,activate);assert(!SetupPortal::active()&&!armRequested_); // Physical close
 
@@ -899,6 +1119,13 @@ bool TransmitterUi::runSimulatorUiAudit()
     for(bool armed : {false,true}) {
         armRequested_=armed;SetupPortal::tick(!armed);drawDashboard();
         logoSaverReturnPage_=UiPage::Dashboard;drawLogoSaver();
+        if(!armed)if(const char *prefix=getenv("JR_R1_SAVER_IMAGES")){
+            for(uint8_t frame=0;frame<2;++frame){
+                logoSaverPosition_=frame;positionLogoSaver();lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+                char path[256];snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",frame?"r1-evo":"jr-propo");
+                simulatorSaveScreenshot(path);
+            }
+        }
         assert(portalScreenNeedsWake());int x,y,w,h;assert(!portalDriveHoldBounds(x,y,w,h));
         assert(portalWakeScreen()&&activePage_==UiPage::Dashboard&&armRequested_==armed);
         assert(!portalScreenNeedsWake()&&!portalWakeScreen());
@@ -969,7 +1196,6 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(portalEnableScreen());
     assert(!portalRemoteInput(0,0,2));
     for(int d:{1,2,3,4})controlBootPin(d,activate);
-    controlBootPin(11,activate);
     assert(bootPinUnlocked() && activePage_==UiPage::Dashboard);
     assert(!startupPreflightComplete_);
     armRequested_=true;
@@ -1014,7 +1240,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     Serial.println("Hardware recovery: PIN, remote navigation, offscreen rendering and arm inhibition PASS");
     Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, endpoints, colour schemes, startup fault display, arm hold and bounds PASS");
     dashboardEnabledChannelMask_=0xffff;
-    for(int ch=0;ch<16;++ch)dashboardChannelValues_[ch]=crsfValueFromPermille(ch*100-750);
+    for(int ch=0;ch<16;++ch)designRequested_[ch]=dashboardChannelValues_[ch]=crsfValueFromPermille(ch*100-750);
     for(int size=0;size<4;++size){
         dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
         channelWidgetPages_[0]=0; // Each size tests its first-page transition independently.
@@ -1107,7 +1333,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(lv_disp_get_hor_res(registeredDisplay)==kScreenWidth&&lv_disp_get_ver_res(registeredDisplay)==kScreenHeight);
         for(UiPage page : pages){
             if(page==UiPage::Telemetry)sensorBank_=cycle%3; // cover all sensor banks in both orientations
-            showSimulatorPage(page);lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+            showSimulatorPage(page);lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);auditTypography(lv_scr_act());
             assert(activePage_==page);
             for(uint8_t i=0;i<pageFocusCount_;++i){const auto &r=pageFocusTargets_[i].focus;
                 assert(r.x>=0&&r.y>=0&&r.x+r.width<=kScreenWidth&&r.y+r.height<=kScreenHeight);
@@ -1124,6 +1350,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     armRequested_=true;assert(!requestDisplayRotation());armRequested_=false;
     remoteArmHold_.begin(1,millis());assert(!requestDisplayRotation());remoteArmHold_.cancel();
     Serial.println("Runtime rotation: all pages, both dimensions, memory stability and arm/hold guards PASS");
+    Serial.println("Typography: all pages render with the shared six-style scale PASS");
     drawDashboard();return true;
 }
 
@@ -1161,8 +1388,8 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
                   static_cast<unsigned long long>(auditRedrawnPixels));
     assert(auditRedrawnPixels == 0);
     // Changing data and status must still repaint immediately on the next tick.
-    const auto savedChannelValue = dashboardChannelValues_[0];
-    dashboardChannelValues_[0] = kCrsfMaximum;
+    const auto savedChannelValue = designRequested_[0];
+    designRequested_[0] = kCrsfMaximum;
     fixedTelemetry.receiverVoltageDecivolts = 67;
     fixedTelemetry.uplinkLinkQuality = 87;
     updateDesign(fixedTelemetry, OutputSafetyStatus::Armed, 99, true);
@@ -1206,7 +1433,7 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     assert(auditRedrawnPixels > 0);
     assert(strcmp(lv_label_get_text(designStatus_), "Drive") == 0);
     assert(lv_obj_get_style_bg_color(lv_obj_get_child(driveIcon_,1),0).full==colour(cRed).full);
-    assert(lv_obj_get_style_text_font(designStatus_, LV_PART_MAIN) == fontFor(16));
+    assert(lv_obj_get_style_text_font(designStatus_, LV_PART_MAIN) == UiText::font(UiText::Menu));
     // Low voltage changes the warning colour as well as its text.
     updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 1, true);
     assert(strcmp(lv_label_get_text(designLink_), "TX LOW") == 0);
@@ -1233,7 +1460,7 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     uiSetTextFmt(widgetViews_[1].values[0], "%s", longText);
     assert(strcmp(lv_label_get_text(widgetViews_[1].values[0]), longText) == 0);
     auditDisplay->driver->monitor_cb = previousMonitor;
-    dashboardChannelValues_[0] = savedChannelValue;
+    designRequested_[0] = savedChannelValue;
     dashboardLayouts_[activeModelSlot_] = savedLayout;
     nextSensorSampleMs_ = savedSampleTime;
     // Rebuilt menus render identically. Cache must suppress their transfer,

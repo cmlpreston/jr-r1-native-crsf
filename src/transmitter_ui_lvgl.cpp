@@ -298,23 +298,6 @@ lv_color_t colour(uint32_t rgb)
     return lv_color_hex(rgb);
 }
 
-const lv_font_t *fontFor(uint8_t size)
-{
-    switch (size) {
-        case 48: return &lv_font_montserrat_48;
-        case 32: return &lv_font_montserrat_32;
-        case 28: return &lv_font_montserrat_28;
-        case 24: return &lv_font_montserrat_24;
-        case 22: return &lv_font_montserrat_22;
-        case 20: return &lv_font_montserrat_20;
-        case 18: return &lv_font_montserrat_18;
-        case 16: return &lv_font_montserrat_16;
-        case 10: return &lv_font_montserrat_10;
-        case 11: case 12: case 13: return &lv_font_montserrat_12;
-        default: return &lv_font_montserrat_14;
-    }
-}
-
 UiPixelCache<DISPLAY_LANDSCAPE_WIDTH, DISPLAY_LANDSCAPE_HEIGHT> pixelCache;
 lv_disp_t *registeredDisplay=nullptr;
 bool lcdTransportReady = false;
@@ -399,9 +382,11 @@ void position(lv_obj_t *object, int16_t x, int16_t y, int16_t width,
     lv_obj_clear_flag(object, LV_OBJ_FLAG_SCROLLABLE);
 }
 
+constexpr uint8_t kUiCornerRadius = 6;
+
 lv_obj_t *makePanel(int16_t x, int16_t y, int16_t width, int16_t height,
                     uint32_t fill = cPanel, uint32_t border = cLine,
-                    uint8_t radius = 2)
+                    uint8_t radius = kUiCornerRadius)
 {
     lv_obj_t *panel = lv_obj_create(lv_scr_act());
     position(panel, x, y, width, height);
@@ -415,7 +400,7 @@ lv_obj_t *makePanel(int16_t x, int16_t y, int16_t width, int16_t height,
 }
 
 lv_obj_t *makeLabel(lv_obj_t *parent, const char *text, int16_t x, int16_t y,
-                    uint8_t fontSize = 14, uint32_t textColour = cWhite)
+                    UiText::Style textStyle = UiText::Secondary, uint32_t textColour = cWhite)
 {
     lv_obj_t *label = lv_label_create(parent);
     // Keep the JR wordmark red in headers and firmware identity labels.
@@ -426,20 +411,39 @@ lv_obj_t *makeLabel(lv_obj_t *parent, const char *text, int16_t x, int16_t y,
         lv_label_set_text(label, text);
     }
     lv_obj_set_pos(label, x, y);
-    lv_obj_set_style_text_font(label, fontFor(fontSize), 0);
+    lv_obj_set_style_text_font(label, UiText::font(textStyle), 0);
     lv_obj_set_style_text_color(label, colour(textColour), 0);
     return label;
 }
 
 lv_obj_t *makeButton(int16_t x, int16_t y, int16_t width, int16_t height,
-                     const char *text, uint8_t fontSize = 16,
+                     const char *text, UiText::Style textStyle = UiText::Menu,
                      uint32_t fill = cPanel2, uint32_t textColour = cWhite,
                      uint32_t border = cLine)
 {
-    lv_obj_t *button = makePanel(x, y, width, height, fill, border, 2);
-    lv_obj_t *label = makeLabel(button, text, 0, 0, fontSize, textColour);
+    lv_obj_t *button = makePanel(x, y, width, height, fill, border, kUiCornerRadius);
+    lv_obj_t *label = makeLabel(button, text, 0, 0, textStyle, textColour);
     lv_obj_center(label);
     return button;
+}
+
+// A crossed output arrow marks a control preview whose requested positions
+// are being held by output safety. It does not imply the radio is silent.
+lv_obj_t *makeHeldOutputIcon(lv_obj_t *parent)
+{
+    auto icon=lv_obj_create(parent);position(icon,0,0,18,16);
+    lv_obj_set_style_bg_opa(icon,LV_OPA_TRANSP,0);
+    lv_obj_set_style_border_width(icon,0,0);lv_obj_set_style_pad_all(icon,0,0);
+    lv_obj_clear_flag(icon,LV_OBJ_FLAG_CLICKABLE);
+    static const lv_point_t arrow[]={{1,8},{15,8},{11,4},{15,8},{11,12}};
+    static const lv_point_t slash[]={{4,14},{13,1}};
+    auto line=[&](const lv_point_t *points,int count,uint32_t col,int width){
+        auto object=lv_line_create(icon);lv_line_set_points(object,points,count);
+        lv_obj_set_style_line_color(object,colour(col),0);lv_obj_set_style_line_width(object,width,0);
+        lv_obj_set_style_line_rounded(object,true,0);lv_obj_clear_flag(object,LV_OBJ_FLAG_CLICKABLE);
+    };
+    line(arrow,5,cAmber,2);line(slash,2,cPanel,5);line(slash,2,cAmber,2);
+    lv_obj_align(icon,LV_ALIGN_TOP_RIGHT,-6,4);return icon;
 }
 
 lv_obj_t *wifiStatusIcon=nullptr;
@@ -454,7 +458,7 @@ void updateWifiStatusIcon() {
     lv_obj_set_style_text_opa(wifiStatusIcon,state?LV_OPA_COVER:LV_OPA_50,0);
 }
 void makeWifiStatusIcon(int x,int y) {
-    wifiStatusIcon=makeLabel(lv_scr_act(),LV_SYMBOL_WIFI,x,y,16,0x71838a);
+    wifiStatusIcon=makeLabel(lv_scr_act(),LV_SYMBOL_WIFI,x,y,UiText::Menu,0x71838a);
     wifiIconState=-1;updateWifiStatusIcon();
 }
 
@@ -475,8 +479,6 @@ void startScreen()
     lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
 }
 
-lv_obj_t *detailOutputLabel=nullptr;
-lv_obj_t *detailDriveIcon=nullptr;
 
 // Draw the lock directly: the compact UI fonts do not contain a lock glyph.
 lv_obj_t *makeDriveIcon(lv_obj_t *parent, int x, int y)
@@ -509,47 +511,25 @@ void updateDriveIcon(lv_obj_t *icon, bool live, bool fault)
 }
 
 
+// Every detail screen has one escape in the same place. Section navigation
+// is appended by finishPageFocus; modal editors retain Cancel/Apply instead.
+bool standardDetailHeader = false;
 void makeHeader(const char *title, const char *action = nullptr)
 {
-    lv_obj_t *header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
-if(portraitUi) {
-    auto titleLabel = makeLabel(header, title, 10, 11, 14, 0xe7edef);
-    lv_obj_set_width(titleLabel, 110);
-    makeWifiStatusIcon(126,13);
-    detailOutputLabel=lv_obj_get_child(makeButton(148,5,50,34,"Drive",10),0);
+    standardDetailHeader = true;
+    auto header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
+    const bool cancel = action && (!strcmp(action,"CANCEL") || !strcmp(action,"Cancel"));
+    const bool done = action && !strcmp(action,"Done");
+    makeButton(8, 5, 76, 34, cancel ? "Cancel" : done ? "Done" : "Back", UiText::Secondary);
+    auto titleLabel = makeLabel(header, title, 96, 9, UiText::Heading, 0xe7edef);
+    lv_obj_set_width(titleLabel, kScreenWidth - 140);
     lv_label_set_long_mode(titleLabel, LV_LABEL_LONG_DOT);
-    if (action != nullptr) makeButton(206, 5, 66, 34, action, 11);
-    makeButton(278, 5, 36, 34, LV_SYMBOL_HOME, 16);
-} else {
-    auto titleLabel = makeLabel(header, title, 14, 12, 18, 0xe7edef);
-    lv_obj_set_width(titleLabel, 200);
-    makeWifiStatusIcon(222,14);
-    detailOutputLabel=lv_obj_get_child(makeButton(246,5,86,34,"Drive",12),0);
-    lv_label_set_long_mode(titleLabel, LV_LABEL_LONG_DOT);
-    if (action != nullptr) makeButton(344, 5, 78, 34, action, 12);
-    makeButton(430, 5, 42, 34, LV_SYMBOL_HOME, 18);
-}
-    lv_obj_align(detailOutputLabel,LV_ALIGN_TOP_LEFT,2,3);
-    detailDriveIcon=makeDriveIcon(lv_obj_get_parent(detailOutputLabel),portraitUi?35:65,3);
-    makeLabel(lv_obj_get_parent(detailOutputLabel),"Hold",2,19,10,cDim);
+    makeWifiStatusIcon(kScreenWidth - 33, 14);
 }
 
 bool headerActionTouched(int16_t x, int16_t y)
 {
-if(portraitUi) {
-    return y < 48 && x >= 202 && x < 276;
-} else {
-    return y < 48 && x >= 340 && x < 428;
-}
-}
-
-bool headerHomeTouched(int16_t x, int16_t y)
-{
-if(portraitUi) {
-    return y < 48 && x >= 276;
-} else {
-    return y < 48 && x >= 428;
-}
+    return y >= 5 && y < 39 && x >= 8 && x < 84;
 }
 
 lv_obj_t *makeBar(lv_obj_t *parent, int16_t x, int16_t y, int16_t width,
@@ -719,6 +699,9 @@ const char *uiPageName(UiPage page)
         case UiPage::MixingOverview:return "mixing-overview";
         case UiPage::NetworkOptions:return "network-options";
         case UiPage::SystemMenu:return "system";
+        case UiPage::TimerControl:return "timer";
+        case UiPage::QuickNavigation:return "quick-navigation";
+        case UiPage::FieldResetConfirmation:return "reset-field";
         case UiPage::Tune: return "tune";
         case UiPage::ValueEditor: return "value-editor";
         case UiPage::Gps: return "gps";
@@ -1059,7 +1042,8 @@ bool TransmitterUi::captureScreenshot(Stream &output)
 
 void TransmitterUi::resetLvglObjects()
 {
-    detailOutputLabel=nullptr;detailDriveIcon=nullptr;
+    standardDetailHeader=false;
+    sectionNavigationVisible_=false;detailContentCompacted_=false;
     steeringEndpointButtons_[0]=steeringEndpointButtons_[1]=editorStepButton_=nullptr;
     driveProgress_=driveHint_=driveIcon_=nullptr;
     wifiKeyPreview_ = nullptr;
@@ -1123,6 +1107,8 @@ void TransmitterUi::setPhysicalInputStates(const PhysicalInputStateStore &states
     for (size_t index = 0; index < kPhysicalControlCount; ++index) {
         const PhysicalInputState &state = states.state(
             static_cast<PhysicalControlId>(index));
+        if(index>=static_cast<size_t>(PhysicalControlId::KeyMode)&&index<static_cast<size_t>(PhysicalControlId::KeyMode)+8&&state.faulted)
+            keypadPresses_[index-static_cast<size_t>(PhysicalControlId::KeyMode)]=KeypadPress{};
         if (activePage_ == UiPage::LogoSaver) {
             const PhysicalControlKind kind = physicalControlDescriptor(index).kind;
             if (kind == PhysicalControlKind::Proportional) {
@@ -2224,7 +2210,7 @@ bool TransmitterUi::recoverPinOverUsb(const char *next)
 {
     if(armRequested_||designSafety_==OutputSafetyStatus::Armed||!storePin(next))return false;
     requestConfigurationCut();
-    bootPinDigits_[0]=newPin_[0]=0;bootPinError_=false;
+    bootPinDigits_[0]=newPin_[0]=0;bootPinError_=false;pinRecoveryHelp_=false;
     pinPurpose_=bootPinUnlocked_?PinPurpose::None:PinPurpose::Boot;
     if(bootPinUnlocked_)drawDashboard();else drawBootPin();
     return true;
@@ -2232,8 +2218,14 @@ bool TransmitterUi::recoverPinOverUsb(const char *next)
 void TransmitterUi::beginPin(PinPurpose purpose,UiPage returnPage)
 {
     requestConfigurationCut();
-    pinPurpose_=purpose;pinReturnPage_=returnPage;
+    pinPurpose_=purpose;pinReturnPage_=returnPage;pinLastInputMs_=millis();pinRecoveryHelp_=false;
     bootPinDigits_[0]=newPin_[0]=0;bootPinError_=false;drawBootPin();
+}
+void TransmitterUi::updatePinTimeout(uint32_t now)
+{
+    if(pinPurpose_!=PinPurpose::WalkExit||pinRecoveryHelp_||uint32_t(now-pinLastInputMs_)<10000)return;
+    pinPurpose_=PinPurpose::None;bootPinDigits_[0]=newPin_[0]=0;bootPinError_=false;
+    requestConfigurationCut();lastInteractionMs_=now;drawDashboard();
 }
 bool TransmitterUi::requestDriveMode(DriveMode mode)
 {
@@ -2250,42 +2242,61 @@ void TransmitterUi::drawBootPin()
     if(!bootPinUnlocked_)pinPurpose_=PinPurpose::Boot;
     activePage_=UiPage::BootPin;armRequested_=false;
     startScreen();resetLvglObjects();beginPageFocus(false);
-    const char *heading=pinPurpose_==PinPurpose::WalkExit?"Leave Walk mode":
-        pinPurpose_==PinPurpose::ChangeCurrent?"Change PIN":
-        pinPurpose_==PinPurpose::ChangeNew?"Enter new PIN":
-        pinPurpose_==PinPurpose::ChangeConfirm?"Confirm new PIN":"Unlock R-1 EVO";
-    auto title=makeLabel(lv_scr_act(),heading,12,portraitUi?48:36,24,cWhite);
-    lv_obj_set_width(title,kScreenWidth-24);lv_obj_set_style_text_align(title,LV_TEXT_ALIGN_CENTER,0);
-    const char *help=pinPurpose_==PinPurpose::ChangeCurrent?"Enter current PIN; outputs remain CUT":
-        pinPurpose_==PinPurpose::WalkExit?"Enter PIN to select Normal; outputs stay CUT":"Four digits; outputs remain CUT";
-    auto hint=makeLabel(lv_scr_act(),bootPinError_?"PIN incorrect, mismatch or save failed":help,12,portraitUi?86:68,12,cWhite);
-    lv_obj_set_width(hint,kScreenWidth-24);lv_obj_set_style_text_align(hint,LV_TEXT_ALIGN_CENTER,0);
+    if(pinRecoveryHelp_){
+        makePageActionButton(8,5,76,34,"Back",UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlBootPin,14);
+        makeLabel(lv_scr_act(),"PIN recovery",96,9,UiText::Heading,cWhite);
+        const int top=portraitUi?88:62;
+        auto steps=makeLabel(lv_scr_act(),
+            "1. Connect the XIAO USB-C to a computer.\n"
+            "2. Open its serial monitor at 115200 baud.\n"
+            "3. Send this command, then press Enter:",12,top,UiText::Secondary,cWhite);
+        lv_obj_set_width(steps,kScreenWidth-24);lv_label_set_long_mode(steps,LV_LABEL_LONG_WRAP);
+        auto command=makeLabel(lv_scr_act(),"PINRESET 1234",12,portraitUi?218:150,UiText::Heading,cCyan);
+        lv_obj_set_width(command,kScreenWidth-24);
+        auto note=makeLabel(lv_scr_act(),
+            "This sets the PIN to 1234.\nOutputs must be CUT. Walk mode is unchanged.\nReturn to PIN entry to continue.",
+            12,portraitUi?268:194,UiText::Secondary,cDim);
+        lv_obj_set_width(note,kScreenWidth-24);lv_label_set_long_mode(note,LV_LABEL_LONG_WRAP);
+        finishPageFocus();return;
+    }
     char masked[8]="_ _ _ _";for(size_t i=0;i<strlen(bootPinDigits_);++i)masked[i*2]='*';
-    auto digits=makeLabel(lv_scr_act(),masked,12,portraitUi?116:90,24,cWhite);
+    auto digits=makeLabel(lv_scr_act(),bootPinError_?"PIN incorrect, mismatch or save failed":masked,
+        12,portraitUi?8:6,bootPinError_?UiText::Secondary:UiText::Heading,bootPinError_?cRed:cWhite);
     lv_obj_set_width(digits,kScreenWidth-24);lv_obj_set_style_text_align(digits,LV_TEXT_ALIGN_CENTER,0);
-    const int width=portraitUi?272:288,left=(kScreenWidth-width)/2,top=portraitUi?168:126;
-    const int height=portraitUi?56:34,gap=6,cell=(width-2*gap)/3;
+    const int width=kScreenWidth-24,left=12,top=portraitUi?44:38;
+    const int height=portraitUi?86:54,gap=8,cell=(width-2*gap)/3;
     for(int i=0;i<12;++i){
         const char *label=i==9?"Clear":i==10?"0":i==11?(pinPurpose_==PinPurpose::Boot?"Unlock":"Continue"):nullptr;
         char digit[2]={static_cast<char>('1'+i),0};if(!label)label=digit;
         const uint8_t id=i==9?10:i==10?0:i==11?11:i+1;
-        makePageActionButton(left+(i%3)*(cell+gap),top+(i/3)*(height+gap),cell,height,label,i<9||i==10?24:14,cPanel,cWhite,cLine,&TransmitterUi::controlBootPin,id);
+        makePageActionButton(left+(i%3)*(cell+gap),top+(i/3)*(height+gap),cell,height,label,i<9||i==10?UiText::Reading:UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlBootPin,id);
     }
     if(pinPurpose_!=PinPurpose::Boot)
-        makePageActionButton(12,portraitUi?428:282,80,30,"Cancel",12,cPanel,cWhite,cLine,&TransmitterUi::controlBootPin,12);
-    auto recovery=makeLabel(lv_scr_act(),"Forgot PIN? USB: PINRESET 1234",portraitUi?104:110,portraitUi?437:291,10,cDim);
-    lv_obj_set_width(recovery,kScreenWidth-(portraitUi?116:122));
+        makePageActionButton(12,portraitUi?428:282,80,30,"Cancel",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlBootPin,12);
+    makePageActionButton((kScreenWidth-132)/2,portraitUi?428:282,132,30,
+        "Forgot PIN?",UiText::Secondary,cBlack,cCyan,cBlack,&TransmitterUi::controlBootPin,13);
     finishPageFocus();
 }
 void TransmitterUi::controlBootPin(uint8_t item, PageControlEvent event)
 {
     if(event!=PageControlEvent::Activate||pinPurpose_==PinPurpose::None)return;
+    if(item>14)return;
+    pinLastInputMs_=millis();
+    if(item==13){pinRecoveryHelp_=true;drawBootPin();return;}
+    if(item==14){pinRecoveryHelp_=false;drawBootPin();return;}
+    if(pinRecoveryHelp_)return;
     if(item==12&&pinPurpose_!=PinPurpose::Boot){
         pinPurpose_=PinPurpose::None;bootPinDigits_[0]=newPin_[0]=0;bootPinError_=false;
         if(pinReturnPage_==UiPage::SystemMenu)drawDesignPage(pinReturnPage_);else drawDashboard();return;
     }
     if(item==10){bootPinDigits_[0]=0;bootPinError_=false;}
-    else if(item<10){size_t n=strlen(bootPinDigits_);if(n<4){bootPinDigits_[n]='0'+item;bootPinDigits_[n+1]=0;}bootPinError_=false;}
+    else if(item<10){
+        size_t n=strlen(bootPinDigits_);
+        if(n<4){bootPinDigits_[n]='0'+item;bootPinDigits_[n+1]=0;}
+        bootPinError_=false;
+        const bool authenticating=pinPurpose_==PinPurpose::Boot||pinPurpose_==PinPurpose::WalkExit||pinPurpose_==PinPurpose::ChangeCurrent;
+        if(authenticating&&strlen(bootPinDigits_)==4){controlBootPin(11,PageControlEvent::Activate);return;}
+    }
     else if(item==11){
         bool ok=validSecurityPin(bootPinDigits_);
         if(pinPurpose_==PinPurpose::ChangeNew&&ok){strcpy(newPin_,bootPinDigits_);pinPurpose_=PinPurpose::ChangeConfirm;}
@@ -2314,23 +2325,21 @@ void TransmitterUi::controlBootPin(uint8_t item, PageControlEvent event)
 void TransmitterUi::positionLogoSaver()
 {
     if (!logoSaverLogo_ || !logoSaverDesignation_) return;
-if(portraitUi) {
     static constexpr int16_t xOffsets[] = {0, -4, 4, 0};
-    static constexpr int16_t yPositions[] = {54, 150, 276, 192};
-    const uint8_t position = logoSaverPosition_ % 4;
-    lv_obj_align(logoSaverLogo_, LV_ALIGN_TOP_MID,
-                 xOffsets[position], yPositions[position]);
-    lv_obj_align(logoSaverDesignation_, LV_ALIGN_TOP_MID,
-                 xOffsets[position], yPositions[position] + 100);
-} else {
-    static constexpr int16_t xOffsets[] = {0, -10, 10, 0};
-    static constexpr int16_t yPositions[] = {32, 92, 148, 110};
-    const uint8_t position = logoSaverPosition_ % 4;
-    lv_obj_align(logoSaverLogo_, LV_ALIGN_TOP_MID,
-                 xOffsets[position], yPositions[position]);
-    lv_obj_align(logoSaverDesignation_, LV_ALIGN_TOP_MID,
-                 xOffsets[position], yPositions[position] + 112);
-}
+    static constexpr int16_t portraitY[] = {-100, -32, 100, 32};
+    static constexpr int16_t landscapeY[] = {-40, 20, 40, -20};
+    const uint8_t position=logoSaverPosition_%4;
+    const int y=portraitUi?portraitY[position]:landscapeY[position];
+    lv_obj_align(logoSaverLogo_,LV_ALIGN_CENTER,xOffsets[position],y);
+    lv_obj_align(logoSaverDesignation_,LV_ALIGN_CENTER,xOffsets[position],y);
+    const bool designation=position%2;
+    if(designation){
+        lv_obj_add_flag(logoSaverLogo_,LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(logoSaverDesignation_,LV_OBJ_FLAG_HIDDEN);
+    }else{
+        lv_obj_clear_flag(logoSaverLogo_,LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(logoSaverDesignation_,LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 void TransmitterUi::drawLogoSaver()
@@ -2642,7 +2651,7 @@ void TransmitterUi::drawStartupWarningPage()
     startScreen();
     resetLvglObjects();
     lv_obj_t *header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
-    makeLabel(header, "STARTUP SAFETY CHECK", 14, 12, portraitUi ? 16 : 24, 0xe7edef);
+    makeLabel(header, "STARTUP SAFETY CHECK", 14, 12, portraitUi ? UiText::Menu : UiText::Heading, 0xe7edef);
     beginPageFocus(false);
 
     lv_obj_t *banner = makePanel(12, 54, kScreenWidth-24, portraitUi ? 90 : 58, cSafetyFault, cRed);
@@ -2651,12 +2660,12 @@ void TransmitterUi::drawStartupWarningPage()
                           : startupFaultMask_ != 0
                               ? (portraitUi ? "CHECK INPUT\nCONNECTIONS" : "CHECK INPUT CONNECTIONS")
                               : (portraitUi ? "RETURN CONTROLS\nTO SAFE POSITION" : "RETURN CONTROLS TO SAFE POSITION"),
-              18, 8, 16, startupWarningMask_ == 0 ? cAmber : cRed);
-    makeLabel(banner, "Output remains CUT", 18, portraitUi ? 66 : 33, 12, cWhite);
+              18, 8, UiText::Menu, startupWarningMask_ == 0 ? cAmber : cRed);
+    makeLabel(banner, "Output remains CUT", 18, portraitUi ? 66 : 33, UiText::Caption, cWhite);
 
     if (startupWarningMask_ == 0) {
         makeLabel(lv_scr_act(), "Waiting for stable input readings", portraitUi ? 14 : 72, portraitUi ? 176 : 154,
-                  16, cDim);
+                  UiText::Menu, cDim);
     } else {
         uint8_t shown = 0;
         for (size_t index = 0; index < kPhysicalControlCount; ++index) {
@@ -2667,9 +2676,9 @@ void TransmitterUi::drawStartupWarningPage()
             const int16_t y = (portraitUi ? 153 : 126) + row * (portraitUi ? 31 : 38);
             lv_obj_t *panel = makePanel(x, y, portraitUi ? 284 : 214, portraitUi ? 28 : 31, cPanel2, cAmber);
             makeLabel(panel, physicalControlDescriptor(index).name,
-                      8, 7, 11, cWhite);
+                      8, 7, UiText::Caption, cWhite);
             makeLabel(panel, (startupFaultMask_ & (uint32_t{1} << index)) ? "FAULT" : "ACTIVE",
-                      portraitUi ? 231 : 165, 8, 10, cRed);
+                      portraitUi ? 231 : 165, 8, UiText::Caption, cRed);
             ++shown;
             if (shown >= 8) break;
         }
@@ -2678,7 +2687,7 @@ void TransmitterUi::drawStartupWarningPage()
         ? (portraitUi ? "Check power / input connections.\nContinues when readings are safe." : "Check power / input connections to continue")
         : (portraitUi ? "Release switches / centre trims\nto continue" : "Release switches / centre trims to continue");
     makeLabel(lv_scr_act(), instructions, portraitUi ? 14 : 65,
-              portraitUi ? 421 : 286, 12, cAmber);
+              portraitUi ? 421 : 286, UiText::Caption, cAmber);
     finishPageFocus();
 }
 
@@ -2694,26 +2703,26 @@ void TransmitterUi::drawRadioDiagnostics()
     const int panelWidth=portraitUi?kScreenWidth-2*kPanelMargin:(kScreenWidth-2*kPanelMargin-kPanelGap)/2;
     const int top=44+kPanelGap, cardHeight=126;
     lv_obj_t *link = makePanel(kPanelMargin, top, panelWidth, cardHeight);
-    makeLabel(link, "RADIO LINK", 10, 7, 12, cCyan);
-    telemetryLinkStateLabel_ = makeLabel(link, "NO DATA", 10, 27, 20, cDim);
-    telemetryLinkQualityLabel_ = makeLabel(link, "LQ   ---%", 10, 56, 17, cDim);
-    telemetryRssiLabel_ = makeLabel(link, "RSSI --- dBm", 10, 80, 15, cDim);
-    telemetrySnrLabel_ = makeLabel(link, "SNR  -- dB", 10, 101, 13, cDim);
+    makeLabel(link, "RADIO LINK", 10, 7, UiText::Caption, cCyan);
+    telemetryLinkStateLabel_ = makeLabel(link, "NO DATA", 10, 27, UiText::Heading, cDim);
+    telemetryLinkQualityLabel_ = makeLabel(link, "LQ   ---%", 10, 56, UiText::Menu, cDim);
+    telemetryRssiLabel_ = makeLabel(link, "RSSI --- dBm", 10, 80, UiText::Menu, cDim);
+    telemetrySnrLabel_ = makeLabel(link, "SNR  -- dB", 10, 101, UiText::Caption, cDim);
 
     lv_obj_t *power = makePanel(portraitUi?kPanelMargin:kPanelMargin+panelWidth+kPanelGap, portraitUi?top+cardHeight+kPanelGap:top, panelWidth, cardHeight);
-    makeLabel(power, "POWER / RF", 10, 7, 12, cCyan);
-    telemetryTxVoltageLabel_ = makeLabel(power, "TX  --.- V", 10, 31, 18, cDim);
-    telemetryRxVoltageLabel_ = makeLabel(power, "RX  --.- V", 10, 59, 18, cDim);
-    telemetryRadioLabel_ = makeLabel(power, "ANT -   MODE -   PWR -", 10, 94, 12, cDim);
+    makeLabel(power, "POWER / RF", 10, 7, UiText::Caption, cCyan);
+    telemetryTxVoltageLabel_ = makeLabel(power, "TX  --.- V", 10, 31, UiText::Menu, cDim);
+    telemetryRxVoltageLabel_ = makeLabel(power, "RX  --.- V", 10, 59, UiText::Menu, cDim);
+    telemetryRadioLabel_ = makeLabel(power, "ANT -   MODE -   PWR -", 10, 94, UiText::Caption, cDim);
 
     lv_obj_t *stream = makePanel(kPanelMargin, top+(portraitUi?2:1)*(cardHeight+kPanelGap), kScreenWidth-2*kPanelMargin, portraitUi ? 120 : 98);
-    makeLabel(stream, "CRSF STREAM", 10, 7, 12, cCyan);
-    telemetryFramesLabel_ = makeLabel(stream, "FRAMES          0", 10, 31, 15, cWhite);
-    telemetryCrcLabel_ = makeLabel(stream, "CRC ERR         0", portraitUi ? 10 : 245, portraitUi ? 78 : 31, portraitUi ? 12 : 15, cWhite);
-    telemetryBytesLabel_ = makeLabel(stream, "BYTES           0", 10, 58, 15, cWhite);
-    telemetryAgeLabel_ = makeLabel(stream, "AGE          ----", portraitUi ? 150 : 245, portraitUi ? 78 : 58, portraitUi ? 12 : 15, cDim);
+    makeLabel(stream, "CRSF STREAM", 10, 7, UiText::Caption, cCyan);
+    telemetryFramesLabel_ = makeLabel(stream, "FRAMES          0", 10, 31, UiText::Menu, cWhite);
+    telemetryCrcLabel_ = makeLabel(stream, "CRC ERR         0", portraitUi ? 10 : 245, portraitUi ? 78 : 31, portraitUi ? UiText::Caption : UiText::Menu, cWhite);
+    telemetryBytesLabel_ = makeLabel(stream, "BYTES           0", 10, 58, UiText::Menu, cWhite);
+    telemetryAgeLabel_ = makeLabel(stream, "AGE          ----", portraitUi ? 150 : 245, portraitUi ? 78 : 58, portraitUi ? UiText::Caption : UiText::Menu, cDim);
 
-    makeLabel(lv_scr_act(), "Live receiver telemetry via Ranger Nano", 12, portraitUi ? 446 : 293, 12, cDim);
+    makeLabel(lv_scr_act(), "Live receiver telemetry via Ranger Nano", 12, portraitUi ? 446 : 293, UiText::Caption, cDim);
     finishPageFocus();
 }
 
@@ -2936,11 +2945,11 @@ void TransmitterUi::addPageActionTarget(int16_t x, int16_t y, int16_t width,
 
 lv_obj_t *TransmitterUi::makePageActionButton(
     int16_t x, int16_t y, int16_t width, int16_t height,
-    const char *text, uint8_t fontSize, uint32_t fill,
+    const char *text, UiText::Style textStyle, uint32_t fill,
     uint32_t textColour, uint32_t border,
     PageControlHandler handler, uint8_t argument)
 {
-    lv_obj_t *button = makeButton(x, y, width, height, text, fontSize,
+    lv_obj_t *button = makeButton(x, y, width, height, text, textStyle,
                                   fill, textColour, border);
     addPageActionTarget(x, y, width, height, handler, argument);
     return button;
@@ -2973,24 +2982,177 @@ void TransmitterUi::addPageEditorTarget(
     target.argument = argument;
 }
 
+bool TransmitterUi::navigationIsModal() const
+{
+    switch(activePage_) {
+        case UiPage::BootSplash: case UiPage::BootPin: case UiPage::LogoSaver:
+        case UiPage::StartupWarning: case UiPage::Calibration:
+        case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation:
+        case UiPage::ValueEditor: case UiPage::WidgetEditor:
+        case UiPage::ParameterControlPicker: case UiPage::MixingOverview:
+        case UiPage::ChannelMixing: case UiPage::BindingEditor:
+        case UiPage::ElrsBinding: return true;
+        case UiPage::WifiSetup: return wifiEdit_ != 0;
+        case UiPage::ElrsTxConfig: return txConfigSelected_ != 0;
+        default: return false;
+    }
+}
+
+// Subsection navigation uses one presentation everywhere. These are tabs,
+// separate from framed action buttons and the primary bottom navigation.
+void TransmitterUi::drawPageTabs(const char *const *labels,const uint8_t *actions,
+                                uint8_t count,uint8_t selected,
+                                PageControlHandler handler,int16_t y)
+{
+    if(!count)return;
+    constexpr int left=10,height=34;
+    const int width=kScreenWidth-2*left;
+    for(uint8_t i=0;i<count;++i){
+        const int x=left+i*width/count,w=(i+1)*width/count-i*width/count;
+        auto tab=makePageActionButton(x,y,w,height,labels[i],UiText::Menu,cBlack,
+            i==selected?cCyan:cWhite,cBlack,handler,actions[i]);
+        lv_obj_set_style_border_width(tab,0,0);lv_obj_set_style_radius(tab,0,0);
+        if(i==selected){
+            auto line=lv_obj_create(tab);position(line,0,height-3,w,3);
+            lv_obj_set_style_bg_color(line,colour(cCyan),0);
+            lv_obj_set_style_border_width(line,0,0);lv_obj_set_style_radius(line,0,0);
+            lv_obj_clear_flag(line,LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
+}
+
+void TransmitterUi::drawPageControls(uint8_t page,uint8_t count)
+{
+    const int y=kScreenHeight-(portraitUi?60:40)-34;
+    const int left=(kScreenWidth-count*28)/2;
+    auto background=makePanel(left-4,y+2,count*28+8,24,cWhite,cWhite,12);
+    lv_obj_set_style_bg_opa(background,LV_OPA_10,0);
+    lv_obj_set_style_border_width(background,0,0);
+    lv_obj_set_style_shadow_width(background,0,0);
+    lv_obj_clear_flag(background,LV_OBJ_FLAG_CLICKABLE);
+    for(uint8_t i=0;i<count;++i){
+        auto target=makePageActionButton(left+i*28,y,28,28,"",UiText::Caption,
+            cBlack,cWhite,cBlack,&TransmitterUi::controlPageDot,i);
+        lv_obj_set_style_border_width(target,0,0);
+        lv_obj_set_style_bg_opa(target,LV_OPA_TRANSP,0);
+        auto dot=makePanel(10,10,8,8,i==page?cCyan:cDim,i==page?cCyan:cDim,4);
+        lv_obj_set_style_border_width(dot,0,0);
+        lv_obj_set_style_bg_opa(dot,i==page?LV_OPA_COVER:LV_OPA_50,0);
+        lv_obj_set_parent(dot,target);lv_obj_clear_flag(dot,LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
+void TransmitterUi::controlPageDot(uint8_t page,PageControlEvent event)
+{
+    if(event!=PageControlEvent::Activate)return;
+    if(activePage_==UiPage::Tune&&page<2){tuneBank_=page;drawDesignPage(activePage_);}
+    else if(activePage_==UiPage::Telemetry&&page<(DashboardSensorCount+5)/6){sensorBank_=page;drawDesignPage(activePage_);}
+    else if(activePage_==UiPage::ChannelMonitor&&page<4){designBank_=page;drawDesignPage(activePage_);}
+    else if(activePage_==UiPage::MainMenu&&page<2){setupPage_=page;drawMainMenu();}
+    else if(activePage_==UiPage::InputMonitor&&page<(kPhysicalControlCount+4)/5){inputMonitorBank_=page;drawInputMonitorPage();}
+}
+
+bool TransmitterUi::handlePageSwipe(int16_t x,int16_t y,int16_t endX,int16_t endY,uint32_t duration)
+{
+    if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None)return false;
+    uint8_t page=0,count=0;
+    switch(activePage_){
+        case UiPage::Tune:page=tuneBank_;count=2;break;
+        case UiPage::Telemetry:page=sensorBank_;count=(DashboardSensorCount+5)/6;break;
+        case UiPage::ChannelMonitor:page=designBank_;count=4;break;
+        case UiPage::MainMenu:page=setupPage_;count=2;break;
+        case UiPage::InputMonitor:page=inputMonitorBank_;count=(kPhysicalControlCount+4)/5;break;
+        default:return false;
+    }
+    const int dx=endX-x,dy=endY-y;
+    if(abs(dx)<24&&abs(dy)<24)return false; // Ordinary tap.
+    // Consume drags on paged screens even if they are too vertical/slow or
+    // reach an end, so lifting a finger cannot activate the row underneath.
+    const int bottom=kScreenHeight-(portraitUi?60:40);
+    const int top=activePage_==UiPage::InputMonitor?44:80;
+    if(duration>1200||abs(dx)<60||abs(dy)>35||abs(dx)<2*abs(dy)||
+       y<top||endY<top||y>=bottom||endY>=bottom)return true;
+    const int next=constrain(int(page)+(dx<0?1:-1),0,int(count)-1);
+    if(next!=page)controlPageDot(next,PageControlEvent::Activate);
+    return true;
+}
+
+void TransmitterUi::drawSectionNavigation(uint8_t section)
+{
+    sectionNavigationVisible_=true;
+    const int y=kScreenHeight-(portraitUi?60:40);
+    const char *names[]={"Drive","Tune","Data","Setup"};
+    for(uint8_t i=0;i<4;++i){
+        auto tab=makePageActionButton(i*kScreenWidth/4,y,kScreenWidth/4,40,
+            names[i],UiText::Menu,i==section?cPanel2:cPanel,i==section?cCyan:cWhite,cLine,
+            &TransmitterUi::controlSectionNavigation,i);
+        lv_obj_set_style_radius(tab,0,0);
+        if(i==0){
+            designStatus_=lv_obj_get_child(tab,0);lv_obj_align(designStatus_,LV_ALIGN_CENTER,0,0);
+            driveIcon_=makeDriveIcon(tab,0,0);lv_obj_align(driveIcon_,LV_ALIGN_LEFT_MID,4,0);
+            driveProgress_=makeBar(tab,0,37,kScreenWidth/4,3,0,800);
+        }
+        if(i==section){auto mark=makePanel(0,0,kScreenWidth/4,i==0?2:5,cCyan,cCyan,0);
+            lv_obj_set_parent(mark,tab);lv_obj_set_pos(mark,0,35);}
+    }
+    updateDriveIcon(driveIcon_,designSafety_==OutputSafetyStatus::Armed,
+        hardwareRecovery_ || designSafety_==OutputSafetyStatus::InputFault ||
+        designSafety_==OutputSafetyStatus::ConfigurationFault || designSafety_==OutputSafetyStatus::ControlStale);
+}
+
+void TransmitterUi::controlSectionNavigation(uint8_t section, PageControlEvent event)
+{
+    if(navigationIsModal())return;
+    if(activePage_==UiPage::WifiSetup){
+        requestConfigurationCut();
+        wifiSetupPassword_[0]=0;wifiPassword_[0]=0;wifiEdit_=0;wifiSetupPasswordError_=false;
+    }
+    controlDesign(section,event);
+}
+
+// The older detail layouts occupied the full height. Fit their content and
+// matching touch/keypad rectangles into the shared content area, keeping the
+// header and footer fixed and using the same mapping for every detail screen.
+static void fitDetailChildren(lv_obj_t *parent, int numerator, int denominator, bool root)
+{
+    for(uint32_t i=0;i<lv_obj_get_child_cnt(parent);++i){
+        auto child=lv_obj_get_child(parent,i);
+        const int x=lv_obj_get_x(child),y=lv_obj_get_y(child),h=lv_obj_get_height(child);
+        if(root && y<44)continue;
+        fitDetailChildren(child,numerator,denominator,false);
+        lv_obj_set_align(child,LV_ALIGN_TOP_LEFT);
+        lv_obj_set_pos(child,x,root?44+(y-44)*numerator/denominator:y*numerator/denominator);
+        if(!lv_obj_check_type(child,&lv_label_class))lv_obj_set_height(child,max(1,h*numerator/denominator));
+    }
+}
+
 void TransmitterUi::finishPageFocus()
 {
-    // Append standard Back/Home navigation after page content so the first
-    // keypad focus remains the page's primary control, while every new
-    // standard-header page gets an escape route automatically.
-    if (pageStandardHeaderPending_) {
-        if(detailOutputLabel)addPageActionTarget(portraitUi?148:246,5,portraitUi?50:86,34,&TransmitterUi::controlDesign,0);
-        addPageActionTarget(portraitUi ? 206 : 344, 5, portraitUi ? 66 : 78, 34,
-                            &TransmitterUi::controlNavigation, 0);
-        addPageActionTarget(portraitUi ? 278 : 430, 5, portraitUi ? 36 : 42, 34,
-                            &TransmitterUi::controlNavigation, 1);
-        pageStandardHeaderPending_ = false;
+    if(standardDetailHeader){
+        if(!navigationIsModal()){
+            lv_obj_update_layout(lv_scr_act());
+            const int numerator=kScreenHeight-(portraitUi?60:40)-4-44;
+            const int denominator=kScreenHeight-(portraitUi?20:0)-44;
+            fitDetailChildren(lv_scr_act(),numerator,denominator,true);
+            auto fit=[&](PageFocusTarget::Rectangle &r){if(r.height>0 && r.y>=44){
+                const int bottom=44+(r.y+r.height-44)*numerator/denominator;
+                r.y=44+(r.y-44)*numerator/denominator;r.height=bottom-r.y;}};
+            for(uint8_t i=0;i<pageFocusCount_;++i){auto &t=pageFocusTargets_[i];fit(t.focus);fit(t.activate);fit(t.decrease);fit(t.increase);}
+            detailContentCompacted_=true;
+            if(activePage_==UiPage::InputMonitor)
+                drawPageControls(inputMonitorBank_,(kPhysicalControlCount+4)/5);
+            drawSectionNavigation(activePage_==UiPage::RadioDiagnostics || (activePage_==UiPage::InputMonitor && inputMonitorReturnPage_==UiPage::Telemetry)?2:3);
+        }
+        // Wi-Fi edits have explicit Done/Cancel behaviour; all other details
+        // use the normal parent navigation (including keypad activation).
+        addPageActionTarget(8,5,76,34,&TransmitterUi::controlNavigation,0);
+        pageStandardHeaderPending_=false;
     }
     if (portraitUi && !(activePage_==UiPage::Gps && gpsFullScreen_)) {
         auto strip=makePanel(0,460,320,20,cHeader,cHeader,0);
-        makeLabel(strip,"JR",8,3,12,cRed);
-        makeLabel(strip,"R-1",29,3,12,0xe7edef);
-        makeLabel(strip,"TOUCH CONTROL",111,4,10,0xa9bbc5);
+        makeLabel(strip,"JR",8,3,UiText::Caption,cRed);
+        makeLabel(strip,"R-1",29,3,UiText::Caption,0xe7edef);
+        makeLabel(strip,"TOUCH CONTROL",111,4,UiText::Caption,0xa9bbc5);
         auto indicator=lv_obj_create(strip);position(indicator,300,8,12,4);
         lv_obj_set_style_bg_color(indicator,colour(cCyan),0);
         lv_obj_set_style_border_width(indicator,0,0);
@@ -3418,7 +3580,6 @@ void TransmitterUi::controlThrottleHeader(uint8_t item, PageControlEvent)
 
 void TransmitterUi::controlNavigation(uint8_t item, PageControlEvent)
 {
-    if(SetupPortal::active() && activePage_==UiPage::WifiSetup)return;
     if (item == 0) navigateBack();
     else {
         if (calibrationActive())
@@ -3431,13 +3592,23 @@ void TransmitterUi::controlNavigation(uint8_t item, PageControlEvent)
 
 void TransmitterUi::navigateBack()
 {
-    if(SetupPortal::active() && activePage_==UiPage::WifiSetup)return;
+    if(activePage_==UiPage::QuickNavigation){drawDesignPage(keypadReturnPage_);return;}
+    if(activePage_==UiPage::FieldResetConfirmation){drawDesignPage(UiPage::ValueEditor);return;}
+    if(activePage_==UiPage::WifiSetup){
+        requestConfigurationCut();
+        if(wifiEdit_==4 || wifiEdit_==6){wifiSetupPassword_[0]=0;wifiSetupPasswordError_=false;wifiEdit_=0;drawWifiPage();}
+        else if(wifiEdit_){controlWifi(13,PageControlEvent::Activate);}
+        else{wifiPassword_[0]=0;wifiSetupPassword_[0]=0;drawDesignPage(UiPage::NetworkOptions);}
+        return;
+    }
     if (designPage()) {
+        if(activePage_==UiPage::ModelSelect && modelAppearanceEditing_){modelAppearanceEditing_=false;drawModelSelectPage();return;}
+        if(activePage_==UiPage::WidgetEditor && widgetInputsEditing_){widgetInputsEditing_=false;drawDesignPage(UiPage::WidgetEditor);return;}
         if(activePage_==UiPage::OutputStatus||activePage_==UiPage::ModeChooser||activePage_==UiPage::DriveModes||activePage_==UiPage::ChannelPlaceholder||activePage_==UiPage::ChannelInput||activePage_==UiPage::ChannelResponseSetup||activePage_==UiPage::ParameterControlPicker||activePage_==UiPage::ResponseProfile||activePage_==UiPage::MixingOverview||activePage_==UiPage::NetworkOptions||activePage_==UiPage::SystemMenu){controlDesign(209,PageControlEvent::Activate);return;}
         if (activePage_ == UiPage::ValueEditor) drawDesignPage(editorReturn_);
         else if (activePage_ == UiPage::WidgetEditor) drawDesignPage(UiPage::WidgetSelect);
         else if (activePage_ == UiPage::SensorDetail || activePage_ == UiPage::Gps || activePage_ == UiPage::ChannelMonitor) drawTelemetryPage();
-        else if (activePage_ == UiPage::WidgetSelect || activePage_ == UiPage::Channels || activePage_ == UiPage::ModelSelect) drawMainMenu();
+        else if (activePage_ == UiPage::WidgetSelect || activePage_ == UiPage::Channels || activePage_ == UiPage::ModelSelect || activePage_ == UiPage::BatteryMenu) drawMainMenu();
         else drawDashboard();
         return;
     }
@@ -3498,14 +3669,14 @@ void TransmitterUi::drawChannelRoleRow(int row)
 {
     const int16_t y = 72 + row * 68;
     lv_obj_t *panel = makePanel(18, y, 444, 68-kPanelGap);
-    makeLabel(panel, row == 0 ? "STEERING" : "THROTTLE", 14, 16, 18, cCyan);
+    makeLabel(panel, row == 0 ? "STEERING" : "THROTTLE", 14, 16, UiText::Menu, cCyan);
     const uint8_t channel = row == 0 ? channelRoleSettings_.steeringChannel
                                      : channelRoleSettings_.throttleChannel;
     char value[12];
     snprintf(value, sizeof(value), "CH%u", channel);
-    makeLabel(panel, value, 242, 16, 18, cWhite);
-    makeButton(350, y + 8, 44, 40, "-", 22);
-    makeButton(404, y + 8, 44, 40, "+", 22);
+    makeLabel(panel, value, 242, 16, UiText::Menu, cWhite);
+    makeButton(350, y + 8, 44, 40, "-", UiText::Heading);
+    makeButton(404, y + 8, 44, 40, "+", UiText::Heading);
 }
 
 void TransmitterUi::drawControlAssignmentsPage()
@@ -3530,7 +3701,8 @@ void TransmitterUi::drawControlAssignmentsPage()
             physicalControlDescriptor(inputIndex);
         const int16_t y = 54 + row * (portraitUi ? 65 : 40);
         lv_obj_t *panel = makePanel(10, y, kScreenWidth-20, (portraitUi ? 65 : 40)-kPanelGap);
-        makeLabel(panel, control.name, 8, 5, 12, cWhite);
+        auto nameLabel=makeLabel(panel,control.name,8,portraitUi?5:(40-kPanelGap-UiText::font(UiText::Menu)->line_height)/2,UiText::Menu,cWhite);
+        boundedLabel(nameLabel,portraitUi?kScreenWidth-48:190);
         char summary[48];
         uint32_t summaryColour = cDim;
         if (control.kind == PhysicalControlKind::Proportional) {
@@ -3573,27 +3745,27 @@ void TransmitterUi::drawControlAssignmentsPage()
                 summaryColour = binding.enabled ? cGreen : cAmber;
             }
         }
-        makeLabel(panel, summary, portraitUi ? 8 : 215, portraitUi ? 29 : 5, 11, summaryColour);
-        makeLabel(panel, ">", kScreenWidth-42, 4, 16, cDim);
+        makeLabel(panel, summary, portraitUi ? 8 : 215, portraitUi ? 29 : 5, UiText::Caption, summaryColour);
+        makeLabel(panel, ">", kScreenWidth-42, 4, UiText::Menu, cDim);
         addPageActionTarget(10, y, kScreenWidth-20, portraitUi ? 58 : 35,
                             &TransmitterUi::controlAssignments, row);
     }
 
-    makeButton(10, portraitUi ? 410 : 263, 50, 42, "<", 22,
+    makeButton(10, portraitUi ? 410 : 263, 50, 42, "<", UiText::Heading,
                assignmentBank_ == 0 ? cBlack : cPanel,
                assignmentBank_ == 0 ? cDim : cWhite);
     addPageActionTarget(10, portraitUi ? 410 : 263, 50, 42,
                         &TransmitterUi::controlAssignments, 5);
-    makeButton(portraitUi ? 66 : 70, portraitUi ? 410 : 263, portraitUi ? 80 : 94, 42, "CHANNELS", 12, cPanel2, cCyan);
+    makeButton(portraitUi ? 66 : 70, portraitUi ? 410 : 263, portraitUi ? 80 : 94, 42, "CHANNELS", UiText::Secondary, cPanel2, cCyan);
     addPageActionTarget(portraitUi ? 66 : 70, portraitUi ? 410 : 263, portraitUi ? 80 : 94, 42,
                         &TransmitterUi::controlAssignments, 6);
-    makeButton(portraitUi ? 152 : 174, portraitUi ? 410 : 263, portraitUi ? 102 : 132, 42, "INPUT MON", 12, cPanel2, cCyan);
+    makeButton(portraitUi ? 152 : 174, portraitUi ? 410 : 263, portraitUi ? 102 : 132, 42, "INPUT MON", UiText::Secondary, cPanel2, cCyan);
     addPageActionTarget(portraitUi ? 152 : 174, portraitUi ? 410 : 263, portraitUi ? 102 : 132, 42,
                         &TransmitterUi::controlAssignments, 7);
     char page[12];
     snprintf(page, sizeof(page), "%u/%u", assignmentBank_ + 1, kBanks);
-    makeLabel(lv_scr_act(), page, portraitUi ? 140 : 329, portraitUi ? 396 : 276, 12, cDim);
-    makeButton(portraitUi ? 260 : 420, portraitUi ? 410 : 263, 50, 42, ">", 22,
+    makeLabel(lv_scr_act(), page, portraitUi ? 140 : 329, portraitUi ? 396 : 276, UiText::Caption, cDim);
+    makeButton(portraitUi ? 260 : 420, portraitUi ? 410 : 263, 50, 42, ">", UiText::Heading,
                assignmentBank_ + 1 >= kBanks ? cBlack : cPanel,
                assignmentBank_ + 1 >= kBanks ? cDim : cWhite);
     addPageActionTarget(portraitUi ? 260 : 420, portraitUi ? 410 : 263, 50, 42,
@@ -3609,27 +3781,25 @@ void TransmitterUi::drawBindingEditorPage()
     const bool parameter=bindingDraft_.target==AssignmentTarget::ModelParameter&&isChannelParameterTarget(bindingDraft_.targetId);
     const bool editableMode=parameter||bindingDraft_.target==AssignmentTarget::CrsfChannel;
     auto name=makePanel(12,48,kScreenWidth-24,portraitUi?52:36);
-    boundedLabel(makeLabel(name,control.name,10,6,14,cCyan),portraitUi?kScreenWidth-44:280);
-    makeLabel(name,r1InputEndpointLabel(selectedBindingInput_),portraitUi?10:310,portraitUi?30:9,10,cDim);
-    const int tabsY=portraitUi?106:90,tabsH=portraitUi?36:30;
+    boundedLabel(makeLabel(name,control.name,10,6,UiText::Secondary,cCyan),portraitUi?kScreenWidth-44:280);
+    makeLabel(name,r1InputEndpointLabel(selectedBindingInput_),portraitUi?10:310,portraitUi?30:9,UiText::Caption,cDim);
+    const int tabsY=portraitUi?106:90;
     const uint8_t banks=editableMode?4:2;
     if(bindingEditorBank_>=banks)bindingEditorBank_=0;
     const char *tabs[]={"Assign","Mode","Range","State"};
-    for(uint8_t bank=0;bank<banks;++bank)
-        makePageActionButton(12+bank*((kScreenWidth-24)/banks),tabsY,(kScreenWidth-24)/banks-4,tabsH,
-            tabs[bank],13,bank==bindingEditorBank_?cPanel2:cPanel,
-            bank==bindingEditorBank_?cCyan:cWhite,cLine,&TransmitterUi::controlBindingEditor,8+bank);
+    const uint8_t actions[]={8,9,10,11};
+    drawPageTabs(tabs,actions,banks,bindingEditorBank_,&TransmitterUi::controlBindingEditor,tabsY);
     auto field=[&](int row,uint8_t id,const char *title,const char *value){
         const int y=(portraitUi?150:126)+row*(portraitUi?64:44),h=(portraitUi?64:44)-kPanelGap;
         auto panel=makePanel(12,y,kScreenWidth-24,h);
-        boundedLabel(makeLabel(panel,title,10,4,11,cDim),kScreenWidth-156);
-        boundedLabel(makeLabel(panel,value,10,portraitUi?27:20,14,cWhite),kScreenWidth-156);
+        boundedLabel(makeLabel(panel,title,10,4,UiText::Caption,cDim),kScreenWidth-156);
+        boundedLabel(makeLabel(panel,value,10,portraitUi?27:20,UiText::Secondary,cWhite),kScreenWidth-156);
         if(id==0){
-            makePageActionButton(kScreenWidth-118,y+4,94,h-8,value,14,bindingDraft_.enabled?cGreen:cPanel2,
+            makePageActionButton(kScreenWidth-118,y+4,94,h-8,value,UiText::Secondary,bindingDraft_.enabled?cGreen:cPanel2,
                 bindingDraft_.enabled?cBlack:cWhite,cLine,&TransmitterUi::controlBindingEditor,0);
         }else if(id!=255){
             const int x=kScreenWidth-118,bw=44;
-            makeButton(x,y+4,bw,h-8,"<",18);makeButton(x+50,y+4,bw,h-8,">",18);
+            makeButton(x,y+4,bw,h-8,"<",UiText::Menu);makeButton(x+50,y+4,bw,h-8,">",UiText::Menu);
             addPageEditorTarget(12,y,kScreenWidth-24,h,x,y+4,bw,h-8,x+50,y+4,bw,h-8,
                 &TransmitterUi::controlBindingEditor,id);
         }
@@ -3656,9 +3826,9 @@ void TransmitterUi::drawBindingEditorPage()
             case ContextCut:help="Available only while outputs are CUT.";break;
             default:help="Uses the selected context combination.";break;
         }
-        auto caption=makeLabel(lv_scr_act(),help,14,(portraitUi?150:126)+row*(portraitUi?64:44)+4,12,cDim);
+        auto caption=makeLabel(lv_scr_act(),help,14,(portraitUi?150:126)+row*(portraitUi?64:44)+4,UiText::Caption,cDim);
         lv_obj_set_width(caption,kScreenWidth-28);lv_label_set_long_mode(caption,LV_LABEL_LONG_WRAP);
-        if(!editableMode)makeLabel(lv_scr_act(),"Mode follows the chosen function / switch.",14,portraitUi?290:216,11,cDim);
+        if(!editableMode)makeLabel(lv_scr_act(),"Mode follows the chosen function / switch.",14,portraitUi?290:216,UiText::Caption,cDim);
     }
     if(bindingEditorBank_>=2){
         auto percent=[&](int row,uint8_t id,const char *title,int value){char text[32];snprintf(text,sizeof(text),"%+.1f%%",value/10.0);field(row,id,title,text);};
@@ -3678,12 +3848,12 @@ void TransmitterUi::drawBindingEditorPage()
         }
     }
     boundedLabel(makeLabel(lv_scr_act(),bindingError_[0]?bindingError_:"Draft only. Apply forces CUT; re-enable at neutral.",
-        14,portraitUi?392:259,10,bindingError_[0]?cRed:cAmber),kScreenWidth-28);
+        14,portraitUi?392:259,UiText::Caption,bindingError_[0]?cRed:cAmber),kScreenWidth-28);
     const int bottom=portraitUi?416:274,h=portraitUi?40:34;
-    makePageActionButton(12,bottom,portraitUi?92:138,h,"Cancel",13,cPanel,cWhite,cLine,&TransmitterUi::controlBindingEditor,5);
+    makePageActionButton(12,bottom,portraitUi?92:138,h,"Cancel",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlBindingEditor,5);
     if(bindingIndexForInput(selectedBindingInput_)>=0)
-        makePageActionButton(portraitUi?110:160,bottom,portraitUi?92:138,h,"Remove",13,cPanel,cAmber,cLine,&TransmitterUi::controlBindingEditor,6);
-    makePageActionButton(portraitUi?208:308,bottom,portraitUi?100:160,h,"Apply",13,cGreen,cBlack,cLine,&TransmitterUi::controlBindingEditor,7);
+        makePageActionButton(portraitUi?110:160,bottom,portraitUi?92:138,h,"Remove",UiText::Secondary,cPanel,cAmber,cLine,&TransmitterUi::controlBindingEditor,6);
+    makePageActionButton(portraitUi?208:308,bottom,portraitUi?100:160,h,"Apply",UiText::Secondary,cGreen,cBlack,cLine,&TransmitterUi::controlBindingEditor,7);
     finishPageFocus();
 }
 
@@ -3696,8 +3866,6 @@ void TransmitterUi::drawInputMonitorPage()
     beginPageFocus();
 
     constexpr uint8_t kRowsPerBank = 5;
-    constexpr uint8_t kBankCount =
-        (kPhysicalControlCount + kRowsPerBank - 1) / kRowsPerBank;
     const size_t first = inputMonitorBank_ * kRowsPerBank;
     for (uint8_t row = 0; row < kRowsPerBank; ++row) {
         const size_t index = first + row;
@@ -3705,26 +3873,15 @@ void TransmitterUi::drawInputMonitorPage()
         const PhysicalControlDescriptor &control = physicalControlDescriptor(index);
         const int16_t y = 54 + row * (portraitUi ? 67 : 43);
         lv_obj_t *panel = makePanel(10, y, kScreenWidth-20, (portraitUi ? 67 : 43)-kPanelGap);
-        makeLabel(panel, control.name, 8, 5, 12, cWhite);
-        makeLabel(panel, r1InputEndpointLabel(control.id), portraitUi ? 8 : 150, portraitUi ? 33 : 6, 11, cDim);
-        inputMonitorStateLabels_[row] = makeLabel(panel, "--", portraitUi ? 171 : 285, 5, 12, cWhite);
-        inputMonitorEventLabels_[row] = makeLabel(panel, "--", portraitUi ? 171 : 370, portraitUi ? 33 : 6, 11, cDim);
+        auto nameLabel=makeLabel(panel,control.name,8,portraitUi?5:(40-kPanelGap-UiText::font(UiText::Menu)->line_height)/2,UiText::Menu,cWhite);
+        boundedLabel(nameLabel,portraitUi?kScreenWidth-48:190);
+        makeLabel(panel, r1InputEndpointLabel(control.id), portraitUi ? 8 : 200, portraitUi ? 33 : 6, UiText::Caption, cDim);
+        inputMonitorStateLabels_[row] = makeLabel(panel, "--", portraitUi ? 171 : 285, 5, UiText::Caption, cWhite);
+        inputMonitorEventLabels_[row] = makeLabel(panel, "--", portraitUi ? 171 : 370, portraitUi ? 33 : 6, UiText::Caption, cDim);
     }
 
-    makePageActionButton(12, portraitUi ? 410 : 274, 58, 34, "<", 22,
-                         inputMonitorBank_ == 0 ? cBlack : cPanel,
-                         inputMonitorBank_ == 0 ? cDim : cWhite, cLine,
-                         &TransmitterUi::controlInputMonitor, 0);
-    makePageActionButton(kScreenWidth-70, portraitUi ? 410 : 274, 58, 34, ">", 22,
-                         inputMonitorBank_ + 1 >= kBankCount ? cBlack : cPanel,
-                         inputMonitorBank_ + 1 >= kBankCount ? cDim : cWhite,
-                         cLine, &TransmitterUi::controlInputMonitor, 1);
-    char page[16];
-    snprintf(page, sizeof(page), "%u / %u", inputMonitorBank_ + 1, kBankCount);
-    lv_obj_t *pageLabel = makeLabel(lv_scr_act(), page, 0, portraitUi ? 420 : 284, 14, cDim);
-    lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, portraitUi ? 420 : 284);
     refreshInputMonitorRows();
-    makeLabel(lv_scr_act(),"Read-only: operate controls on the handset",12,portraitUi?384:250,10,cDim);
+    makeLabel(lv_scr_act(),"Read-only: operate controls on the handset",12,portraitUi?384:264,UiText::Caption,cDim);
     finishPageFocus();
 }
 
@@ -3792,10 +3949,10 @@ void TransmitterUi::drawChannelRolesPage()
                         &TransmitterUi::controlChannelRoles, 1);
     makePageActionButton(18, 204, 444, 42,
         channelRoleSettings_.steeringEnabled ? "Steering input: ON" : "Steering input: OFF (neutral)",
-        14, cPanel2, cCyan, cLine, &TransmitterUi::controlChannelRoles, 2);
+        UiText::Secondary, cPanel2, cCyan, cLine, &TransmitterUi::controlChannelRoles, 2);
     lv_obj_t *note = makeLabel(lv_scr_act(),
         "Changes force CUT. Disabled steering holds safe neutral.",
-        18, 260, 12, cAmber);
+        18, 260, UiText::Caption, cAmber);
     lv_obj_set_width(note, 444);
     finishPageFocus();
 }
@@ -3810,14 +3967,14 @@ void TransmitterUi::drawSettingRow(int row)
     static const char *labels[] = {"BRAKE/REV END", "SUB-TRIM", "FORWARD END", "DIRECTION"};
     const int16_t y = 56 + row * 50;
     lv_obj_t *panel = makePanel(10, y, 460, 44);
-    makeLabel(panel, labels[row], 12, 12, 16, cCyan);
+    makeLabel(panel, labels[row], 12, 12, UiText::Menu, cCyan);
     char value[20];
     if (row == 0) snprintf(value, sizeof(value), "%u%%", throttleProfile().negativeEndpointPercent);
     else if (row == 1) snprintf(value, sizeof(value), "%+d%%", throttleProfile().subtrimPercent);
     else if (row == 2) snprintf(value, sizeof(value), "%u%%", throttleProfile().positiveEndpointPercent);
     else snprintf(value, sizeof(value), "%s", throttleProfile().reversed ? "REVERSE" : "NORMAL");
     channel2SettingValueLabels_[row] = makeLabel(
-        panel, value, 212, 12, 16,
+        panel, value, 212, 12, UiText::Menu,
         row == 3 && throttleProfile().reversed ? cAmber : cWhite);
     if (row < 3) {
         lv_obj_t *minus = lv_obj_create(panel);
@@ -3825,17 +3982,17 @@ void TransmitterUi::drawSettingRow(int row)
         lv_obj_set_style_bg_color(minus, colour(cPanel2), 0);
         lv_obj_set_style_border_color(minus, colour(cLine), 0);
         lv_obj_set_style_border_width(minus, 1, 0);
-        lv_obj_set_style_radius(minus, 5, 0);
+        lv_obj_set_style_radius(minus, kUiCornerRadius, 0);
         lv_obj_set_style_pad_all(minus, 0, 0);
-        lv_obj_t *ml = makeLabel(minus, "-", 0, 0, 24); lv_obj_center(ml);
+        lv_obj_t *ml = makeLabel(minus, "-", 0, 0, UiText::Heading); lv_obj_center(ml);
         lv_obj_t *plus = lv_obj_create(panel);
         position(plus, 401, 3, 48, 36);
         lv_obj_set_style_bg_color(plus, colour(cPanel2), 0);
         lv_obj_set_style_border_color(plus, colour(cLine), 0);
         lv_obj_set_style_border_width(plus, 1, 0);
-        lv_obj_set_style_radius(plus, 5, 0);
+        lv_obj_set_style_radius(plus, kUiCornerRadius, 0);
         lv_obj_set_style_pad_all(plus, 0, 0);
-        lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 24); lv_obj_center(pl);
+        lv_obj_t *pl = makeLabel(plus, "+", 0, 0, UiText::Heading); lv_obj_center(pl);
     } else {
         channel2DirectionToggle_ = lv_obj_create(panel);
         position(channel2DirectionToggle_, 343, 3, 106, 36);
@@ -3843,10 +4000,10 @@ void TransmitterUi::drawSettingRow(int row)
                                   colour(throttleProfile().reversed ? cAmber : cPanel2), 0);
         lv_obj_set_style_border_color(channel2DirectionToggle_, colour(cLine), 0);
         lv_obj_set_style_border_width(channel2DirectionToggle_, 1, 0);
-        lv_obj_set_style_radius(channel2DirectionToggle_, 5, 0);
+        lv_obj_set_style_radius(channel2DirectionToggle_, kUiCornerRadius, 0);
         lv_obj_set_style_pad_all(channel2DirectionToggle_, 0, 0);
         channel2DirectionToggleLabel_ = makeLabel(
-            channel2DirectionToggle_, "TOGGLE", 0, 0, 14,
+            channel2DirectionToggle_, "TOGGLE", 0, 0, UiText::Secondary,
             throttleProfile().reversed ? cBlack : cWhite);
         lv_obj_center(channel2DirectionToggleLabel_);
     }
@@ -3887,18 +4044,12 @@ void TransmitterUi::drawPage()
     beginPageFocus(false);
     char title[24];
     snprintf(title, sizeof(title), "CH%u THROTTLE", channelRoleSettings_.throttleChannel);
-    makeHeader(title);
-    makeButton(190, 5, 68, 34, "RESP", 11, cPanel2, cCyan);
-    makeButton(266, 5, 70, 34, "BACK", 11);
-    makeButton(344, 5, 78, 34, "CAL", 11);
-    addPageActionTarget(190, 5, 68, 34,
-                        &TransmitterUi::controlThrottleHeader, 0);
-    addPageActionTarget(266, 5, 70, 34,
-                        &TransmitterUi::controlNavigation, 0);
-    addPageActionTarget(344, 5, 78, 34,
-                        &TransmitterUi::controlThrottleHeader, 1);
-    addPageActionTarget(430, 5, 42, 34,
-                        &TransmitterUi::controlNavigation, 1);
+    makeHeader(title,"Back");
+    lv_obj_set_width(lv_obj_get_child(lv_obj_get_child(lv_scr_act(),0),0),150);
+    makeButton(260,5,72,34,"Response",UiText::Secondary,cPanel2,cCyan);
+    makeButton(340,5,90,34,"Calibrate",UiText::Secondary);
+    addPageActionTarget(260,5,72,34,&TransmitterUi::controlThrottleHeader,0);
+    addPageActionTarget(340,5,90,34,&TransmitterUi::controlThrottleHeader,1);
     for (int row = 0; row < 4; ++row) {
         drawSettingRow(row);
         addPageEditorTarget(10, 56 + row * 50, 460, 44,
@@ -3906,13 +4057,13 @@ void TransmitterUi::drawPage()
                             411, 59 + row * 50, 48, 36,
                             &TransmitterUi::controlThrottleSetting, row);
     }
-    makeLabel(lv_scr_act(), "INPUT", 12, 283, 14, cCyan);
-    channel2ValueLabel_ = makeLabel(lv_scr_act(), "0%", 398, 283, 14, cGreen);
+    makeLabel(lv_scr_act(), "INPUT", 12, 283, UiText::Secondary, cCyan);
+    channel2ValueLabel_ = makeLabel(lv_scr_act(), "0%", 398, 283, UiText::Secondary, cGreen);
     channel2LiveBar_ = makeBar(lv_scr_act(), 70, 287, 316, 14,
                                -1000, 1000, cGreen);
     lv_bar_set_value(channel2LiveBar_, 0, LV_ANIM_OFF);
-    makeLabel(lv_scr_act(), "BRAKE/REV", 70, 304, 12, cDim);
-    makeLabel(lv_scr_act(), "FORWARD", 312, 304, 12, cDim);
+    makeLabel(lv_scr_act(), "BRAKE/REV", 70, 304, UiText::Caption, cDim);
+    makeLabel(lv_scr_act(), "FORWARD", 312, 304, UiText::Caption, cDim);
     finishPageFocus();
 }
 
@@ -3933,7 +4084,7 @@ void TransmitterUi::drawThrottleResponseRow(int row)
     const ChannelResponseProfile &profile = selectedResponseProfile();
     const int16_t y = 52 + row * 35;
     lv_obj_t *panel = makePanel(288, y, 184, 32);
-    makeLabel(panel, labels[row], 7, 4, 10, cCyan);
+    makeLabel(panel, labels[row], 7, 4, UiText::Caption, cCyan);
     char value[20];
     if (row == 0) snprintf(value, sizeof(value), "%+d%%", profile.subtrimPercent);
     else if (row == 1) snprintf(value, sizeof(value), "%u%%", profile.positiveEndpointPercent);
@@ -3942,22 +4093,22 @@ void TransmitterUi::drawThrottleResponseRow(int row)
     else if (row == 4) snprintf(value, sizeof(value), "%u%%", profile.negativeEndpointPercent);
     else if (row == 5) snprintf(value, sizeof(value), "%u%%", profile.negativeRatePercent);
     else snprintf(value, sizeof(value), "%+d%%", profile.negativeExpoPercent);
-    makeLabel(panel, value, 101, 4, 10, cWhite);
+    makeLabel(panel, value, 101, 4, UiText::Caption, cWhite);
 
     lv_obj_t *minus = lv_obj_create(panel); position(minus, 105, 14, 31, 15);
     lv_obj_set_style_bg_color(minus, colour(cPanel2), 0);
     lv_obj_set_style_border_color(minus, colour(cLine), 0);
     lv_obj_set_style_border_width(minus, 1, 0);
-    lv_obj_set_style_radius(minus, 5, 0);
+    lv_obj_set_style_radius(minus, kUiCornerRadius, 0);
     lv_obj_set_style_pad_all(minus, 0, 0);
-    lv_obj_t *ml = makeLabel(minus, "-", 0, 0, 13); lv_obj_center(ml);
+    lv_obj_t *ml = makeLabel(minus, "-", 0, 0, UiText::Caption); lv_obj_center(ml);
     lv_obj_t *plus = lv_obj_create(panel); position(plus, 143, 14, 31, 15);
     lv_obj_set_style_bg_color(plus, colour(cPanel2), 0);
     lv_obj_set_style_border_color(plus, colour(cLine), 0);
     lv_obj_set_style_border_width(plus, 1, 0);
-    lv_obj_set_style_radius(plus, 5, 0);
+    lv_obj_set_style_radius(plus, kUiCornerRadius, 0);
     lv_obj_set_style_pad_all(plus, 0, 0);
-    lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 13); lv_obj_center(pl);
+    lv_obj_t *pl = makeLabel(plus, "+", 0, 0, UiText::Caption); lv_obj_center(pl);
 }
 
 void TransmitterUi::drawThrottleResponseGraph()
@@ -3968,7 +4119,7 @@ void TransmitterUi::drawThrottleResponseGraph()
     constexpr int16_t graphWidth = 236;
     const int16_t graphHeight = portraitUi ? 110 : 188;
     lv_obj_t *panel = makePanel(portraitUi ? 24 : 8, 52, 272, portraitUi ? 159 : 250);
-    makeLabel(panel, "LIVE RESPONSE", 10, 7, 12, cCyan);
+    makeLabel(panel, "LIVE RESPONSE", 10, 7, UiText::Caption, cCyan);
 
     // A restrained grid is easier to read than the original monochrome plot,
     // while retaining its instantly recognisable input/output relationship.
@@ -4071,13 +4222,13 @@ void TransmitterUi::drawThrottleResponseGraph()
     const bool throttle = selectedChannel_ == channelRoleSettings_.throttleChannel;
     const bool steering = selectedChannel_ == channelRoleSettings_.steeringChannel;
     makeLabel(panel, throttle ? "BRAKE" : steering ? "LEFT" : "NEG",
-              graphX, portraitUi ? 140 : 220, 10, cDim);
-    lv_obj_t *neutral = makeLabel(panel, "N", 0, portraitUi ? 140 : 220, 10, cDim);
+              graphX, portraitUi ? 140 : 220, UiText::Caption, cDim);
+    lv_obj_t *neutral = makeLabel(panel, "N", 0, portraitUi ? 140 : 220, UiText::Caption, cDim);
     lv_obj_align(neutral, LV_ALIGN_TOP_MID, 0, portraitUi ? 140 : 220);
     makeLabel(panel, throttle ? "FWD" : steering ? "RIGHT" : "POS",
-              graphX + graphWidth - (steering ? 34 : 25), portraitUi ? 140 : 220, 10, cDim);
+              graphX + graphWidth - (steering ? 34 : 25), portraitUi ? 140 : 220, UiText::Caption, cDim);
     throttleGraphLiveLabel_ = makeLabel(panel, "IN +0%  OUT +0%",
-                                        111, 6, 9, cWhite);
+                                        111, 6, UiText::Caption, cWhite);
     refreshThrottleResponseGraph(mapAdcToPermille(latestRawAdc_));
 }
 
@@ -4113,7 +4264,7 @@ void TransmitterUi::drawThrottleResponsePage()
     char title[24];
     snprintf(title, sizeof(title), "CH%u RESPONSE", selectedChannel_);
     makeHeader(title, "BACK");
-    makeButton(258, 5, 78, 34, "RAMP", 11, cPanel2, cCyan);
+    makeButton(258, 5, 78, 34, "RAMP", UiText::Secondary, cPanel2, cCyan);
     addPageActionTarget(258, 5, 78, 34,
                         &TransmitterUi::controlThrottleHeader, 0);
     drawThrottleResponseGraph();
@@ -4138,14 +4289,14 @@ void TransmitterUi::drawChannelSpeedRow(int row)
     lv_obj_t *panel = makePanel(14, y, 452, 76-kPanelGap);
     char label[28];
     snprintf(label, sizeof(label), "%s RAMP TIME", row == 0 ? positive : negative);
-    makeLabel(panel, label, 12, 10, 16, cCyan);
+    makeLabel(panel, label, 12, 10, UiText::Menu, cCyan);
     const uint16_t value = row == 0 ? profile.positiveRampMs : profile.negativeRampMs;
     char text[20];
     if (value == 0) snprintf(text, sizeof(text), "DIRECT");
     else snprintf(text, sizeof(text), "%u ms", value);
-    makeLabel(panel, text, 242, 10, 16, cWhite);
-    makeButton(350, y + 20, 42, 34, "-", 22);
-    makeButton(402, y + 20, 42, 34, "+", 22);
+    makeLabel(panel, text, 242, 10, UiText::Menu, cWhite);
+    makeButton(350, y + 20, 42, 34, "-", UiText::Heading);
+    makeButton(402, y + 20, 42, 34, "+", UiText::Heading);
 }
 
 void TransmitterUi::drawChannelSpeedPage()
@@ -4167,7 +4318,7 @@ void TransmitterUi::drawChannelSpeedPage()
                         350, 174, 42, 34, 402, 174, 42, 34,
                         &TransmitterUi::controlChannelSpeed, 1);
     lv_obj_t *note = makeLabel(lv_scr_act(),
-        "0 ms = direct. Ramp is neutral-to-endpoint time.", 0, 250, 14, cDim);
+        "0 ms = direct. Ramp is neutral-to-endpoint time.", 0, 250, UiText::Secondary, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 250);
     finishPageFocus();
 }
@@ -4193,13 +4344,13 @@ void TransmitterUi::drawSetupRow(int row)
     static const char *labels[] = {"BUZZER", "KEY CLICKS", "PITCH", "CLICK LENGTH"};
     const int16_t y = 56 + row * 50;
     lv_obj_t *panel = makePanel(10, y, 460, 44);
-    makeLabel(panel, labels[row], 12, 12, 16, cCyan);
+    makeLabel(panel, labels[row], 12, 12, UiText::Menu, cCyan);
     char value[20];
     if (row == 0) snprintf(value, sizeof(value), "%s", systemSettings_.buzzerEnabled ? "ON" : "OFF");
     else if (row == 1) snprintf(value, sizeof(value), "%s", systemSettings_.keyClicksEnabled ? "ON" : "OFF");
     else if (row == 2) snprintf(value, sizeof(value), "%u Hz", systemSettings_.buzzerPitchHz);
     else snprintf(value, sizeof(value), "%u ms", systemSettings_.keyClickDurationMs);
-    makeLabel(panel, value, 212, 12, 16, cWhite);
+    makeLabel(panel, value, 212, 12, UiText::Menu, cWhite);
     if (row < 2) {
         const bool enabled = row == 0 ? systemSettings_.buzzerEnabled : systemSettings_.keyClicksEnabled;
         lv_obj_t *toggle = lv_obj_create(panel);
@@ -4207,17 +4358,17 @@ void TransmitterUi::drawSetupRow(int row)
         lv_obj_set_style_bg_color(toggle, colour(enabled ? cGreen : cPanel2), 0);
         lv_obj_set_style_border_color(toggle, colour(cLine), 0);
         lv_obj_set_style_border_width(toggle, 1, 0);
-        lv_obj_set_style_radius(toggle, 5, 0);
+        lv_obj_set_style_radius(toggle, kUiCornerRadius, 0);
         lv_obj_set_style_pad_all(toggle, 0, 0);
-        lv_obj_t *label = makeLabel(toggle, "TOGGLE", 0, 0, 14, enabled ? cBlack : cWhite);
+        lv_obj_t *label = makeLabel(toggle, "TOGGLE", 0, 0, UiText::Secondary, enabled ? cBlack : cWhite);
         lv_obj_center(label);
     } else {
         lv_obj_t *minus = lv_obj_create(panel); position(minus, 343, 3, 48, 36);
         lv_obj_set_style_bg_color(minus, colour(cPanel2), 0); lv_obj_set_style_pad_all(minus, 0, 0);
-        lv_obj_t *ml = makeLabel(minus, "-", 0, 0, 24); lv_obj_center(ml);
+        lv_obj_t *ml = makeLabel(minus, "-", 0, 0, UiText::Heading); lv_obj_center(ml);
         lv_obj_t *plus = lv_obj_create(panel); position(plus, 401, 3, 48, 36);
         lv_obj_set_style_bg_color(plus, colour(cPanel2), 0); lv_obj_set_style_pad_all(plus, 0, 0);
-        lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 24); lv_obj_center(pl);
+        lv_obj_t *pl = makeLabel(plus, "+", 0, 0, UiText::Heading); lv_obj_center(pl);
     }
 }
 
@@ -4235,32 +4386,32 @@ void TransmitterUi::drawFirmwareInfoPage()
     beginPageFocus();
 
     lv_obj_t *identity = makePanel(10, 58, kScreenWidth-20, portraitUi ? 106 : 72);
-    makeLabel(identity, JR_R1_FIRMWARE_NAME, 14, 10, 20, cCyan);
+    makeLabel(identity, JR_R1_FIRMWARE_NAME, 14, 10, UiText::Heading, cCyan);
     char revision[80];
     snprintf(revision, sizeof(revision), "%s @ %s  [%s]",
              JR_R1_FIRMWARE_BRANCH, JR_R1_FIRMWARE_COMMIT,
              JR_R1_FIRMWARE_GIT_STATE);
-    makeLabel(identity, revision, 14, 40, 12,
+    makeLabel(identity, revision, 14, 40, UiText::Caption,
               strcmp(JR_R1_FIRMWARE_GIT_STATE, "clean") == 0
                   ? cGreen : cAmber);
 
     const int buildTop=58+(portraitUi?106:72)+kPanelGap;
     lv_obj_t *build = makePanel(10, buildTop, kScreenWidth-20, portraitUi ? 126 : 82);
-    makeLabel(build, "BUILD", 14, 9, 12, cDim);
+    makeLabel(build, "BUILD", 14, 9, UiText::Caption, cDim);
     char builtAt[48];
     snprintf(builtAt, sizeof(builtAt), "%s  %s",
              JR_R1_FIRMWARE_BUILD_DATE, JR_R1_FIRMWARE_BUILD_TIME);
-    makeLabel(build, builtAt, 14, 29, 16, cWhite);
-    makeLabel(build, JR_R1_FIRMWARE_BUILD_ENV, 14, 54, 13, cCyan);
+    makeLabel(build, builtAt, 14, 29, UiText::Menu, cWhite);
+    makeLabel(build, JR_R1_FIRMWARE_BUILD_ENV, 14, 54, UiText::Caption, cCyan);
 
     lv_obj_t *hardware = makePanel(10, buildTop+(portraitUi?126:82)+kPanelGap, kScreenWidth-20, portraitUi ? 126 : 76);
-    makeLabel(hardware, "HARDWARE PROFILE", 14, 8, 12, cDim);
+    makeLabel(hardware, "HARDWARE PROFILE", 14, 8, UiText::Caption, cDim);
 #ifdef JR_R1_XIAO_PCB
-    makeLabel(hardware, "Seeed XIAO ESP32-S3 / R-1 PCB", 14, 28, 14, cWhite);
+    makeLabel(hardware, "Seeed XIAO ESP32-S3 / R-1 PCB", 14, 28, UiText::Secondary, cWhite);
 #else
-    makeLabel(hardware, "ESP32-S3-DevKitC-1 N16R8", 14, 28, 14, cWhite);
+    makeLabel(hardware, "ESP32-S3-DevKitC-1 N16R8", 14, 28, UiText::Secondary, cWhite);
 #endif
-    makeLabel(hardware, DISPLAY_PROFILE_NAME, 14, 50, 13, cCyan);
+    makeLabel(hardware, DISPLAY_PROFILE_NAME, 14, 50, UiText::Caption, cCyan);
     if(portraitUi){for(auto panel : {identity,build,hardware}) {for(uint32_t i=0;i<lv_obj_get_child_cnt(panel);++i){auto label=lv_obj_get_child(panel,i);lv_obj_set_width(label,270);lv_label_set_long_mode(label,LV_LABEL_LONG_WRAP);}}}
     finishPageFocus();
 }
@@ -4274,14 +4425,14 @@ void TransmitterUi::drawElrsTxConfigPage()
     startScreen(); resetLvglObjects();
     makeHeader("ELRS TX SETTINGS", "BACK");
     beginPageFocus();
-    auto label = makeLabel(lv_scr_act(), txConfig_.status(), 8, 48, 12, cAmber);
+    auto label = makeLabel(lv_scr_act(), txConfig_.status(), 8, 48, UiText::Caption, cAmber);
     lv_obj_set_width(label, kScreenWidth - 16);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     const auto selected = txConfig_.parameter(txConfigSelected_);
     const int width = kScreenWidth - 16;
     const int footer = kScreenHeight - (portraitUi ? 62 : 40);
     if (selected) {
-        label = makeLabel(lv_scr_act(), selected->name, 8, 92, 17, cCyan);
+        label = makeLabel(lv_scr_act(), selected->name, 8, 92, UiText::Menu, cCyan);
         lv_obj_set_width(label, width);
         char value[384] = {};
         if (selected->type == 9) {
@@ -4290,27 +4441,27 @@ void TransmitterUi::drawElrsTxConfigPage()
             if (selected->info[0]) snprintf(value+length,sizeof(value)-length," %s",selected->info);
         }
         else snprintf(value, sizeof(value), "%s", selected->info);
-        label = makeLabel(lv_scr_act(), value, 8, 124, 15, cWhite);
+        label = makeLabel(lv_scr_act(), value, 8, 124, UiText::Menu, cWhite);
         lv_obj_set_width(label, width); lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         if (selected->type == 9) {
-            makePageActionButton(8, 192, width/2-4, 34, "PREVIOUS VALUE", 12,
+            makePageActionButton(8, 192, width/2-4, 34, "PREVIOUS VALUE", UiText::Secondary,
                 cPanel2, cWhite, cLine, &TransmitterUi::controlElrsTxConfig, 8);
-            makePageActionButton(12+width/2, 192, width/2-4, 34, "NEXT VALUE", 12,
+            makePageActionButton(12+width/2, 192, width/2-4, 34, "NEXT VALUE", UiText::Secondary,
                 cPanel2, cWhite, cLine, &TransmitterUi::controlElrsTxConfig, 9);
         }
         if (selected->type == 9 || selected->type == 13) {
             const char *action = selected->type == 9 ? "APPLY" :
                 (txConfig_.confirming() ? "CONFIRM" : "RUN COMMAND");
-            makePageActionButton(8, footer, width/2-4, 32, action, 13,
+            makePageActionButton(8, footer, width/2-4, 32, action, UiText::Secondary,
                 cPanel2, cAmber, cLine, &TransmitterUi::controlElrsTxConfig, 10);
         }
-        makePageActionButton(12+width/2, footer, width/2-4, 32, "CANCEL / BACK", 12,
+        makePageActionButton(12+width/2, footer, width/2-4, 32, "CANCEL / BACK", UiText::Secondary,
             cPanel2, cWhite, cLine, &TransmitterUi::controlElrsTxConfig, 11);
         finishPageFocus();
         return;
     }
     const auto folder = txConfig_.parameter(txConfigFolder_);
-    label = makeLabel(lv_scr_act(), folder ? folder->name : txConfig_.device(), 8, 78, 12, cCyan);
+    label = makeLabel(lv_scr_act(), folder ? folder->name : txConfig_.device(), 8, 78, UiText::Caption, cCyan);
     lv_obj_set_width(label, width);
     uint8_t row=0, skipped=0;
     memset(txConfigRows_, 0, sizeof(txConfigRows_));
@@ -4324,7 +4475,7 @@ void TransmitterUi::drawElrsTxConfigPage()
         if (p->type==9) p->option(p->value,value,sizeof(value));
         snprintf(text,sizeof(text),"%.47s%s%.64s",p->name,
             p->type==11 ? " >" : (p->type==9 ? ": " : ""),value);
-        makePageActionButton(8, 100+row*(portraitUi?68:38), width, portraitUi?60:34, text, portraitUi?14:12,
+        makePageActionButton(8, 100+row*(portraitUi?68:38), width, portraitUi?60:34, text, portraitUi?UiText::Secondary:UiText::Secondary,
             cPanel2, cWhite, cLine, &TransmitterUi::controlElrsTxConfig,row);
         if(portraitUi){auto button=lv_obj_get_child(lv_scr_act(),-1);auto textLabel=lv_obj_get_child(button,0);lv_obj_set_width(textLabel,width-20);lv_label_set_long_mode(textLabel,LV_LABEL_LONG_WRAP);lv_obj_set_style_text_align(textLabel,LV_TEXT_ALIGN_LEFT,0);lv_obj_center(textLabel);}
         ++row;
@@ -4332,7 +4483,7 @@ void TransmitterUi::drawElrsTxConfigPage()
     const int cell=width/4;
     const char *actions[]={"PREV","NEXT","REFRESH","BINDING"};
     for (uint8_t i=0;i<4;++i)
-        makePageActionButton(8+i*cell,footer,cell-4,32,actions[i],11,
+        makePageActionButton(8+i*cell,footer,cell-4,32,actions[i],UiText::Secondary,
             cPanel2,cCyan,cLine,&TransmitterUi::controlElrsTxConfig,4+i);
     finishPageFocus();
 }
@@ -4424,9 +4575,9 @@ void TransmitterUi::drawElrsBindingPage()
     char phraseText[64];
     snprintf(phraseText, sizeof(phraseText), "PHRASE: %s",
              elrsBindPhrase_[0] == '\0' ? "<blank / unbound>" : elrsBindPhrase_);
-    auto phraseLabel=makeLabel(phrasePanel, phraseText, 8, 3, 13, cWhite);
+    auto phraseLabel=makeLabel(phrasePanel, phraseText, 8, 3, UiText::Caption, cWhite);
     lv_obj_set_width(phraseLabel,kScreenWidth-34);lv_label_set_long_mode(phraseLabel,LV_LABEL_LONG_WRAP);
-    auto statusLabel=makeLabel(phrasePanel, elrsStatus_, 8, portraitUi ? 51 : 22, 11,
+    auto statusLabel=makeLabel(phrasePanel, elrsStatus_, 8, portraitUi ? 51 : 22, UiText::Caption,
               strstr(elrsStatus_, "MATCH") != nullptr ? cGreen : cAmber);
     lv_obj_set_width(statusLabel,kScreenWidth-34);lv_label_set_long_mode(statusLabel,LV_LABEL_LONG_WRAP);
 
@@ -4435,7 +4586,7 @@ void TransmitterUi::drawElrsBindingPage()
         const bool unavailable = (index == 1 || index == 3) &&
                                  !elrsReceiverLinkAvailable_;
         makePageActionButton(portraitUi ? 8+(index%3)*103 : 8+index*93, portraitUi ? 143+(index/3)*42 : 94, portraitUi ? 98 : 87, portraitUi ? 38 : 32,
-                             actions[index], 11,
+                             actions[index], UiText::Secondary,
                              unavailable ? cBlack : cPanel2,
                              unavailable ? cDim :
                                  (index < 2 ? cAmber : cCyan),
@@ -4456,20 +4607,20 @@ void TransmitterUi::drawElrsBindingPage()
                 keyIndex += lengths[prior];
             keyIndex += column;
             makePageActionButton(startX + column * width, portraitUi ? 228+row*45 : 130+row*38,
-                                 width - 3, portraitUi ? 42 : 34, label, 14,
+                                 width - 3, portraitUi ? 42 : 34, label, UiText::Secondary,
                                  cPanel, cWhite, cLine,
                                  &TransmitterUi::controlElrsBinding,
                                  5 + keyIndex);
         }
     }
     makePageActionButton(portraitUi ? 8 : 43, portraitUi ? 414 : 282, portraitUi ? 72 : 92, portraitUi ? 40 : 32,
-                         elrsKeyboardUppercase_ ? "lower" : "UPPER", 12,
+                         elrsKeyboardUppercase_ ? "lower" : "UPPER", UiText::Secondary,
                          cPanel2, cWhite, cLine,
                          &TransmitterUi::controlElrsBinding, 43);
-    makePageActionButton(portraitUi ? 86 : 143, portraitUi ? 414 : 282, portraitUi ? 148 : 194, portraitUi ? 40 : 32, "SPACE", 12,
+    makePageActionButton(portraitUi ? 86 : 143, portraitUi ? 414 : 282, portraitUi ? 148 : 194, portraitUi ? 40 : 32, "SPACE", UiText::Secondary,
                          cPanel2, cWhite, cLine,
                          &TransmitterUi::controlElrsBinding, 44);
-    makePageActionButton(portraitUi ? 240 : 345, portraitUi ? 414 : 282, portraitUi ? 72 : 92, portraitUi ? 40 : 32, "<--", 14,
+    makePageActionButton(portraitUi ? 240 : 345, portraitUi ? 414 : 282, portraitUi ? 72 : 92, portraitUi ? 40 : 32, "<--", UiText::Secondary,
                          cPanel2, cAmber, cLine,
                          &TransmitterUi::controlElrsBinding, 45);
     finishPageFocus();
@@ -4485,20 +4636,13 @@ void TransmitterUi::drawEscProgrammingPage()
 
     lv_obj_t *status = makePanel(8, 50, kScreenWidth-16, portraitUi ? 58 : 34, cSafetyWaiting, cAmber);
     makeLabel(status, LV_SYMBOL_WARNING "  PREVIEW ONLY - NO ESC LINK",
-              12, 7, 13, cAmber);
-    lv_obj_t *profile = makeLabel(status, "TS160 DRAFT", 0, 8, 11, cDim);
+              12, 7, UiText::Caption, cAmber);
+    lv_obj_t *profile = makeLabel(status, "TS160 DRAFT", 0, 8, UiText::Caption, cDim);
     lv_obj_align(profile, LV_ALIGN_TOP_RIGHT, -10, portraitUi ? 34 : 8);
 
     static const char *tabs[] = {"BASIC", "BRAKE", "MOTOR"};
-    for (uint8_t tab = 0; tab < 3; ++tab) {
-        const bool selected = escProgrammingTab_ == tab;
-        makePageActionButton(8 + tab * (kScreenWidth-16)/3, portraitUi ? 118 : 87, (kScreenWidth-16)/3-4, portraitUi ? 40 : 32,
-                             tabs[tab], 13,
-                             selected ? cPanel2 : cBlack,
-                             selected ? cCyan : cDim,
-                             selected ? cCyan : cLine,
-                             &TransmitterUi::controlEscProgramming, tab);
-    }
+    const uint8_t actions[]={0,1,2};
+    drawPageTabs(tabs,actions,3,escProgrammingTab_,&TransmitterUi::controlEscProgramming,portraitUi?118:87);
 
     static const char *labels[3][4] = {
         {"RUN MODE", "LOW-V CUTOFF", "START / PUNCH", "BEC VOLTAGE"},
@@ -4515,22 +4659,22 @@ void TransmitterUi::drawEscProgrammingPage()
     for (uint8_t row = 0; row < 4; ++row) {
         const int16_t y = portraitUi ? 170+row*61 : 125+row*36;
         lv_obj_t *panel = makePanel(8, y, kScreenWidth-16, (portraitUi ? 61 : 36)-kPanelGap, cPanel, cLine, 5);
-        makeLabel(panel, labels[page][row], 10, 7, 12, cCyan);
-        lv_obj_t *value = makeLabel(panel, values[page][row], 0, 7, 12, cWhite);
+        makeLabel(panel, labels[page][row], 10, 7, UiText::Caption, cCyan);
+        lv_obj_t *value = makeLabel(panel, values[page][row], 0, 7, UiText::Caption, cWhite);
         lv_obj_align(value, LV_ALIGN_TOP_RIGHT, -12, portraitUi ? 30 : 7);
     }
 
     // These controls establish the intended workflow without suggesting that
     // a value has actually been read from or written to the ESC.
-    makePageActionButton(8, portraitUi ? 416 : 274, portraitUi ? 100 : 168, portraitUi ? 40 : 35, "READ ESC", 13,
+    makePageActionButton(8, portraitUi ? 416 : 274, portraitUi ? 100 : 168, portraitUi ? 40 : 35, "READ ESC", UiText::Secondary,
                          cBlack, cDim, cDim,
                          &TransmitterUi::controlEscProgramming, 3);
-    makePageActionButton(portraitUi ? 114 : 184, portraitUi ? 416 : 274, portraitUi ? 100 : 168, portraitUi ? 40 : 35, "WRITE ESC", 13,
+    makePageActionButton(portraitUi ? 114 : 184, portraitUi ? 416 : 274, portraitUi ? 100 : 168, portraitUi ? 40 : 35, "WRITE ESC", UiText::Secondary,
                          cBlack, cDim, cDim,
                          &TransmitterUi::controlEscProgramming, 4);
     lv_obj_t *comms = makePanel(portraitUi ? 220 : 360, portraitUi ? 416 : 274, portraitUi ? 92 : 112, portraitUi ? 40 : 35,
                                 cSafetyWaiting, cAmber, 7);
-    lv_obj_t *commsLabel = makeLabel(comms, "NO COMMS", 0, 0, 11, cAmber);
+    lv_obj_t *commsLabel = makeLabel(comms, "NO COMMS", 0, 0, UiText::Caption, cAmber);
     lv_obj_center(commsLabel);
     finishPageFocus();
 }
@@ -4542,15 +4686,15 @@ void TransmitterUi::drawDisplayRow(int row, int visibleRow)
         "ACTIVATE NOW", "ORIENTATION"
     };
     const int16_t y = 56 + visibleRow * 50;
-    if(row==5){auto panel=makePanel(10,y,460,44);makeLabel(panel,"ORIENTATION",12,12,16,cCyan);makePageActionButton(353,y+4,106,36,"Rotate",13,cPanel2,cWhite,cLine,&TransmitterUi::controlDisplay,5);return;}
+    if(row==5){auto panel=makePanel(10,y,460,44);makeLabel(panel,"ORIENTATION",12,12,UiText::Menu,cCyan);makePageActionButton(353,y+4,106,36,"Rotate",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDisplay,5);return;}
     lv_obj_t *panel = makePanel(10, y, 460, 44);
     if (row == 3) {
-        makeLabel(panel, labels[row], 12, 3, 10, cDim);
-        makeLabel(panel, colourSchemeName(systemSettings_.nightMode, systemSettings_.darkColourScheme), 12, 20, 14, cWhite);
-        makeButton(353, y + 4, 106, 36, "CHOOSE", 13);
+        makeLabel(panel, labels[row], 12, 3, UiText::Caption, cDim);
+        makeLabel(panel, colourSchemeName(systemSettings_.nightMode, systemSettings_.darkColourScheme), 12, 20, UiText::Secondary, cWhite);
+        makeButton(353, y + 4, 106, 36, "CHOOSE", UiText::Secondary);
         return;
     }
-    makeLabel(panel, labels[row], 12, 12, 16, cCyan);
+    makeLabel(panel, labels[row], 12, 12, UiText::Menu, cCyan);
     char value[24];
     if (row == 0) {
         if (systemSettings_.screenTimeoutSeconds == 0) snprintf(value, sizeof(value), "NEVER");
@@ -4564,17 +4708,17 @@ void TransmitterUi::drawDisplayRow(int row, int visibleRow)
         snprintf(value, sizeof(value), "%s",
                  systemSettings_.logoScreensaverEnabled ? "SHOW LOGO" : "DISPLAY OFF");
     }
-    makeLabel(panel, value, 220, 12, 16, cWhite);
+    makeLabel(panel, value, 220, 12, UiText::Menu, cWhite);
     if (row == 0 || row == 2) {
-        makeButton(353, y + 4, 48, 36, "-", 24);
-        makeButton(411, y + 4, 48, 36, "+", 24);
+        makeButton(353, y + 4, 48, 36, "-", UiText::Heading);
+        makeButton(411, y + 4, 48, 36, "+", UiText::Heading);
     } else {
         const bool activateRow = row == 4;
         makeButton(353, y + 4, 106, 36,
                    activateRow
                        ? (systemSettings_.logoScreensaverEnabled ? "START" : "SLEEP")
                        : "TOGGLE",
-                   13, activateRow ? cAmber : cPanel2,
+                   UiText::Secondary, activateRow ? cAmber : cPanel2,
                    activateRow ? cBlack : cWhite);
     }
 }
@@ -4605,14 +4749,14 @@ void TransmitterUi::drawColourSchemePage()
         auto panel = makePanel(8, y, kScreenWidth - 16, rowHeight - kPanelGap,
                                choice == selected ? cPanel2 : cPanel, cLine);
         makeLabel(panel, colourSchemeName(choice != 0, choice ? choice - 1 : 0),
-                  12, (rowHeight - 20) / 2, 14, choice == selected ? cCyan : cWhite);
+                  12, (rowHeight - UiText::font(UiText::Menu)->line_height) / 2, UiText::Menu, choice == selected ? cCyan : cWhite);
         if (choice == selected) makeLabel(panel, LV_SYMBOL_OK, kScreenWidth - 46,
-                                         (rowHeight - 20) / 2, 14, cCyan);
+                                         (rowHeight - 20) / 2, UiText::Secondary, cCyan);
         addPageActionTarget(8, y, kScreenWidth - 16, rowHeight - kPanelGap,
                             &TransmitterUi::controlColourScheme, choice);
     }
     makeLabel(lv_scr_act(), "Saved automatically. Night mode uses your last dark scheme.",
-              12, portraitUi ? 376 : 275, 12, cDim);
+              12, portraitUi ? 376 : 275, UiText::Caption, cDim);
     auto note = lv_obj_get_child(lv_scr_act(), -1);
     lv_obj_set_width(note, kScreenWidth - 24);
     finishPageFocus();
@@ -4642,14 +4786,14 @@ void TransmitterUi::drawDisplayPage()
         }
     }
     makeLabel(lv_scr_act(), "Logo saver dims to 25%; display off saves most power.",
-              20, 258, 12, cDim);
-    makeButton(10, 274, 50, 35, "<", 20, cPanel2,
+              20, 258, UiText::Caption, cDim);
+    makeButton(10, 274, 50, 35, "<", UiText::Heading, cPanel2,
                displaySetupBank_ == 0 ? cDim : cWhite);
     lv_obj_t *pageLabel = makeLabel(
         lv_scr_act(), displaySetupBank_ == 0 ? "DISPLAY 1/2" : "DISPLAY 2/2",
-        0, 284, 13, cCyan);
+        0, 284, UiText::Caption, cCyan);
     lv_obj_align(pageLabel, LV_ALIGN_TOP_MID, 0, 284);
-    makeButton(420, 274, 50, 35, ">", 20, cPanel2,
+    makeButton(420, 274, 50, 35, ">", UiText::Heading, cPanel2,
                displaySetupBank_ == 1 ? cDim : cWhite);
     addPageActionTarget(10, 274, 50, 35,
                         &TransmitterUi::controlDisplay, 10);
@@ -4663,7 +4807,7 @@ void TransmitterUi::drawTxBatteryRow(int row)
     static const char *labels[] = {"CHEMISTRY", "CELL COUNT", "LOW ALARM", "VOLT SENSE"};
     const int16_t y = 56 + row * 50;
     lv_obj_t *panel = makePanel(10, y, 460, 44);
-    makeLabel(panel, labels[row], 12, 12, 16, cCyan);
+    makeLabel(panel, labels[row], 12, 12, UiText::Menu, cCyan);
     char value[24];
     if (row == 0) {
         snprintf(value, sizeof(value), "%s", batteryChemistryName(txBatterySettings_.chemistry));
@@ -4677,7 +4821,7 @@ void TransmitterUi::drawTxBatteryRow(int row)
         snprintf(value, sizeof(value), "%s",
                  txBatterySettings_.voltageSenseEnabled ? "ON" : "OFF");
     }
-    makeLabel(panel, value, 212, 12, 16,
+    makeLabel(panel, value, 212, 12, UiText::Menu,
               row == 3 && txBatterySettings_.voltageSenseEnabled ? cGreen : cWhite);
 
     if (row == 0 || row == 3) {
@@ -4687,9 +4831,9 @@ void TransmitterUi::drawTxBatteryRow(int row)
             colour(row == 3 && txBatterySettings_.voltageSenseEnabled ? cGreen : cPanel2), 0);
         lv_obj_set_style_border_color(toggle, colour(cLine), 0);
         lv_obj_set_style_border_width(toggle, 1, 0);
-        lv_obj_set_style_radius(toggle, 5, 0);
+        lv_obj_set_style_radius(toggle, kUiCornerRadius, 0);
         lv_obj_set_style_pad_all(toggle, 0, 0);
-        lv_obj_t *label = makeLabel(toggle, row == 0 ? "NEXT" : "TOGGLE", 0, 0, 14,
+        lv_obj_t *label = makeLabel(toggle, row == 0 ? "NEXT" : "TOGGLE", 0, 0, UiText::Secondary,
             row == 3 && txBatterySettings_.voltageSenseEnabled ? cBlack : cWhite);
         lv_obj_center(label);
     } else {
@@ -4697,16 +4841,16 @@ void TransmitterUi::drawTxBatteryRow(int row)
         lv_obj_set_style_bg_color(minus, colour(cPanel2), 0);
         lv_obj_set_style_border_color(minus, colour(cLine), 0);
         lv_obj_set_style_border_width(minus, 1, 0);
-        lv_obj_set_style_radius(minus, 5, 0);
+        lv_obj_set_style_radius(minus, kUiCornerRadius, 0);
         lv_obj_set_style_pad_all(minus, 0, 0);
-        lv_obj_t *ml = makeLabel(minus, "-", 0, 0, 24); lv_obj_center(ml);
+        lv_obj_t *ml = makeLabel(minus, "-", 0, 0, UiText::Heading); lv_obj_center(ml);
         lv_obj_t *plus = lv_obj_create(panel); position(plus, 401, 3, 48, 36);
         lv_obj_set_style_bg_color(plus, colour(cPanel2), 0);
         lv_obj_set_style_border_color(plus, colour(cLine), 0);
         lv_obj_set_style_border_width(plus, 1, 0);
-        lv_obj_set_style_radius(plus, 5, 0);
+        lv_obj_set_style_radius(plus, kUiCornerRadius, 0);
         lv_obj_set_style_pad_all(plus, 0, 0);
-        lv_obj_t *pl = makeLabel(plus, "+", 0, 0, 24); lv_obj_center(pl);
+        lv_obj_t *pl = makeLabel(plus, "+", 0, 0, UiText::Heading); lv_obj_center(pl);
     }
 }
 
@@ -4731,7 +4875,7 @@ void TransmitterUi::drawTxBatteryPage()
         }
     }
     lv_obj_t *note = makeLabel(lv_scr_act(),
-        "GPIO5 via 47k/10k divider", 0, 280, 12, cDim);
+        "GPIO5 via 47k/10k divider", 0, 280, UiText::Caption, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
     finishPageFocus();
 }
@@ -4741,14 +4885,14 @@ void TransmitterUi::drawRxBatteryRow(int row)
     static const char *labels[] = {"CHEMISTRY", "CELL COUNT", "LOW ALARM", "ALARM"};
     const int16_t y = 56 + row * 50;
     lv_obj_t *panel = makePanel(10, y, 460, 44);
-    makeLabel(panel, labels[row], 12, 12, 16, cCyan);
+    makeLabel(panel, labels[row], 12, 12, UiText::Menu, cCyan);
     char value[24];
     if (row == 0) snprintf(value, sizeof(value), "%s", batteryChemistryName(rxBatterySettings_.chemistry));
     else if (row == 1) snprintf(value, sizeof(value), "%uS", rxBatterySettings_.cellCount);
     else if (row == 2) snprintf(value, sizeof(value), "%u.%u V",
         rxBatterySettings_.lowAlarmDecivolts / 10, rxBatterySettings_.lowAlarmDecivolts % 10);
     else snprintf(value, sizeof(value), "%s", rxBatterySettings_.alarmEnabled ? "ON" : "OFF");
-    makeLabel(panel, value, 212, 12, 16,
+    makeLabel(panel, value, 212, 12, UiText::Menu,
               row == 3 && rxBatterySettings_.alarmEnabled ? cGreen : cWhite);
 
     if (row == 0 || row == 3) {
@@ -4758,14 +4902,14 @@ void TransmitterUi::drawRxBatteryRow(int row)
         lv_obj_set_style_bg_color(toggle, colour(enabled ? cGreen : cPanel2), 0);
         lv_obj_set_style_border_color(toggle, colour(cLine), 0);
         lv_obj_set_style_border_width(toggle, 1, 0);
-        lv_obj_set_style_radius(toggle, 5, 0);
+        lv_obj_set_style_radius(toggle, kUiCornerRadius, 0);
         lv_obj_set_style_pad_all(toggle, 0, 0);
-        lv_obj_t *label = makeLabel(toggle, row == 0 ? "NEXT" : "TOGGLE", 0, 0, 14,
+        lv_obj_t *label = makeLabel(toggle, row == 0 ? "NEXT" : "TOGGLE", 0, 0, UiText::Secondary,
                                     enabled ? cBlack : cWhite);
         lv_obj_center(label);
     } else {
-        makeButton(353, y + 4, 48, 36, "-", 24);
-        makeButton(411, y + 4, 48, 36, "+", 24);
+        makeButton(353, y + 4, 48, 36, "-", UiText::Heading);
+        makeButton(411, y + 4, 48, 36, "+", UiText::Heading);
     }
 }
 
@@ -4790,7 +4934,7 @@ void TransmitterUi::drawRxBatteryPage()
         }
     }
     lv_obj_t *note = makeLabel(lv_scr_act(),
-        "Voltage received from ER6G telemetry", 0, 280, 12, cDim);
+        "Voltage received from ER6G telemetry", 0, 280, UiText::Caption, cDim);
     lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 280);
     finishPageFocus();
 }
@@ -4810,24 +4954,24 @@ if(portraitUi) {
     {
     makeLabel(lv_scr_act(), calibratingSteering_
         ? "1. HOLD FULL LEFT" : "1. HOLD FULL BRAKE",
-        16, 68, 15, cCyan);
+        16, 68, UiText::Menu, cCyan);
     makeLabel(lv_scr_act(), calibratingSteering_
         ? "2. HOLD FULL RIGHT" : "2. HOLD FULL FORWARD",
-        16, 102, 15, cCyan);
-    makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 16, 136, 15, cCyan);
+        16, 102, UiText::Menu, cCyan);
+    makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 16, 136, UiText::Menu, cCyan);
     char held[44];
     snprintf(held, sizeof(held), "CH%u OUTPUT HELD AT NEUTRAL",
              calibratingSteering_ ? channelRoleSettings_.steeringChannel
                                   : channelRoleSettings_.throttleChannel);
-    makeLabel(lv_scr_act(), held, 16, 178, 13, cAmber);
+    makeLabel(lv_scr_act(), held, 16, 178, UiText::Caption, cAmber);
     lv_obj_t *panel = makePanel(10, 214, 300, 246);
-    makeLabel(panel, "MINIMUM AVERAGE", 16, 18, 13, cDim);
-    makeLabel(panel, "LIVE INPUT", 16, 86, 13, cDim);
-    makeLabel(panel, "MAXIMUM AVERAGE", 16, 154, 13, cDim);
-    calibrationMinimumLabel_ = makeLabel(panel, "----", 190, 10, 24);
-    calibrationLiveLabel_ = makeLabel(panel, "----", 190, 78, 24);
-    calibrationMaximumLabel_ = makeLabel(panel, "----", 190, 146, 24);
-    calibrationStatusLabel_ = makeLabel(panel, "", 12, 198, 13, cCyan);
+    makeLabel(panel, "MINIMUM AVERAGE", 16, 18, UiText::Caption, cDim);
+    makeLabel(panel, "LIVE INPUT", 16, 86, UiText::Caption, cDim);
+    makeLabel(panel, "MAXIMUM AVERAGE", 16, 154, UiText::Caption, cDim);
+    calibrationMinimumLabel_ = makeLabel(panel, "----", 190, 10, UiText::Heading);
+    calibrationLiveLabel_ = makeLabel(panel, "----", 190, 78, UiText::Heading);
+    calibrationMaximumLabel_ = makeLabel(panel, "----", 190, 146, UiText::Heading);
+    calibrationStatusLabel_ = makeLabel(panel, "", 12, 198, UiText::Caption, cCyan);
     lv_obj_set_width(calibrationStatusLabel_, 276);
     drawCalibrationValues(calibratingSteering_
         ? latestSteeringRawAdc_ : latestRawAdc_);
@@ -4837,24 +4981,24 @@ if(portraitUi) {
 }
     makeLabel(lv_scr_act(), calibratingSteering_
         ? "1. HOLD FULL LEFT" : "1. HOLD FULL BRAKE",
-        20, 62, 16, cCyan);
+        20, 62, UiText::Menu, cCyan);
     makeLabel(lv_scr_act(), calibratingSteering_
         ? "2. HOLD FULL RIGHT" : "2. HOLD FULL FORWARD",
-        20, 92, 16, cCyan);
-    makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 20, 122, 16, cCyan);
+        20, 92, UiText::Menu, cCyan);
+    makeLabel(lv_scr_act(), "3. RELEASE AND HOLD CENTRE", 20, 122, UiText::Menu, cCyan);
     char held[44];
     snprintf(held, sizeof(held), "CH%u OUTPUT HELD AT NEUTRAL",
              calibratingSteering_ ? channelRoleSettings_.steeringChannel
                                   : channelRoleSettings_.throttleChannel);
-    makeLabel(lv_scr_act(), held, 20, 160, 16, cAmber);
+    makeLabel(lv_scr_act(), held, 20, 160, UiText::Menu, cAmber);
     lv_obj_t *panel = makePanel(18, 202, 444, 92);
-    makeLabel(panel, "MIN AVG", 16, 10, 14, cDim);
-    makeLabel(panel, "LIVE", 180, 10, 14, cDim);
-    makeLabel(panel, "MAX AVG", 326, 10, 14, cDim);
-    calibrationMinimumLabel_ = makeLabel(panel, "----", 10, 42, 24);
-    calibrationLiveLabel_ = makeLabel(panel, "----", 168, 42, 24);
-    calibrationMaximumLabel_ = makeLabel(panel, "----", 326, 42, 24);
-    calibrationStatusLabel_ = makeLabel(lv_scr_act(), "", 20, 180, 12, cCyan);
+    makeLabel(panel, "MIN AVG", 16, 10, UiText::Secondary, cDim);
+    makeLabel(panel, "LIVE", 180, 10, UiText::Secondary, cDim);
+    makeLabel(panel, "MAX AVG", 326, 10, UiText::Secondary, cDim);
+    calibrationMinimumLabel_ = makeLabel(panel, "----", 10, 42, UiText::Heading);
+    calibrationLiveLabel_ = makeLabel(panel, "----", 168, 42, UiText::Heading);
+    calibrationMaximumLabel_ = makeLabel(panel, "----", 326, 42, UiText::Heading);
+    calibrationStatusLabel_ = makeLabel(lv_scr_act(), "", 20, 180, UiText::Caption, cCyan);
     drawCalibrationValues(calibratingSteering_
         ? latestSteeringRawAdc_ : latestRawAdc_);
     finishPageFocus();
@@ -5867,15 +6011,11 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
     if(activePage_==UiPage::Gps&&gpsFullScreen_){
         gpsFullScreen_=false;lastInteractionMs_=millis();armGestureValid_=false;drawDesignPage(UiPage::Gps);return;
     }
+    if(sectionNavigationVisible_ && y>=kScreenHeight-(portraitUi?60:40) && y<kScreenHeight-(portraitUi?20:0)){
+        designTouchDispatch_=true;controlSectionNavigation(min<int>(3,x/(kScreenWidth/4)),PageControlEvent::Activate);designTouchDispatch_=false;return;
+    }
     if(activePage_==UiPage::WifiSetup){
-        if(y>=5&&y<39&&x>=(portraitUi?148:246)&&x<(portraitUi?198:332)){designTouchDispatch_=true;controlDesign(0,PageControlEvent::Activate);designTouchDispatch_=false;return;}
-        if(headerHomeTouched(x,y)){
-            wifiSetupPassword_[0]=0;wifiSetupPasswordError_=false;wifiEdit_=0;
-            armRequested_=false;drawDashboard();
-        }else if(headerActionTouched(x,y)){
-            if(wifiEdit_){wifiSetupPassword_[0]=0;wifiSetupPasswordError_=false;wifiEdit_=0;drawWifiPage();}
-            else controlWifi(2,PageControlEvent::Activate);
-        }else if(y>=44)dispatchPageControlTouch(x,y);
+        if(headerActionTouched(x,y))navigateBack();else dispatchPageControlTouch(x,y);
         return;
     }
     if (activePage_ == UiPage::LogoSaver) {
@@ -5884,27 +6024,17 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
     }
     if (activePage_ == UiPage::BootSplash ||
         activePage_ == UiPage::StartupWarning) return;
-    if(detailOutputLabel && y>=5 && y<39 && x>=(portraitUi?148:246) && x<(portraitUi?198:332)) {
-        designTouchDispatch_=true;controlDesign(0,PageControlEvent::Activate);designTouchDispatch_=false;return;
-    }
     if (designPage()) { designTouchDispatch_ = true; dispatchPageControlTouch(x, y); designTouchDispatch_ = false; return; }
-    if (activePage_ != UiPage::Dashboard && headerHomeTouched(x, y)) {
-        if (calibrationActive()) {
-            (calibratingSteering_ ? steeringInput_ : triggerInput_)
-                .cancelCalibration();
-            requestConfigurationCut();
-            Serial.println("CAL: cancelled by Home; previous calibration retained");
-        }
-        playKeyClick();
-        drawDashboard();
-        return;
-    }
     if (calibrationActive()) {
         if (headerActionTouched(x, y)) cancelCalibration();
         return;
     }
     if (dispatchPageControlTouch(x, y)) return;
     if (portraitUi) return;
+    if(detailContentCompacted_ && y>=44){
+        const int numerator=kScreenHeight-40-4-44,denominator=kScreenHeight-44;
+        y=44+(y-44)*denominator/numerator;
+    }
     if (activePage_ == UiPage::Dashboard) { handleDashboardTouch(x, y); return; }
     if (activePage_ == UiPage::RadioDiagnostics) { handleTelemetryTouch(x, y); return; }
     if (activePage_ == UiPage::MainMenu) { handleMainMenuTouch(x, y); return; }
@@ -6027,15 +6157,16 @@ void TransmitterUi::updateTouch()
         // a release. Clear the pending-release timer whenever valid pressure
         // returns and keep treating this as the same physical touch.
         touchReleaseSinceMs_ = 0;
+        touchGestureX_=x;touchGestureY_=y;
         if (!touchWasDown_) {
             touchWasDown_ = true;
             touchDownStartedMs_ = now;
+            touchStartX_=x;touchStartY_=y;touchStartPage_=activePage_;
             // Arming must begin inside its target and remain there throughout
             // the hold; dragging into it after a long press cannot arm.
             const bool headerHold=driveProgress_&&x>=0&&x<kScreenWidth/4&&y>=kScreenHeight-(portraitUi?60:40)&&y<kScreenHeight-(portraitUi?20:0);
-            const bool detailHold=detailOutputLabel&&x>=(portraitUi?148:246)&&x<(portraitUi?198:332)&&y>=5&&y<39;
             const bool panelHold=activePage_==UiPage::OutputStatus&&x>=12&&x<kScreenWidth-12&&y>=(portraitUi?238:184)&&y<(portraitUi?286:232);
-            armGestureValid_=headerHold||detailHold||panelHold;
+            armGestureValid_=headerHold||panelHold;
             lastTouchX_ = x;
             lastTouchY_ = y;
             Serial.printf("TOUCH down page=%s raw=(%u,%u,%u) screen=(%d,%d)\n",
@@ -6049,9 +6180,8 @@ void TransmitterUi::updateTouch()
         }
         if(armGestureValid_){
             const bool headerHold=driveProgress_&&x>=0&&x<kScreenWidth/4&&y>=kScreenHeight-(portraitUi?60:40)&&y<kScreenHeight-(portraitUi?20:0);
-            const bool detailHold=detailOutputLabel&&x>=(portraitUi?148:246)&&x<(portraitUi?198:332)&&y>=5&&y<39;
             const bool panelHold=activePage_==UiPage::OutputStatus&&x>=12&&x<kScreenWidth-12&&y>=(portraitUi?238:184)&&y<(portraitUi?286:232);
-            if(!headerHold&&!detailHold&&!panelHold)armGestureValid_=false;
+            if(!headerHold&&!panelHold)armGestureValid_=false;
         }
         if(armProgress_&&activePage_==UiPage::OutputStatus){
             const bool inside=lastTouchX_>=12&&lastTouchX_<kScreenWidth-12&&lastTouchY_>=(portraitUi?238:184)&&lastTouchY_<(portraitUi?286:232);
@@ -6090,7 +6220,8 @@ void TransmitterUi::updateTouch()
     updateWifiKeyPreview(-1, -1);
     if(driveProgress_)lv_bar_set_value(driveProgress_,0,LV_ANIM_OFF);
     if(armProgress_)lv_bar_set_value(armProgress_,0,LV_ANIM_OFF);
-    handleTouch(releasedX, releasedY);
+    if(touchStartPage_==activePage_&&!handlePageSwipe(touchStartX_,touchStartY_,touchGestureX_,touchGestureY_,lastTouchDurationMs_))
+        handleTouch(releasedX, releasedY);
     armGestureValid_=false;
 }
 
@@ -6104,6 +6235,8 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
                         bool channelOutputsLive)
 {
     if (hardwareRecovery_ || rfBenchMode_) armRequested_ = false;
+    updateKeypad(millis());
+    updatePinTimeout(millis());
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None){armRequested_=false;if(activePage_!=UiPage::BootSplash&&activePage_!=UiPage::BootPin)drawBootPin();}
     speedStatistics_.update(telemetry.groundSpeedDeciKmh, telemetry.gpsUpdatedMs, millis(),
                             telemetry.gpsValid && telemetry.satellites >= 4);
@@ -6112,8 +6245,11 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     latestRawAdc_ = rawAdc;
     latestSteeringRawAdc_ = steeringRawAdc;
     updateSteeringEndpointSelection();
+    // Dashboard controls preview requested positions even in CUT. Keep the
+    // separately resolved values for Data > Channels (requested / sent).
     for (uint8_t ch=1; ch<=16; ++ch) designRequested_[ch-1] = channelOutputs.requested(ch);
     const uint16_t enabledMask = channelOutputs.enabledMask();
+    dashboardOutputsLive_=channelOutputsLive;
     channelOutputs.resolve(channelOutputsLive, dashboardChannelValues_);
     if (enabledMask != dashboardEnabledChannelMask_) {
         dashboardEnabledChannelMask_ = enabledMask;
@@ -6216,7 +6352,8 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     updateGpsPresentation(now);
     if (static_cast<int32_t>(now - nextDisplayUpdateMs_) >= 0) {
         nextDisplayUpdateMs_ = now + kUiUpdateMs;
-        if(detailOutputLabel)updateDriveIcon(detailDriveIcon,safetyStatus==OutputSafetyStatus::Armed,hardwareRecovery_||safetyStatus==OutputSafetyStatus::InputFault||safetyStatus==OutputSafetyStatus::ConfigurationFault||safetyStatus==OutputSafetyStatus::ControlStale);
+        if(driveIcon_)updateDriveIcon(driveIcon_,safetyStatus==OutputSafetyStatus::Armed,
+            hardwareRecovery_||safetyStatus==OutputSafetyStatus::InputFault||safetyStatus==OutputSafetyStatus::ConfigurationFault||safetyStatus==OutputSafetyStatus::ControlStale);
         if (calibrationActive()) drawCalibrationValues(
             calibratingSteering_ ? steeringRawAdc : rawAdc);
         else if (designPage()) {
@@ -6301,3 +6438,5 @@ void TransmitterUi::applyDisplayRotation() {
 #include "transmitter_ui_mixing.inc"
 
 #include "transmitter_ui_remote.inc"
+
+#include "transmitter_ui_keypad.inc"

@@ -289,6 +289,15 @@ static void routes() {
         if(!remotePixels||!number("epoch",1,INT32_MAX,epoch)||uint32_t(epoch)!=screenEpoch){server.send(409,"text/plain","Screen changed; wait for live view");return;}
         if(action==9){const bool ok=handset->portalRequestRemoteControl();server.send(ok?202:409,"text/plain",ok?"CUT requested; wait for control readiness":"Finish the physical interaction first");return;}
         if(action==7){const bool ok=handset->portalWakeScreen();server.send(ok?200:409,"text/plain",ok?"Display awake":"Screen changed; please tap again");return;}
+        if(action==8){
+            int endX=0,endY=0,duration=0;
+            if(!number("x",0,479,x)||!number("y",0,479,y)||!number("endX",0,479,endX)||
+               !number("endY",0,479,endY)||!number("duration",0,1200,duration)){
+                server.send(400,"text/plain","Invalid swipe");return;
+            }
+            const bool ok=handset->portalPageSwipe(x,y,endX,endY,duration);
+            server.send(ok?200:409,"text/plain",ok?"Page swipe applied":"Swipe unavailable on this screen");return;
+        }
         if(!number("action",0,6,action)||((action==0||action==3||action==4||action==6)&&(!number("x",0,479,x)||!number("y",0,479,y)))||((action==4||action==5||action==6)&&!number("hold",1,INT32_MAX,hold))){server.send(400,"text/plain","Invalid tap");return;}
         Serial.printf("WEB TOUCH: action=%d xy=(%d,%d) epoch=%d\n",action,x,y,epoch);
         const bool ok=handset->portalRemoteInput(x,y,action,hold,epoch);

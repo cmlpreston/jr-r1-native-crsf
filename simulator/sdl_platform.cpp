@@ -63,7 +63,7 @@ void readBridgeCommands()
         else if (command == "link") controls.linkValid = a != 0;
         else if (command == "rx") controls.receiverVoltageDecivolts = constrain(a, 0, 200);
         else if (command == "tx") controls.transmitterVoltageDecivolts = constrain(a, 0, 200);
-        else if (command == "action" && (line >> b) && a >= 0 && a < 27 && bridgeActions.size() < 64)
+        else if (command == "action" && (line >> b) && a >= 0 && (a < 27 || (a>=32&&a<40)) && bridgeActions.size() < 64)
             bridgeActions.emplace_back(static_cast<uint16_t>(a), static_cast<int16_t>(b));
     }
     if (bridgeInput.size() > 4096) bridgeInput.clear();
@@ -179,6 +179,12 @@ void simulatorPollEvents()
                 touchY = constrain<int16_t>(event.motion.y / kScale, 0, screenHeight - 1);
                 break;
             case SDL_KEYDOWN:
+                if(!event.key.repeat){
+                    const SDL_Keycode keys[]={SDLK_m,SDLK_UP,SDLK_EQUALS,SDLK_RETURN,SDLK_p,SDLK_ESCAPE,SDLK_DOWN,SDLK_MINUS};
+                    bool keypad=false;
+                    for(int i=0;i<8;++i)if(event.key.keysym.sym==keys[i]){bridgeActions.emplace_back(32+i,1);keypad=true;break;}
+                    if(keypad)break;
+                }
                 if (event.key.repeat) break;
                 if (event.key.keysym.sym == SDLK_ESCAPE) quitRequested = true;
                 else if (event.key.keysym.sym == SDLK_w) forwardPressed = true;
@@ -195,11 +201,16 @@ void simulatorPollEvents()
                 }
                 updateThrottle();
                 break;
-            case SDL_KEYUP:
+            case SDL_KEYUP: {
+                const SDL_Keycode keys[]={SDLK_m,SDLK_UP,SDLK_EQUALS,SDLK_RETURN,SDLK_p,SDLK_ESCAPE,SDLK_DOWN,SDLK_MINUS};
+                bool keypad=false;
+                for(int i=0;i<8;++i)if(event.key.keysym.sym==keys[i]){bridgeActions.emplace_back(32+i,2);keypad=true;break;}
+                if(keypad)break;
                 if (event.key.keysym.sym == SDLK_w) forwardPressed = false;
                 else if (event.key.keysym.sym == SDLK_s) brakePressed = false;
                 updateThrottle();
                 break;
+            }
         }
     }
 }

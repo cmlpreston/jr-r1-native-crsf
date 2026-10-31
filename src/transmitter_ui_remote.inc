@@ -111,9 +111,17 @@ bool TransmitterUi::portalDriveHoldBounds(int &x,int &y,int &w,int &h) const {
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None||hardwareRecovery_||rfBenchMode_||calibrationActive())return false;
     if(SetupPortal::active()&&(!SetupPortal::state().connected||!SetupPortal::state().autoConnect))return false;
     if(driveProgress_){x=0;y=kScreenHeight-(portraitUi?60:40);w=kScreenWidth/4;h=portraitUi?40:40;return true;}
-    if(detailOutputLabel){x=portraitUi?148:246;y=5;w=portraitUi?50:86;h=34;return true;}
     if(activePage_==UiPage::OutputStatus){x=12;y=portraitUi?238:184;w=kScreenWidth-24;h=48;return true;}
     return false;
+}
+
+bool TransmitterUi::portalPageSwipe(int x,int y,int endX,int endY,uint32_t duration)
+{
+    if(!SetupPortal::canControl()||armRequested_||touchWasDown_||!bootPinUnlocked_||
+       pinPurpose_!=PinPurpose::None||x<0||endX<0||y<0||endY<0||
+       x>=kScreenWidth||endX>=kScreenWidth||y>=kScreenHeight||endY>=kScreenHeight)return false;
+    remoteArmHold_.cancel();lastInteractionMs_=millis();
+    return handlePageSwipe(x,y,endX,endY,duration);
 }
 
 bool TransmitterUi::portalRemoteInput(int x,int y,int action,uint32_t hold,uint32_t pageEpoch) {

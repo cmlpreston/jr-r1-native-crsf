@@ -1,5 +1,6 @@
 #pragma once
 #include "gps_basemap.h"
+#include "ui_typography.h"
 
 #include <Arduino.h>
 #include <lvgl.h>
@@ -99,6 +100,9 @@ enum class UiPage : uint8_t {
     SystemMenu,
     ParameterControlPicker,
     ResponseProfile,
+    QuickNavigation,
+    FieldResetConfirmation,
+    TimerControl,
 };
 
 class TransmitterUi {
@@ -111,6 +115,7 @@ public:
     bool changePin(const char *current, const char *next, const char *confirm);
     bool recoverPinOverUsb(const char *next);
     bool portalRemoteInput(int x, int y, int action, uint32_t hold = 0, uint32_t pageEpoch = 0);
+    bool portalPageSwipe(int x, int y, int endX, int endY, uint32_t duration);
     bool portalDriveHoldBounds(int &x,int &y,int &w,int &h) const;
     uint32_t portalRemoteHoldId() const {return remoteArmHold_.id();}
     bool portalEnableScreen();
@@ -201,6 +206,7 @@ public:
     }
 #endif
     void setPhysicalInputStates(const PhysicalInputStateStore &states);
+    bool handleKeypadEvent(PhysicalControlId key, InputEvent event, uint32_t now);
     void setStartupPreflight(bool complete, uint32_t unsafeMask);
     size_t copyBindings(ControlBinding *destination, size_t capacity) const;
     bool consumeBindingsChanged();
@@ -260,9 +266,12 @@ private:
     bool rfBenchMode_ = false;
     char bootPinDigits_[5] = {};
     bool bootPinError_ = false;
+    bool pinRecoveryHelp_ = false;
     enum class PinPurpose : uint8_t { None, Boot, WalkExit, ChangeCurrent, ChangeNew, ChangeConfirm };
     PinPurpose pinPurpose_ = PinPurpose::Boot;
     UiPage pinReturnPage_ = UiPage::Dashboard;
+    uint32_t pinLastInputMs_ = 0;
+    void updatePinTimeout(uint32_t now);
     char securityPin_[5] = "1234";
     char newPin_[5] = {};
     bool walkRetained_ = false;
@@ -293,7 +302,7 @@ private:
                              uint8_t argument);
     lv_obj_t *makePageActionButton(int16_t x, int16_t y, int16_t width,
                                    int16_t height, const char *text,
-                                   uint8_t fontSize, uint32_t fill,
+                                   UiText::Style textStyle, uint32_t fill,
                                    uint32_t textColour, uint32_t border,
                                    PageControlHandler handler,
                                    uint8_t argument);
@@ -305,6 +314,26 @@ private:
                              int16_t increaseWidth, int16_t increaseHeight,
                              PageControlHandler handler, uint8_t argument);
     void finishPageFocus();
+    bool navigationIsModal() const;
+    void drawSectionNavigation(uint8_t section);
+    void drawPageTabs(const char *const *labels, const uint8_t *actions, uint8_t count,
+                      uint8_t selected, PageControlHandler handler, int16_t y = 44);
+    void drawPageControls(uint8_t page, uint8_t count);
+    void controlPageDot(uint8_t page, PageControlEvent event);
+    struct KeypadPress { bool down=false, consumed=false, held=false; uint32_t started=0, repeatAt=0; UiPage page=UiPage::Dashboard; };
+    KeypadPress keypadPresses_[8];
+    UiPage keypadReturnPage_ = UiPage::Dashboard;
+    void updateKeypad(uint32_t now);
+    void keypadAction(PhysicalControlId key, bool held, bool repeat=false);
+    void keypadPage(int direction);
+    void keypadTab(int direction);
+    void focusEditorExit();
+    void drawKeypadPage();
+    void controlKeypadMenu(uint8_t item, PageControlEvent event);
+    bool handlePageSwipe(int16_t x, int16_t y, int16_t endX, int16_t endY, uint32_t duration);
+    void controlSectionNavigation(uint8_t section, PageControlEvent event);
+    bool sectionNavigationVisible_ = false;
+    bool detailContentCompacted_ = false;
     void refreshPageFocus();
     void movePageFocus(int8_t direction);
     void activatePageFocus();
@@ -492,6 +521,8 @@ private:
     uint8_t widgetInputsBank_ = 0;
     struct DashboardWidgetView {
         lv_obj_t *panel = nullptr;
+        lv_obj_t *title = nullptr;
+        lv_obj_t *heldOutputIcon = nullptr;
         lv_obj_t *basemap = nullptr;
         GpsMapViewport mapViewport;
         lv_obj_t *values[16] = {};
@@ -642,6 +673,9 @@ private:
     uint16_t latestSteeringRawAdc_ = 0;
     bool touchWasDown_ = false;
     uint32_t touchDownStartedMs_ = 0;
+    int16_t touchStartX_ = 0, touchStartY_ = 0;
+    int16_t touchGestureX_ = 0, touchGestureY_ = 0;
+    UiPage touchStartPage_ = UiPage::Dashboard;
     uint32_t lastTouchDurationMs_ = 0;
     uint32_t touchReleaseSinceMs_ = 0;
     uint32_t touchIgnoreUntilMs_ = 0;
@@ -649,6 +683,7 @@ private:
     int16_t lastTouchY_ = 0;
     int16_t lastMarkerX_ = -1;
     uint16_t dashboardEnabledChannelMask_ = 0;
+    bool dashboardOutputsLive_ = false;
     uint16_t designRequested_[CRSF_CHANNEL_COUNT] = {};
     uint16_t dashboardChannelValues_[CRSF_CHANNEL_COUNT] = {};
     uint16_t lastDashboardChannelValues_[CRSF_CHANNEL_COUNT] = {};

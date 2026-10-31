@@ -15,14 +15,14 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
     resetLvglObjects();
     beginPageFocus();
     auto note = [](const char *text, int y, uint32_t ink = cDim) {
-        auto label = makeLabel(lv_scr_act(), text, 12, y, 12, ink);
+        auto label = makeLabel(lv_scr_act(), text, 12, y, UiText::Caption, ink);
         lv_obj_set_width(label, 296);
         lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
         return label;
     };
     auto action = [this](const char *text, int x, int y, int w,
                          PageControlHandler handler, uint8_t id) {
-        return makePageActionButton(x, y, w, 42, text, 13,
+        return makePageActionButton(x, y, w, 42, text, UiText::Secondary,
             cPanel2, cCyan, cLine, handler, id);
     };
     auto row = [this](const char *name, const char *value, int y,
@@ -30,16 +30,16 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
                       bool toggle = false, int height = 64) {
         auto panel = makePanel(8, y, 304, height, cBlack, cLine, 0);
         lv_obj_set_style_border_side(panel, LV_BORDER_SIDE_BOTTOM, 0);
-        auto label = makeLabel(panel, name, 10, 6, 12, cDim);
+        auto label = makeLabel(panel, name, 10, 6, UiText::Menu, cDim);
         boundedLabel(label, 192);
-        auto valueLabel = makeLabel(panel, value, 10, 27, 14, cWhite);
+        auto valueLabel = makeLabel(panel, value, 10, 27, UiText::Menu, cWhite);
         boundedLabel(valueLabel, 192);
         if (toggle) {
-            makeButton(212, y + 10, 92, 42, "Change", 12);
+            makeButton(212, y + 10, 92, 42, "Change", UiText::Secondary);
             addPageActionTarget(8, y, 304, height, handler, id);
         } else {
-            makeButton(212, y + (height-40)/2, 42, 40, "-", 20);
-            makeButton(262, y + (height-40)/2, 42, 40, "+", 20);
+            makeButton(212, y + (height-40)/2, 42, 40, "-", UiText::Heading);
+            makeButton(262, y + (height-40)/2, 42, 40, "+", UiText::Heading);
             addPageEditorTarget(8, y, 304, height,
                 212, y + (height-40)/2, 42, 40,
                 262, y + (height-40)/2, 42, 40, handler, id);
@@ -88,8 +88,8 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         action("Response",8,344,148,&TransmitterUi::controlThrottleHeader,0);
         action("Calibrate",164,344,148,&TransmitterUi::controlThrottleHeader,1);
         note("Release trigger before starting calibration.",388);
-        makeLabel(lv_scr_act(),"Throttle input",12,410,12,cCyan);
-        channel2ValueLabel_=makeLabel(lv_scr_act(),"0%",248,407,14,cGreen);
+        makeLabel(lv_scr_act(),"Throttle input",12,410,UiText::Caption,cCyan);
+        channel2ValueLabel_=makeLabel(lv_scr_act(),"0%",248,407,UiText::Secondary,cGreen);
         channel2LiveBar_=makeBar(lv_scr_act(),12,434,296,10,-1000,1000,cGreen);
         lv_bar_set_value(channel2LiveBar_,0,LV_ANIM_OFF);
     } else if (page == UiPage::ThrottleResponse) {
@@ -144,7 +144,7 @@ void TransmitterUi::drawPortraitDetails(UiPage page)
         action("Display",164,308,148,&TransmitterUi::controlSetup,5);
         action("TX battery",8,357,148,&TransmitterUi::controlSetup,6);
         action("RX battery",164,357,148,&TransmitterUi::controlSetup,7);
-        makePageActionButton(8,410,304,42,"Firmware info",12,cPanel2,cCyan,cLine,&TransmitterUi::controlSetup,8);
+        makePageActionButton(8,410,304,42,"Firmware info",UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlSetup,8);
     } else if (page == UiPage::DisplaySetup) {
         makeHeader("Display", "Back");
         const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now","Orientation"};

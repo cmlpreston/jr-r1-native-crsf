@@ -1089,9 +1089,15 @@ void loop()
             }
         }
         if (physicalInputEvents.size() != 0) {
+            PhysicalInputEventBuffer bindingEvents;
+            for(size_t i=0;i<physicalInputEvents.size();++i){
+                const auto &e=physicalInputEvents[i];
+                if(!transmitterUi.handleKeypadEvent(e.input,e.event,e.timestampMs))
+                    bindingEvents.push(e.input,e.event,e.timestampMs,e.value);
+            }
             ResolvedBindingActionBuffer actions;
             portENTER_CRITICAL(&bindingResolverMux);
-            bindingResolver.processEvents(physicalInputEvents,
+            bindingResolver.processEvents(bindingEvents,
                 static_cast<uint8_t>(ContextAlways | transmitterUi.activeControlContext() |
                     (control.armed ? ContextArmed : ContextCut)), actions);
             portEXIT_CRITICAL(&bindingResolverMux);

@@ -84,15 +84,15 @@ void TransmitterUi::drawChannelMixing()
         snprintf(values[6],48,"%u ms",mixingDraft_.transitionMs);
     }
     for(unsigned i=0;i<count;++i) {
-        const int pitch=mixingBank_==5?(portraitUi?44:24):(portraitUi?51:32);
+        const int pitch=mixingBank_==5?(portraitUi?44:24):(portraitUi?51:count>=7?28:32);
         const int y=50+i*pitch,height=pitch-kPanelGap;
         auto panel=makePanel(8,y,kScreenWidth-16,height);
-        makeLabel(panel,names[i],8,portraitUi?2:5,10,cDim);
-        auto value=makeLabel(panel,values[i],portraitUi?8:(mixingBank_==6?185:125),portraitUi?20:5,12,cWhite);
-        boundedLabel(value,portraitUi?184:(mixingBank_==6?160:220));
+        makeLabel(panel,names[i],8,portraitUi?2:(height-UiText::font(UiText::Caption)->line_height)/2,UiText::Caption,cDim);
+        auto value=makeLabel(panel,values[i],portraitUi?8:(mixingBank_==6?185:150),portraitUi?20:(height-UiText::font(mixingBank_==5?UiText::Caption:UiText::Menu)->line_height)/2,mixingBank_==5?UiText::Caption:UiText::Menu,cWhite);
+        boundedLabel(value,portraitUi?184:(mixingBank_==6?160:200));
         const int x=kScreenWidth-108;
-        makeButton(x,y+2,44,height-4,"-",16);makeButton(x+50,y+2,44,height-4,"+",16);
-        addPageEditorTarget(8,y,kScreenWidth-16,height,x,y+2,44,height-4,x+50,y+2,44,height-4,&TransmitterUi::controlChannelMixing,i);
+        makeButton(x,y+1,44,height-2,"-",UiText::Menu);makeButton(x+50,y+1,44,height-2,"+",UiText::Menu);
+        addPageEditorTarget(8,y,kScreenWidth-16,height,x,y+1,44,height-2,x+50,y+1,44,height-2,&TransmitterUi::controlChannelMixing,i);
     }
     if(mixingBank_==5) {
         const auto preview=previewChannelMix(controlConfigurationSnapshot(),selectedChannel_,mixingDraft_,
@@ -100,10 +100,11 @@ void TransmitterUi::drawChannelMixing()
         const char *labels[]={"Base+const","Mix 1","Mix 2","Mixed","Output"};
         const int values[]={(mixingDraft_.includeBase?mixingPreviewValues_[0]:0)+mixingDraft_.constantPercent*10,preview.contributions[0],preview.contributions[1],preview.mixed,preview.output};
         for(int n=0;n<5;++n){
-            const int y=(portraitUi?276:174)+n*(portraitUi?20:14);
+            const int column=portraitUi?0:n/3;
+            const int y=portraitUi?276+n*20:180+(n%3)*20;
             char text[32];snprintf(text,sizeof(text),"%s %+d%%",labels[n],values[n]/10);
-            makeLabel(lv_scr_act(),text,12,y,10,cWhite);
-            const int x=112,width=kScreenWidth-128,half=width/2;
+            makeLabel(lv_scr_act(),text,12+column*kScreenWidth/2,y,UiText::Caption,cWhite);
+            const int x=portraitUi?112:132+column*kScreenWidth/2,width=portraitUi?kScreenWidth-128:kScreenWidth/2-148,half=width/2;
             makePanel(x,y+3,width,7);
             const int length=constrain(abs(values[n])*half/1000,0,half);
             if(length){auto bar=makePanel(x+half+(values[n]<0?-length:0),y+3,length,7);lv_obj_set_style_bg_color(bar,colour(cCyan),0);}
@@ -116,7 +117,7 @@ void TransmitterUi::drawChannelMixing()
         previewChannelMixCurve(config,selectedChannel_,mixingDraft_,mixingPreviewValues_[0],
             mixingPreviewValues_+1,mixingPreviewHigh_,mixingPreviewWalk_,mixingCurveSource_,samples);
         const int x=40,y=portraitUi?262:178,w=kScreenWidth-56,h=portraitUi?96:48;
-        makePanel(x,y,w+1,h+1,cPanel,cLine,0);
+        makePanel(x,y,w+1,h+1,cPanel,cLine);
         auto horizontal=makePanel(x,y+h/2,w,1,cLine,cLine,0);
         (void)horizontal;makePanel(x+w/2,y,1,h,cLine,cLine,0);
         for(unsigned n=0;n<kMixCurvePoints;++n)
@@ -129,22 +130,22 @@ void TransmitterUi::drawChannelMixing()
         const int px=x+(mixingPreviewValues_[mixingCurveSource_]+1000)*w/2000;
         const int py=y+h/2-current.output*h/2000;
         makePanel(px-3,py-3,7,7,cAmber,cAmber,3);
-        makeLabel(lv_scr_act(),"+100",3,y-4,10,cDim);
-        makeLabel(lv_scr_act(),"0",21,y+h/2-5,10,cDim);
-        makeLabel(lv_scr_act(),"-100",3,y+h-8,10,cDim);
-        makeLabel(lv_scr_act(),"-100",x,y+h+3,10,cDim);
-        makeLabel(lv_scr_act(),"0",x+w/2-3,y+h+3,10,cDim);
-        makeLabel(lv_scr_act(),"+100",x+w-28,y+h+3,10,cDim);
+        makeLabel(lv_scr_act(),"+100",3,y-4,UiText::Caption,cDim);
+        makeLabel(lv_scr_act(),"0",21,y+h/2-5,UiText::Caption,cDim);
+        makeLabel(lv_scr_act(),"-100",3,y+h-8,UiText::Caption,cDim);
+        makeLabel(lv_scr_act(),"-100",x,y+h+3,UiText::Caption,cDim);
+        makeLabel(lv_scr_act(),"0",x+w/2-3,y+h+3,UiText::Caption,cDim);
+        makeLabel(lv_scr_act(),"+100",x+w-28,y+h+3,UiText::Caption,cDim);
         char caption[64];snprintf(caption,sizeof(caption),"CH%u output %+d%% | %s / %s",selectedChannel_,current.output/10,
             mixingPreviewHigh_?"Switch high":"Switch low",mixingPreviewWalk_?"Walk":"Normal");
-        makeLabel(lv_scr_act(),caption,12,portraitUi?242:162,10,cWhite);
+        makeLabel(lv_scr_act(),caption,12,portraitUi?242:162,UiText::Caption,cWhite);
     }
-    makeLabel(lv_scr_act(),mixingSaveError_?"Invalid mix (role/cycle) or save failed":mixingBank_>=7?"Preview only; switches set on bars page":mixingBank_==5?"Test only; no transmission; rates settled":mixingBank_==6?"CUT value: auxiliary channels only":"Switch mode: 0/+100; weights ignored",12,portraitUi?383:248,10,mixingSaveError_?cAmber:cDim);
+    makeLabel(lv_scr_act(),mixingSaveError_?"Invalid mix (role/cycle) or save failed":mixingBank_>=7?"Preview only; switches set on bars page":mixingBank_==5?"Test only; no transmission; rates settled":mixingBank_==6?"CUT value: auxiliary channels only":"Switch mode: 0/+100; weights ignored",12,portraitUi?383:248,UiText::Caption,mixingSaveError_?cAmber:cDim);
     const int y=portraitUi?410:270,w=(kScreenWidth-40)/4;
-    makePageActionButton(8,y,w,34,"Sections",12,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,218);
-    makePageActionButton(16+w,y,w,34,mixingBank_<2?"Other mix":mixingBank_==3||mixingBank_==4?"Other mix":mixingBank_==5?"Graph":mixingBank_==7?"Bars":"Sections",12,cPanel2,cCyan,cLine,&TransmitterUi::controlChannelMixing,11);
-    makePageActionButton(24+w*2,y,w,34,"Reset",12,cPanel2,cAmber,cLine,&TransmitterUi::controlChannelMixing,13);
-    makePageActionButton(32+w*3,y,w,34,"Apply",12,cPanel2,cGreen,cLine,&TransmitterUi::controlChannelMixing,12);
+    makePageActionButton(8,y,w,34,"Sections",UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,218);
+    makePageActionButton(16+w,y,w,34,mixingBank_<2?"Other mix":mixingBank_==3||mixingBank_==4?"Other mix":mixingBank_==5?"Graph":mixingBank_==7?"Bars":"Sections",UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlChannelMixing,11);
+    makePageActionButton(24+w*2,y,w,34,"Reset",UiText::Secondary,cPanel2,cAmber,cLine,&TransmitterUi::controlChannelMixing,13);
+    makePageActionButton(32+w*3,y,w,34,"Apply",UiText::Secondary,cPanel2,cGreen,cLine,&TransmitterUi::controlChannelMixing,12);
     finishPageFocus();
 }
 void TransmitterUi::controlChannelMixing(uint8_t item,PageControlEvent event)

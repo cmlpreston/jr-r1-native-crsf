@@ -6,19 +6,25 @@ void TransmitterUi::drawWifiPage()
     activePage_=UiPage::WifiSetup;startScreen();resetLvglObjects();beginPageFocus(false);
     const auto &s=SetupPortal::state();wifiRevision_=s.revision;
     makeHeader(wifiWebAccess_?"Web access":"Home Wi-Fi", (wifiEdit_==4||wifiEdit_==6)?"Cancel":wifiEdit_?"Done":"Close");
-    auto text=[](const char *t,int y,int size=12){auto l=makeLabel(lv_scr_act(),t,12,y,size,cWhite);lv_obj_set_width(l,kScreenWidth-24);return l;};
-    auto button=[&](int x,int y,int w,const char *label,uint8_t id){return makePageActionButton(x,y,w,32,label,12,cPanel,cWhite,cLine,&TransmitterUi::controlWifi,id);};
+    if(!wifiEdit_ && SetupPortal::active()){
+        // Navigation is independent of ending a manual setup session. Keep an
+        // explicit finish action so physical arming is not trapped in setup.
+        lv_obj_set_width(lv_obj_get_child(lv_obj_get_child(lv_scr_act(),0),0),kScreenWidth-250);
+        makePageActionButton(kScreenWidth-146,5,106,34,"Finish setup",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlWifi,2);
+    }
+    auto text=[](const char *t,int y,UiText::Style style=UiText::Caption){auto l=makeLabel(lv_scr_act(),t,12,y,style,cWhite);lv_obj_set_width(l,kScreenWidth-24);return l;};
+    auto button=[&](int x,int y,int w,const char *label,uint8_t id){return makePageActionButton(x,y,w,32,label,UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlWifi,id);};
     if(wifiEdit_==1||wifiEdit_==2||wifiEdit_==4||wifiEdit_==6){
-        text(wifiEdit_==6?(wifiSetupPasswordError_?s.message:"Hostname (without .local)"):wifiEdit_==1?"Network name (SSID)":wifiEdit_==4?(wifiSetupPasswordError_?s.message:"New setup password"):"Home Wi-Fi password",52,wifiSetupPasswordError_?12:16);
+        text(wifiEdit_==6?(wifiSetupPasswordError_?s.message:"Hostname (without .local)"):wifiEdit_==1?"Network name (SSID)":wifiEdit_==4?(wifiSetupPasswordError_?s.message:"New setup password"):"Home Wi-Fi password",52,wifiSetupPasswordError_?UiText::Caption:UiText::Menu);
         if((wifiEdit_==4||wifiEdit_==6)&&!portraitUi)button(352,48,116,"Save",13);
-        auto value=text(wifiEdit_==6?wifiHostname_:wifiEdit_==1?wifiSsid_:wifiEdit_==4?wifiSetupPassword_:wifiPassword_,78,14);
+        auto value=text(wifiEdit_==6?wifiHostname_:wifiEdit_==1?wifiSsid_:wifiEdit_==4?wifiSetupPassword_:wifiPassword_,78,UiText::Secondary);
         lv_label_set_long_mode(value,LV_LABEL_LONG_WRAP);
         lv_obj_set_height(value,portraitUi?44:30);
         const int margin=4,gap=2,keyHeight=portraitUi?52:34;
         const int keyboardTop=portraitUi?130:110,rowPitch=keyHeight+4;
         const int available=kScreenWidth-2*margin;
-        auto key=[&](int x,int y,int w,int h,const char *label,uint8_t id,int font){
-            return makePageActionButton(x,y,w,h,label,font,cPanel,cWhite,cLine,&TransmitterUi::controlWifi,id);
+        auto key=[&](int x,int y,int w,int h,const char *label,uint8_t id,UiText::Style style){
+            return makePageActionButton(x,y,w,h,label,style,cPanel,cWhite,cLine,&TransmitterUi::controlWifi,id);
         };
         for(int r=0;r<4;++r){
             const size_t count=strlen(kWifiKeys[wifiKeyMode_][r]);
@@ -28,40 +34,40 @@ void TransmitterUi::drawWifiPage()
                 char label[2]={kWifiKeys[wifiKeyMode_][r][c],0};
                 const int x=left+int(c)*available/10;
                 const int right=left+int(c+1)*available/10;
-                key(x,keyboardTop+r*rowPitch,right-x-gap,keyHeight,label,20+r*10+c,20);
+                key(x,keyboardTop+r*rowPitch,right-x-gap,keyHeight,label,20+r*10+c,UiText::Heading);
             }
         }
         const int actionsY=keyboardTop+4*rowPitch+4;
         const int w3=available/3,actionHeight=portraitUi?42:32;
-        key(margin,actionsY,w3-gap,actionHeight,wifiKeyMode_==0?"ABC":wifiKeyMode_==1?"Symbols":"abc",10,16);
-        key(margin+w3,actionsY,w3-gap,actionHeight,"Space",11,16);
-        key(margin+w3*2,actionsY,w3-gap,actionHeight,"Delete",12,16);
+        key(margin,actionsY,w3-gap,actionHeight,wifiKeyMode_==0?"ABC":wifiKeyMode_==1?"Symbols":"abc",10,UiText::Menu);
+        key(margin+w3,actionsY,w3-gap,actionHeight,"Space",11,UiText::Menu);
+        key(margin+w3*2,actionsY,w3-gap,actionHeight,"Delete",12,UiText::Menu);
         // Landscape finishes using the header action; portrait has a large Done key.
-        if(portraitUi)key(margin,actionsY+actionHeight+10,available,40,wifiEdit_==6?"Save hostname":wifiEdit_==4?"Save password":"Done",13,18);
+        if(portraitUi)key(margin,actionsY+actionHeight+10,available,40,wifiEdit_==6?"Save hostname":wifiEdit_==4?"Save password":"Done",13,UiText::Menu);
     }else if(wifiEdit_==5){
-        text("Restart handset?",70,22);
-        text("Saved models, maps and Wi-Fi are kept.",112,12);
-        text("Outputs must remain CUT.",142,14);
+        text("Restart handset?",70,UiText::Heading);
+        text("Saved models, maps and Wi-Fi are kept.",112,UiText::Caption);
+        text("Outputs must remain CUT.",142,UiText::Secondary);
         button(12,190,(kScreenWidth-28)/2,"Cancel",13);
         button(kScreenWidth/2,190,(kScreenWidth-28)/2,"Restart now",18);
     }else if(wifiEdit_==3){
-        text(s.scanning?"Scanning...":"Choose a 2.4 GHz network",52,14);
+        text(s.scanning?"Scanning...":"Choose a 2.4 GHz network",52,UiText::Secondary);
         const int rows=portraitUi?8:4;
         for(int i=0;i<rows;++i){int n=wifiNetworkPage_*rows+i;if(n>=s.networkCount)break;button(12,80+i*36,kScreenWidth-24,s.networks[n].ssid,70+n);}
         button(12,portraitUi?382:232,(kScreenWidth-28)/2,"More",14);button(kScreenWidth/2,portraitUi?382:232,(kScreenWidth-28)/2,"Back",13);
     }else{
-        text(s.message,52,12);
-        char line[112];snprintf(line,sizeof(line),"Network: %s",s.ssid[0]?s.ssid:"not configured");text(line,82,14);
+        text(s.message,52,UiText::Caption);
+        char line[112];snprintf(line,sizeof(line),"Network: %s",s.ssid[0]?s.ssid:"not configured");text(line,82,UiText::Secondary);
         if(wifiWebAccess_){
-            snprintf(line,sizeof(line),"http://%s.local",s.hostname);text(line,118,18);
-            snprintf(line,sizeof(line),"IP: %s",s.ip);text(line,150,14);
-            text("Web / setup hotspot password",portraitUi?198:178,14);
-            text(s.apPassword,portraitUi?226:200,strlen(s.apPassword)>12?20:24);
-            text("Username: r1",portraitUi?274:236,14);
+            snprintf(line,sizeof(line),"http://%s.local",s.hostname);text(line,118,UiText::Menu);
+            snprintf(line,sizeof(line),"IP: %s",s.ip);text(line,150,UiText::Secondary);
+            text("Web / setup hotspot password",portraitUi?198:178,UiText::Secondary);
+            text(s.apPassword,portraitUi?226:200,strlen(s.apPassword)>12?UiText::Heading:UiText::Heading);
+            text("Username: r1",portraitUi?274:236,UiText::Secondary);
             button(12,portraitUi?328:274,(kScreenWidth-28)/2,"Password",15);
             button(kScreenWidth/2,portraitUi?328:274,(kScreenWidth-28)/2,"Hostname",19);
         }else{
-            snprintf(line,sizeof(line),"IP: %s",s.ip);text(line,110,14);
+            snprintf(line,sizeof(line),"IP: %s",s.ip);text(line,110,UiText::Secondary);
             const int y=portraitUi?162:140,w=(kScreenWidth-28)/2;
             button(12,y,w,"Scan networks",3);button(kScreenWidth/2,y,w,"Enter SSID",4);
             button(12,y+40,w,"Home password",5);button(kScreenWidth/2,y+40,w,"Connect",6);
@@ -71,7 +77,7 @@ void TransmitterUi::drawWifiPage()
     }
     finishPageFocus();
     if(wifiEdit_==1||wifiEdit_==2||wifiEdit_==4||wifiEdit_==6){
-        wifiKeyPreview_=makeLabel(lv_scr_act(),"",0,0,32,cWhite);
+        wifiKeyPreview_=makeLabel(lv_scr_act(),"",0,0,UiText::Reading,cWhite);
         lv_obj_set_size(wifiKeyPreview_,52,54);
         lv_obj_set_style_text_align(wifiKeyPreview_,LV_TEXT_ALIGN_CENTER,0);
         lv_obj_set_style_pad_top(wifiKeyPreview_,8,0);

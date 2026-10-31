@@ -21,11 +21,11 @@ touch accuracy, electrical correctness, RF timing or receiver failsafe behaviour
 | Model memories and selection safeguards | Header model or Setup → Models; CUT and neutral required |
 | Channel configuration and role assignment | Setup → Model → Channels → Role / physical input |
 | Rate, expo, forward/brake endpoints and ramps | Tune; independent throttle/brake drafts; detailed channel editors retained |
-| Channel trim, subtrim and reverse | Tune second bank and existing channel detail pages |
+| Channel trim, subtrim and reverse | Tune page 2 and channel setup |
 | Legacy response-profile subtrim | Detailed response editor, separately from channel-parameter subtrim |
 | Binding source/context/target/behaviour, add/remove/save | Setup → Model → Control map and binding editor |
 | Raw switch and ADC inspection | Data → Inputs or Setup → Handset → System → Input diagnostics |
-| Normal/Walk mode and forward limit | Drive mode chooser or Setup → Model → Drive modes |
+| Normal/Walk mode and forward limit | Drive mode tabs; limits in Setup → Model → Drive modes |
 | Buzzer, clicks, pitch, duration and test | Setup → Handset → Sounds / alerts |
 | Calibration and startup switch warning | Existing calibration/system entry points and startup flow |
 | Brightness, sleep, screensaver and night mode | Setup → Handset → Display |
@@ -129,9 +129,8 @@ a firmware image has been flashed or physically tested.
 ## Navigation refinement — 2026-09-30
 
 Drive no longer carries a Layout button. Dashboard layout lives under
-Setup → Model → Dashboard, with an 800 ms long press on the Drive heading
-as a shortcut. The Normal/Walk chip opens a focused chooser; changing modes
-forces CUT, and the Walk forward limit remains separate from brake/reverse.
+Setup → Model → Dashboard. Normal/Walk tabs select the mode directly; changing
+modes forces CUT, and the Walk forward limit remains separate from brake/reverse.
 
 Channel configuration has one hub for role/input, response/trim and
 mixing/output limits. Role changes refuse conflicting ownership or existing
@@ -148,14 +147,44 @@ functions and drive modes use their action's behaviour, while channel assignment
 expose switch/button mode. Contexts include plain-language explanations. Changing
 tabs preserves the draft; Cancel discards it and Apply validates before saving.
 
+Drive uses the shared Normal / Walk tab row. Selecting the active mode
+is a no-op; selecting a different mode forces CUT, with PIN verification when
+leaving Walk. Limits remain under Setup > Drive modes, which also links to
+Output status. Dashboard layout remains under Setup > Dashboard.
+
 Drive navigation shows a lock while CUT and a green dot while LIVE, with
 a hold progress indicator. All four navigation labels share the same alignment
 and size, without hold hints on Drive. Short taps
-only navigate; early release cancels output changes. Tap the Drive heading
-for blocking reasons, or hold that heading for dashboard layout. Both manual
+only navigate; early release cancels output changes. Output status shows
+blocking reasons. Both manual
 output changes require a physical 800 ms hold; remote input cannot enable.
 Automatic safety CUT remains immediate. Boot PIN and output enable are separate.
-Legacy detail headers use a Drive navigation shortcut with the same hold policy.
+Typography is defined by six typed roles in `include/ui_typography.h`:
+Caption (12 px), Secondary (14), Menu (16), Heading (22), Reading (32) and
+Hero (48). Text helpers accept roles rather than pixel sizes, so new screens
+cannot introduce extra sizes accidentally. Menu labels, values and tabs use
+Menu; help/chart labels use Caption; larger widget readings use Reading/Hero.
+Only these six Montserrat fonts are enabled. Compact battery-cell widgets page
+additional cells on tap rather than shrink their text; mixing preview bars use
+two columns in landscape to keep captions readable.
+
+Tune uses bounded Previous/Next controls with a 1 / 2 page indicator.
+Channel setup opens the selected channel’s full configuration, separate from
+paging through quick adjustments.
+
+Subsection tabs share full-width spacing, 16 px labels and an active underline
+through `drawPageTabs`. This includes Tune, Data, Setup, response sides and the
+assignment/ESC editors; framed buttons are reserved for actions.
+
+Navigation is shared by main sections and detail pages. Main sections have
+Drive / Tune / Data / Setup tabs; detail pages also have Back at the top left.
+There is no separate Home icon: tapping Drive returns to the dashboard without
+changing output enable. The same deliberate hold policy applies to Drive on
+all tabbed pages. Legacy detail content and its touch/keypad targets are fitted
+into the area above the common tabs. Editors with pending changes, PIN and
+calibration flows omit section tabs and retain their Cancel/Apply or dedicated
+controls. Leaving Wi-Fi setup through Back or a section tab preserves the
+background web connection; the explicit Finish setup action remains separate.
 When enabling waits for a receiver, the title bar shows Link wait and the
 output-status page explicitly shows LINK WAIT and the blocking reason. Drive
 keeps its centered label and lock until output is actually LIVE.
@@ -285,3 +314,27 @@ position. The user saw unchanged servo travel and identified a likely steering
 gyro between receiver and servo. Next isolate that stage by testing the servo
 directly on the receiver output that feeds the gyro. The gyro model and mode
 are not yet established; no further firmware change was justified by this trace.
+
+The Walk-exit PIN prompt returns to Drive after 10 seconds without keypad input. It clears partial PIN entry and keeps Walk mode and CUT active. Boot unlock and PIN-change prompts do not use this timeout. The Walk percentage is shown in Drive modes settings.
+
+“Forgot PIN?” opens an on-device USB recovery guide with serial settings and the PINRESET command. Back returns to the same PIN prompt. Walk-exit inactivity expiry is suspended while reading the guide and restarts on return; the guide itself never unlocks or changes the PIN.
+
+Tune, Data sensor/channel pages, Input monitor and Setup use shared page controls at the lower left, above the primary navigation: previous arrow, “1 / N”, next arrow. End arrows are disabled rather than wrapping; sensor group titles and channel ranges remain separate from numbering.
+
+Numbered Tune, Data Sensors/Channels/Inputs and Setup pages support horizontal body swipes (60 px minimum, up to 1.2 s, vertical drift at most 35 px). Left advances, right goes back, without wrapping. Tappable dots replace the numbered arrows and are centred across the screen. In portrait, Tune’s Channel setup shortcut sits above the dot row to keep the touch targets separate. Swipes do not change subsections, Drive mode, CUT or PIN state. The live web view forwards the same bounded page gesture through the authenticated, epoch-checked input endpoint.
+
+Cards, bordered boxes and buttons share a 6 px corner radius. Full-width headers, primary navigation and underlined subsection tabs remain square. Centred page dots have a subtle neutral pill background, with stronger contrast for the active dot.
+
+Boot unlock, Walk exit and current-PIN verification submit automatically on the fourth digit. Incorrect entries clear with an error; successful authentication keeps outputs CUT. Entering and confirming a new PIN still require Continue to save deliberately.
+
+Dashboard Channels and All channels widgets show requested channel positions (including response/mixing), even while CUT. Their graphs use the same requested values. Data → Channels retains its requested/sent comparison, and CUT still resolves transmitted channels to safe values.
+
+The dimmed screensaver alternates JR PROPO and R-1 EVO artwork every 15 seconds, moving the visible artwork at each change. Startup branding and touch/control wake behaviour remain unchanged.
+
+Channel preview widgets show a small amber crossed-out output arrow in the upper-right corner whenever requested positions are withheld by output safety. It disappears when channel outputs are live. It indicates safe substitution of commands, not loss of the radio signal; physical-input-only widgets omit it.
+
+## Handset keypad navigation
+
+The eight KEY buttons are reserved for UI navigation and are consumed before editable RF bindings. MODE opens Quick menu; hold MODE returns to Drive. A second MODE opens Setup. The quick menu reproduces the original orange shortcuts: UP steering expo, PAGE endpoints, SEL throttle response, DOWN trims, + models, - timer, CLR Drive. UP/DOWN moves the visible focus; SEL activates. Outside editors +/- changes the subsection tab; inside editors it adjusts the focused field. PAGE advances numbered pages and hold PAGE goes back, without wrapping. CLR goes back/cancels; hold CLR in a numeric editor offers a confirmed draft-only default reset. Apply is still required. MODE cannot discard modal drafts. No navigation key arms, releases Walk or loads a model implicitly.
+
+UP/DOWN and +/- repeat after 450 ms, with accelerated repeats after 2 s. MODE/PAGE/CLR short actions occur on release; holds take effect after 650 ms and suppress the short action. Failed inputs and cancelled simulator pointer presses discard pending actions. The simulator's eight keypad buttons and keyboard shortcuts use the same press/release state machine. Its HOME button is a convenience shortcut in addition to the real eight keys.

@@ -8,15 +8,15 @@
 .brand-jr{color:#ff4b43}
 </style></head>
 <body>
-<header><div><h1><span class="brand-jr">JR</span> R1 · Current interface</h1><p>Real firmware screens, running locally with simulated inputs.</p></div><label>Display <select id="orientation"><option value="landscape">Landscape · 480 × 320</option><option value="portrait" selected>Portrait · 320 × 480</option></select></label></header>
+<header><div><h1><span class="brand-jr">JR</span> R1 · Current interface</h1><p>Real firmware screens, running locally with simulated inputs.</p></div><label>Display <select id="orientation"><option value="landscape" selected>Landscape · 480 × 320</option><option value="portrait">Portrait · 320 × 480</option></select></label></header>
 <div class="layout">
- <div class="display-column"><div class="display" id="display"><img id="screen" alt="Live JR R1 touchscreen. Click or touch controls; keypad alternatives are provided alongside." draggable="false"><div id="offline" class="offline">Starting simulator…</div></div><div class="screen-label" id="screen-label">Click the screen as you would touch the LCD.</div></div>
+ <div class="display-column"><div class="display landscape" id="display"><img id="screen" alt="Live JR R1 touchscreen. Click or touch controls; keypad alternatives are provided alongside." draggable="false"><div id="offline" class="offline">Starting simulator…</div></div><div class="screen-label" id="screen-label">Click the screen as you would touch the LCD.</div></div>
  <aside aria-label="Simulated transmitter controls">
  <section><h2>R1 keypad</h2><div class="keypad">
- <button data-action="menu">MODE</button><button data-action="page">PAGE</button><button data-action="back">CLEAR</button>
- <button data-action="minus">−</button><button data-action="up">UP</button><button data-action="plus">+</button>
- <button data-action="home">HOME</button><button data-action="down">DOWN</button><button data-action="select">SELECT</button>
- </div><p class="hint">Keyboard: M menu · Esc back · arrows navigate/adjust · Enter select.</p></section>
+ <button data-key="mode">MODE</button><button data-key="page">PAGE</button><button data-key="clear">CLEAR</button>
+ <button data-key="minus">−</button><button data-key="up">UP</button><button data-key="plus">+</button>
+ <button data-action="home">HOME</button><button data-key="down">DOWN</button><button data-key="select">SELECT</button>
+ </div><p class="hint">M: MODE · P: PAGE · Esc: CLR · arrows: UP/DOWN/−/+ · Enter: SEL. Hold MODE for Drive; hold PAGE for previous page.</p></section>
  <section><h2>Steering & throttle</h2>
  <div class="axis"><label for="steering">Steering <output id="steering-value">0%</output></label><input id="steering" type="range" min="-100" max="100" value="0"></div>
  <div class="axis"><label for="throttle">Brake ← Throttle → Forward <output id="throttle-value">0%</output></label><input id="throttle" type="range" min="-100" max="100" value="0"></div>
@@ -32,7 +32,7 @@
 <script>
 const token='__SIM_TOKEN__';
 const screen=document.getElementById('screen'), display=document.getElementById('display'), offline=document.getElementById('offline'), statusLine=document.getElementById('status');
-let orientation='portrait', currentURL=null, touch=null, sendChain=Promise.resolve(), failureCount=0;
+let orientation='landscape', currentURL=null, touch=null, sendChain=Promise.resolve(), failureCount=0;
 function send(data,target=orientation){sendChain=sendChain.catch(()=>{}).then(async()=>{const response=await fetch('/input/'+target,{method:'POST',headers:{'Content-Type':'application/json','X-Simulator-Token':token},body:JSON.stringify(data)});if(!response.ok)throw new Error(await response.text());statusLine.textContent='';}).catch(e=>{statusLine.textContent=e.message;});return sendChain;}
 async function refresh(){const selected=orientation;try{const response=await fetch('/frame/'+selected+'.bmp',{cache:'no-store'});if(!response.ok)throw new Error('Simulator unavailable');const blob=await response.blob();if(selected===orientation){const next=URL.createObjectURL(blob);await new Promise((resolve,reject)=>{screen.onload=resolve;screen.onerror=reject;screen.src=next;});if(currentURL)URL.revokeObjectURL(currentURL);currentURL=next;offline.hidden=true;failureCount=0;}}catch(e){if(++failureCount>5){offline.hidden=false;offline.textContent='Demo disconnected. Restart simulator/browser_demo.py to reconnect.';}}setTimeout(refresh,80);}
 function xy(e){const rect=screen.getBoundingClientRect(),w=orientation==='portrait'?320:480,h=orientation==='portrait'?480:320;return{x:Math.max(0,Math.min(w-1,Math.floor((e.clientX-rect.left)*w/rect.width))),y:Math.max(0,Math.min(h-1,Math.floor((e.clientY-rect.top)*h/rect.height)))};}
@@ -43,15 +43,20 @@ screen.addEventListener('pointerup',releaseTouch);screen.addEventListener('point
 function axis(name,value){const input=document.getElementById(name);input.value=value;document.getElementById(name+'-value').textContent=value+'%';send({kind:name,value:Math.round(Number(value)*10)});}
 for(const name of ['steering','throttle']){const input=document.getElementById(name);input.addEventListener('input',()=>axis(name,input.value));input.addEventListener('change',()=>{if(document.getElementById('spring').checked)axis(name,0);});}
 document.getElementById('centre').addEventListener('click',()=>{axis('steering',0);axis('throttle',0);});
+const heldKeys=new Set();
+function keyDown(name){if(heldKeys.has(name))return;heldKeys.add(name);send({kind:'key',name,down:true});}
+function keyUp(name,cancel=false){if(!heldKeys.delete(name))return;send({kind:'key',name,down:false,cancel});}
+function cancelKeys(){for(const name of [...heldKeys])keyUp(name,true);}
+document.querySelectorAll('[data-key]').forEach(b=>{b.onpointerdown=e=>{e.preventDefault();b.setPointerCapture(e.pointerId);keyDown(b.dataset.key)};b.onpointerup=()=>keyUp(b.dataset.key);b.onpointercancel=()=>keyUp(b.dataset.key,true)});
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>send({kind:'action',name:b.dataset.action})));
 document.getElementById('link').addEventListener('change',e=>send({kind:'link',value:e.target.checked}));
 for(const kind of ['rx','tx'])document.getElementById(kind).addEventListener('change',e=>{const v=Number(e.target.value);if(Number.isFinite(v)&&v>=0&&v<=20)send({kind,value:Math.round(v*10)});});
-document.getElementById('orientation').addEventListener('change',async e=>{releaseTouch();axis('steering',0);axis('throttle',0);send({kind:'action',name:'cut'});orientation=e.target.value;display.classList.toggle('landscape',orientation==='landscape');document.getElementById('screen-label').textContent='Click the screen as you would touch the LCD.';screen.removeAttribute('src');offline.hidden=false;offline.textContent='Switching display…';send({kind:'action',name:'cut'});axis('steering',0);axis('throttle',0);for(const k of ['rx','tx'])send({kind:k,value:Math.round(Number(document.getElementById(k).value)*10)});send({kind:'link',value:document.getElementById('link').checked});});
-const keys={m:'menu',h:'home',p:'page',Escape:'back',ArrowUp:'up',ArrowDown:'down',ArrowLeft:'minus',ArrowRight:'plus',Enter:'select'};
+document.getElementById('orientation').addEventListener('change',async e=>{cancelKeys();releaseTouch();axis('steering',0);axis('throttle',0);send({kind:'action',name:'cut'});orientation=e.target.value;display.classList.toggle('landscape',orientation==='landscape');document.getElementById('screen-label').textContent='Click the screen as you would touch the LCD.';screen.removeAttribute('src');offline.hidden=false;offline.textContent='Switching display…';send({kind:'action',name:'cut'});axis('steering',0);axis('throttle',0);for(const k of ['rx','tx'])send({kind:k,value:Math.round(Number(document.getElementById(k).value)*10)});send({kind:'link',value:document.getElementById('link').checked});});
+const keys={m:'mode',h:'home',p:'page',Escape:'clear',ArrowUp:'up',ArrowDown:'down',ArrowLeft:'minus',ArrowRight:'plus',Enter:'select'};
 const driveKeys={w:['throttle',100],s:['throttle',-100],a:['steering',-100],d:['steering',100]};
-document.addEventListener('keydown',e=>{if(e.target.matches('input,select')||(e.key==='Enter'&&e.target.closest('button'))||e.metaKey||e.ctrlKey||e.altKey)return;const k=e.key.length===1?e.key.toLowerCase():e.key;if(keys[k]){e.preventDefault();if(!e.repeat)send({kind:'action',name:keys[k]});}else if(driveKeys[k]){e.preventDefault();if(!e.repeat)axis(...driveKeys[k]);}});
-document.addEventListener('keyup',e=>{const k=e.key.toLowerCase();if(driveKeys[k])axis(driveKeys[k][0],0);});
-window.addEventListener('blur',()=>{releaseTouch();axis('steering',0);axis('throttle',0);});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){releaseTouch();axis('steering',0);axis('throttle',0);}});
+document.addEventListener('keydown',e=>{if(e.target.matches('input,select')||(e.key==='Enter'&&e.target.closest('button'))||e.metaKey||e.ctrlKey||e.altKey)return;const k=e.key.length===1?e.key.toLowerCase():e.key;if(keys[k]){e.preventDefault();if(!e.repeat){if(keys[k]==='home')send({kind:'action',name:'home'});else keyDown(keys[k]);}}else if(driveKeys[k]){e.preventDefault();if(!e.repeat)axis(...driveKeys[k]);}});
+document.addEventListener('keyup',e=>{const k=e.key.length===1?e.key.toLowerCase():e.key;if(keys[k]&&keys[k]!=='home')keyUp(keys[k]);const drive=e.key.toLowerCase();if(driveKeys[drive])axis(driveKeys[drive][0],0);});
+window.addEventListener('blur',()=>{cancelKeys();releaseTouch();axis('steering',0);axis('throttle',0);});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelKeys();releaseTouch();axis('steering',0);axis('throttle',0);}});
 refresh();
 </script></body></html>

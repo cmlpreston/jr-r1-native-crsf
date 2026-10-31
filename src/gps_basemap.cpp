@@ -1,4 +1,5 @@
 #include "gps_basemap.h"
+#include "ui_typography.h"
 #include "offline_map.h"
 #include <algorithm>
 
@@ -83,7 +84,7 @@ void drawMap(lv_event_t *event) {
             }
         }
         lv_draw_label_dsc_t text; lv_draw_label_dsc_init(&text);
-        text.font=&lv_font_montserrat_10; text.color=lv_color_hex(0x405442);
+        text.font=UiText::font(UiText::Caption); text.color=lv_color_hex(0x405442);
         const auto label = [&](int east, int north, const char *caption, int w) {
             auto p=screenPoint({static_cast<int16_t>(east),static_cast<int16_t>(north)});
             lv_area_t area={p.x,p.y,static_cast<lv_coord_t>(p.x+w),static_cast<lv_coord_t>(p.y+24)};
@@ -98,8 +99,8 @@ void drawMap(lv_event_t *event) {
         for (int y=0;y<height;y+=40) {lv_point_t a={bounds.x1,static_cast<lv_coord_t>(bounds.y1+y)}, b={bounds.x2,a.y};lv_draw_line(ctx,&line,&a,&b);}
     }
     const char *attribution=custom?OfflineMap::current().attribution:GpsMap::covers(view.latitude,view.longitude)?"(c) OpenStreetMap":"No offline map for this location";
-    lv_draw_label_dsc_t credit;lv_draw_label_dsc_init(&credit);credit.font=&lv_font_montserrat_10;credit.color=lv_color_hex(0x405442);
-    lv_area_t creditArea={static_cast<lv_coord_t>(bounds.x1+5),static_cast<lv_coord_t>(bounds.y2-14),static_cast<lv_coord_t>(bounds.x2-5),bounds.y2};
+    lv_draw_label_dsc_t credit;lv_draw_label_dsc_init(&credit);credit.font=UiText::font(UiText::Caption);credit.color=lv_color_hex(0x405442);
+    lv_area_t creditArea={static_cast<lv_coord_t>(bounds.x1+5),static_cast<lv_coord_t>(bounds.y2-17),static_cast<lv_coord_t>(bounds.x2-5),bounds.y2};
     fill.bg_color=lv_color_hex(0xeeeae0);fill.bg_opa=LV_OPA_90;lv_draw_rect(ctx,&fill,&creditArea);
     lv_draw_label(ctx,&credit,&creditArea,attribution,nullptr);
     ctx->clip_area = previousClip;

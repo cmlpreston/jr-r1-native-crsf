@@ -1,0 +1,14 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(__dirname+'/../simulator/browser_demo.html','utf8');
+const posts=[],context={send:input=>posts.push(input)};
+vm.createContext(context);
+vm.runInContext(html.slice(html.indexOf('const heldKeys='),html.indexOf("document.querySelectorAll('[data-key]')")),context);
+context.keyDown('mode');context.keyDown('mode');
+assert.equal(posts.length,1);assert.equal(posts[0].down,true);
+context.keyUp('mode');context.keyUp('mode');
+assert.equal(posts.length,2);assert.equal(posts[1].down,false);assert.equal(posts[1].cancel,false);
+context.keyDown('clear');context.keyDown('plus');context.cancelKeys();
+assert.equal(posts.length,6);assert.equal(posts[4].cancel,true);assert.equal(posts[5].cancel,true);
+context.cancelKeys();assert.equal(posts.length,6);
+new vm.Script(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
+console.log('Handset simulator keys: press/release, duplicate suppression, cancellation and script syntax PASS');

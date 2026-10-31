@@ -1,7 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const source=fs.readFileSync(__dirname+'/../include/setup_portal_page.h','utf8');
 let now=10000,posts=[],nextId=1,failHeartbeat=false;
-const el={livestart:{},livestatus:{}};
+const el={livestart:{},livestatus:{},livecanvas:{}};
 const ctx={$:id=>el[id],Date:{now:()=>now},document:{hidden:false},setTimeout:()=>1,clearTimeout:()=>{},AbortController,URLSearchParams,token:'test',pinLocked:false,webWritable:true,mapBusy:false,setRemoteMode:v=>{ctx.webWritable=v},fetch:async(url,options)=>{const body=Object.fromEntries(options.body);posts.push(body);if(failHeartbeat&&body.action==='6')throw Error('network lost');return{ok:true,text:async()=>body.action==='3'?String(nextId++):'Applied'}}};
 vm.createContext(ctx);vm.runInContext(source.slice(source.indexOf('let live=false,'),source.indexOf('\nlcd.onclick=')),ctx);
 const set=s=>vm.runInContext(s,ctx),hold=()=>set('webHold');
@@ -24,5 +24,15 @@ const reset=()=>{ctx.webWritable=true;ctx.pinLocked=false;ctx.document.hidden=fa
  await ctx.startWebHold(30,300);await settle();now+=100;await ctx.releaseDriveGesture(gesture,30,300);assert.deepEqual(taps,[[0,30,300]]);assert.equal(posts.filter(p=>p.action==='4').length,1);
  taps=[];gesture.started=now;await ctx.startWebHold(30,300);await settle();now+=500;await ctx.releaseDriveGesture(gesture,30,300);assert.equal(taps.length,0);assert.equal(posts.filter(p=>p.action==='4').length,1);
  gesture.started=now;gesture.epoch=6;await ctx.releaseDriveGesture(gesture,30,300);assert.equal(taps.length,0);
+ // A body swipe forwards its endpoints, while stale/wake gestures cannot page.
+ ctx.lcd=el.livecanvas;Object.assign(ctx.lcd,{width:480,height:320,getBoundingClientRect:()=>({left:0,top:0,width:480,height:320}),setPointerCapture:()=>{}});
+ vm.runInContext(source.slice(source.indexOf('lcd.onclick=null;'),source.indexOf('window.addEventListener(\'blur\'')),ctx);
+ const pointer=(x,y)=>({button:0,pointerId:1,clientX:x,clientY:y,preventDefault(){}});
+ reset();set('remoteWake=false');taps=[];
+ ctx.lcd.onpointerdown(pointer(250,150));now+=400;ctx.lcd.onpointermove(pointer(100,154));ctx.lcd.onpointerup(pointer(100,154));
+ assert.equal(taps.length,1);assert.deepEqual(taps[0].slice(0,3),[8,250,150]);
+ assert.equal(taps[0][3].endX,100);assert.equal(taps[0][3].endY,154);assert.equal(taps[0][3].duration,400);
+ taps=[];ctx.lcd.onpointerdown(pointer(250,150));set('liveEpoch++');ctx.lcd.onpointerup(pointer(100,154));assert.equal(taps.length,0);
+ reset();set('remoteWake=true');ctx.lcd.onpointerdown(pointer(250,150));ctx.lcd.onpointerup(pointer(100,154));assert.equal(taps.length,0);
  console.log('Remote web hold: short release, ready release, nonce, PIN, visibility, generation and connection-loss cancellation PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});

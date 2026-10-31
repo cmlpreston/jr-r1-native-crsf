@@ -333,7 +333,8 @@ async function pollLive(){
  }
 }
 $('livestart').onclick=()=>{if(live){stopLive();return}live=true;++liveGeneration;liveRevision=liveEpoch=0;lastLiveAt=0;liveActiveUntil=Date.now()+2000;$('livestart').textContent='Disconnect live screen';pollLive()};
-async function liveInput(action,x=0,y=0){
+async function liveInput(action,x=0,y=0,gesture={}){
+ if(action===8&&liveBusy)return;
  if(action===0&&remoteWake)action=7;
 
  if(pinLocked&&action!==0&&action!==7){liveStatus("Enter your PIN on the mirrored keypad first.");return}
@@ -360,7 +361,7 @@ async function liveInput(action,x=0,y=0){
    if(!live||generation!==liveGeneration||document.hidden)throw Error('Remote control cancelled');
    setRemoteMode(true);
   }
-  await request('/api/screen/input',new URLSearchParams({action,x,y,epoch:liveEpoch}));if(generation===liveGeneration)liveStatus('Updating…')}
+  await request('/api/screen/input',new URLSearchParams({action,x,y,epoch:liveEpoch,...gesture}));if(generation===liveGeneration)liveStatus('Updating…')}
  catch(e){if(generation===liveGeneration)liveStatus(e.message)}
  finally{liveBusy=false;liveSending=false;pendingLiveInput=null;if(live&&generation===liveGeneration){liveActiveUntil=Date.now()+2000;scheduleLive()}}
 }
@@ -402,7 +403,7 @@ lcd.onclick=null;
 function lcdPoint(e){const r=lcd.getBoundingClientRect();return [Math.floor((e.clientX-r.left)*lcd.width/r.width),Math.floor((e.clientY-r.top)*lcd.height/r.height)]}
 lcd.onpointerdown=e=>{if(e.button!==0||lcdGesture)return;e.preventDefault();const [x,y]=lcdPoint(e);lcdGesture={pointer:e.pointerId,x,y,started:Date.now(),epoch:liveEpoch,generation:liveGeneration,zone:remoteHoldZone,arm:webWritable&&!remoteWake&&!!inHoldZone(x,y)};lcd.setPointerCapture(e.pointerId);if(lcdGesture.arm)startWebHold(x,y)};
 lcd.onpointermove=e=>{if(!lcdGesture||lcdGesture.pointer!==e.pointerId)return;const [x,y]=lcdPoint(e);if(lcdGesture.arm&&(!inHoldZone(x,y,webHold?.zone)||Math.abs(x-lcdGesture.x)>24||Math.abs(y-lcdGesture.y)>24)){lcdGesture.cancelled=true;cancelWebHold()}};
-lcd.onpointerup=e=>{if(!lcdGesture||lcdGesture.pointer!==e.pointerId)return;const g=lcdGesture;lcdGesture=null;if(g.cancelled)return;if(g.arm)releaseDriveGesture(g,...lcdPoint(e));else{const [x,y]=lcdPoint(e);if(Math.abs(x-g.x)<24&&Math.abs(y-g.y)<24)liveInput(0,x,y)}};
+lcd.onpointerup=e=>{if(!lcdGesture||lcdGesture.pointer!==e.pointerId)return;const g=lcdGesture;lcdGesture=null;if(g.cancelled)return;if(g.arm)releaseDriveGesture(g,...lcdPoint(e));else{const [x,y]=lcdPoint(e);if(Math.abs(x-g.x)<24&&Math.abs(y-g.y)<24)liveInput(0,x,y);else if(g.epoch===liveEpoch&&g.generation===liveGeneration&&!remoteWake&&Date.now()-g.started<=1200)liveInput(8,g.x,g.y,{endX:x,endY:y,duration:Date.now()-g.started})}};
 lcd.onpointercancel=()=>{lcdGesture=null;cancelWebHold()};
 window.addEventListener('blur',()=>{lcdGesture=null;cancelWebHold()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){lcdGesture=null;cancelWebHold()}});

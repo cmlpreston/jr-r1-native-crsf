@@ -41,6 +41,10 @@ def command_for(data):
         return f"{kind} {value}\n"
     if kind == "link" and type(data.get("value")) is bool:
         return f"link {int(data['value'])}\n"
+    if kind == "key" and data.get("name") in ("mode", "up", "plus", "select", "page", "clear", "down", "minus") and type(data.get("down")) is bool:
+        index = ("mode", "up", "plus", "select", "page", "clear", "down", "minus").index(data["name"])
+        event = 16 if data.get("cancel") is True else 1 if data["down"] else 2
+        return f"action {32+index} {event}\n"
     if kind == "action" and data.get("name") in ACTIONS:
         name = data["name"]
         return f"action {ACTIONS[name]} {0 if name == 'cut' else 1}\n"

@@ -317,6 +317,36 @@ wiring should not be treated as current build instructions. Photo dates come
 from capture metadata where available; additional WhatsApp exports use their
 filename dates, as recorded in the [image provenance](assets/project/README.md).
 
+## See the prototypes working
+
+These are the supplied bench videos, embedded as GitHub-hosted players. Dates
+are the WhatsApp filename dates. Original repository files remain available
+through the fallback links.
+
+**19 September — working RF transmission**
+
+https://github.com/user-attachments/assets/d969b3ab-47aa-40d7-9dc7-c1d16479c7ca
+
+[Open/download the original clip](assets/project/video/2026-09-19-rf-bench.mp4).
+
+**25 September — working replacement PCB**
+
+https://github.com/user-attachments/assets/c674a6c4-4e64-43a7-bc6d-176065c3f0c9
+
+[Open/download the original clip](assets/project/video/2026-09-25-working-pcb.mp4).
+
+**28 September — touchscreen working**
+
+https://github.com/user-attachments/assets/dca95e1c-1022-4f89-bfe4-26ae98233780
+
+[Open/download the original clip](assets/project/video/2026-09-28-touchscreen.mp4).
+
+**25 October — steering and throttle inputs together**
+
+https://github.com/user-attachments/assets/b78660c5-05b0-463d-b80c-2710eca7bff4
+
+[Open/download the original clip](assets/project/video/2026-10-25-steering-throttle.mp4).
+
 ## Custom receiver firmware: S.Port sensors over ExpressLRS
 
 The companion [ExpressLRS-SPort repository](https://github.com/cmlpreston/ExpressLRS-SPort/tree/codex/sport-telemetry)

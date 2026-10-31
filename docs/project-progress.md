@@ -27,7 +27,7 @@ current landscape navigation design.
 
 ## 19 September: working RF bench prototype
 
-[![RF bench video still](../assets/project/2026-09-19-rf-video-still.jpg)](../assets/project/video/2026-09-19-rf-bench.mp4)
+https://github.com/user-attachments/assets/d969b3ab-47aa-40d7-9dc7-c1d16479c7ca
 
 [Watch the working RF transmission video](../assets/project/video/2026-09-19-rf-bench.mp4).
 The opened handset, breadboard, external RF module, display and receiver/servo
@@ -45,8 +45,17 @@ selection and enable state. The modern web UI is shown separately in the
 
 <p align="center"><img src="../assets/project/2026-09-22-xiao-assembly.jpg" width="360" alt="XIAO and DIP sockets installed on the replacement board"><img src="../assets/project/2026-09-25-control-wiring.jpg" width="300" alt="The populated board and original control wiring in the handset"></p>
 
-- [25 September — working PCB video](../assets/project/video/2026-09-25-working-pcb.mp4)
-- [28 September — working touchscreen video](../assets/project/video/2026-09-28-touchscreen.mp4)
+**25 September — working PCB**
+
+https://github.com/user-attachments/assets/c674a6c4-4e64-43a7-bc6d-176065c3f0c9
+
+[Original clip](../assets/project/video/2026-09-25-working-pcb.mp4).
+
+**28 September — working touchscreen**
+
+https://github.com/user-attachments/assets/dca95e1c-1022-4f89-bfe4-26ae98233780
+
+[Original clip](../assets/project/video/2026-09-28-touchscreen.mp4).
 
 ## 25 October: finding the small fault, then testing both inputs
 
@@ -57,7 +66,9 @@ XIAO pin and a nearby via on an input track. It took considerable investigation
 to find: the close-up records the eventual physical cause, rather than a
 firmware defect.
 
-[Watch the first combined steering and throttle input test](../assets/project/video/2026-10-25-steering-throttle.mp4).
+https://github.com/user-attachments/assets/b78660c5-05b0-463d-b80c-2710eca7bff4
+
+[Original steering/throttle clip](../assets/project/video/2026-10-25-steering-throttle.mp4).
 
 ## Media handling
 

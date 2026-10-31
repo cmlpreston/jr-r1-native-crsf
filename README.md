@@ -101,6 +101,112 @@ logging or ESC programming. Their presence in code is not a claim that those
 features are complete. Per-receiver output mapping and failsafe configuration
 also remain distinct from transmitter channel setup.
 
+## The Drive dashboard: choose what matters for each model
+
+Each model has its own two-column, two-row widget layout. Open **Setup → Model →
+Dashboard**, choose a position, then select the widget type, size, style and
+source and **Apply**. The resulting widgets appear on **Drive**. Sizes are 1×1,
+2×1, 1×2 and 2×2, where they fit from the selected position. A larger widget
+covers neighbouring widgets without deleting their saved configuration; reducing
+it reveals them again. Use **Empty** to leave a position unused.
+
+| Widget | What it shows and how it can be configured |
+| --- | --- |
+| **Timer** | Elapsed run time, with Start/Stop and Reset controls. It can also be operated through supported handset timer assignments. |
+| **TX / RX power** | Transmitter-pack voltage from the local ADC and receiver supply from telemetry. Choose numbers, bars or dials. These are separate measurements, not the vehicle's individual cell voltages. |
+| **Channels** | One chosen channel and an optional second channel. Choose numbers, bars, dials, graph or switch-style presentation. Useful for focusing on steering/throttle or an auxiliary output. |
+| **All channels** | Configured channels, physical hardware inputs, or both. Choose which entries appear; analogue values use horizontal/vertical bars or numeric presentation, while suitable binary inputs use switch indicators. Tap to page through entries that do not fit. This can include the timer switch, grip trims and other connected controls; the unwired DISPLAY_SW is not an active input. |
+| **Sensor — speed** | Current, maximum or average speed as the large reading, with related statistics. Choose numbers, a dial or graph. Speed requires the relevant vehicle/GPS telemetry; the handset does not infer it from throttle position. |
+| **Sensor — other readings** | Temperature, RPM, receiver voltage, link quality, satellite count, drive-pack total, lowest cell, FAS voltage or FAS current. Choose the supported numeric/graph style. Missing or stale readings display as unavailable rather than zero. |
+| **Battery cells** | All reported vehicle cells in one widget, with pack total, lowest cell and detected count. Choose Auto or an expected 1S–12S count. Tap to page if needed. The present receiver cell trial forwards 4S; larger UI capacity does not imply larger-pack receiver validation. |
+| **GPS map / trail** | A north-up saved street/satellite image or vector map, with vehicle position and recorded GPS trail overlaid when telemetry is available. The map fills the widget with a north indicator and attribution. Tap for the larger GPS page, zoom and trail controls; controls hide when idle and reappear on touch. |
+| **Model image** | Current model's name and selected vehicle artwork, with configurable primary, accent and base paint colours. Tap to reach model selection. |
+| **Empty** | No widget in that position. |
+
+Tap a sensor for its detail/history view, the power widget for radio diagnostics,
+or a map for the GPS view. Styles are filtered to suit the widget: for example,
+the speed dial is not offered for an arbitrary temperature sensor.
+
+Channel widgets remain useful while outputs are CUT: they show **requested
+control positions**, with a small crossed-out output indicator. Data's channel
+monitor distinguishes requested values from the actual safe values sent.
+
+## CUT, Normal/Walk and PIN protection
+
+**CUT inhibits live control output; it does not turn off the RF module or stop
+CRSF channel frames.** The control/transport safety layers send configured safe
+values instead of the live requested values. Auxiliary CUT overrides can be
+configured separately; they are not receiver RF-loss failsafe settings.
+
+The transmitter starts with outputs inhibited. CUT is also used for structural
+channel/mix/control edits, model and mode changes, calibration, hardware recovery
+and remote interactions that need to enter configuration safely. Faults such as
+invalid inputs/configuration or a stale control update keep outputs inhibited.
+Ordinary navigation is separate from output enable; changing pages is not an
+instruction to arm.
+
+The **Drive** navigation control carries the output-state icon. Deliberately
+hold it to request enabling, then release as prompted. The readiness view
+explains blockers such as **Link wait** or **neutral required**. Enabling needs
+the expected valid inputs/configuration, startup readiness, a qualifying link
+and neutral throttle. Holding Drive also protects an intentional return to CUT
+from an accidental tap. Unlocking a PIN never arms the transmitter.
+
+**Normal** uses the configured output response. **Walk** limits physical forward
+throttle to a configurable percentage (35% by default), while retaining the
+configured brake/reverse authority. Mode selection is integrated into Drive;
+changing mode forces CUT and requires deliberate re-arm at neutral. Leaving
+Walk requires the PIN again. An abandoned Walk-exit PIN prompt times out after
+10 seconds, returns to Drive and leaves Walk/CUT in force.
+
+The LCD UI has a **boot PIN**, automatic submission when the correct four digits
+are entered, PIN change and a **Forgot PIN?** USB recovery guide. The initial
+trial PIN is `1234` and can be changed. Web access has its own authentication:
+authenticated configuration can be available while the handset PIN is locked,
+and the mirrored LCD supports PIN entry. These are separate access states.
+A PIN unlock does not bypass output readiness or receiver/ESC failsafe setup.
+
+Loss of the return telemetry link after arming is currently advisory; receiver
+RF-loss behaviour remains the receiver's responsibility. CUT is a transmitter
+control feature, not a substitute for configuring and testing that failsafe.
+
+## Retaining and assigning the original hardware controls
+
+We retain the R-1's wheel, trigger, trims, grip controls, switches and eight
+keypad buttons. Their identities are separated from GPIO wiring, so control
+assignment is not dictated by the label printed on the old case. The Control
+map associates supported inputs with channels, transmitter functions, model
+parameters or drive-mode actions, with behaviour, ranges and context settings.
+For example, a suitable switch can operate an auxiliary channel and a trim can
+adjust a channel parameter rather than its original R-1 function.
+
+**Current keypad limitation:** the latest navigation implementation reserves
+MODE/PAGE/SELECT/CLEAR/UP/DOWN/+/- before the assignment resolver. Although the
+catalogue/web editor includes these buttons, using MODE as a general RF-channel
+button requires a further precedence/remapping change. This is an intended
+extension, not a capability claimed by the current screenshots.
+
+## A look around the interface
+
+These are **simulator captures**, rendered by the shared C++/LVGL UI from
+firmware checkpoint `8dda44e`. They are not fully pixel-perfect reproductions
+of the installed LCD: scaling, colours, viewing angle, touch response, timing
+and simulated data differ. Example values below are fictional, not a vehicle test.
+
+| Drive: configurable dashboard | Tune: steering, throttle and brake |
+| --- | --- |
+| ![Simulator Drive dashboard](assets/ui-captures/drive.png) | ![Simulator Tune menu](assets/ui-captures/tune.png) |
+| Data: sensors and telemetry | Setup: model configuration |
+| ![Simulator Data page](assets/ui-captures/data-sensors.png) | ![Simulator Setup menu](assets/ui-captures/setup-model.png) |
+
+| GPS map / trail (fictional circuit) | Channel mixing curve |
+| --- | --- |
+| ![Simulator GPS map](assets/ui-captures/gps-map.png) | ![Simulator mixing response graph](assets/ui-captures/mix-curve.png) |
+
+The [screen gallery](docs/ui-gallery.md) also shows handset settings, channel
+setup, control mapping, mix settings, dashboard layout, widget configuration,
+output status and PIN entry.
+
 ## From original radio to R-1 EVO
 
 Initial work began independently, three days before SourceTX's public
@@ -109,6 +215,8 @@ according to the project's development recollection. SourceTX subsequently
 became an inspiration for a modern surface-radio interface. The first commit
 in this repository is dated **9 August 2026**; it is not the start of the earlier
 exploration.
+
+<p align="center"><img src="assets/project/original-r1-manual-keypad.png" width="300" alt="Original JR R-1 manual page showing receiver connections and the eight-button keypad"><br><em>Original JR R-1 instruction manual, printed page 7 (JR Racing / JR PROPO; supplied ManualsLib copy).</em></p>
 
 ### August: understand the R-1, then make it talk CRSF
 
@@ -131,6 +239,8 @@ instrument-heavy; later revisions would make everyday driving and tuning simpler
   <img src="assets/project/2026-08-09-early-dashboard.jpg" width="600" alt="Early physical LCD dashboard with model, power, link and sixteen channel bars">
   <br><em>9 August: an early dashboard running on the actual display.</em>
 </p>
+
+<p align="center"><img src="assets/project/early-throttle-bench.jpg" width="430" alt="Early throttle endpoint, trim and reversal screen working on a breadboard prototype"><br><em>Early throttle setup on the real LCD. This supplied photograph has no reliable capture date.</em></p>
 
 Mechanical work progressed alongside the firmware. PCB CAD and printed fit
 checks helped work around the existing shell, trigger and button positions.
@@ -159,6 +269,12 @@ original steering and trigger mechanisms and small associated boards remain.
   <br><em>22 September: the manufactured board fits the case, and assembly begins.</em>
 </p>
 
+The 16 September JLCPCB update recorded manufacture in progress. A
+[19 September RF bench video](assets/project/video/2026-09-19-rf-bench.mp4)
+shows the working radio-link prototype before final PCB assembly.
+
+<p align="center"><img src="assets/project/2026-09-16-pcb-production.jpg" width="250" alt="JLCPCB production progress on 16 September"><img src="assets/project/2026-09-16-ui-progress.jpg" width="250" alt="Historical portrait simulator UI from 16 September"><br><em>16 September: PCB manufacture and UI development proceeded in parallel.</em></p>
+
 The screen and PCB could then be tested together. Photos from this period show
 portrait experiments; the installed transmitter now uses **480×320 landscape**.
 The UI evolved towards Drive, Tune, Data and Setup, with configurable widgets
@@ -182,6 +298,14 @@ working installed display has since been exercised at an 80 MHz SPI setting.
   <img src="assets/project/2026-10-25-assembled-radio.jpg" width="270" alt="Assembled R-1 running the landscape dashboard">
   <br><em>3 October: display enclosure fitted. 25 October: the assembled transmitter operating with its new dashboard.</em>
 </p>
+
+One especially persistent input fault was a solder bridge from a grounded
+XIAO pin to a nearby via on an input track. The
+[close-up photograph](assets/project/2026-10-25-solder-bridge.jpg) records how
+small the eventual cause was. The
+[25 October steering/throttle video](assets/project/video/2026-10-25-steering-throttle.mp4)
+records the first combined input test. More assembly photos and the working-PCB
+and touchscreen videos are in the [progress gallery](docs/project-progress.md).
 
 By 31 October, work had moved on to harmonising typography, menus, paging and
 keypad navigation, while continuing receiver telemetry development. The old
@@ -246,6 +370,10 @@ make -C simulator browser
 # Open http://127.0.0.1:8767
 ```
 
+![Full simulator browser interface, including keypad, input sliders and telemetry controls](assets/ui-captures/simulator-browser.jpg)
+
+*The complete simulator web page, with simulated input controls alongside the shared firmware UI.*
+
 Native SDL operation, screenshot commands and regression checks are in the
 [development guide](DEVELOPMENT.md#desktop-ui-simulator). The simulator is useful
 for checking layout and behaviour, but does not reproduce the LCD's viewing
@@ -271,9 +399,33 @@ capture the rendered interface, but a framebuffer capture cannot verify that
 the physical screen is displaying it correctly. The simulator and live web
 view serve different purposes, even when they look similar.
 
-Street imagery uses OpenStreetMap; the satellite selector uses Esri imagery.
-Map packages keep their attribution. Stored images load into PSRAM for display;
-PSRAM itself is volatile and is not the persistent map store.
+The [web UI gallery](docs/ui-gallery.md#embedded-web-ui) shows model and hardware-control
+configuration and the map selection/preview/upload flow. Those captures use the
+real browser frontend with a **local simulated handset backend**; no live handset
+was altered. The map example is Silverstone, a public circuit.
+
+| Hardware-control assignments | Satellite selection and upload |
+| --- | --- |
+| ![Web UI control assignments with documentation fixtures](assets/ui-captures/web-controls.png) | [![Satellite map preview and example save confirmation](assets/ui-captures/web-map-upload.png)](assets/ui-captures/web-map-upload.png) |
+
+### Map sources and acknowledgements
+
+- **Street maps and geographic features:** [OpenStreetMap contributors](https://www.openstreetmap.org/copyright),
+  with OSM data under the Open Database License (ODbL). The browser uses OSM
+  tiles for selection and Overpass queries for the street-image/vector package workflow.
+- **Place/address search:** [Photon](https://github.com/komoot/photon), the
+  OpenStreetMap-based geocoder, using komoot's public Photon service.
+- **OSM feature queries:** the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API).
+- **Satellite/aerial photography:** [Esri World Imagery](https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer),
+  credited in the current selector as **Esri, Vantor, Earthstar Geographics, and
+  the GIS User Community**. Available imagery, detail, dates and required
+  provider credits vary by area.
+
+Provider attribution is retained in downloaded packages and displayed with
+maps. Image access is subject to each provider's terms; these sources are not
+our own imagery. The fictional circuit in the native simulator captures is
+labelled separately. Stored images load into PSRAM for display; PSRAM itself
+is volatile and is not the persistent map store.
 
 ## Hardware and schematics
 

@@ -20,7 +20,7 @@ that adds direct FrSky S.Port sensor support. The handset software is **not an
 OpenTX or EdgeTX fork**. It implements its own control pipeline, model settings,
 LVGL interface and CRSF integration; the RF link relies on ExpressLRS.
 
-[Build story](#from-original-radio-to-r-1-evo) · [Features](#what-we-have-built) ·
+[Prototype build and history](docs/build-history.md) · [Features](#what-we-have-built) ·
 [Simulator](#the-same-ui-on-the-desktop) · [Web UI](#the-web-ui-inside-the-transmitter) ·
 [Schematics](#hardware-and-schematics) · [Development guide](DEVELOPMENT.md)
 
@@ -82,7 +82,8 @@ handset does not itself implement a vehicle stabilisation gyro.
   colours; widget type, size, position and display options. Enlarging a widget
   preserves obscured widgets for when it shrinks again.
 - **Drive and timer:** Normal/Walk and forward Walk limit; deliberate CUT/re-arm;
-  timer start/stop/reset. Some operations require neutral and fresh inputs/link.
+  per-model Up/Down/Lap timers, lap history, alarms and timer-control assignments.
+  Output-enabling operations require neutral and fresh inputs/link.
 - **Telemetry and battery:** selectable sensor widgets and histories, battery
   chemistry/cell-count/alarm settings, transmitter voltage sensing, vehicle-cell
   widget Auto or expected 1S–12S, and stale/missing-data indication. Expected
@@ -113,7 +114,7 @@ it reveals them again. Use **Empty** to leave a position unused.
 
 | Widget | What it shows and how it can be configured |
 | --- | --- |
-| **Timer** | Elapsed run time, with Start/Stop and Reset controls. It can also be operated through supported handset timer assignments. |
+| **Timer** | Per-model stopwatch, countdown or current lap, with Start/Lap/Pause and Reset controls. Larger widgets show last and best laps. Tap its title/time area for timer controls, settings and lap history; supported handset assignments also operate it. |
 | **TX / RX power** | Transmitter-pack voltage from the local ADC and receiver supply from telemetry. Choose numbers, bars or dials. These are separate measurements, not the vehicle's individual cell voltages. |
 | **Channels** | One chosen channel and an optional second channel. Choose numbers, bars, dials, graph or switch-style presentation. Useful for focusing on steering/throttle or an auxiliary output. |
 | **All channels** | Configured channels, physical hardware inputs, or both. Choose which entries appear; analogue values use horizontal/vertical bars or numeric presentation, while suitable binary inputs use switch indicators. Tap to page through entries that do not fit. This can include the timer switch, grip trims and other connected controls; the unwired DISPLAY_SW is not an active input. |
@@ -230,145 +231,13 @@ Artwork and themes were temporarily selected in one model memory for these
 examples, then the original selections and timer widget were restored.
 Simulator and browser-fixture examples remain separately labelled in the gallery.
 
-## From original radio to R-1 EVO
+## Prototype build and development history
 
-Initial work began independently, three days before SourceTX's public
-[31 July 2026 announcement](https://www.reddit.com/r/rccars/comments/1vbqozz/introducing_sourcetx_modern_touchscreen_rc_car/),
-according to the project's development recollection. SourceTX subsequently
-became an inspiration for a modern surface-radio interface. The first commit
-in this repository is dated **9 August 2026**; it is not the start of the earlier
-exploration.
-
-<p align="center"><img src="assets/project/original-r1-manual-keypad.png" width="300" alt="Original JR R-1 manual page showing receiver connections and the eight-button keypad"><br><em>Original JR R-1 instruction manual, printed page 7 (JR Racing / JR PROPO; supplied ManualsLib copy).</em></p>
-
-### August: understand the R-1, then make it talk CRSF
-
-The first step was opening the radio and identifying the controls worth keeping.
-Its original electronics, steering assembly, switches and connectors provided
-the mechanical starting point. Early prototypes used external wiring and a
-breadboard before committing to a replacement PCB.
-
-<p align="center">
-  <img src="assets/project/2026-08-07-original-electronics.jpg" width="280" alt="Original R-1 circuit board inside the opened handset">
-  <img src="assets/project/2026-08-26-breadboard.jpg" width="280" alt="Opened handset connected to a breadboard and a working colour display">
-  <br><em>7 August: the original electronics. 26 August: the breadboard conversion and working boot screen.</em>
-</p>
-
-By 9 August, the photographed display already showed a model, receiver supply,
-link quality and a 16-channel monitor. The first interface was deliberately
-instrument-heavy; later revisions would make everyday driving and tuning simpler.
-
-<p align="center">
-  <img src="assets/project/2026-08-09-early-dashboard.jpg" width="600" alt="Early physical LCD dashboard with model, power, link and sixteen channel bars">
-  <br><em>9 August: an early dashboard running on the actual display.</em>
-</p>
-
-<p align="center"><img src="assets/project/early-throttle-bench.jpg" width="430" alt="Early throttle endpoint, trim and reversal screen working on a breadboard prototype"><br><em>Early throttle setup on the real LCD. This supplied photograph has no reliable capture date.</em></p>
-
-Mechanical work progressed alongside the firmware. PCB CAD and printed fit
-checks helped work around the existing shell, trigger and button positions.
-
-<p align="center">
-  <img src="assets/project/2026-08-30-pcb-fit-cad.jpg" width="390" alt="CAD view of the replacement board and printed fit-check supports">
-  <img src="assets/project/2026-08-31-fit-prototypes.jpg" width="200" alt="Two physical 3D printed board-fit prototypes">
-  <br><em>30–31 August: CAD planning and physical fit prototypes.</em>
-</p>
-
-### September: a board shaped to fit the original handset
-
-The replacement board uses a XIAO ESP32-S3 and two MCP23017 I/O expanders to
-retain the many original buttons, switches and trims. Much of the construction
-is through-hole, making hand assembly and troubleshooting practical. The
-original steering and trigger mechanisms and small associated boards remain.
-
-<p align="center">
-  <img src="assets/project/2026-09-13-pcb-cad.jpg" width="600" alt="CAD render of the custom PCB, showing the XIAO, two DIP expanders and eight buttons">
-  <br><em>13 September: the replacement PCB design.</em>
-</p>
-
-<p align="center">
-  <img src="assets/project/2026-09-22-pcb-fit.jpg" width="390" alt="Bare manufactured PCB fitted into the R-1 case">
-  <img src="assets/project/2026-09-22-keypad.jpg" width="390" alt="Hand-soldered replacement button bank and expander">
-  <br><em>22 September: the manufactured board fits the case, and assembly begins.</em>
-</p>
-
-The 16 September JLCPCB update recorded manufacture in progress. A
-[19 September RF bench video](assets/project/video/2026-09-19-rf-bench.mp4)
-shows the working radio-link prototype before final PCB assembly.
-
-<p align="center"><img src="assets/project/2026-09-16-pcb-production.jpg" width="250" alt="JLCPCB production progress on 16 September"><img src="assets/project/2026-09-16-ui-progress.jpg" width="250" alt="Historical portrait simulator UI from 16 September"><br><em>16 September: PCB manufacture and UI development proceeded in parallel.</em></p>
-
-The screen and PCB could then be tested together. Photos from this period show
-portrait experiments; the installed transmitter now uses **480×320 landscape**.
-The UI evolved towards Drive, Tune, Data and Setup, with configurable widgets
-and more consistent editors and navigation.
-
-<p align="center">
-  <img src="assets/project/2026-09-25-pcb-and-lcd.jpg" width="390" alt="Working portrait touchscreen beside the populated replacement PCB">
-  <img src="assets/project/2026-09-25-control-wiring.jpg" width="260" alt="Replacement board installed with original control wiring connected">
-  <br><em>25 September: the new computer and display working together, and wiring the retained controls.</em>
-</p>
-
-### October: bring the hardware and interface together
-
-A printed display enclosure brought the screen into the handset. Debugging was
-not all software: LCD chip-select and I²C solder joints caused real faults that
-were isolated with display tests, boot logs and logic-analyser captures. The
-working installed display has since been exercised at an 80 MHz SPI setting.
-
-<p align="center">
-  <img src="assets/project/2026-10-03-display-mount.jpg" width="270" alt="Handheld R-1 with its new LCD enclosure fitted">
-  <img src="assets/project/2026-10-25-assembled-radio.jpg" width="270" alt="Assembled R-1 running the landscape dashboard">
-  <br><em>3 October: display enclosure fitted. 25 October: the assembled transmitter operating with its new dashboard.</em>
-</p>
-
-One especially persistent input fault was a solder bridge from a grounded
-XIAO pin to a nearby via on an input track. The
-[close-up photograph](assets/project/2026-10-25-solder-bridge.jpg) records how
-small the eventual cause was. The
-[25 October steering/throttle video](assets/project/video/2026-10-25-steering-throttle.mp4)
-records the first combined input test. More assembly photos and the working-PCB
-and touchscreen videos are in the [progress gallery](docs/project-progress.md).
-
-By 31 October, work had moved on to harmonising typography, menus, paging and
-keypad navigation, while continuing receiver telemetry development. The old
-R-1's controls are part of the interface, rather than decorations around a
-separate touchscreen computer.
-
-These images document successive prototypes, so older screen layouts and
-wiring should not be treated as current build instructions. Photo dates come
-from capture metadata where available; additional WhatsApp exports use their
-filename dates, as recorded in the [image provenance](assets/project/README.md).
-
-## See the prototypes working
-
-These are the supplied bench videos, embedded as GitHub-hosted players. Dates
-are the WhatsApp filename dates. Original repository files remain available
-through the fallback links.
-
-**19 September — working RF transmission**
-
-https://github.com/user-attachments/assets/d969b3ab-47aa-40d7-9dc7-c1d16479c7ca
-
-[Open/download the original clip](assets/project/video/2026-09-19-rf-bench.mp4).
-
-**25 September — working replacement PCB**
-
-https://github.com/user-attachments/assets/c674a6c4-4e64-43a7-bc6d-176065c3f0c9
-
-[Open/download the original clip](assets/project/video/2026-09-25-working-pcb.mp4).
-
-**28 September — touchscreen working**
-
-https://github.com/user-attachments/assets/dca95e1c-1022-4f89-bfe4-26ae98233780
-
-[Open/download the original clip](assets/project/video/2026-09-28-touchscreen.mp4).
-
-**25 October — steering and throttle inputs together**
-
-https://github.com/user-attachments/assets/b78660c5-05b0-463d-b80c-2710eca7bff4
-
-[Open/download the original clip](assets/project/video/2026-10-25-steering-throttle.mp4).
+The conversion progressed from an opened R-1 and breadboard wiring to a custom
+PCB, retained controls and an installed touchscreen. The illustrated
+[prototype build and firmware history](docs/build-history.md) follows that work,
+with dated photographs, RF/PCB/touchscreen videos, debugging notes and the
+Codex/ChatGPT collaboration record.
 
 ## Custom receiver firmware: S.Port sensors over ExpressLRS
 
@@ -482,7 +351,8 @@ Native SDL operation, screenshot commands and regression checks are in the
 [development guide](DEVELOPMENT.md#desktop-ui-simulator). The simulator is useful
 for checking layout and behaviour, but does not reproduce the LCD's viewing
 angle, colour, touch electronics, SPI timing, radio timing or receiver failsafe.
-The hardware photographs above are deliberately presented as photographs.
+Hardware photographs in the [build history](docs/build-history.md) are presented
+as photographs, separately from rendered UI captures.
 
 ## The web UI inside the transmitter
 
@@ -577,37 +447,13 @@ its provenance and how to interpret it alongside the
 hardware remains documented for history; the approved transmitter build is
 `seeed_xiao_esp32s3-pcb`, landscape only.
 
-## Built with extensive Codex / ChatGPT collaboration
+## Codex / ChatGPT collaboration
 
-This project is also an example of what sustained collaboration with coding
-models can produce. Codex/ChatGPT was used extensively for firmware development,
-architecture review, UI design and iteration, protocol research, receiver
-telemetry work, tests, simulator tooling, diagnostics and interpreting logic
-captures. The work crossed embedded C++, browser code, hardware documentation
-and the development/upload tools rather than stopping at a screen mock-up.
-
-The project owner supplied the goals and operating requirements, made the
-hardware and mechanical decisions, assembled and soldered the boards, connected
-sensors and controls, and tested the radio. Photos, measurements, serial logs
-and captures fed back into the next software revision. The result came from
-that repeated hardware/software loop; a successful build or simulator run was
-not treated as a substitute for testing the actual transmitter.
-
-For historical context, these were the model generations during the build:
-
-| Period | Model context and evidence |
-| --- | --- |
-| July–August 2026 | GPT-5.6 Sol, Terra and Luna were available across Codex/ChatGPT Work during the early project period. This records contemporary availability; the retained local session metadata does not establish which model handled every early discussion. |
-| 10–30 September 2026 | The retained project session metadata records `gpt-6-astra` during this period. |
-| 30 September–31 October 2026 | The retained project session metadata records `gpt-6.1-sol`. OpenAI's changelog dates the GPT-6.1 Sol introduction to 29 September. |
-
-Availability is documented in OpenAI's
-[July product history](https://learn.chatgpt.com/docs/whats-new) and
-[ChatGPT/Codex changelog](https://learn.chatgpt.com/docs/changelog).
-The usage dates above come from local session model identifiers, not an inference
-that a model must have been used because it had been released. Private session
-transcripts and credentials are not part of this repository. Model names date
-the experiment; they are not a dependency required to build or run the radio.
+Codex/ChatGPT was used extensively for firmware architecture, UI iteration,
+protocol research, receiver telemetry, tests and diagnostics. The project owner
+supplied the requirements, hardware decisions, assembly, measurements and
+real-device testing. The [build and development history](docs/build-history.md#built-with-extensive-codex--chatgpt-collaboration)
+records that process and the model generations used during the project.
 
 ## Credits and influences
 
@@ -640,6 +486,7 @@ the experiment; they are not a dependency required to build or run the radio.
 ## Explore or contribute
 
 Start with the [development guide](DEVELOPMENT.md),
+[prototype build and firmware history](docs/build-history.md),
 [current PCB wiring](docs/xiao-pcb.md), [control inventory](docs/r1-control-map.md),
 [architecture review](docs/architecture-review.md) and [TODO list](TODO.md).
 The [receiver project](https://github.com/cmlpreston/ExpressLRS-SPort/tree/codex/sport-telemetry)

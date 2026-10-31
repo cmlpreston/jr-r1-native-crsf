@@ -1,6 +1,7 @@
 # R-1 EVO development and hardware guide
 
-The project overview and build story are in [README.md](README.md).
+The project overview is in [README.md](README.md); the illustrated
+[prototype build and firmware history](docs/build-history.md) is a separate page.
 The active hardware is the Seeed XIAO ESP32-S3 PCB with the Waveshare
 3.5-inch RPi LCD (F), landscape 480×320. Legacy profiles below document earlier
 experiments; use [the current PCB pin map](docs/xiao-pcb.md) for this handset.

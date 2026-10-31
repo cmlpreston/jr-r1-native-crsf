@@ -4,6 +4,9 @@
 int main(){
     RemoteArmHold h;
     auto id=h.begin(1,100);
+    assert(h.active(100)&&h.elapsed(100)==0&&h.elapsed(500)==400);
+    assert(!h.active(1001)&&h.elapsed(1001)==0); // Preview expires without changing approval.
+    assert(h.id()==id);
     assert(!h.finish(id,1,600));assert(!h.finish(id,1,950)); // early release consumes
     id=h.begin(1,100);assert(h.heartbeat(id,1,400));assert(h.heartbeat(id,1,700));
     assert(h.finish(id,1,950));assert(!h.finish(id,1,1000)); // no replay

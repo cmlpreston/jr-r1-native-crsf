@@ -469,6 +469,7 @@ private:
     void queueElrsRequest(ElrsManagementAction action,
                           ElrsManagementTarget target);
     void updateTouch();
+    void updateDriveHoldFeedback(uint32_t now);
     void startCalibration(uint16_t adc, bool steering = false);
     void updateCalibration(uint16_t adc);
     void cancelCalibration();
@@ -551,6 +552,7 @@ private:
     UiPage inputMonitorReturnPage_ = UiPage::ControlAssignments;
     bool channelRoleConflict_ = false;
     lv_obj_t *armProgress_ = nullptr;
+    lv_obj_t *driveHoldOverlay_ = nullptr, *driveHoldLabel_ = nullptr, *driveHoldBar_ = nullptr;
     lv_obj_t *driveProgress_ = nullptr, *driveHint_ = nullptr, *driveIcon_ = nullptr;
     uint8_t editorField_ = 0;
     int editorDraft_ = 0;

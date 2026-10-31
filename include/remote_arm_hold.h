@@ -17,6 +17,8 @@ public:
         cancel();return ok;
     }
     uint32_t id() const{return id_;}
+    bool active(uint32_t now) const{return fresh(id_,page_,now);}
+    uint32_t elapsed(uint32_t now) const{return active(now)?uint32_t(now-start_):0;}
 private:
     bool fresh(uint32_t id,uint32_t page,uint32_t now) const{
         return id_&&id==id_&&page==page_&&uint32_t(now-start_)<=5000&&uint32_t(now-last_)<=900;

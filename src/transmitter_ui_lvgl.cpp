@@ -1058,6 +1058,7 @@ void TransmitterUi::resetLvglObjects()
     for (auto &value : designBars_) value = nullptr;
     designStatus_ = designLink_ = designCurve_ = designMarker_ = nullptr;
     armProgress_=nullptr;
+    driveHoldOverlay_=driveHoldLabel_=driveHoldBar_=nullptr;
     logoSaverLogo_ = nullptr;
     logoSaverDesignation_ = nullptr;
     dashboardThrottleBar_ = nullptr;
@@ -5945,6 +5946,45 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
     }
 }
 
+void TransmitterUi::updateDriveHoldFeedback(uint32_t now)
+{
+    const bool physical=touchWasDown_&&armGestureValid_&&touchStartPage_==activePage_;
+    const bool remote=!touchWasDown_&&remoteArmHold_.active(now)&&remoteArmPage_==static_cast<uint32_t>(activePage_);
+    if((!physical&&!remote)||!bootPinUnlocked_||pinPurpose_!=PinPurpose::None||hardwareRecovery_||displaySleeping_){
+        if(driveHoldOverlay_)lv_obj_add_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if(!driveHoldOverlay_){
+        const int y=kScreenHeight-(portraitUi?60:40)-60;
+        driveHoldOverlay_=makePanel(10,y,kScreenWidth-20,50,cPanel2,cLine);
+        lv_obj_clear_flag(driveHoldOverlay_,LV_OBJ_FLAG_CLICKABLE);
+        driveHoldLabel_=makeLabel(driveHoldOverlay_,"",10,6,UiText::Secondary,cWhite);
+        lv_obj_set_width(driveHoldLabel_,kScreenWidth-40);
+        lv_obj_set_style_text_align(driveHoldLabel_,LV_TEXT_ALIGN_CENTER,0);
+        driveHoldBar_=makeBar(driveHoldOverlay_,10,33,kScreenWidth-40,8,0,kDashboardArmHoldMs);
+        lv_obj_clear_flag(driveHoldLabel_,LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(driveHoldBar_,LV_OBJ_FLAG_CLICKABLE);
+    }
+    const uint32_t elapsed=physical?uint32_t(now-touchDownStartedMs_):remoteArmHold_.elapsed(now);
+    const bool complete=elapsed>=kDashboardArmHoldMs;
+    const char *text=armRequested_?(complete?"Release to CUT":"Keep holding to CUT"):
+        SetupPortal::active()?"Finish Wi-Fi setup first":
+        moduleLinkManaged_&&!moduleLink_.enabled()?"Enable the module link first":
+        calibrationActive()?"Calibration active":
+        complete?"Release to request output":"Keep holding to enable output";
+    const bool blocked=!armRequested_&&(SetupPortal::active()||(moduleLinkManaged_&&!moduleLink_.enabled())||calibrationActive());
+    uiSetText(driveHoldLabel_,text);
+    const auto accent=colour(armRequested_||blocked?cAmber:cCyan);
+    uiSetTextColor(driveHoldLabel_,accent,0);
+    uiSetBgColor(driveHoldBar_,accent,LV_PART_INDICATOR);
+    const int progress=elapsed>=kDashboardArmHoldMs?kDashboardArmHoldMs:int((elapsed/25)*25);
+    if(lv_bar_get_value(driveHoldBar_)!=progress)lv_bar_set_value(driveHoldBar_,progress,LV_ANIM_OFF);
+    if(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN)){
+        lv_obj_clear_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(driveHoldOverlay_);
+    }
+}
+
 void TransmitterUi::updateTouch()
 {
     if (hardwareRecovery_) return;
@@ -6199,6 +6239,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     }
     updateWifiStatusIcon();
     updateTouch();
+    updateDriveHoldFeedback(millis());
     if(rotationPending_&&!touchWasDown_)applyDisplayRotation();
     if (calibrationActive()) updateCalibration(
         calibratingSteering_ ? steeringRawAdc : rawAdc);

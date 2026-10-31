@@ -58,6 +58,36 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlBootPin(4,activate);assert(bootPinUnlocked()&&!armRequested());
     assert(activePage_==UiPage::StartupWarning); // Unlock does not dismiss preflight.
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard);
+    const auto auditDriveHold=[&](){
+        SetupPortal::stop();drawDashboard();armRequested_=false;
+        touchWasDown_=armGestureValid_=true;touchStartPage_=activePage_;touchDownStartedMs_=1000;
+        updateDriveHoldFeedback(1400);lv_obj_update_layout(lv_scr_act());
+        assert(driveHoldOverlay_&&!lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN));
+        assert(lv_obj_get_width(driveHoldOverlay_)==kScreenWidth-20&&lv_bar_get_value(driveHoldBar_)==400);
+        assert(strstr(lv_label_get_text(driveHoldLabel_),"Keep holding"));
+        if(const char *prefix=getenv("JR_R1_DRIVE_HOLD_IMAGES")){
+            lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+            snprintf(path,sizeof(path),"%s-%s.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);
+        }
+        updateDriveHoldFeedback(1800);assert(!armRequested_&&lv_bar_get_value(driveHoldBar_)==800);
+        assert(strstr(lv_label_get_text(driveHoldLabel_),"Release to request"));
+        armGestureValid_=false;updateDriveHoldFeedback(1801);assert(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN));
+        touchWasDown_=false;remoteArmPage_=static_cast<uint32_t>(activePage_);
+        auto hold=remoteArmHold_.begin(remoteArmPage_,2000);updateDriveHoldFeedback(2400);
+        assert(lv_bar_get_value(driveHoldBar_)==400&&!armRequested_);
+        remoteArmHold_.cancel();updateDriveHoldFeedback(2401);assert(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN));
+        hold=remoteArmHold_.begin(remoteArmPage_,3000);updateDriveHoldFeedback(3901);
+        assert(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN)&&!armRequested_);
+        remoteArmHold_.cancel();(void)hold;
+        SetupPortal::start();touchWasDown_=armGestureValid_=true;touchDownStartedMs_=4000;
+        updateDriveHoldFeedback(4800);assert(strstr(lv_label_get_text(driveHoldLabel_),"Wi-Fi setup")&&!armRequested_);
+        SetupPortal::stop();armRequested_=true;updateDriveHoldFeedback(4800);
+        assert(strstr(lv_label_get_text(driveHoldLabel_),"Release to CUT")&&armRequested_);
+        touchWasDown_=armGestureValid_=armRequested_=false;drawDashboard();
+        assert(!driveHoldOverlay_); // A new page owns no stale overlay objects.
+        Serial.println("Drive hold: wide progress, release cue, blockers, cancel/expiry, remote preview and no auto-arm PASS");
+    };
+    if(getenv("JR_R1_DRIVE_HOLD_AUDIT_ONLY")){auditDriveHold();return true;}
     const auto auditTxBattery=[&](){
         const auto saved=txBatterySettings_;
         txBatterySettings_.chemistry=BatteryChemistry::LiFe;txBatterySettings_.cellCount=3;
@@ -172,6 +202,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         Serial.println("S.Port GPS: unknown fix display, speed, map position and stale handling PASS");
     };
     if(getenv("JR_R1_GPS_AUDIT_ONLY")){auditSportGps();return true;}
+    auditDriveHold();
     auditTxBattery();
     auditDisplay();
     auditModuleLink();

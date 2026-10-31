@@ -389,3 +389,14 @@ A Drive hold rejected by an active manual Wi-Fi setup session now opens Output
 status with the reason and a physical **Finish Wi-Fi setup** action. The header
 also shows Setup while the session is active (unless Module link is paused).
 Finishing setup does not arm; home Wi-Fi web access can remain running.
+
+## Drive hold feedback — 31 October 2026
+
+A screen-wide progress panel appears above the navigation tabs while a valid
+physical or web-remote Drive/output-enable hold is active. It fills over the
+existing 800 ms hold period, then asks the user to release to request output
+(or release to CUT). Active setup, paused module link and calibration are shown
+as blockers rather than implying output will be enabled. Cancellation, leaving
+the target, remote heartbeat expiry or changing page removes the panel. This is
+presentation only: filling the bar never arms, and all release/link/neutral
+checks are retained. Repeated updates reuse the same overlay objects.

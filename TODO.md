@@ -194,6 +194,30 @@ Complete these after steering shares the generic proportional pipeline:
 - [ ] Decide whether the production interface needs a MOSFET-controlled
   backlight or switched TFT 5 V rail.
 
+## Timers and lap recording
+
+Requested 2026-10-31; reference: original R-1 manual, printed pages 37–39.
+The existing run timer is implemented; the following extensions are planned.
+
+- [ ] Add selectable Lap, Up (stopwatch) and Down (countdown) modes, with
+  per-model timer settings.
+- [ ] Add thumb-button lap recording: first press starts timing, subsequent
+  presses record laps; default to the original three-second minimum lap to
+  reject accidental double presses. Expose timer/lap actions in control mapping.
+- [ ] Retain up to 100 lap records and provide a detail view with individual
+  times, total time, average lap and best lap.
+- [ ] Extend the dashboard timer widget with lap number/current lap, last lap
+  and best lap; tapping opens timer controls and lap history.
+- [ ] Provide explicit pause/resume, reset timer and separately confirmed clear
+  lap records. Keep PAGE available for normal UI navigation rather than copying
+  the original timer-specific PAGE behaviour globally.
+- [ ] Add optional throttle-auto-start with an explicit Ready state, a race-end
+  alarm and a repeating target-lap (original “navigation timer”) alarm.
+- [ ] Add a resettable accumulated transmitter-on timer per model.
+- [ ] Verify thumb-button/touch/keypad behaviour, pause-time accounting, minimum
+  lap filtering, record limits and model isolation. Timer actions must never arm
+  outputs, release CUT or enable the module link.
+
 ## Telemetry and vehicle peripherals
 
 - [x] Decode CRSF GPS, source-zero temperature and RPM with freshness checks.

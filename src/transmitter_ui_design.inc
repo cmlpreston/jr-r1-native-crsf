@@ -772,7 +772,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         }
         if(item>=199&&item<=203){const uint8_t banks[]={0,3,2,6,5};mixingBank_=banks[item-199];drawChannelMixing();return;}
         if(item==204){mixingSaveError_=!saveMixing(selectedChannel_,mixingDraft_);if(!mixingSaveError_)drawChannelPlaceholder();return;}
-        if(item==205){drawDesignPage(UiPage::NetworkOptions);return;}
+        if(item==205){setupBank_=1;setupPage_=0;drawDesignPage(UiPage::NetworkOptions);return;}
         if(item==206){drawDesignPage(UiPage::SystemMenu);return;}
         if(item==207||item==208){setupPage_=constrain(setupPage_+(item==207?-1:1),0,1);drawMainMenu();return;}
         if(item==209){

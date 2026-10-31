@@ -58,6 +58,23 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlBootPin(4,activate);assert(bootPinUnlocked()&&!armRequested());
     assert(activePage_==UiPage::StartupWarning); // Unlock does not dismiss preflight.
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard);
+    const auto auditWifiShortcut=[&](){
+        SetupPortal::stop();armRequested_=true;setupBank_=0;
+        const auto cuts=auditCutRequests;drawDashboard();
+        assert(touchAction(&TransmitterUi::controlDesign,205));
+        assert(activePage_==UiPage::NetworkOptions&&setupBank_==1&&armRequested_&&!SetupPortal::active());
+        assert(auditCutRequests==cuts); // Opening settings is navigation only.
+        navigateBack();assert(activePage_==UiPage::MainMenu&&setupBank_==1);
+        drawTxBatteryPage();assert(touchAction(&TransmitterUi::controlDesign,205));
+        assert(activePage_==UiPage::NetworkOptions);
+        drawColourSchemePage();assert(touchAction(&TransmitterUi::controlDesign,205));
+        assert(activePage_==UiPage::NetworkOptions);
+        drawDesignPage(UiPage::ModuleLink);handleTouch(kScreenWidth-20,20);
+        assert(activePage_==UiPage::ModuleLink); // Modal confirmations cannot be discarded.
+        armRequested_=false;drawDashboard();
+        Serial.println("Wi-Fi shortcut: shared headers, touch/key target, Handset parent, modal guard and navigation-only safety PASS");
+    };
+    if(getenv("JR_R1_WIFI_SHORTCUT_AUDIT_ONLY")){auditWifiShortcut();return true;}
     const auto auditDriveHold=[&](){
         SetupPortal::stop();drawDashboard();armRequested_=false;
         touchWasDown_=armGestureValid_=true;touchStartPage_=activePage_;touchDownStartedMs_=1000;
@@ -202,6 +219,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         Serial.println("S.Port GPS: unknown fix display, speed, map position and stale handling PASS");
     };
     if(getenv("JR_R1_GPS_AUDIT_ONLY")){auditSportGps();return true;}
+    auditWifiShortcut();
     auditDriveHold();
     auditTxBattery();
     auditDisplay();

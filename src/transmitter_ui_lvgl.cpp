@@ -3156,6 +3156,8 @@ void TransmitterUi::finishPageFocus()
         addPageActionTarget(8,5,76,34,&TransmitterUi::controlNavigation,0);
         pageStandardHeaderPending_=false;
     }
+    if(wifiStatusIcon&&!navigationIsModal())
+        addPageActionTarget(kScreenWidth-40,0,40,44,&TransmitterUi::controlDesign,205);
     if (portraitUi && !(activePage_==UiPage::Gps && gpsFullScreen_)) {
         auto strip=makePanel(0,460,320,20,cHeader,cHeader,0);
         makeLabel(strip,"JR",8,3,UiText::Caption,cRed);
@@ -5864,6 +5866,9 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None){
         if(activePage_==UiPage::BootPin)dispatchPageControlTouch(x,y);
         return;
+    }
+    if(wifiStatusIcon&&!navigationIsModal()&&x>=kScreenWidth-40&&x<kScreenWidth&&y>=0&&y<44){
+        controlDesign(205,PageControlEvent::Activate);return;
     }
     if(activePage_==UiPage::Gps&&gpsFullScreen_){
         gpsFullScreen_=false;lastInteractionMs_=millis();armGestureValid_=false;drawDesignPage(UiPage::Gps);return;

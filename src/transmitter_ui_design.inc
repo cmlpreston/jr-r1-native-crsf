@@ -25,12 +25,12 @@ int designFooterY = kScreenHeight - (designPortrait ? 60 : 40);
 bool sensorReading(const CrsfTelemetryState &t, uint8_t sensor, int32_t &value, uint32_t &stamp)
 {
     switch (sensor) {
-        case 0: value = t.groundSpeedDeciKmh; stamp = t.gpsUpdatedMs; return t.gpsValid && t.satellites >= 4 && uint32_t(millis()-stamp)<=SpeedStatistics::FreshnessMs;
+        case 0: value = t.groundSpeedDeciKmh; stamp = t.gpsUpdatedMs; return gpsPositionAvailable(t,millis());
         case 1: value = t.temperatureDeciC; stamp = t.temperatureUpdatedMs; return t.temperatureValid;
         case 2: value = t.rpm; stamp = t.rpmUpdatedMs; return t.rpmValid;
         case 3: value = t.receiverVoltageDecivolts; stamp = t.batteryUpdatedMs; return t.receiverVoltageValid;
         case 4: value = t.uplinkLinkQuality; stamp = t.linkUpdatedMs; return t.linkValid;
-        case 5: value = t.satellites; stamp = t.gpsUpdatedMs; return t.gpsValid;
+        case 5: value = t.satellites; stamp = t.gpsUpdatedMs; return t.gpsValid && t.satellites>0;
         case 6: value = t.vehiclePackMv; stamp = t.vehicleCellsUpdatedMs; return t.vehicleCellsValid;
         case 7: value = t.vehicleMinimumCellMv; stamp = t.vehicleCellsUpdatedMs; return t.vehicleCellsValid;
         case 8: case 9: case 10: case 11:
@@ -863,7 +863,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
         for(int ch=0;ch<16;++ch){for(int i=0;i<29;++i)channelHistory_[ch][i]=channelHistory_[ch][i+1];channelHistory_[ch][29]=designRequested_[ch];}
         sensorHistoryCount_=min<int>(30,sensorHistoryCount_+1);
     }
-    if(t.gpsValid && t.satellites>=4 && t.gpsUpdatedMs!=gpsLastSampleMs_){
+    if(gpsPositionAvailable(t,now) && t.gpsUpdatedMs!=gpsLastSampleMs_){
         gpsLastSampleMs_=t.gpsUpdatedMs;
         if(gpsCount_==48){for(int i=0;i<47;++i){gpsLat_[i]=gpsLat_[i+1];gpsLon_[i]=gpsLon_[i+1];}--gpsCount_;}
         gpsLat_[gpsCount_]=t.latitudeE7;gpsLon_[gpsCount_]=t.longitudeE7;++gpsCount_;
@@ -943,7 +943,8 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             uiSetTextFmt(designValues_[i],"%+d / %+d%% %s",permilleFromCrsfValue(designRequested_[ch])/10,output/10,(dashboardEnabledChannelMask_&(1U<<ch))?"":"off");lv_bar_set_value(designBars_[i],output,LV_ANIM_OFF);
         }
     } else if(activePage_==UiPage::Gps){
-        if(!gpsFullScreen_){if(!t.gpsValid || t.satellites<4)uiSetText(designDetails_[0],t.gpsUpdatedMs?"GPS stale / no fix":"Waiting for GPS telemetry");
+        if(!gpsFullScreen_){if(!gpsPositionAvailable(t,now))uiSetText(designDetails_[0],t.gpsUpdatedMs?"GPS stale / no fix":"Waiting for GPS telemetry");
+        else if(t.satellites==0)uiSetTextFmt(designDetails_[0],"Fix unknown / %u.%u km/h",t.groundSpeedDeciKmh/10,t.groundSpeedDeciKmh%10);
         else uiSetTextFmt(designDetails_[0],"%u sats  %u.%u km/h  %u deg",t.satellites,t.groundSpeedDeciKmh/10,t.groundSpeedDeciKmh%10,t.headingCentiDegrees/100);}
         auto mapObject=lv_obj_get_parent(designCurve_);
         const double pixelsPerMetre=gpsBasemapPreviewScale(mapObject,true)*gpsZoom_;
@@ -959,7 +960,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             }
             if(gpsCount_>1 && gpsTrailVisible_){lv_line_set_points(designCurve_,gpsPoints_,gpsCount_);lv_obj_clear_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);}else lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(designMarker_,width/2-9,height/2-9);lv_obj_clear_flag(designMarker_,LV_OBJ_FLAG_HIDDEN);
-            uiSetTextColor(designMarker_,colour(t.gpsValid && t.satellites>=4?0x00707d:0x53636c),0);
+            uiSetTextColor(designMarker_,colour(gpsFixConfirmed(t,now)?0x00707d:gpsPositionAvailable(t,now)?0xb87800:0x53636c),0);
             uiSetTextFmt(designDetails_[1],"%um",static_cast<unsigned>(40/pixelsPerMetre));
         }
     }
@@ -1291,8 +1292,8 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 lv_line_set_points(view.plot,view.points,30-start);lv_obj_clear_flag(view.plot,LV_OBJ_FLAG_HIDDEN);
             }
         } else if(w.kind==DashboardWidgetKind::Map){
-            bool fix=t.gpsValid && t.satellites>=4;int width=lv_obj_get_width(view.basemap),height=lv_obj_get_height(view.basemap);
-            const char *status=!gpsCount_?"No GPS fix":!fix?"GPS stale / no fix":"";
+            bool reported=gpsPositionAvailable(t,millis()),fix=gpsFixConfirmed(t,millis());int width=lv_obj_get_width(view.basemap),height=lv_obj_get_height(view.basemap);
+            const char *status=!gpsCount_?"No GPS position":!reported?"GPS stale / no fix":!fix?"Fix unknown":"";
             uiSetText(view.detail,status);
             if(*status)lv_obj_clear_flag(view.detail,LV_OBJ_FLAG_HIDDEN);
             else lv_obj_add_flag(view.detail,LV_OBJ_FLAG_HIDDEN);
@@ -1304,7 +1305,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             updateGpsBasemap(view.basemap,view.mapViewport,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],scale);
             for(int i=0;i<gpsCount_;++i){double east=(static_cast<double>(gpsLon_[i])-gpsLon_[gpsCount_-1])*0.01113195*lonScale;double north=(static_cast<double>(gpsLat_[i])-gpsLat_[gpsCount_-1])*0.01113195;view.points[i]={static_cast<lv_coord_t>(width/2+east*scale),static_cast<lv_coord_t>(height/2-north*scale)};}
             if(gpsCount_>1)lv_line_set_points(view.plot,view.points,gpsCount_);
-            lv_obj_clear_flag(view.marker,LV_OBJ_FLAG_HIDDEN);uiSetTextColor(view.marker,colour(fix?0x00707d:0x53636c),0);
+            lv_obj_clear_flag(view.marker,LV_OBJ_FLAG_HIDDEN);uiSetTextColor(view.marker,colour(fix?0x00707d:reported?0xb87800:0x53636c),0);
         }
     }
 }

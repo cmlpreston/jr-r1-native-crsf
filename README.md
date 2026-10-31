@@ -374,9 +374,12 @@ not to a generic pinout shared between receivers.
 The development has used FLVS ADV cell telemetry and FAS300 ADV measurements
 for voltage, current and temperature. Bench captures, parser tests and handset
 displays are documented separately from end-to-end RF validation. Some sensor
-paths and the ER6G profile still require further hardware checks; GPS forwarding
-is not selected in the current receiver trial. The handset can display 1–12
-individual cell readings, but the current receiver cell trial forwards **4S**.
+paths and the ER6G profile still require further hardware checks. GPS forwarding
+is enabled in the newly prepared receiver trial builds; installation and
+end-to-end RF validation remain hardware steps. Satellite count/fix quality
+are unavailable from standard S.Port GPS, so the handset labels them unknown.
+The handset can display 1–12 individual cell readings, but the current receiver
+cell trial forwards **4S**.
 Selecting a higher cell count cannot create measurements the receiver has not sent.
 
 This is a **custom fork**, not a claim of upstream ExpressLRS S.Port support or

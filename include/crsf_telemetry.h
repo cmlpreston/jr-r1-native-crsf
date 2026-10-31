@@ -47,6 +47,17 @@ struct CrsfTelemetryState {
     uint32_t receiverUidUpdatedMs = 0;
 };
 
+// S.Port GPS forwarding has no satellite/fix-quality field. A zero count is
+// unknown, not a confirmed fix: allow fresh non-placeholder reported values,
+// keep known low-satellite reports unavailable and label uncertainty in the UI.
+inline bool gpsPositionAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
+    return t.gpsValid && uint32_t(nowMs-t.gpsUpdatedMs)<=3000 &&
+        (t.satellites>=4 || (t.satellites==0 && (t.latitudeE7!=0 || t.longitudeE7!=0)));
+}
+inline bool gpsFixConfirmed(const CrsfTelemetryState &t, uint32_t nowMs) {
+    return gpsPositionAvailable(t,nowMs) && t.satellites>=4;
+}
+
 class CrsfTelemetryParser {
 public:
     void feed(uint8_t value);

@@ -6239,7 +6239,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     updatePinTimeout(millis());
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None){armRequested_=false;if(activePage_!=UiPage::BootSplash&&activePage_!=UiPage::BootPin)drawBootPin();}
     speedStatistics_.update(telemetry.groundSpeedDeciKmh, telemetry.gpsUpdatedMs, millis(),
-                            telemetry.gpsValid && telemetry.satellites >= 4);
+                            gpsPositionAvailable(telemetry,millis()));
     designTelemetry_ = telemetry; designSafety_ = safetyStatus;
     designTxVoltage_ = txVoltageDecivolts; designTxValid_ = txVoltageValid;
     latestRawAdc_ = rawAdc;

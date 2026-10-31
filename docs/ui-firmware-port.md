@@ -338,3 +338,20 @@ Channel preview widgets show a small amber crossed-out output arrow in the upper
 The eight KEY buttons are reserved for UI navigation and are consumed before editable RF bindings. MODE opens Quick menu; hold MODE returns to Drive. A second MODE opens Setup. The quick menu reproduces the original orange shortcuts: UP steering expo, PAGE endpoints, SEL throttle response, DOWN trims, + models, - timer, CLR Drive. UP/DOWN moves the visible focus; SEL activates. Outside editors +/- changes the subsection tab; inside editors it adjusts the focused field. PAGE advances numbered pages and hold PAGE goes back, without wrapping. CLR goes back/cancels; hold CLR in a numeric editor offers a confirmed draft-only default reset. Apply is still required. MODE cannot discard modal drafts. No navigation key arms, releases Walk or loads a model implicitly.
 
 UP/DOWN and +/- repeat after 450 ms, with accelerated repeats after 2 s. MODE/PAGE/CLR short actions occur on release; holds take effect after 650 ms and suppress the short action. Failed inputs and cancelled simulator pointer presses discard pending actions. The simulator's eight keypad buttons and keyboard shortcuts use the same press/release state machine. Its HOME button is a convenience shortcut in addition to the real eight keys.
+
+## S.Port GPS forwarding — 31 October 2026
+
+Prepared ER4/ER6G trial profiles opt into first-coordinate GPS source selection.
+The receiver latches one physical ID and application-ID instance until restart,
+then forwards CRSF GPS only when latitude, longitude, speed, heading and altitude
+are all fresh. It does not fabricate satellite count or fix status.
+
+On the handset, fresh non-placeholder coordinates with zero satellite count
+can now populate the map/trail and reported speed/statistics. They are labelled
+**Fix unknown** and shown with an amber marker. Known counts of 1–3 remain
+unusable; stale data are not sampled. A zero/zero placeholder with unknown
+quality is not plotted. The satellite widget shows unavailable rather than
+inventing a count. No GPS reading changes output safety or arming.
+
+This is prepared/tested software; live ER6G reception and the installed GPS
+sensor chain still need a powered bench test and authorised firmware uploads.

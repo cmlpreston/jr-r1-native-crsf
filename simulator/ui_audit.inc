@@ -58,6 +58,21 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlBootPin(4,activate);assert(bootPinUnlocked()&&!armRequested());
     assert(activePage_==UiPage::StartupWarning); // Unlock does not dismiss preflight.
     setStartupPreflight(true,0);assert(activePage_==UiPage::Dashboard);
+    const auto auditSportGps=[&](){
+        CrsfTelemetryState sportGps{};sportGps.gpsValid=true;sportGps.satellites=0;
+        sportGps.latitudeE7=GpsMap::DemoLat;sportGps.longitudeE7=GpsMap::DemoLon;
+        sportGps.gpsUpdatedMs=millis();sportGps.groundSpeedDeciKmh=235;
+        gpsCount_=0;gpsLastSampleMs_=sportGps.gpsUpdatedMs-1;
+        designTelemetry_=sportGps;gpsFullScreen_=false;drawDesignPage(UiPage::Gps);lv_obj_update_layout(lv_scr_act());updateDesign(sportGps,OutputSafetyStatus::Cut,99,true);
+        assert(gpsCount_==1 && strstr(lv_label_get_text(designDetails_[0]),"Fix unknown"));
+        int32_t speed=0;uint32_t stamp=0;assert(sensorReading(sportGps,0,speed,stamp)&&speed==235);
+        assert(!sensorReading(sportGps,5,speed,stamp)); // unknown count is not zero satellites
+        sportGps.gpsValid=false;updateDesign(sportGps,OutputSafetyStatus::Cut,99,true);assert(gpsCount_==1);
+        gpsCount_=0;assert(!armRequested_);
+        Serial.println("S.Port GPS: unknown fix display, speed, map position and stale handling PASS");
+    };
+    if(getenv("JR_R1_GPS_AUDIT_ONLY")){auditSportGps();return true;}
+
     // Real handset key timing, quick shortcuts, drafts and safety invariants.
     {
         uint32_t keyTime=millis();
@@ -1186,6 +1201,8 @@ bool TransmitterUi::runSimulatorUiAudit()
         snprintf(path,sizeof(path),"%s-full.bmp",prefix);simulatorSaveScreenshot(path);
         handleTouch(20,20);
     }
+
+    auditSportGps();
 
     // Hardware recovery keeps authenticated remote navigation available without
     // claiming startup preflight passed or permitting any arm request.

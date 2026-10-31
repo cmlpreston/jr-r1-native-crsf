@@ -37,6 +37,12 @@ int main() {
     assert(parser.state().latitudeE7==-378134000 && parser.state().longitudeE7==1449631000);
     assert(parser.state().groundSpeedDeciKmh==450 && parser.state().headingCentiDegrees==9000);
     assert(parser.state().altitudeMetres==40 && parser.state().satellites==12);
+    assert(gpsPositionAvailable(parser.state(),testNow) && gpsFixConfirmed(parser.state(),testNow));
+    auto unknown=parser.state();unknown.satellites=0;
+    assert(gpsPositionAvailable(unknown,testNow) && !gpsFixConfirmed(unknown,testNow));
+    assert(!gpsPositionAvailable(unknown,testNow+3001));
+    unknown.latitudeE7=unknown.longitudeE7=0;assert(!gpsPositionAvailable(unknown,testNow));
+    unknown=parser.state();unknown.satellites=3;assert(!gpsPositionAvailable(unknown,testNow));
     testNow+=1;
     auto malformed=gps; malformed.resize(14); feed(parser,0x02,malformed);
     assert(parser.state().gpsUpdatedMs==1234);

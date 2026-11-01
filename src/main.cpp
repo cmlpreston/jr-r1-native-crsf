@@ -302,6 +302,9 @@ void sendManagementRequest(const ElrsManagementRequest &request)
     if (length == 0) return;
     if(!transmitCrsfFrame(frame, length))return;
     if (request.action == ElrsManagementAction::TxParameter) return;
+    if(request.action==ElrsManagementAction::ErsSensor){
+        Serial.printf("ERS TX: type=%u id=%u command=%u bytes=%u\n",request.ers.type,request.ers.id,request.ers.command,unsigned(length));return;
+    }
     Serial.printf("ELRS MGMT: sent %s to %s (%u-byte phrase)\n",
         request.action == ElrsManagementAction::ReadUid ? "UID request" : "bindphrase",
         request.target == ElrsManagementTarget::Transmitter ? "TX module" : "receiver",
@@ -828,6 +831,12 @@ bool consumeScreenshotCommand()
             if (strcmp(usbCommand, "WIFISTATUS") == 0) printWifiSetupStatus();
             if (strcmp(usbCommand, "INPUTMON") == 0) printInputMonitorSnapshot();
             if (strcmp(usbCommand, "TELEMETRY") == 0) printCellTelemetrySnapshot();
+            if(strcmp(usbCommand,"ERSSTATUS")==0){
+                const auto t=readTelemetrySnapshot();
+                Serial.printf("ERS RX: configFrames=%lu accepted=%lu lastType=%02x header=%02x %02x %02x %02x %02x\n",
+                    static_cast<unsigned long>(t.configWireFrames),static_cast<unsigned long>(t.ersSequence),t.lastConfigType,
+                    t.lastConfigHeader[0],t.lastConfigHeader[1],t.lastConfigHeader[2],t.lastConfigHeader[3],t.lastConfigHeader[4]);
+            }
             if(strcmp(usbCommand,"MEMORY")==0||strcmp(usbCommand,"memory")==0)MemoryDiagnostics::print(Serial);
             if (strcmp(usbCommand, "BOOTLOG") == 0 || strcmp(usbCommand, "bootlog") == 0)
                 bootDiagnosticsDump();

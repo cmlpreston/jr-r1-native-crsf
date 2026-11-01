@@ -109,6 +109,11 @@ void CrsfTelemetryParser::processFrame()
         ++state_.txParameterSequence;
     }
 
+    if((frameType==0x7a || frameType==0x7b || frameType==0x7c) && payloadLength>=2){
+        ++state_.configWireFrames;state_.lastConfigType=frameType;
+        memset(state_.lastConfigHeader,0,sizeof(state_.lastConfigHeader));
+        memcpy(state_.lastConfigHeader,payload,payloadLength<5?payloadLength:5);
+    }
     // GPS uses the deployed ELRS/Betaflight 0.1 km/h scale. See the
     // protocol notes in docs/ui-firmware-port.md (TBS prose differs).
     if (frameType == 0x02 && payloadLength >= 15) {

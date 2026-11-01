@@ -9,6 +9,8 @@ struct CrsfTelemetryState {
     uint32_t txParameterSequence = 0;
     uint8_t txParameterType = 0, txParameterLength = 0;
     uint8_t txParameterPayload[60] = {};
+    uint32_t configWireFrames=0;
+    uint8_t lastConfigType=0,lastConfigHeader[5]={};
     uint32_t ersSequence=0;
     uint8_t ersFrameType=0, ersLength=0, ersPayload[60]={};
     // External CRSF battery ID 2, tagged by our ER6G serial ingress.

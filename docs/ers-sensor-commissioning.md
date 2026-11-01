@@ -30,7 +30,7 @@ sensors, simultaneously: source arbitration between those buses is not implement
 
 ## Setup on the R1 touchscreen
 
-Open **Setup → Model → second page → ERS sensors**. Tap **Discover**, allow four
+Open **Setup → Model → second page → ERS sensors**. Tap **Discover**, allow eight
 seconds, then select a sensor. **Read settings** retrieves its confirmed values.
 Use minus/plus to edit GPS mode, total motor pole count or battery capacity, then
 **Apply**. Capacity offers steps of 100 or 1 mAh. The draft stays unconfirmed until
@@ -45,7 +45,7 @@ select/plus/minus navigation are supported in landscape and portrait.
 ## Setup on the R1 web page
 
 1. Leave the R1 in CUT but enable its module link and establish an RF link.
-2. Under **RadioMaster ERS sensors**, select **Discover sensors**; allow four seconds.
+2. Under **RadioMaster ERS sensors**, select **Discover sensors**; allow eight seconds.
 3. Select each sensor and **Read sensor settings**.
 4. GPS: select Global mode (2) for position/maps, or Speed mode (1) for speed-only.
 5. RB01: enter the motor's total magnetic pole count, **not pole pairs**.
@@ -99,3 +99,9 @@ No receiver or servo remapping is performed by sensor discovery/configuration.
 - [CRSF specification](https://github.com/tbs-fpv/tbs-crsf-spec/blob/main/crsf.md)
 
 Protocol facts were implemented independently; the manufacturer Lua code is not bundled.
+
+Discovery follows the manufacturer configurator: initial type-255 / ID-1 PING,
+then type-255 / ID-255 HEART_BEAT broadcasts every two seconds during an
+eight-second scan. Both PING and HEART_BEAT registration replies are accepted.
+USB `ERSSTATUS` reports only configuration frame counts/header metadata, not GPS
+coordinates. `ERS TX` serial lines identify requests that reached the UART sender.

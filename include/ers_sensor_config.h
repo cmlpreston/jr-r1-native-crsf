@@ -6,7 +6,7 @@
 // Protocol reference: RadioMaster's SENSOR_LUA_2026_7_31.zip. No Lua code copied.
 struct ErsRequest { uint8_t type=0, id=0, command=0; uint16_t value=0; };
 inline bool validErsRequest(const ErsRequest &r) {
-    if(r.type==255)return r.id==1 && r.command==0 && r.value==255;
+    if(r.type==255)return r.value==255 && ((r.id==1 && r.command==0) || (r.id==255 && r.command==9));
     if((r.type!=2 && r.type!=3 && r.type!=4 && r.type!=8) || r.id==0 || r.id==255)return false;
     if(r.command==12)return r.value==255;
     if(r.type==3 && r.command==15)return r.value==1 || r.value==2;
@@ -39,13 +39,24 @@ public:
         if(busy_ || !validErsRequest(r))return false;
         if(r.type!=255 && !find(r.type,r.id))return false;
         if(r.type==255){count_=0;memset(devices_,0,sizeof(devices_));}
-        pending_=r;busy_=true;queued_=true;started_=now;++revision_;
+        pending_=r;busy_=true;queued_=true;started_=now;nextHeartbeatMs_=2000;++revision_;
         status_=r.type==255?"Discovering sensors":"Queued; awaiting sensor acknowledgement";
         return true;
     }
-    bool poll(ErsRequest &r,uint32_t now) { update(now);if(!queued_)return false;r=pending_;queued_=false;return true; }
+    bool poll(ErsRequest &r,uint32_t now) {
+        update(now);
+        if(queued_){r=pending_;queued_=false;return true;}
+        // RadioMaster's configurator discovers devices through broadcast
+        // HEART_BEAT as well as the initial ID-1 PING. Read-only, bounded to
+        // this scan window; mutating commands are never retried.
+        if(busy_ && pending_.type==255 && uint32_t(now-started_)>=nextHeartbeatMs_){
+            r.type=255;r.id=255;r.command=9;r.value=255;
+            nextHeartbeatMs_=uint32_t(now-started_)+2000;return true;
+        }
+        return false;
+    }
     void update(uint32_t now) {
-        if(busy_ && uint32_t(now-started_)>=4000){busy_=queued_=false;++revision_;status_=pending_.type==255?(count_?"Discovery complete":"No ERS sensors replied"):"No acknowledgement; refresh settings before retrying";}
+        if(busy_ && uint32_t(now-started_)>=(pending_.type==255?8000u:4000u)){busy_=queued_=false;++revision_;status_=pending_.type==255?(count_?"Discovery complete":"No ERS sensors replied"):"No acknowledgement; refresh settings before retrying";}
     }
     void cancel() {if(busy_){busy_=queued_=false;++revision_;status_="Cancelled; refresh settings before retrying";}}
     void receive(uint8_t frameType,const uint8_t *p,size_t n,uint32_t now) {
@@ -53,7 +64,7 @@ public:
         if(p[2]!=2 && p[2]!=3 && p[2]!=4 && p[2]!=8)return;
         if(!p[3] || p[3]==255)return;
         auto *d=find(p[2],p[3]);
-        if(p[4]==0 && busy_ && pending_.type==255) {
+        if((p[4]==0 || p[4]==9) && busy_ && pending_.type==255) {
             if(!d){if(count_==MaxDevices)return;d=&devices_[count_++];d->type=p[2];d->id=p[3];}
             d->updatedMs=now;++revision_;
             size_t i=0;while(6+i<n && i<sizeof(d->name)-1 && p[6+i]>=32 && p[6+i]<=126){d->name[i]=char(p[6+i]);++i;}d->name[i]=0;
@@ -93,6 +104,6 @@ private:
     }
     uint32_t revision_=0;
     ErsDevice devices_[MaxDevices]={};uint8_t count_=0;
-    ErsRequest pending_;bool busy_=false,queued_=false;uint32_t started_=0;
+    ErsRequest pending_;bool busy_=false,queued_=false;uint32_t started_=0,nextHeartbeatMs_=0;
     const char *status_="Discover sensors to begin";
 };

@@ -139,3 +139,7 @@ Entries below distinguish prepared source from firmware already installed.
   partition and OTA-slot-selection writes when PlatformIO uses `nobuild`.
   Application-only verification could otherwise leave the previous OTA slot running.
   NVS/model settings and map storage are preserved.
+
+- ERS discovery now includes the manufacturer's all-device heartbeat broadcasts
+  and accepts heartbeat registrations over an eight-second scan. Initial ping
+  alone could miss devices with other IDs. Added bounded USB configuration-path diagnostics.

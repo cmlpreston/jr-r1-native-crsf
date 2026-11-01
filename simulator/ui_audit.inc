@@ -34,7 +34,7 @@ bool TransmitterUi::runSimulatorUiAudit()
             assert(ersConfig_.poll(q,millis()) && q.type==255);
             const uint8_t types[]={3,8,4,2};
             for(auto type:types){uint8_t response[]={0xea,0xc8,type,1,0,0,'E','R','S',0};ersConfig_.receive(0x7b,response,sizeof(response),millis());}
-            ersConfig_.update(millis()+4000);drawDesignPage(UiPage::ErsSensors);assert(ersConfig_.count()==4);
+            ersConfig_.update(millis()+8000);drawDesignPage(UiPage::ErsSensors);assert(ersConfig_.count()==4);
             controlErsSensor(10,activate);assert(ersSelected_==0 && ersDraft_==2);
             controlErsSensor(6,activate);assert(ersDraft_==1 && ersDraftDirty_);
             controlErsSensor(8,activate);assert(ersConfig_.busy() && ersDraft_==1 && ersDraftDirty_);

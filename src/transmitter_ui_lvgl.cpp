@@ -2065,28 +2065,38 @@ void TransmitterUi::playBuzzer(uint16_t durationMs)
         if (durationMs < 80) return;
         timerBuzzer_.cancel();
     }
+    if (gpsChime_.active(millis())) {
+        if (durationMs < 80) return;
+        gpsChime_.cancel();
+    }
     emitBuzzerTone(durationMs);
 }
 
 void TransmitterUi::emitBuzzerTone(uint16_t durationMs)
 {
+    emitBuzzerNote(systemSettings_.buzzerPitchHz,durationMs);
+}
+
+void TransmitterUi::emitBuzzerNote(uint16_t pitchHz, uint16_t durationMs)
+{
     if (!systemSettings_.buzzerEnabled) return;
 #ifdef JR_R1_SIMULATOR
-    simulatorBeep(systemSettings_.buzzerPitchHz, durationMs);
+    simulatorBeep(pitchHz, durationMs);
 #else
-    tone(BUZZER_PIN, systemSettings_.buzzerPitchHz, durationMs);
+    tone(BUZZER_PIN, pitchHz, durationMs);
 #endif
 }
 
 void TransmitterUi::playKeyClick()
 {
-    if (timerBuzzer_.active(millis())) return;
+    if (timerBuzzer_.active(millis()) || gpsChime_.active(millis())) return;
     if (systemSettings_.keyClicksEnabled) playBuzzer(systemSettings_.keyClickDurationMs);
 }
 
 void TransmitterUi::stopBuzzer()
 {
     timerBuzzer_.cancel();
+    gpsChime_.cancel();
 #ifdef JR_R1_SIMULATOR
     simulatorStopBeep();
 #else
@@ -6216,6 +6226,10 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     designTxVoltage_ = txVoltageDecivolts; designTxValid_ = txVoltageValid;
     latestRawAdc_ = rawAdc;
     updateRaceTimer(millis());
+    const auto gpsNote=gpsChime_.update(gpsPositionAvailable(telemetry,millis()),
+        systemSettings_.buzzerEnabled,timerBuzzer_.active(millis()),millis());
+    if(gpsNote.stop)stopBuzzer();
+    else if(gpsNote.durationMs)emitBuzzerNote(gpsNote.pitchHz,gpsNote.durationMs);
     latestSteeringRawAdc_ = steeringRawAdc;
     updateSteeringEndpointSelection();
     // Dashboard controls preview requested positions even in CUT. Keep the

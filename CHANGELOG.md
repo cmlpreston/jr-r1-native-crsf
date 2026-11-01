@@ -4,6 +4,15 @@ Record user-visible changes here as they are implemented. Update the operating
 manual periodically rather than regenerating it for every firmware change.
 Entries below distinguish prepared source from firmware already installed.
 
+## Pending transmitter upload
+
+- First usable GPS position triggers a non-blocking, three-note rising chime
+  (C7/E7/G7, about 440 ms total), once per boot. Respects Buzzer On/Off;
+  telemetry dropouts/model changes do not retrigger it. Timer warnings and
+  longer alerts take priority; missed notes are not replayed after a stall.
+- This announces usable reported coordinates, not confirmed GPS fix quality.
+- Deferred README/manual update: describe GPS acquisition sound.
+
 ## Latest installed updates
 
 ### 1 November 2026 - R1 dc3d100 / ER6G e8e9fff9

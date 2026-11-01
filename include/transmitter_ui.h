@@ -8,6 +8,7 @@
 #include "dashboard_widgets.h"
 #include "speed_statistics.h"
 #include "race_timer.h"
+#include "gps_acquisition_chime.h"
 #include "control_configuration.h"
 #include "channel_model.h"
 #include "control_assignment.h"
@@ -488,6 +489,7 @@ private:
     void applyBacklight(uint8_t percent);
     void playBuzzer(uint16_t durationMs);
     void emitBuzzerTone(uint16_t durationMs);
+    void emitBuzzerNote(uint16_t pitchHz, uint16_t durationMs);
     void playKeyClick();
     void stopBuzzer();
     void resetLvglObjects();
@@ -579,6 +581,7 @@ private:
     bool armGestureValid_ = false;
     RaceTimer timers_[kModelMemoryCount];
     TimerBuzzerSequence timerBuzzer_;
+    GpsAcquisitionChime gpsChime_;
     uint8_t timerBank_=0,timerSettingsPage_=0,timerLapPage_=0,timerConfirmation_=0;
     uint32_t timerTickMs_=0,timerOnRemainder_=0,timerLastSavedOn_=0,timerNextSaveMs_=0;
     bool timerClockSet_=false;

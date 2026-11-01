@@ -6,6 +6,10 @@ Entries below distinguish prepared source from firmware already installed.
 
 ## Pending transmitter upload
 
+- Remove alternating fix-unknown/stale text from the GPS page and map widget.
+  Show No GPS position only until the first usable point; retain the last point
+  with a muted, translucent marker while stale. Freshness checks are unchanged.
+
 - First usable GPS position triggers a non-blocking, three-note rising chime
   (C7/E7/G7, about 440 ms total), once per boot. Respects Buzzer On/Off;
   telemetry dropouts/model changes do not retrigger it. Timer warnings and

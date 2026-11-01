@@ -319,14 +319,19 @@ bool TransmitterUi::runSimulatorUiAudit()
         sportGps.gpsUpdatedMs=millis();sportGps.groundSpeedDeciKmh=235;
         gpsCount_=0;gpsLastSampleMs_=sportGps.gpsUpdatedMs-1;
         designTelemetry_=sportGps;gpsFullScreen_=false;drawDesignPage(UiPage::Gps);lv_obj_update_layout(lv_scr_act());updateDesign(sportGps,OutputSafetyStatus::Cut,99,true);
-        assert(gpsCount_==1 && strstr(lv_label_get_text(designDetails_[0]),"Fix unknown"));
+        assert(gpsCount_==1 && lv_obj_has_flag(designDetails_[0],LV_OBJ_FLAG_HIDDEN));
+        assert(lv_obj_get_style_opa(designMarker_,0)==LV_OPA_COVER);
         int32_t speed=0;uint32_t stamp=0;assert(sensorReading(sportGps,0,speed,stamp)&&speed==235);
         assert(!sensorReading(sportGps,5,speed,stamp)); // unknown count is not zero satellites
         sportGps.gpsValid=false;updateDesign(sportGps,OutputSafetyStatus::Cut,99,true);assert(gpsCount_==1);
+        assert(lv_obj_has_flag(designDetails_[0],LV_OBJ_FLAG_HIDDEN));
+        assert(lv_obj_get_style_opa(designMarker_,0)==LV_OPA_50);
         gpsCount_=0;assert(!armRequested_);
         Serial.println("S.Port GPS: unknown fix display, speed, map position and stale handling PASS");
     };
-    if(getenv("JR_R1_GPS_AUDIT_ONLY")){auditSportGps();return true;}
+    if(getenv("JR_R1_GPS_AUDIT_ONLY")){
+        auditSportGps();assert(requestDisplayRotation());applyDisplayRotation();auditSportGps();return true;
+    }
     auditWifiShortcut();
     auditDriveHold();
     auditTxBattery();

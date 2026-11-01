@@ -232,12 +232,10 @@ void TransmitterUi::drawGpsMapView(bool fullScreen)
     auto map=createGpsBasemap(lv_scr_act(),x,y,width,height,designMapViewport_);
     designCurve_=lv_line_create(map);lv_obj_set_style_line_color(designCurve_,colour(0x00707d),0);lv_obj_set_style_line_width(designCurve_,2,0);
     designMarker_=makeLabel(map,LV_SYMBOL_GPS,0,0,UiText::Menu,cCyan);lv_obj_add_flag(designMarker_,LV_OBJ_FLAG_HIDDEN);
-    makeLabel(map,"N ^",8,fullScreen?6:27,UiText::Caption,0x405442);
-    designDetails_[1]=makeLabel(map,"",width-70,fullScreen?6:27,UiText::Caption,0x405442);
+    makeLabel(map,"N ^",8,6,UiText::Caption,0x405442);
+    designDetails_[1]=makeLabel(map,"",width-70,6,UiText::Caption,0x405442);
     if(!fullScreen){
-        auto status=makePanel(x+4,y+4,width-8,19,cPanel,cPanel,0);
-        lv_obj_set_style_bg_opa(status,LV_OPA_90,0);
-        designDetails_[0]=makeLabel(status,"Waiting for GPS telemetry",5,2,UiText::Caption,cWhite);
+        designDetails_[0]=makeLabel(map,"No GPS position",8,24,UiText::Caption,0x405442);
         boundedLabel(designDetails_[0],width-18);
         const int controlsY=y+height-50,left=x+width-220;
         makePageActionButton(left,controlsY,32,30,"-",UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,82);
@@ -1052,10 +1050,12 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             uiSetTextFmt(designValues_[i],"%+d / %+d%% %s",permilleFromCrsfValue(designRequested_[ch])/10,output/10,(dashboardEnabledChannelMask_&(1U<<ch))?"":"off");lv_bar_set_value(designBars_[i],output,LV_ANIM_OFF);
         }
     } else if(activePage_==UiPage::Gps){
-        if(!gpsFullScreen_){if(!gpsPositionAvailable(t,now))uiSetText(designDetails_[0],t.gpsUpdatedMs?"GPS stale / no fix":"Waiting for GPS telemetry");
-        else if(t.satellites==0)uiSetTextFmt(designDetails_[0],"Fix unknown / %u.%u km/h",t.groundSpeedDeciKmh/10,t.groundSpeedDeciKmh%10);
-        else if(!t.gpsCourseValid)uiSetTextFmt(designDetails_[0],"%u sats / course unavailable",t.satellites);
-        else uiSetTextFmt(designDetails_[0],"%u sats  %u.%u km/h  %u deg",t.satellites,t.groundSpeedDeciKmh/10,t.groundSpeedDeciKmh%10,t.headingCentiDegrees/100);}
+        // Once a position has been received, keep the map free of changing
+        // fix-status text. Stale data is indicated by the retained marker.
+        if(!gpsFullScreen_){
+            if(gpsCount_)lv_obj_add_flag(designDetails_[0],LV_OBJ_FLAG_HIDDEN);
+            else lv_obj_clear_flag(designDetails_[0],LV_OBJ_FLAG_HIDDEN);
+        }
         auto mapObject=lv_obj_get_parent(designCurve_);
         const double pixelsPerMetre=gpsBasemapPreviewScale(mapObject,true)*gpsZoom_;
         if(!gpsCount_)previewGpsBasemap(mapObject,designMapViewport_,true,gpsZoom_);
@@ -1071,6 +1071,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             if(gpsCount_>1 && gpsTrailVisible_){lv_line_set_points(designCurve_,gpsPoints_,gpsCount_);lv_obj_clear_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);}else lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_pos(designMarker_,width/2-9,height/2-9);lv_obj_clear_flag(designMarker_,LV_OBJ_FLAG_HIDDEN);
             uiSetTextColor(designMarker_,colour(gpsFixConfirmed(t,now)?0x00707d:gpsPositionAvailable(t,now)?0xb87800:0x53636c),0);
+            lv_obj_set_style_opa(designMarker_,gpsPositionAvailable(t,now)?LV_OPA_COVER:LV_OPA_50,0);
             uiSetTextFmt(designDetails_[1],"%um",static_cast<unsigned>(40/pixelsPerMetre));
         }
     }
@@ -1484,7 +1485,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             }
         } else if(w.kind==DashboardWidgetKind::Map){
             bool reported=gpsPositionAvailable(t,millis()),fix=gpsFixConfirmed(t,millis());int width=lv_obj_get_width(view.basemap),height=lv_obj_get_height(view.basemap);
-            const char *status=!gpsCount_?"No GPS position":!reported?"GPS stale / no fix":!fix?"Fix unknown":"";
+            const char *status=!gpsCount_?"No GPS position":"";
             uiSetText(view.detail,status);
             if(*status)lv_obj_clear_flag(view.detail,LV_OBJ_FLAG_HIDDEN);
             else lv_obj_add_flag(view.detail,LV_OBJ_FLAG_HIDDEN);
@@ -1497,6 +1498,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             for(int i=0;i<gpsCount_;++i){double east=(static_cast<double>(gpsLon_[i])-gpsLon_[gpsCount_-1])*0.01113195*lonScale;double north=(static_cast<double>(gpsLat_[i])-gpsLat_[gpsCount_-1])*0.01113195;view.points[i]={static_cast<lv_coord_t>(width/2+east*scale),static_cast<lv_coord_t>(height/2-north*scale)};}
             if(gpsCount_>1)lv_line_set_points(view.plot,view.points,gpsCount_);
             lv_obj_clear_flag(view.marker,LV_OBJ_FLAG_HIDDEN);uiSetTextColor(view.marker,colour(fix?0x00707d:reported?0xb87800:0x53636c),0);
+            lv_obj_set_style_opa(view.marker,reported?LV_OPA_COVER:LV_OPA_50,0);
         }
     }
 }

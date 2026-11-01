@@ -6,20 +6,32 @@ Entries below distinguish prepared source from firmware already installed.
 
 ## Pending transmitter upload
 
-### 1 November 2026 - PlatformIO Wi-Fi upload transport
+No firmware changes pending immediately after the verified OTA update below.
+
+## Installed transmitter firmware
+
+### 1 November 2026 - 06b6928 (Wi-Fi OTA)
+
+- Authenticated OTA upload accepted and image validation confirmed; handset
+  restarted and the updated web frontend was verified at its home-network IP.
+- Model 1 / HYPER 7 retained; handset reported CUT/configuration access after
+  restart. Physical backlight brightness still needs owner confirmation.
+- Host tests, landscape build and both-orientation UI/rotation checks passed.
+
+#### PlatformIO Wi-Fi upload transport
 
 - Explicitly select PlatformIO's custom protocol for authenticated web OTA.
   Setting only the upload command allowed the ESP32 platform builder to replace
   it with its default serial uploader. USB retains its original transport.
 
-### 1 November 2026 - GPS controls stay visible
+#### GPS controls stay visible
 
 - Temporarily disable the GPS page's automatic edge-to-edge fullscreen mode.
   Its map controls, title bar and navigation stay visible while idle.
 - The dashboard map widget still supports temporary long-press expansion and
   the overlaid minimise chevron.
 
-### 1 November 2026 - backlight brightness after sound
+#### backlight brightness after sound
 
 - Separate the buzzer and backlight LEDC hardware timers. Their old channel 6/7
   pairing allowed a beep to change the backlight timer from 8-bit to 10-bit,
@@ -28,7 +40,7 @@ Entries below distinguish prepared source from firmware already installed.
 - Confirm physical brightness after upload; the simulator does not model shared
   ESP32 PWM timer registers.
 
-### 1 November 2026 - dashboard widget focus
+#### dashboard widget focus
 
 - Hold a widget body for about 0.65 seconds, then release to maximise it.
 - The expanded widget uses the area below the title bar down to the bottom
@@ -43,8 +55,6 @@ Entries below distinguish prepared source from firmware already installed.
 - Verified with XIAO landscape builds and simulator coverage of both orientations,
   widget types and cell positions. Physical handset validation follows upload.
 
-## Installed transmitter firmware
-
 ### 1 November 2026 - 0b05af7
 
 - Countdown buzzer cues: one beep at 20 seconds remaining, two at 10 seconds,
@@ -53,27 +63,21 @@ Entries below distinguish prepared source from firmware already installed.
   of old cues. Requires Buzzer and Race-end alarm enabled.
 - Uploaded through Pi USB; startup checks passed for K1/K2, touch, LCD and UI.
 
-## Next manual refresh
+## Documentation refresh - 1 November 2026
 
-- Document temporary widget maximisation and the overlaid minimise chevron.
-- Refresh affected dashboard captures after hardware validation.
-- Reconcile examples and firmware revision identifiers with the selected release.
+- Updated README and operating manual (edition 1.3) to installed firmware 06b6928.
+- Documented verified authenticated OTA, guarded PlatformIO web upload, CUT,
+  package validation, restart and USB recovery limitations.
+- Added clearly labelled simulator examples of the saved dashboard and enlarged
+  All channels, GPS and Timer widgets; documented the minimise chevron and
+  preserved layout, plus portrait/landscape support and future auto-rotation.
+- Updated countdown sound cues, visible GPS controls and GPS status explanations;
+  distinguished installed ER6G trial firmware from unconfirmed live GPS delivery.
+- Rebuilt and visually checked the printable manual; preserved image proportions.
 
-## Next README refresh
+## Documentation follow-up
 
-Record requested README additions here; apply them during a periodic README
-update rather than editing the README for every firmware change.
-
-### Requested 1 November 2026
-
-- Describe temporary widget maximisation: hold a widget body, then minimise
-  with the overlaid down-chevron, Back or another hold; the saved grid is
-  preserved. Include paired normal-grid and maximised screenshots, with useful
-  examples such as All channels, GPS map and Timer. Prefer native handset
-  captures after upload/validation; label any simulator examples clearly.
-- Explain that a complete portrait UI is maintained alongside landscape, with
-  simulator/build coverage of both orientations. This supports rotating the
-  handset screen; a manual orientation control already exists. Automatic
-  rotation is a future option requiring an accelerometer that has not yet been
-  added, plus orientation detection and automatic-rotation firmware. Do not
-  describe accelerometer-based auto-rotation as implemented.
+- Replace widget-focus simulator examples with native handset captures once the
+  handset is reachable and the new layout has been checked on hardware.
+- Confirm physical backlight brightness after the PWM timer fix.
+- Continue recording changes here for periodic README/manual refreshes.

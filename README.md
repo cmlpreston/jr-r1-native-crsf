@@ -20,7 +20,7 @@ that adds direct FrSky S.Port sensor support. The handset software is **not an
 OpenTX or EdgeTX fork**. It implements its own control pipeline, model settings,
 LVGL interface and CRSF integration; the RF link relies on ExpressLRS.
 
-[Prototype build and history](docs/build-history.md) · [Features](#what-we-have-built) ·
+[User manual](docs/user-manual.md) ([PDF](output/pdf/r1-evo-user-manual.pdf)) · [Prototype build and history](docs/build-history.md) · [Features](#what-we-have-built) ·
 [Simulator](#the-same-ui-on-the-desktop) · [Web UI](#the-web-ui-inside-the-transmitter) ·
 [Schematics](#hardware-and-schematics) · [Development guide](DEVELOPMENT.md)
 
@@ -38,8 +38,8 @@ Recent development is also tracked on
 | Tuning and mixing | Reversal, calibration, trims, rates, expo, independent endpoints, response speed, channel-to-channel mixes, switch conditions and graphs showing the resulting response. |
 | Models | Saved model configurations, names, selectable vehicle artwork and primary/accent/base colour choices, including an F1-style car. |
 | Dashboard | Configurable widgets in 1×1, 2×1, 1×2 and 2×2 sizes; analogue channel bars, binary switch states, selectable physical inputs, speed dial, lap/stopwatch/countdown timer, power readings and a combined battery-cell panel. |
-| Telemetry | CRSF link and sensor decoding, freshness/no-data handling, history views and alarms; custom receiver integration for S.Port cells and FAS sensor measurements. S.Port GPS forwarding is prepared for hardware validation. |
-| Maps | Address search, pan/zoom and selection of street or satellite imagery in the browser; image packages stored on the handset, GPS trail overlay and a map view that hides its controls when idle. |
+| Telemetry | CRSF link and sensor decoding, freshness/no-data handling, history views and alarms; custom receiver integration for S.Port cells and FAS sensor measurements. GPS-enabled S.Port firmware is installed on the ER6G trial receiver; live GPS delivery still needs confirmation. |
+| Maps | Address search, pan/zoom and selection of street or satellite imagery in the browser; image packages stored on the handset, GPS trail overlay and a larger GPS page with visible zoom/trail controls. |
 | Operating modes | CUT/re-arm workflow with readiness reasons, Normal/Walk selection, PIN-protected exit from Walk, boot PIN and USB PIN recovery. |
 | Module link | Prepared CRSF enable/pause control with physical approval after TX battery detection; approval expires on power loss or reboot. Installed Ranger RF shutdown still needs validation. |
 | Connectivity | Saved home Wi-Fi with automatic connection/retry, optional setup hotspot, configurable hostname and onboard configuration/remote-control web UI. |
@@ -93,7 +93,7 @@ handset does not itself implement a vehicle stabilisation gyro.
   power and other choices depend on the connected module's advertised parameters.
 - **Maps:** street/satellite style, address/location, zoom and download area,
   map name/source attribution, import/export/upload and storage preparation;
-  map zoom, trail visibility/reset and fullscreen controls on the handset.
+  map zoom and trail visibility/reset on the handset.
 - **Handset:** display orientation, colour scheme, brightness/night behaviour,
   screensaver, PIN change/recovery, input calibration, saved Wi-Fi connection,
   automatic connection option, setup hotspot, hostname and software restart.
@@ -112,6 +112,13 @@ source and **Apply**. The resulting widgets appear on **Drive**. Sizes are 1×1,
 covers neighbouring widgets without deleting their saved configuration; reducing
 it reveals them again. Use **Empty** to leave a position unused.
 
+Hold a widget body for about 0.65 seconds, then release to expand it across the
+dashboard. An overlaid **down-chevron**, Back, or another long press returns to
+the saved grid.
+The title bar and bottom navigation stay available; expansion is temporary and
+does not change the stored layout. Short taps retain their usual action, and
+the live web mirror supports the same hold gesture.
+
 | Widget | What it shows and how it can be configured |
 | --- | --- |
 | **Timer** | Per-model stopwatch, countdown or current lap, with Start/Lap/Pause and Reset controls. Larger widgets show last and best laps. Tap its title/time area for timer controls, settings and lap history; supported handset assignments also operate it. |
@@ -121,7 +128,7 @@ it reveals them again. Use **Empty** to leave a position unused.
 | **Sensor — speed** | Current, maximum or average speed as the large reading, with related statistics. Choose numbers, a dial or graph. Speed requires the relevant vehicle/GPS telemetry; the handset does not infer it from throttle position. |
 | **Sensor — other readings** | Temperature, RPM, receiver voltage, link quality, satellite count, drive-pack total, lowest cell, FAS voltage or FAS current. Choose the supported numeric/graph style. Missing or stale readings display as unavailable rather than zero. |
 | **Battery cells** | All reported vehicle cells in one widget, with pack total, lowest cell and detected count. Choose Auto or an expected 1S–12S count. Tap to page if needed. The present receiver cell trial forwards 4S; larger UI capacity does not imply larger-pack receiver validation. |
-| **GPS map / trail** | A north-up saved street/satellite image or vector map, with vehicle position and recorded GPS trail overlaid when telemetry is available. The map fills the widget with a north indicator and attribution. Tap for the larger GPS page, zoom and trail controls; controls hide when idle and reappear on touch. |
+| **GPS map / trail** | A north-up saved street/satellite image or vector map, with vehicle position and recorded GPS trail overlaid when telemetry is available. The map fills the widget with a north indicator and attribution. Tap for the larger GPS page, zoom and trail controls; controls stay visible while idle. |
 | **Model image** | Current model's name and selected vehicle artwork, with configurable primary, accent and base paint colours. Tap to reach model selection. |
 | **Empty** | No widget in that position. |
 
@@ -132,6 +139,31 @@ the speed dial is not offered for an arbitrary temperature sensor.
 Channel widgets remain useful while outputs are CUT: they show **requested
 control positions**, with a small crossed-out output indicator. Data's channel
 monitor distinguishes requested values from the actual safe values sent.
+
+
+### Temporary widget focus
+
+These **simulator captures**, generated from the shared UI at firmware `06b6928`,
+show the same saved grid before and after a hold. They are illustrative rather
+than pixel-perfect photographs of the LCD; telemetry and controls are simulated.
+The GPS example has no reported position and does not imply a confirmed fix.
+
+| Saved dashboard | All channels expanded |
+| --- | --- |
+| ![Simulator: four-widget dashboard](assets/ui-captures/widget-focus/dashboard.png) | ![Simulator: All channels expanded with minimise chevron](assets/ui-captures/widget-focus/all-channels-expanded.png) |
+
+| GPS map expanded | Timer expanded |
+| --- | --- |
+| ![Simulator: GPS map expanded](assets/ui-captures/widget-focus/gps-expanded.png) | ![Simulator: Timer expanded](assets/ui-captures/widget-focus/timer-expanded.png) |
+
+### Portrait and landscape
+
+We maintain a complete **320 × 480 portrait UI** alongside the **480 × 320
+landscape UI**, with simulator/build coverage and rotation checks for both.
+Select orientation in **Setup → Handset → Display**. This keeps the software
+ready for physically rotating the handset display. Automatic rotation is a
+future option: an accelerometer has not been added, and orientation detection
+and automatic-rotation behaviour still need implementation.
 
 ## CUT, Normal/Walk and PIN protection
 
@@ -267,8 +299,8 @@ The development has used FLVS ADV cell telemetry and FAS300 ADV measurements
 for voltage, current and temperature. Bench captures, parser tests and handset
 displays are documented separately from end-to-end RF validation. Some sensor
 paths and the ER6G profile still require further hardware checks. GPS forwarding
-is enabled in the newly prepared receiver trial builds; installation and
-end-to-end RF validation remain hardware steps. The prepared GPS path keeps one
+is enabled in the trial builds, and the ER6G GPS build was uploaded on
+1 November 2026. End-to-end GPS reception remains unconfirmed. The GPS path keeps one
 sensor source selected until restart and
 requires fresh latitude, longitude, speed, course and altitude before forwarding
 a position. Satellite count/fix quality are unavailable from standard S.Port
@@ -311,7 +343,9 @@ and best laps. PAGE still navigates pages; it has no hidden timer-specific role.
   This starts only the timer; it cannot enable output or the module link.
 - **Alarms:** configurable race/countdown duration (up to 99:59), optional
   race-end alarm and repeating target-lap alerts. Countdown shows overtime
-  with a `+` after zero. Lap acceptance has a short audible acknowledgement.
+  with a `+` after zero. With Buzzer and Race-end alarm enabled, Down mode gives
+  one beep at 20 seconds, two at 10, one per second from 5 to 1, then an 800 ms
+  end beep at zero. Lap acceptance has a short audible acknowledgement.
 - **Accumulated on-time:** a resettable counter for the active model, saved
   on model changes/configuration and checkpointed each minute. A sudden power
   loss can lose the final unsaved minute. Resetting it requires confirmation.
@@ -394,8 +428,10 @@ image and transfer checksum, writes the inactive application slot and restarts
 in CUT after validation. Models, maps and Wi-Fi settings are preserved. An
 interrupted or rejected upload leaves the current application selected.
 
-The updater has been installed over USB; a complete Wi-Fi upload/reboot test
-is still pending. Later compatible application updates can use Wi-Fi. Keep power connected throughout. USB remains necessary
+The first complete Wi-Fi upload, validation and reboot was verified on
+**1 November 2026**, installing transmitter firmware **06b6928** and checking
+the restarted web interface. Compatible application updates can use Wi-Fi.
+Keep power connected throughout. USB remains necessary
 for recovery, bootloader or partition-layout changes. Packages are authenticated
 by the web login/session; the checksum detects damage and is not a firmware
 signature. Use this HTTP interface on a trusted network.
@@ -408,6 +444,14 @@ was altered. The map example is Silverstone, a public circuit.
 | Hardware-control assignments | Satellite selection and upload |
 | --- | --- |
 | ![Web UI control assignments with documentation fixtures](assets/ui-captures/web-controls.png) | [![Satellite map preview and example save confirmation](assets/ui-captures/web-map-upload.png)](assets/ui-captures/web-map-upload.png) |
+
+For command-line updates, the guarded PlatformIO upload target also supports the
+web transport. Set `JR_R1_OTA_URL` to the handset's HTTP URL, then run
+`.venv/bin/pio run -e seeed_xiao_esp32s3-pcb -t upload` for the installed landscape
+profile. The uploader prompts for the web password (or accepts
+`R1_WEB_PASSWORD` from the environment). It retains the build, test and
+branch/hardware preflight. Use the actual handset address; do not embed passwords
+in a shared command, URL or repository file.
 
 ### Map sources and acknowledgements
 

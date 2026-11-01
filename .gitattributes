@@ -1,0 +1,3 @@
+
+# Treat generated printable documentation as binary.
+*.pdf binary

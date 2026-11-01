@@ -136,3 +136,20 @@ name is visible in the published native screens.
 The older simulator/browser-fixture assets retain their own provenance labels.
 Their map geography is a public circuit or a clearly fictional track. The
 hardware captures do not publish the handset's installed map image.
+
+## Temporary widget focus (simulator)
+
+These examples use the shared UI at firmware `06b6928`, captured on
+1 November 2026 with isolated simulator settings and simulated inputs. They
+show the saved grid and the expanded All channels, GPS and Timer widgets.
+The small top-centre down-chevron restores the unchanged grid. The map has no
+live GPS position; the images are not evidence of a GPS fix or physical LCD
+appearance.
+
+| Saved dashboard | All channels expanded |
+| --- | --- |
+| ![Simulator dashboard](../assets/ui-captures/widget-focus/dashboard.png) | ![Simulator All channels expanded](../assets/ui-captures/widget-focus/all-channels-expanded.png) |
+
+| GPS map expanded | Timer expanded |
+| --- | --- |
+| ![Simulator GPS expanded](../assets/ui-captures/widget-focus/gps-expanded.png) | ![Simulator Timer expanded](../assets/ui-captures/widget-focus/timer-expanded.png) |

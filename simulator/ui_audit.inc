@@ -1055,7 +1055,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(strcmp(lv_label_get_text(designValues_[0]),"16.040")==0);
         assert(strcmp(lv_label_get_text(designValues_[1]),"1155.9")==0);
         assert(strcmp(lv_label_get_text(designDetails_[1]),"Over 300A")==0);
-        assert(!designValues_[2]);
+        for(unsigned i=2;i<6;++i)assert(designValues_[i] && strcmp(lv_label_get_text(designValues_[i]),"--")==0);
         lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
         if(const char *prefix=getenv("JR_R1_FAS_SCREENSHOTS")){
             char path[256];snprintf(path,sizeof(path),"%s-%s.bmp",prefix,designPortrait?"portrait":"landscape");simulatorSaveScreenshot(path);

@@ -136,12 +136,16 @@ From the project directory on the Mac:
 ```
 
 Defaults to the installed landscape layout, gateway SSH on port
-10022 and the existing Pi upload checkout. It fetches main, refuses stale or
+10022 and the stable `~/r1-dev/usb-upload` artifact directory. It fetches main, refuses stale or
 unrelated branches, validates the XIAO/Waveshare pin allocation, builds locally,
 runs native/browser tests and the matching SDL UI audit, then transfers only
 firmware/bootloader/partitions plus configuration, upload preflight and a manifest.
-The Pi checks all hashes, boot_app0 and Git identity, then runs PlatformIO’s
-`nobuild` / `upload` targets. No new release directory or Pi build is performed.
+The Mac performs Git ancestry, hardware, build and test checks and retains its
+source snapshot locally. The Pi checks the manifest, all transferred hashes,
+boot_app0 and hardware configuration, then runs PlatformIO’s `nobuild` / `upload`
+targets. No Git repository, Git bundle, release directory or firmware build is
+needed on the Pi. Artifact mode refuses build targets and rechecks hashes just
+before upload.
 An open serial monitor causes a clear stop; it is never killed automatically.
 Running the script authorizes its flash; there is no extra confirmation prompt.
 

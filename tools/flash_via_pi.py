@@ -88,25 +88,21 @@ def remote_script(args):
         'unset JR_R1_ALLOW_UNSAFE_UPLOAD',
         'cd ' + q(args.remote_dir),
         'tar -xzf ' + q(args.remote_dir + '/r1-upload.tar.gz'),
-        'git fetch origin main',
-        'git status --short --branch',
-        'git merge-base --is-ancestor origin/main HEAD',
         q(args.remote_pio) + ' run -e ' + q(args.environment) + ' -t envdump > /dev/null',
         'tar -xzf ' + q(args.remote_dir + '/r1-upload.tar.gz'),
         "python3 - <<'VERIFY'",
         'import hashlib,json,pathlib,subprocess',
         'm=json.load(open("r1-upload-manifest.json"))',
-        'assert subprocess.check_output(["git","rev-parse","HEAD"]).decode().strip()==m["commit"], "Pi Git commit differs from tested source"',
         'for p,h in m["sha256"].items():',
         '    assert hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()==h, "Checksum mismatch: "+p',
         'boot=pathlib.Path.home()/".platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin"',
         'assert hashlib.sha256(boot.read_bytes()).hexdigest()==m["boot_app0_sha256"], "boot_app0 differs between machines"',
-        'print("Pi artifacts, boot_app0 and Git identity verified")',
+        'print("Pi artifacts and boot_app0 verified; source checks ran on Mac")',
         'VERIFY',
         'test -e ' + q(args.usb_port),
         'command -v fuser >/dev/null',
         'if fuser ' + q(args.usb_port) + ' >/dev/null 2>&1; then echo "Close the serial monitor before flashing." >&2; exit 1; fi',
-        q(args.remote_pio) + ' run -e ' + q(args.environment) + ' -t nobuild -t upload --upload-port ' + q(args.usb_port),
+        'JR_R1_ARTIFACT_MANIFEST=r1-upload-manifest.json ' + q(args.remote_pio) + ' run -e ' + q(args.environment) + ' -t nobuild -t upload --upload-port ' + q(args.usb_port),
     ])
 
 
@@ -115,7 +111,7 @@ def main():
     parser.add_argument('--environment', choices=ENVIRONMENTS, default=ENVIRONMENTS[0], help='Installed landscape layout (480x320)')
     parser.add_argument('--host', default='pi@gateway.purplenet.online')
     parser.add_argument('--ssh-port', type=int, default=10022)
-    parser.add_argument('--remote-dir', default='/home/pi/r1-dev/releases/ui-drive-20261001', help='Reuse this existing Pi checkout')
+    parser.add_argument('--remote-dir', default='/home/pi/r1-dev/usb-upload', help='Stable artifacts-only Pi upload directory')
     parser.add_argument('--remote-pio', default='/home/pi/r1-dev/venv/bin/pio')
     parser.add_argument('--usb-port', default=USB_PORT)
     parser.add_argument('--check', action='store_true', help='Check local hardware configuration and tools only; no build, copy or flash')
@@ -158,7 +154,7 @@ def main():
     if source_hashes()!=tested_sources:
         raise ValueError('Source files changed during build/testing; rerun with edits paused')
     # Keep the complete tested source locally; copy only binaries and the
-    # configuration/preflight needed to upload them. The Pi checkout is not a build source.
+    # configuration/preflight needed to upload them. The Pi is an artifacts-only flash host, with no Git checkout.
     sources = run(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], capture=True).split('\0')
     snapshot = work / 'source.tar.gz'
     with tarfile.open(snapshot, 'w:gz') as archive:
@@ -166,11 +162,11 @@ def main():
             if name and (ROOT / name).is_file():
                 archive.add(ROOT / name, arcname=name, recursive=False)
     files = [f'.pio/build/{args.environment}/{name}' for name in ('firmware.bin', 'bootloader.bin', 'partitions.bin')]
-    files += ['platformio.ini', 'include/display_profile.h', 'tools/upload_preflight.py']
+    files += ['platformio.ini', 'include/display_profile.h', 'tools/upload_preflight.py', 'tools/artifact_preflight.py', 'tools/flash_via_pi.py']
     if args.environment == 'seeed_xiao_esp32s3-pcb-lcd-test-portrait':
         files += ['src/waveshare_lcd_test.cpp', 'src/waveshare_startup.inc']
     boot = Path.home() / '.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin'
-    manifest = {'branch': branch, 'commit': commit, 'environment': args.environment,
+    manifest = {'branch': branch, 'commit': commit, 'environment': args.environment, 'source_checks_passed': True,
                 'source_snapshot_sha256': digest(snapshot), 'boot_app0_sha256': digest(boot),
                 'sha256': {name: digest(ROOT / name) for name in files}}
     manifest_path = work / 'r1-upload-manifest.json'
@@ -184,7 +180,7 @@ def main():
     print(f'Uploading branch {branch} ({commit[:8]}), {args.environment}, Waveshare LCD (F).', flush=True)
     print('Outputs will restart in CUT. Close any Pi serial monitor before upload.', flush=True)
     ssh = ['ssh', '-p', str(args.ssh_port), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=12', args.host]
-    run(ssh + ['test -d ' + shlex.quote(args.remote_dir)])
+    run(ssh + ['mkdir -p ' + shlex.quote(args.remote_dir) + ' ' + shlex.quote(args.remote_dir + '/src')])
     destination = args.host + ':' + shlex.quote(args.remote_dir + '/r1-upload.tar.gz')
     run(['scp', '-P', str(args.ssh_port), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=12', str(package), destination])
     run(ssh + [remote_script(args)])

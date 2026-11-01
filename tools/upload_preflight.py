@@ -60,40 +60,58 @@ if "upload" in targets:
         if board != "seeed_xiao_esp32s3":
             fail("Unexpected board target: %s" % board)
 
-        fetched = git(project_dir, "fetch", "--quiet", "origin", "main")
-        if fetched.returncode != 0:
-            fail("Could not refresh origin/main: %s" % fetched.stderr.strip())
+        artifact_manifest = os.environ.get("JR_R1_ARTIFACT_MANIFEST")
+        if artifact_manifest:
+            import runpy
+            verify = runpy.run_path(os.path.join(project_dir, "tools", "artifact_preflight.py"))["verify"]
+            def check_artifacts(*args, **kwargs):
+                try:
+                    return verify(project_dir, pio_environment, board, targets, artifact_manifest)
+                except (OSError, ValueError, KeyError) as error:
+                    fail(str(error))
+            manifest = check_artifacts()
+            def pre_upload_artifacts(*args, **kwargs):
+                check_artifacts()
+                return 0
+            env.AddPreAction("upload", pre_upload_artifacts)
+            print("JR R1 ARTIFACT UPLOAD PREFLIGHT: PASSED")
+            print("  Mac source: %s / %s" % (manifest["branch"], manifest["commit"]))
+            print("  Pi: verified artifacts only; no source checkout or build")
+        else:
+            fetched = git(project_dir, "fetch", "--quiet", "origin", "main")
+            if fetched.returncode != 0:
+                fail("Could not refresh origin/main: %s" % fetched.stderr.strip())
 
-        branch = git(project_dir, "branch", "--show-current")
-        branch_name = branch.stdout.strip() if branch.returncode == 0 else ""
-        if not branch_name:
-            fail("Detached HEAD; branch identity cannot be verified.")
+            branch = git(project_dir, "branch", "--show-current")
+            branch_name = branch.stdout.strip() if branch.returncode == 0 else ""
+            if not branch_name:
+                fail("Detached HEAD; branch identity cannot be verified.")
 
-        ancestry = git(
-            project_dir, "merge-base", "--is-ancestor", "origin/main", "HEAD")
-        if ancestry.returncode != 0:
-            fail(
-                "Branch '%s' does not contain the current origin/main. This may "
-                "be a stale hardware profile." % branch_name)
+            ancestry = git(
+                project_dir, "merge-base", "--is-ancestor", "origin/main", "HEAD")
+            if ancestry.returncode != 0:
+                fail(
+                    "Branch '%s' does not contain the current origin/main. This may "
+                    "be a stale hardware profile." % branch_name)
 
-        profile_path = os.path.join(project_dir, "include", "display_profile.h")
-        with open(profile_path, "r", encoding="utf-8") as profile_file:
-            profile = profile_file.read()
-        expected_default = (
-            "#define DISPLAY_PROFILE DISPLAY_PROFILE_WAVESHARE_RPI_35F")
-        if expected_default not in profile:
-            fail("The default display profile is not the Waveshare RPi LCD (F).")
+            profile_path = os.path.join(project_dir, "include", "display_profile.h")
+            with open(profile_path, "r", encoding="utf-8") as profile_file:
+                profile = profile_file.read()
+            expected_default = (
+                "#define DISPLAY_PROFILE DISPLAY_PROFILE_WAVESHARE_RPI_35F")
+            if expected_default not in profile:
+                fail("The default display profile is not the Waveshare RPi LCD (F).")
 
-        dirty = git(project_dir, "status", "--short")
-        dirty_text = dirty.stdout.strip() if dirty.returncode == 0 else "unknown"
-        print("\nJR R1 UPLOAD PREFLIGHT: PASSED")
-        print("  branch : %s" % branch_name)
-        print("  board  : %s" % board)
-        print("  env    : %s" % pio_environment)
-        print("  display: Waveshare 3.5-inch RPi LCD (F)")
-        if dirty_text:
-            print("  note   : uploading tested working-tree changes")
-        print()
+            dirty = git(project_dir, "status", "--short")
+            dirty_text = dirty.stdout.strip() if dirty.returncode == 0 else "unknown"
+            print("\nJR R1 UPLOAD PREFLIGHT: PASSED")
+            print("  branch : %s" % branch_name)
+            print("  board  : %s" % board)
+            print("  env    : %s" % pio_environment)
+            print("  display: Waveshare 3.5-inch RPi LCD (F)")
+            if dirty_text:
+                print("  note   : uploading tested working-tree changes")
+            print()
 
     # Wi-Fi uses the same target, ancestry and hardware guards as USB uploads.
     if os.environ.get("JR_R1_OTA_URL"):

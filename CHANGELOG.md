@@ -4,14 +4,20 @@ Record user-visible changes here as they are implemented. Update the operating
 manual periodically rather than regenerating it for every firmware change.
 Entries below distinguish prepared source from firmware already installed.
 
-## Pending transmitter upload
+## Latest installed updates
 
+### 1 November 2026 - R1 dc3d100 / ER6G e8e9fff9
+
+- R1 uploaded through the Pi USB connection; ER6G uploaded over Wi-Fi.
 - GPS position continues when the S.Port sensor omits course. Receiver sends
   an optional R1 course-validity marker; the handset distinguishes unavailable
   course from a valid zero-degree/north report.
 - New GPS course widget: numeric or compass dial, cardinal direction and degrees.
   Shows direction of travel, with no arrow for missing/stale position/course or
   speed below 1 km/h. Supports the existing sizes and temporary maximisation.
+- The Pi upload helper now uses a stable artifacts-only directory. Git ancestry,
+  firmware build and tests run on the Mac; the Pi verifies transferred files
+  and hardware configuration, then uses guarded PlatformIO nobuild/upload.
 - README/manual follow-up: describe course availability, the new widget and
   add screenshots after handset validation. No manual refresh in this change.
 

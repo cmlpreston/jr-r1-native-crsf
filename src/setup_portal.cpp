@@ -401,6 +401,7 @@ static void routes() {
         const bool ok=setHostname(server.arg("hostname").c_str());
         server.send(ok?200:400,"text/plain",info.message);
     });
+    #include "setup_portal_ers.inc"
     server.on("/api/timer",HTTP_GET,[]{
         if(!authorized())return;
         const auto &timer=handset->portalTimer();const auto &s=timer.settings;

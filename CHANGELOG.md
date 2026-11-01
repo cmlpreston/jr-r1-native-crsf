@@ -112,3 +112,16 @@ Entries below distinguish prepared source from firmware already installed.
   handset is reachable and the new layout has been checked on hardware.
 - Confirm physical backlight brightness after the PWM timer fix.
 - Continue recording changes here for periodic README/manual refreshes.
+
+### Prepared ERS telemetry support — 2026-11-01
+
+- RadioMaster ERS GPS/CV01/CU01/RB01 commissioning: authenticated web discovery,
+  settings reads, GPS mode, motor poles and battery capacity.
+  Confirmed replies/timeouts, bounded storage, CUT/module-link gating and no write retries.
+- ERS battery voltage/current/used mAh/remaining readings in Data and dashboard Sensor widgets.
+  External UART pack reports use trial battery ID 2 to preserve receiver supply and S.Port FAS.
+- CV01 unused trailing zero cell slots supported; malformed/interleaved zero data rejected.
+- Receiver UART assignments require explicit configuration; no automatic servo remapping.
+- Physical ERS sensor/chain and configuration acknowledgement tests remain outstanding.
+  Commissioning notes: docs/ers-sensor-commissioning.md. Include in the next periodic README/manual refresh.
+- Stock ExpressLRS CU01 packets are supported through an explicit, saved standard-battery role selector; no inference from current or voltage.

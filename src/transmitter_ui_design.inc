@@ -3,11 +3,11 @@
 namespace {
 // Temporarily keep GPS controls/navigation visible, including after idle.
 constexpr bool kGpsAutoFullscreenEnabled = false;
-const char *const designSensorNames[] = {"SPEED", "TEMPERATURE", "RPM", "RX VOLTAGE", "LINK QUALITY", "SATELLITES", "DRIVE PACK", "LOWEST CELL", "CELL 1", "CELL 2", "CELL 3", "CELL 4", "FAS VOLTAGE", "FAS CURRENT"};
+const char *const designSensorNames[] = {"SPEED", "TEMPERATURE", "RPM", "RX VOLTAGE", "LINK QUALITY", "SATELLITES", "DRIVE PACK", "LOWEST CELL", "CELL 1", "CELL 2", "CELL 3", "CELL 4", "FAS VOLTAGE", "FAS CURRENT", "ERS PACK", "ERS CURRENT", "ERS USED", "ERS REMAINING"};
 const char *const speedValueNames[] = {"Current", "Maximum", "Average"};
 const char *const speedValueTitles[] = {"SPEED", "MAX SPEED", "AVG SPEED"};
 const char *const speedValueShortNames[] = {"Now", "Max", "Avg"};
-const char *const designSensorUnits[] = {"km/h", "C", "rpm", "V", "%", "sats", "V", "V", "V", "V", "V", "V", "V", "A"};
+const char *const designSensorUnits[] = {"km/h", "C", "rpm", "V", "%", "sats", "V", "V", "V", "V", "V", "V", "V", "A", "V", "A", "mAh", "%"};
 static_assert(sizeof(designSensorNames)/sizeof(*designSensorNames)==DashboardSensorCount, "Sensor names must cover persisted sources");
 static_assert(sizeof(designSensorUnits)/sizeof(*designSensorUnits)==DashboardSensorCount, "Sensor units must cover persisted sources");
 const char *const designWidgetNames[] = {"Run timer", "Speed", "Temperature", "RPM", "RX voltage", "Link quality", "Satellites", "GPS trail"};
@@ -39,6 +39,10 @@ bool sensorReading(const CrsfTelemetryState &t, uint8_t sensor, int32_t &value, 
             value = t.vehicleCellsMv[sensor-8]; stamp = t.vehicleCellsUpdatedMs; return t.vehicleCellsValid && sensor-8 < t.vehicleCellCount;
         case 12: value = t.fasVoltageMv; stamp = t.fasVoltageUpdatedMs; return t.fasVoltageValid;
         case 13: value = t.fasCurrentDeciA; stamp = t.fasCurrentUpdatedMs; return t.fasCurrentValid;
+        case 14: value=t.ersVoltageDeciV;stamp=t.ersBatteryUpdatedMs;return t.ersBatteryValid;
+        case 15: value=t.ersCurrentDeciA;stamp=t.ersBatteryUpdatedMs;return t.ersBatteryValid;
+        case 16: value=t.ersCapacityMah;stamp=t.ersBatteryUpdatedMs;return t.ersBatteryValid;
+        case 17: value=t.ersRemainingPercent;stamp=t.ersBatteryUpdatedMs;return t.ersBatteryValid && t.ersRemainingValid;
         default: value = 0; stamp = 0; return false;
     }
 }
@@ -50,7 +54,7 @@ void sensorText(uint8_t sensor, int32_t value, char *text, size_t capacity)
     // transports tenths, but that scaling does not add sensor resolution.
     else if (sensor == 1)
         snprintf(text, capacity, "%ld", static_cast<long>(value / 10));
-    else if (sensor == 0 || sensor == 3 || sensor == 13)
+    else if (sensor == 0 || sensor == 3 || sensor == 13 || sensor == 14 || sensor == 15)
         snprintf(text, capacity, "%s%ld.%ld", value < 0 ? "-" : "", labs(value) / 10, labs(value) % 10);
     else snprintf(text, capacity, "%ld", static_cast<long>(value));
 }
@@ -543,7 +547,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         const char *tabs[]={"Sensors","GPS","Channels","Inputs"};const uint8_t actions[]={60,61,62,223};
         drawPageTabs(tabs,actions,4,page==UiPage::Gps?1:page==UiPage::ChannelMonitor?2:0,&TransmitterUi::controlDesign);
         if(page==UiPage::Telemetry) {
-            label(sensorBank_==2 ? "FAS300 ADV" : sensorBank_ ? "Drive battery" : "Radio / motion",12,88,UiText::Caption,cCyan);
+            label(sensorBank_==2 ? "Current / energy" : sensorBank_ ? "Drive battery" : "Radio / motion",12,88,UiText::Caption,cCyan);
             drawPageControls(sensorBank_,(DashboardSensorCount+5)/6);
             const int cols=designPortrait?2:3, w=(kScreenWidth-20+kPanelGap)/cols, h=(designFooterY-34-108+kPanelGap)/(6/cols);
             for(uint8_t i=0;i<6;++i) {

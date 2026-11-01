@@ -91,7 +91,7 @@ int main() {
     auto invalid=cells;invalid[0]=1;feed(parser,0x0e,invalid);
     invalid=cells;invalid.pop_back();feed(parser,0x0e,invalid);
     invalid=cells;invalid.push_back(0);feed(parser,0x0e,invalid);
-    invalid=cells;invalid[8]=0;invalid[7]=0;feed(parser,0x0e,invalid);
+    invalid=cells;invalid[4]=0;invalid[3]=0;feed(parser,0x0e,invalid);
     invalid=cells;invalid[7]=0xff;feed(parser,0x0e,invalid);
     feed(parser,0x0e,cells,true);
     assert(parser.state().vehicleCellsUpdatedMs==10000 && parser.state().vehiclePackMv==16040);
@@ -142,5 +142,45 @@ int main() {
     testNow=UINT32_MAX-100;feed(parser,0x08,fasCurrent);feed(parser,0x0e,{128,0,0});
     testNow=200;parser.updateFreshness();assert(parser.state().fasCurrentValid && parser.state().fasVoltageValid);
     feed(parser,0x08,{0,67,0,0,0,0,0,0,0});assert(parser.state().receiverVoltageDecivolts==67);
+    testNow=50000;
+    // ERS CU01 is tagged ID 2 at receiver ingress, never RX supply or FAS.
+    feed(parser,0x08,{0,160,0,123,0,1,244,75,2});
+    assert(parser.state().ersBatteryValid && parser.state().ersVoltageDeciV==160);
+    assert(parser.state().ersCurrentDeciA==123 && parser.state().ersCapacityMah==500);
+    assert(parser.state().ersRemainingPercent==75 && parser.state().receiverVoltageDecivolts==67);
+    assert(parser.state().fasCurrentDeciA==11559);
+    auto ers=parser.state();testNow=50100;
+    for(auto invalidBattery : std::vector<std::vector<uint8_t>>{
+        {0,160,0,123,0,1,244,101,2}, {2,189,0,123,0,1,244,75,2},
+        {0,160,5,221,0,1,244,75,2}, {0,160,0,123,0,1,244,75,3}})feed(parser,0x08,invalidBattery);
+    feed(parser,0x08,{0,160,0,123,0,1,244,75,2},true);
+    assert(parser.state().ersBatteryUpdatedMs==ers.ersBatteryUpdatedMs);
+    feed(parser,0x08,{0,0,0,0,0xff,0xff,0xff,0,2});
+    assert(parser.state().ersBatteryValid && parser.state().ersCurrentDeciA==0 && parser.state().ersCapacityMah==0xffffff);
+    testNow=53101;parser.updateFreshness();assert(!parser.state().ersBatteryValid && !parser.state().ersRemainingValid);
+    testNow=UINT32_MAX-100;feed(parser,0x08,{0,160,0,123,0,1,244,75,2});
+    testNow=200;parser.updateFreshness();assert(parser.state().ersBatteryValid);
+    // CV01 fixed-width zero padding is discarded; internal zero cells rejected.
+    auto padded=cells;padded.insert(padded.end(),8,0);feed(parser,0x0e,padded);
+    assert(parser.state().vehicleCellCount==4 && parser.state().vehiclePackMv==16040 && parser.state().vehicleCellsMv[4]==0);
+    testNow=300;auto broken=padded;broken[3]=broken[4]=0;feed(parser,0x0e,broken);
+    assert(parser.state().vehicleCellsUpdatedMs==200);
+    feed(parser,0x0e,std::vector<uint8_t>(17,0));assert(parser.state().vehicleCellsUpdatedMs==200);
+    parser.setStandardBatteryVehicle(true);parser.updateFreshness();
+    assert(!parser.state().receiverVoltageValid && !parser.state().ersBatteryValid);
+    feed(parser,0x08,{0,160,0,123,0,1,244,75});
+    assert(parser.state().ersBatteryValid && parser.state().ersCurrentDeciA==123);
+    assert(!parser.state().receiverVoltageValid);
+    feed(parser,0x08,{0,160,0,0,0,0,0,100,0});
+    assert(parser.state().ersCurrentDeciA==0 && !parser.state().receiverVoltageValid);
+    parser.setStandardBatteryVehicle(false);parser.updateFreshness();
+    assert(!parser.state().ersBatteryValid);
+    feed(parser,0x08,{0,67,0,0,0,0,0,0});assert(parser.state().receiverVoltageValid);
+    // Custom sensor replies do not pollute TX configuration or binding replies.
+    auto txseq=parser.state().txParameterSequence;
+    feed(parser,0x7b,{0xea,0xc8,3,1,0,0,'G','P','S',0});
+    assert(parser.state().ersSequence==1 && parser.state().ersLength==10);
+    assert(parser.state().txParameterSequence==txseq);
+    feed(parser,0x7b,{0xec,0xc8,3,1,0,0});assert(parser.state().ersSequence==1);
     puts("CRSF telemetry transport, GPS, RPM, temperature, 1–12S cells, FAS voltage/current and freshness tests passed");
 }

@@ -25,6 +25,27 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_ERS_AUDIT_ONLY")) {
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
+        CrsfTelemetryState t{};t.ersBatteryValid=t.ersRemainingValid=true;
+        t.ersVoltageDeciV=160;t.ersCurrentDeciA=123;t.ersCapacityMah=500;t.ersRemainingPercent=75;t.ersBatteryUpdatedMs=millis();
+        for(int orientation=0;orientation<2;++orientation){
+            sensorBank_=2;drawDesignPage(UiPage::Telemetry);updateDesign(t,OutputSafetyStatus::Cut,99,true);
+            const char *expected[]={"16.0","12.3","500","75"};
+            for(int i=0;i<4;++i)assert(strcmp(lv_label_get_text(designValues_[i+2]),expected[i])==0);
+            for(uint8_t source=14;source<18;++source)for(int span=0;span<4;++span){
+                dashboardLayouts_[activeModelSlot_]=DashboardLayout{};DashboardWidget w;
+                w.kind=DashboardWidgetKind::Sensor;w.source=source;w.width=(span&1)?2:1;w.height=(span&2)?2:1;
+                placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,w);
+                drawDashboard();updateDashboardWidgets(t,99,true);
+                assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),expected[source-14])==0);
+                t.ersBatteryValid=false;updateDashboardWidgets(t,99,true);
+                assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"--")==0);t.ersBatteryValid=true;
+            }
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("ERS current/energy page and all widget sizes, both orientations and stale readings PASS");return true;
+    }
     if(getenv("JR_R1_COURSE_AUDIT_ONLY")) {
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
         for(int orientation=0;orientation<2;++orientation){
@@ -978,9 +999,9 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(strcmp(lv_label_get_text(widgetViews_[2].values[0]),"1: 3.988")==0);
         assert(strstr(lv_label_get_text(widgetViews_[2].detail),"4S"));
         widgetCell_=0;widgetDraft_=dashboardLayouts_[activeModelSlot_].cells[0];
-        widgetDraft_.source=13;controlDesign(123,activate);
+        widgetDraft_.source=17;controlDesign(123,activate);
         assert(widgetDraft_.source==0);controlDesign(123,PageControlEvent::Decrease);
-        assert(widgetDraft_.source==13);
+        assert(widgetDraft_.source==17);
         // Group widget: every span, automatic 6S, explicit mismatch, stale values and persisted count.
         for(uint8_t width=1;width<=2;++width)for(uint8_t height=1;height<=2;++height){
             DashboardWidget group;group.kind=DashboardWidgetKind::BatteryCells;group.width=width;group.height=height;

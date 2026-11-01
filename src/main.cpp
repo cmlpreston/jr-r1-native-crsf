@@ -1170,6 +1170,7 @@ void loop()
                       crsfRuntime.outputSafetyStatus ==
                           OutputSafetyStatus::Armed);
     moduleLinkEnabled.store(transmitterUi.moduleLinkEnabled());
+    telemetryParser.setStandardBatteryVehicle(transmitterUi.portalStandardBatteryVehicle());
     ElrsManagementRequest management;
     if (transmitterUi.consumeElrsManagementRequest(management) && moduleLinkEnabled.load()) {
         requestControlReset();

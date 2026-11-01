@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <atomic>
 
 struct CrsfTelemetryState {
     // Last validated TX configuration response. Single-flight client retries
@@ -8,6 +9,13 @@ struct CrsfTelemetryState {
     uint32_t txParameterSequence = 0;
     uint8_t txParameterType = 0, txParameterLength = 0;
     uint8_t txParameterPayload[60] = {};
+    uint32_t ersSequence=0;
+    uint8_t ersFrameType=0, ersLength=0, ersPayload[60]={};
+    // External CRSF battery ID 2, tagged by our ER6G serial ingress.
+    bool ersBatteryValid=false, ersRemainingValid=false;
+    uint16_t ersVoltageDeciV=0, ersCurrentDeciA=0;
+    uint32_t ersCapacityMah=0, ersBatteryUpdatedMs=0;
+    uint8_t ersRemainingPercent=0;
     bool gpsCourseValid = false;
     bool gpsValid = false, temperatureValid = false, rpmValid = false;
     int32_t latitudeE7 = 0, longitudeE7 = 0;
@@ -71,11 +79,15 @@ inline bool gpsFixConfirmed(const CrsfTelemetryState &t, uint32_t nowMs) {
 class CrsfTelemetryParser {
 public:
     void feed(uint8_t value);
+    void setStandardBatteryVehicle(bool vehicle) { requestedBatteryVehicle_.store(vehicle); }
     void updateFreshness();
     const CrsfTelemetryState &state() const { return state_; }
 
 private:
     void processFrame();
+    void syncBatteryRole();
+    std::atomic<bool> requestedBatteryVehicle_{false};
+    bool standardBatteryVehicle_=false;
     static uint8_t crc8DvbS2(const uint8_t *data, size_t length);
 
     static constexpr size_t kMaximumFrameBytes = 64;

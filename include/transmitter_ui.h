@@ -221,6 +221,10 @@ public:
     bool consumeSafetyResetRequested();
     bool consumeElrsManagementRequest(ElrsManagementRequest &request);
 
+    bool portalStandardBatteryVehicle() const { return standardBatteryVehicle_; }
+    bool portalSetStandardBatteryVehicle(bool vehicle);
+    const ErsSensorConfig &portalErs() const { return ersConfig_; }
+    bool portalErsRequest(const ErsRequest &request);
     const RaceTimer &portalTimer() const { return timers_[activeModelSlot_]; }
     bool portalSetTimerSettings(const TimerSettings &settings);
     bool portalTimerAction(unsigned action);
@@ -642,6 +646,9 @@ private:
     TxBatterySettings txBatterySettings_;
     RxBatterySettings rxBatterySettings_;
     DriveModeSettings driveModeSettings_;
+    bool standardBatteryVehicle_=false;
+    ErsSensorConfig ersConfig_;
+    uint32_t ersSequence_=0;
     CrsfTxConfig txConfig_;
     uint32_t txConfigSequence_ = 0, txConfigRevision_ = 0;
     uint8_t txConfigFolder_ = 0, txConfigOffset_ = 0, txConfigSelected_ = 0;

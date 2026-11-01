@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include "crsf_tx_config.h"
+#include "ers_sensor_config.h"
 
 enum class ElrsManagementTarget : uint8_t {
     Transmitter,
@@ -12,6 +13,7 @@ enum class ElrsManagementAction : uint8_t {
     ReadUid,
     SetBindPhrase,
     TxParameter,
+    ErsSensor,
 };
 
 struct ElrsManagementRequest {
@@ -20,6 +22,7 @@ struct ElrsManagementRequest {
     uint8_t phraseLength = 0;
     char phrase[52] = {};
     TxParameterRequest parameter;
+    ErsRequest ers;
 };
 
 constexpr size_t kElrsMaximumBindPhraseLength = 51;

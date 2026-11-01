@@ -47,7 +47,7 @@ int main()
     speed.source=DashboardSensorCount;assert(sanitizedDashboardWidget(0,speed).source==0);
     assert(nextDashboardSensorSource(7,1)==12);
     assert(nextDashboardSensorSource(12,-1)==7);
-    assert(nextDashboardSensorSource(13,1)==0 && nextDashboardSensorSource(0,-1)==13);
+    assert(nextDashboardSensorSource(17,1)==0 && nextDashboardSensorSource(0,-1)==17);
     auto layout=defaultDashboardLayout();
     assert(dashboardWidgetMask(0,layout.cells[0])==3);
     auto timer=layout.cells[0];

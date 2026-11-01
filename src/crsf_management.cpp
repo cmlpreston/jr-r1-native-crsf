@@ -21,6 +21,8 @@ size_t buildElrsManagementFrame(const ElrsManagementRequest &request,
 {
     if (request.action == ElrsManagementAction::TxParameter)
         return buildTxParameterFrame(request.parameter, frame, capacity);
+    if (request.action == ElrsManagementAction::ErsSensor)
+        return buildErsFrame(request.ers, frame, capacity);
     const bool write = request.action == ElrsManagementAction::SetBindPhrase;
     const size_t phraseLength = write
         ? min<size_t>(request.phraseLength, kElrsMaximumBindPhraseLength) : 0;

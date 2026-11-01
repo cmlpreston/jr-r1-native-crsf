@@ -15,7 +15,8 @@ struct DashboardWidget {
 };
 // Sensor IDs 0..5 retain their persisted meanings; 6..11 are drive-pack readings,
 // and 12..13 are FAS voltage/current.
-constexpr uint8_t DashboardSensorCount = 14;
+// Append IDs: ERS pack voltage, current, consumed mAh, remaining percent.
+constexpr uint8_t DashboardSensorCount = 18;
 // Individual-cell IDs 8..11 migrate to BatteryCells; other sensor IDs persist.
 inline uint8_t nextDashboardSensorSource(uint8_t source, int direction) {
     do { source=(source+DashboardSensorCount+(direction<0?-1:1))%DashboardSensorCount; }
@@ -55,7 +56,7 @@ inline DashboardWidget sanitizedDashboardWidget(uint8_t cell, DashboardWidget wi
     widget.width = widget.width == 2 && cell%2==0 ? 2 : 1;
     widget.height = widget.height == 2 && cell/2==0 ? 2 : 1;
     if(widget.kind==DashboardWidgetKind::AllChannels && widget.source>2)widget.source=0;
-    if (widget.source > 15) widget.source = 0;
+    if (widget.kind != DashboardWidgetKind::Sensor && widget.source > 15) widget.source = 0;
     if (widget.secondSource > 16) widget.secondSource = 1;
     if (widget.kind == DashboardWidgetKind::Sensor && widget.source >= DashboardSensorCount) widget.source = 0;
     if (widget.kind == DashboardWidgetKind::Sensor && widget.source != 0 && widget.style == DashboardWidgetStyle::Dials) widget.style = DashboardWidgetStyle::Numbers;

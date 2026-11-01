@@ -6,6 +6,7 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  ers_sensor_config_test \
   gps_acquisition_chime_test \
   race_timer_test \
   firmware_package_test \
@@ -181,5 +182,9 @@ $(BUILD)/race_timer_test: race_timer_test.cpp $(ROOT)/include/race_timer.h
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/gps_acquisition_chime_test: gps_acquisition_chime_test.cpp $(ROOT)/include/gps_acquisition_chime.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/ers_sensor_config_test: ers_sensor_config_test.cpp $(ROOT)/include/ers_sensor_config.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@

@@ -1513,6 +1513,21 @@ bool TransmitterUi::consumeSafetyResetRequested()
     return requested;
 }
 
+bool TransmitterUi::portalSetStandardBatteryVehicle(bool vehicle)
+{
+    if(armRequested_ || designSafety_!=OutputSafetyStatus::Cut)return false;
+    Preferences p;if(!p.begin("r1-sensors",false))return false;
+    const bool ok=p.putBool("ers-battery",vehicle)==1;p.end();
+    if(ok)standardBatteryVehicle_=vehicle;return ok;
+}
+
+bool TransmitterUi::portalErsRequest(const ErsRequest &request)
+{
+    if(designSafety_!=OutputSafetyStatus::Cut || armRequested_ ||
+       (moduleLinkManaged_ && !moduleLink_.enabled()))return false;
+    return ersConfig_.request(request,millis());
+}
+
 bool TransmitterUi::consumeElrsManagementRequest(ElrsManagementRequest &request)
 {
     if (!elrsRequestPending_) return false;
@@ -1543,6 +1558,7 @@ bool TransmitterUi::saveCalibration()
 
 void TransmitterUi::loadSystemSettings()
 {
+    {Preferences p;if(p.begin("r1-sensors",true)){standardBatteryVehicle_=p.getBool("ers-battery",false);p.end();}}
     Preferences preferences;
     preferences.begin("jr-r1-system", true);
     systemSettings_.buzzerEnabled = preferences.getBool("buzz_en", true);
@@ -6241,6 +6257,20 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     if (enabledMask != dashboardEnabledChannelMask_) {
         dashboardEnabledChannelMask_ = enabledMask;
         if (activePage_ == UiPage::Dashboard) drawDashboard();
+    }
+    if(ersSequence_!=telemetry.ersSequence){
+        ersSequence_=telemetry.ersSequence;
+        ersConfig_.receive(telemetry.ersFrameType,telemetry.ersPayload,telemetry.ersLength,millis());
+    }
+    if(designSafety_!=OutputSafetyStatus::Cut || armRequested_ || (moduleLinkManaged_ && !moduleLink_.enabled()))ersConfig_.cancel();
+    ersConfig_.update(millis());
+    if(!elrsRequestPending_){
+        ErsRequest request;
+        if(ersConfig_.poll(request,millis())){
+            elrsPendingRequest_=ElrsManagementRequest{};
+            elrsPendingRequest_.action=ElrsManagementAction::ErsSensor;
+            elrsPendingRequest_.ers=request;elrsRequestPending_=true;
+        }
     }
     if (activePage_ == UiPage::ElrsTxConfig) {
         if (txConfigSequence_ != telemetry.txParameterSequence) {

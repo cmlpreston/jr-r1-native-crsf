@@ -84,8 +84,19 @@ void CrsfTelemetryParser::feed(uint8_t value)
     expectedBytes_ = 0;
 }
 
+void CrsfTelemetryParser::syncBatteryRole()
+{
+    const bool requested=requestedBatteryVehicle_.load();
+    if(requested!=standardBatteryVehicle_){
+        standardBatteryVehicle_=requested;
+        state_.receiverVoltageValid=false;state_.batteryUpdatedMs=0;
+        state_.ersBatteryValid=state_.ersRemainingValid=false;state_.ersBatteryUpdatedMs=0;
+    }
+}
+
 void CrsfTelemetryParser::processFrame()
 {
+    syncBatteryRole();
     const uint8_t frameType = frame_[2];
     const uint8_t payloadLength = frame_[1] - 2;
     const uint8_t *payload = &frame_[3];
@@ -117,6 +128,25 @@ void CrsfTelemetryParser::processFrame()
         state_.satellites = payload[14];
         state_.gpsValid = true; state_.gpsUpdatedMs = millis();
         return;
+    }
+    // RadioMaster replies are opaque to the binding/MSP parser. Preserve a
+    // bounded mailbox for the UI-owned discovery/configuration state machine.
+    if ((frameType==0x7a || frameType==0x7b || frameType==0x7c) &&
+        payloadLength>=6 && payloadLength<=60 && payload[0]==0xea && payload[1]==0xc8) {
+        memcpy(state_.ersPayload,payload,payloadLength);
+        state_.ersLength=payloadLength;state_.ersFrameType=frameType;++state_.ersSequence;
+        return;
+    }
+    if(frameType==kFrameTypeBatterySensor &&
+       ((payloadLength==9 && payload[8]==2) ||
+        (standardBatteryVehicle_ && (payloadLength==8 || (payloadLength==9 && payload[8]==0))))) {
+        const uint16_t voltage=(uint16_t(payload[0])<<8)|payload[1];
+        const uint16_t current=(uint16_t(payload[2])<<8)|payload[3];
+        if(voltage>700 || current>1500 || payload[7]>100)return;
+        state_.ersVoltageDeciV=voltage;state_.ersCurrentDeciA=current;
+        state_.ersCapacityMah=(uint32_t(payload[4])<<16)|(uint32_t(payload[5])<<8)|payload[6];
+        state_.ersRemainingPercent=payload[7];state_.ersRemainingValid=true;
+        state_.ersBatteryValid=true;state_.ersBatteryUpdatedMs=millis();return;
     }
     // First value of vehicle source 0. Never conflate TX/RX device temperatures
     // or later sources with the selected vehicle sensor.
@@ -153,7 +183,9 @@ void CrsfTelemetryParser::processFrame()
     // Derive count from individual readings, never from ambiguous pack voltage.
     if (frameType == 0x0e && payloadLength >= 3 && payloadLength <= 1 + 2 * CrsfTelemetryState::MaxVehicleCells && (payloadLength - 1) % 2 == 0 && payload[0] == 0) {
         uint16_t cells[CrsfTelemetryState::MaxVehicleCells] = {}, total = 0, minimum = 65535;
-        const uint8_t count = (payloadLength - 1) / 2;
+        uint8_t count = (payloadLength - 1) / 2;
+        while(count && payload[1+(count-1)*2]==0 && payload[2+(count-1)*2]==0)--count;
+        if(!count)return;
         for (unsigned i = 0; i < count; ++i) {
             cells[i] = (uint16_t(payload[1 + i * 2]) << 8) | payload[2 + i * 2];
             if (cells[i] < 500 || cells[i] > 5000) return;
@@ -215,7 +247,9 @@ void CrsfTelemetryParser::processFrame()
 
 void CrsfTelemetryParser::updateFreshness()
 {
+    syncBatteryRole();
     const uint32_t now = millis();
+    if(state_.ersBatteryValid && now-state_.ersBatteryUpdatedMs>3000){state_.ersBatteryValid=false;state_.ersRemainingValid=false;}
     if (state_.fasVoltageValid && now - state_.fasVoltageUpdatedMs > 3000) state_.fasVoltageValid = false;
     if (state_.fasCurrentValid && now - state_.fasCurrentUpdatedMs > 3000) state_.fasCurrentValid = false;
     if (state_.vehicleCellsValid && now - state_.vehicleCellsUpdatedMs > kVehicleCellsFreshMs) state_.vehicleCellsValid = false;

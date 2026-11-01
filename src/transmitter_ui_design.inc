@@ -14,7 +14,7 @@ const char *const designWidgetNames[] = {"Run timer", "Speed", "Temperature", "R
 const char *const designFieldNames[] = {"Rate", "Expo", "Endpoint", "Response speed", "Direction", "Trim", "Subtrim", "Response offset"};
 const char *const designRoleNames[] = {"Steering", "Throttle", "Brake", "Channel", "Channel"};
 const char *dashboardKindName(DashboardWidgetKind kind) {
-    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / trail","Model image","All channels","Battery cells"};
+    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / trail","Model image","All channels","Battery cells","GPS course"};
     return names[static_cast<uint8_t>(kind)<static_cast<uint8_t>(DashboardWidgetKind::Count)?static_cast<uint8_t>(kind):0];
 }
 const char *dashboardStyleName(DashboardWidgetStyle style) {
@@ -919,7 +919,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item>=110 && item<=113){widgetCell_=item-110;widgetDraft_=dashboardLayouts_[activeModelSlot_].cells[widgetCell_];widgetHiddenDraft_=dashboardHidden_[activeModelSlot_][widgetCell_];widgetInputsEditing_=false;drawDesignPage(UiPage::WidgetEditor);return;}
     if(item>=120 && item<=124){
         int direction=event==PageControlEvent::Decrease?-1:1;
-        if(item==120){widgetDraft_.kind=static_cast<DashboardWidgetKind>((static_cast<int>(widgetDraft_.kind)+direction+static_cast<int>(DashboardWidgetKind::Count))%static_cast<int>(DashboardWidgetKind::Count));if(widgetDraft_.kind==DashboardWidgetKind::BatteryCells)widgetDraft_.source=0;}
+        if(item==120){widgetDraft_.kind=static_cast<DashboardWidgetKind>((static_cast<int>(widgetDraft_.kind)+direction+static_cast<int>(DashboardWidgetKind::Count))%static_cast<int>(DashboardWidgetKind::Count));if(widgetDraft_.kind==DashboardWidgetKind::BatteryCells)widgetDraft_.source=0;if(widgetDraft_.kind==DashboardWidgetKind::Course)widgetDraft_.style=DashboardWidgetStyle::Dials;}
         if(item==121)cycleDashboardWidgetSize(widgetCell_,widgetDraft_,direction);
         if(item==122){int style=static_cast<int>(widgetDraft_.style);const int styles=static_cast<int>(DashboardWidgetStyle::Count);for(int n=0;n<styles;++n){style=(style+direction+styles)%styles;if(dashboardStyleAllowed(widgetDraft_.kind,static_cast<DashboardWidgetStyle>(style)))break;}widgetDraft_.style=static_cast<DashboardWidgetStyle>(style);}
         if(item==123 && widgetDraft_.kind==DashboardWidgetKind::AllChannels)widgetDraft_.source=(widgetDraft_.source+direction+3)%3;
@@ -945,7 +945,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item>=130 && item<=133){const auto &w=dashboardLayouts_[activeModelSlot_].cells[item-130];
         if(w.kind==DashboardWidgetKind::Timer){timerBank_=0;timerConfirmation_=0;drawDesignPage(UiPage::TimerControl);}
         else if(w.kind==DashboardWidgetKind::AllChannels || w.kind==DashboardWidgetKind::BatteryCells){++channelWidgetPages_[item-130];drawDashboard();}
-        else if(w.kind==DashboardWidgetKind::Map)drawDesignPage(UiPage::Gps);
+        else if(w.kind==DashboardWidgetKind::Map || w.kind==DashboardWidgetKind::Course)drawDesignPage(UiPage::Gps);
         else if(w.kind==DashboardWidgetKind::Channels){designBank_=w.source/4;drawDesignPage(UiPage::ChannelMonitor);}
         else if(w.kind==DashboardWidgetKind::Sensor){sensorSelected_=w.source;drawDesignPage(UiPage::SensorDetail);}
         else if(w.kind==DashboardWidgetKind::Power)drawRadioDiagnostics();
@@ -1054,6 +1054,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     } else if(activePage_==UiPage::Gps){
         if(!gpsFullScreen_){if(!gpsPositionAvailable(t,now))uiSetText(designDetails_[0],t.gpsUpdatedMs?"GPS stale / no fix":"Waiting for GPS telemetry");
         else if(t.satellites==0)uiSetTextFmt(designDetails_[0],"Fix unknown / %u.%u km/h",t.groundSpeedDeciKmh/10,t.groundSpeedDeciKmh%10);
+        else if(!t.gpsCourseValid)uiSetTextFmt(designDetails_[0],"%u sats / course unavailable",t.satellites);
         else uiSetTextFmt(designDetails_[0],"%u sats  %u.%u km/h  %u deg",t.satellites,t.groundSpeedDeciKmh/10,t.groundSpeedDeciKmh%10,t.headingCentiDegrees/100);}
         auto mapObject=lv_obj_get_parent(designCurve_);
         const double pixelsPerMetre=gpsBasemapPreviewScale(mapObject,true)*gpsZoom_;
@@ -1256,6 +1257,30 @@ void TransmitterUi::drawDashboardWidgets()
                 lv_obj_set_width(view.marker,diameter);lv_obj_set_style_text_align(view.marker,LV_TEXT_ALIGN_CENTER,0);
             }
             if(w.style==DashboardWidgetStyle::Graph){view.plot=lv_line_create(view.panel);lv_obj_set_style_line_color(view.plot,colour(cCyan),0);lv_obj_set_style_line_width(view.plot,2,0);}
+        } else if(w.kind==DashboardWidgetKind::Course){
+            const bool side=width>=220;
+            const int diameter=side?min(width/2-14,height-30):min(width-24,height-65);
+            const int ax=side?10:(width-diameter)/2, ay=24;
+            view.values[0]=makeLabel(view.panel,"--",side?ax+diameter+12:8,side?35:height-38,UiText::Heading,cWhite);
+            lv_obj_set_width(view.values[0],side?width-ax-diameter-20:width-16);
+            view.detail=makeLabel(view.panel,"Course unavailable",side?ax+diameter+12:8,side?62:height-18,UiText::Caption,cDim);
+            lv_obj_set_width(view.detail,side?width-ax-diameter-20:width-16);
+            lv_label_set_long_mode(view.detail,LV_LABEL_LONG_CLIP);
+            if(!side){lv_obj_set_style_text_align(view.values[0],LV_TEXT_ALIGN_CENTER,0);lv_obj_set_style_text_align(view.detail,LV_TEXT_ALIGN_CENTER,0);}
+            if(w.style==DashboardWidgetStyle::Dials){
+                auto arc=lv_arc_create(view.panel);view.arcs[0]=arc;
+                position(arc,ax,ay,diameter,diameter);lv_obj_clear_flag(arc,LV_OBJ_FLAG_CLICKABLE);
+                lv_arc_set_bg_angles(arc,0,360);lv_arc_set_angles(arc,0,0);
+                lv_obj_set_style_arc_width(arc,2,LV_PART_MAIN);lv_obj_set_style_arc_color(arc,colour(cLine),LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_obj_set_style_pad_all(arc,0,LV_PART_KNOB);
+                auto north=makeLabel(view.panel,"N",ax,ay-2,UiText::Caption,cDim);
+                lv_obj_set_width(north,diameter);lv_obj_set_style_text_align(north,LV_TEXT_ALIGN_CENTER,0);
+                view.plot=lv_line_create(view.panel);lv_obj_set_style_line_width(view.plot,3,0);lv_obj_set_style_line_color(view.plot,colour(cCyan),0);
+                lv_obj_add_flag(view.plot,LV_OBJ_FLAG_HIDDEN);
+            }else{
+                lv_obj_set_pos(view.values[0],8,32);lv_obj_set_width(view.values[0],width-16);
+                lv_obj_set_pos(view.detail,8,height-22);lv_obj_set_width(view.detail,width-16);
+            }
         } else if(w.kind==DashboardWidgetKind::Map){
             lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
             view.basemap=createGpsBasemap(view.panel,0,0,width-2,height-2,view.mapViewport);
@@ -1433,6 +1458,29 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 const int plotBottom=height-(w.source==0?43:24), plotHeight=max(1,plotBottom-23);
                 for(int i=start;i<30;++i)view.points[i-start]={static_cast<lv_coord_t>(width/2+(i-start)*(width/2-10)/(29-start)),static_cast<lv_coord_t>(plotBottom-(static_cast<int64_t>(sensorHistory_[w.source][i])-lo)*plotHeight/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
                 lv_line_set_points(view.plot,view.points,30-start);lv_obj_clear_flag(view.plot,LV_OBJ_FLAG_HIDDEN);
+            }
+        } else if(w.kind==DashboardWidgetKind::Course){
+            const bool available=gpsCourseAvailable(t,millis());
+            if(available){
+                uiSetTextFmt(view.values[0],"%u.%u deg",t.headingCentiDegrees/100,(t.headingCentiDegrees%100)/10);
+                uiSetTextFmt(view.detail,"%s / travel",gpsCourseCardinal(t.headingCentiDegrees));
+            }else{
+                uiSetText(view.values[0],"--");
+                uiSetText(view.detail,!gpsPositionAvailable(t,millis())?"No GPS position":!t.gpsCourseValid?"Course unavailable":t.groundSpeedDeciKmh<10?"Stopped / slow":"Course unavailable");
+            }
+            if(view.plot){
+                if(!available)lv_obj_add_flag(view.plot,LV_OBJ_FLAG_HIDDEN);
+                else{
+                    const int diameter=lv_obj_get_width(view.arcs[0]);
+                    const int cx=lv_obj_get_x(view.arcs[0])+diameter/2,cy=lv_obj_get_y(view.arcs[0])+diameter/2;
+                    const double angle=t.headingCentiDegrees*3.141592653589793/18000.0;
+                    const double dx=sin(angle),dy=-cos(angle);const int length=max(4,diameter/2-11);
+                    const int tx=cx+int(dx*length),ty=cy+int(dy*length);
+                    view.points[0]={lv_coord_t(cx),lv_coord_t(cy)};view.points[1]={lv_coord_t(tx),lv_coord_t(ty)};
+                    view.points[2]={lv_coord_t(tx-dx*7+dy*4),lv_coord_t(ty-dy*7-dx*4)};
+                    view.points[3]=view.points[1];view.points[4]={lv_coord_t(tx-dx*7-dy*4),lv_coord_t(ty-dy*7+dx*4)};
+                    lv_line_set_points(view.plot,view.points,5);lv_obj_clear_flag(view.plot,LV_OBJ_FLAG_HIDDEN);
+                }
             }
         } else if(w.kind==DashboardWidgetKind::Map){
             bool reported=gpsPositionAvailable(t,millis()),fix=gpsFixConfirmed(t,millis());int width=lv_obj_get_width(view.basemap),height=lv_obj_get_height(view.basemap);

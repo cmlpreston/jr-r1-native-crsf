@@ -184,6 +184,7 @@ int main(int argc, char **argv)
         telemetry.batteryUpdatedMs = now;
         // Optional simulator-only fixture. Never compiled into the ESP32 target.
         const bool sensors = controls.vehicleTelemetry && controls.linkValid;
+        telemetry.gpsCourseValid = sensors;
         telemetry.gpsValid = telemetry.temperatureValid = telemetry.rpmValid = sensors;
         if (sensors) {
             const double phase = (now / 1000) * 0.12;

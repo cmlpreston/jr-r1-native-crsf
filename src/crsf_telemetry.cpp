@@ -110,7 +110,9 @@ void CrsfTelemetryParser::processFrame()
             lon > 1800000000 || heading > 36000) return;
         state_.latitudeE7 = lat; state_.longitudeE7 = lon;
         state_.groundSpeedDeciKmh = (uint16_t(payload[8]) << 8) | payload[9];
-        state_.headingCentiDegrees = heading;
+        const bool r1Validity = payloadLength >= 18 && payload[15]=='R' && payload[16]=='1';
+        state_.gpsCourseValid = !r1Validity || (payload[17] & 1);
+        state_.headingCentiDegrees = heading == 36000 ? 0 : heading;
         state_.altitudeMetres = ((uint16_t(payload[12]) << 8) | payload[13]) - 1000;
         state_.satellites = payload[14];
         state_.gpsValid = true; state_.gpsUpdatedMs = millis();
@@ -217,7 +219,7 @@ void CrsfTelemetryParser::updateFreshness()
     if (state_.fasVoltageValid && now - state_.fasVoltageUpdatedMs > 3000) state_.fasVoltageValid = false;
     if (state_.fasCurrentValid && now - state_.fasCurrentUpdatedMs > 3000) state_.fasCurrentValid = false;
     if (state_.vehicleCellsValid && now - state_.vehicleCellsUpdatedMs > kVehicleCellsFreshMs) state_.vehicleCellsValid = false;
-    if (state_.gpsValid && now - state_.gpsUpdatedMs > 3000) state_.gpsValid = false;
+    if (state_.gpsValid && now - state_.gpsUpdatedMs > 3000) { state_.gpsValid = false; state_.gpsCourseValid = false; }
     if (state_.rpmValid && now - state_.rpmUpdatedMs > 3000) state_.rpmValid = false;
     if (state_.temperatureValid && now - state_.temperatureUpdatedMs > 10000) state_.temperatureValid = false;
     if (state_.linkValid && now - state_.linkUpdatedMs > kLinkFreshMs) {

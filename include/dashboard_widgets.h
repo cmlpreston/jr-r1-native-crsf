@@ -3,7 +3,7 @@
 
 // Persisted UI-only data. Each model has a two-column, two-row dashboard.
 // Fields are bytes (no ABI padding); version is encoded in the NVS key.
-enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, AllChannels, BatteryCells, Count };
+enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, AllChannels, BatteryCells, Course, Count };
 enum class DashboardWidgetStyle : uint8_t { Numbers, Bars, Dials, Graph, Switches, VerticalBars, Count };
 enum class SpeedWidgetValue : uint8_t { Current, Maximum, Average, Count };
 struct DashboardWidget {
@@ -35,6 +35,7 @@ inline uint8_t dashboardWidgetMask(uint8_t cell, const DashboardWidget &widget)
 inline bool dashboardStyleAllowed(DashboardWidgetKind kind, DashboardWidgetStyle style)
 {
     if (style == DashboardWidgetStyle::Numbers) return true;
+    if (kind == DashboardWidgetKind::Course) return style == DashboardWidgetStyle::Dials;
     if (kind == DashboardWidgetKind::Power) return style == DashboardWidgetStyle::Bars || style == DashboardWidgetStyle::Dials;
     if (kind == DashboardWidgetKind::AllChannels) return style == DashboardWidgetStyle::Bars || style == DashboardWidgetStyle::VerticalBars;
     if (kind == DashboardWidgetKind::Channels) return style <= DashboardWidgetStyle::Switches;

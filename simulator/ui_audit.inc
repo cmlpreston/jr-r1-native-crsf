@@ -25,6 +25,49 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_COURSE_AUDIT_ONLY")) {
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
+        for(int orientation=0;orientation<2;++orientation){
+            for(auto style:{DashboardWidgetStyle::Dials,DashboardWidgetStyle::Numbers}){
+                for(int span=0;span<4;++span){
+                    dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+                    auto &widget=dashboardLayouts_[activeModelSlot_].cells[0];
+                    widget.kind=DashboardWidgetKind::Course;widget.style=style;
+                    widget.width=(span&1)?2:1;widget.height=(span&2)?2:1;
+                    drawDashboard();lv_obj_update_layout(lv_scr_act());
+                    CrsfTelemetryState course{};course.gpsValid=course.gpsCourseValid=true;
+                    course.satellites=8;course.groundSpeedDeciKmh=100;
+                    course.gpsUpdatedMs=millis();course.headingCentiDegrees=27000;
+                    updateDesign(course,OutputSafetyStatus::Cut,99,true);
+                    assert(strstr(lv_label_get_text(widgetViews_[0].values[0]),"270.0"));
+                    assert(strstr(lv_label_get_text(widgetViews_[0].detail),"W / travel"));
+                    if(widgetViews_[0].plot)assert(!lv_obj_has_flag(widgetViews_[0].plot,LV_OBJ_FLAG_HIDDEN));
+                    if(style==DashboardWidgetStyle::Dials && span==0){
+                        lv_refr_now(nullptr);
+                        if(const char *prefix=getenv("JR_R1_COURSE_SCREENSHOT")){
+                            char path[256];snprintf(path,sizeof(path),"%s-%dx%d.bmp",prefix,kScreenWidth,kScreenHeight);simulatorSaveScreenshot(path);
+                        }
+                    }
+                    course.gpsCourseValid=false;updateDesign(course,OutputSafetyStatus::Cut,99,true);
+                    assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"--")==0);
+                    assert(strstr(lv_label_get_text(widgetViews_[0].detail),"unavailable"));
+                    if(widgetViews_[0].plot)assert(lv_obj_has_flag(widgetViews_[0].plot,LV_OBJ_FLAG_HIDDEN));
+                    course.gpsCourseValid=true;course.groundSpeedDeciKmh=0;
+                    updateDesign(course,OutputSafetyStatus::Cut,99,true);
+                    assert(strstr(lv_label_get_text(widgetViews_[0].detail),"Stopped"));
+                    course.gpsUpdatedMs=millis()-3001;
+                    updateDesign(course,OutputSafetyStatus::Cut,99,true);
+                    assert(strstr(lv_label_get_text(widgetViews_[0].detail),"No GPS"));
+                    maximizedWidget_=0;drawDashboard();lv_obj_update_layout(lv_scr_act());
+                    maximizedWidget_=-1;
+                }
+            }
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("GPS course widget: both orientations, all sizes/styles, maximisation and unavailable/slow/stale states PASS");
+        return true;
+    }
+
     const auto touchAction=[&](PageControlHandler handler,uint8_t argument){
         for(uint8_t i=0;i<pageFocusCount_;++i){const auto t=pageFocusTargets_[i];
             if(t.handler==handler && t.argument==argument){

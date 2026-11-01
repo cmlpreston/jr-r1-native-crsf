@@ -6,7 +6,14 @@ Entries below distinguish prepared source from firmware already installed.
 
 ## Pending transmitter upload
 
-No firmware changes pending immediately after the verified OTA update below.
+- GPS position continues when the S.Port sensor omits course. Receiver sends
+  an optional R1 course-validity marker; the handset distinguishes unavailable
+  course from a valid zero-degree/north report.
+- New GPS course widget: numeric or compass dial, cardinal direction and degrees.
+  Shows direction of travel, with no arrow for missing/stale position/course or
+  speed below 1 km/h. Supports the existing sizes and temporary maximisation.
+- README/manual follow-up: describe course availability, the new widget and
+  add screenshots after handset validation. No manual refresh in this change.
 
 ## Installed transmitter firmware
 

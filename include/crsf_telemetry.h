@@ -8,6 +8,7 @@ struct CrsfTelemetryState {
     uint32_t txParameterSequence = 0;
     uint8_t txParameterType = 0, txParameterLength = 0;
     uint8_t txParameterPayload[60] = {};
+    bool gpsCourseValid = false;
     bool gpsValid = false, temperatureValid = false, rpmValid = false;
     int32_t latitudeE7 = 0, longitudeE7 = 0;
     uint16_t groundSpeedDeciKmh = 0, headingCentiDegrees = 0;
@@ -53,6 +54,15 @@ struct CrsfTelemetryState {
 inline bool gpsPositionAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
     return t.gpsValid && uint32_t(nowMs-t.gpsUpdatedMs)<=3000 &&
         (t.satellites>=4 || (t.satellites==0 && (t.latitudeE7!=0 || t.longitudeE7!=0)));
+}
+// Course over ground is unreliable near rest; this is a display threshold only.
+inline bool gpsCourseAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
+    return gpsPositionAvailable(t,nowMs) && t.gpsCourseValid &&
+        t.headingCentiDegrees < 36000 && t.groundSpeedDeciKmh >= 10;
+}
+inline const char *gpsCourseCardinal(uint16_t centidegrees) {
+    const char *names[]={"N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"};
+    return names[((centidegrees+1125)/2250)%16];
 }
 inline bool gpsFixConfirmed(const CrsfTelemetryState &t, uint32_t nowMs) {
     return gpsPositionAvailable(t,nowMs) && t.satellites>=4;

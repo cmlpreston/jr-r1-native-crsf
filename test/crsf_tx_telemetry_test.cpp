@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdio>
 #include <vector>
+#include <string>
 static uint32_t testNow = 1234;
 uint32_t millis() { return testNow; }
 static void feed(CrsfTelemetryParser &p,uint8_t type,std::vector<uint8_t> payload,bool corrupt=false) {
@@ -38,6 +39,17 @@ int main() {
     assert(parser.state().groundSpeedDeciKmh==450 && parser.state().headingCentiDegrees==9000);
     assert(parser.state().altitudeMetres==40 && parser.state().satellites==12);
     assert(gpsPositionAvailable(parser.state(),testNow) && gpsFixConfirmed(parser.state(),testNow));
+    assert(parser.state().gpsCourseValid && gpsCourseAvailable(parser.state(),testNow));
+    auto noCourse=gps;noCourse[10]=noCourse[11]=0;
+    noCourse.insert(noCourse.end(),{'R','1',0});feed(parser,0x02,noCourse);
+    assert(parser.state().gpsValid && !parser.state().gpsCourseValid);
+    assert(gpsPositionAvailable(parser.state(),testNow) && !gpsCourseAvailable(parser.state(),testNow));
+    auto north=gps;north[10]=north[11]=0;feed(parser,0x02,north);
+    assert(parser.state().gpsCourseValid && gpsCourseAvailable(parser.state(),testNow));
+    auto stopped=parser.state();stopped.groundSpeedDeciKmh=9;assert(!gpsCourseAvailable(stopped,testNow));
+    assert(std::string(gpsCourseCardinal(0))=="N" && std::string(gpsCourseCardinal(35999))=="N");
+    assert(std::string(gpsCourseCardinal(9000))=="E" && std::string(gpsCourseCardinal(18000))=="S");
+    feed(parser,0x02,gps);
     auto unknown=parser.state();unknown.satellites=0;
     assert(gpsPositionAvailable(unknown,testNow) && !gpsFixConfirmed(unknown,testNow));
     assert(!gpsPositionAvailable(unknown,testNow+3001));

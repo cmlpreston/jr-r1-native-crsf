@@ -6,6 +6,12 @@ Entries below distinguish prepared source from firmware already installed.
 
 ## Pending transmitter upload
 
+### 1 November 2026 - PlatformIO Wi-Fi upload transport
+
+- Explicitly select PlatformIO's custom protocol for authenticated web OTA.
+  Setting only the upload command allowed the ESP32 platform builder to replace
+  it with its default serial uploader. USB retains its original transport.
+
 ### 1 November 2026 - GPS controls stay visible
 
 - Temporarily disable the GPS page's automatic edge-to-edge fullscreen mode.

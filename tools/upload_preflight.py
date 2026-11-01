@@ -101,4 +101,7 @@ if "upload" in targets:
         import shlex
         command = shlex.quote(sys.executable) + " " + shlex.quote(
             os.path.join(project_dir, "tools", "upload_wifi.py")) + ' "$SOURCE"'
-        env.Replace(UPLOADCMD=command)
+        # The ESP32 platform builder runs after this pre-script. Its serial
+        # branch overwrites UPLOADCMD unless the protocol is explicitly custom.
+        # Selecting custom also prevents serial-port detection/reset actions.
+        env.Replace(UPLOAD_PROTOCOL="custom", UPLOADCMD=command)

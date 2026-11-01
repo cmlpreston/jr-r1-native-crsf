@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class Environment:
     def __init__(self, target, board):
         self.values = {'$PROJECT_DIR': str(ROOT), '$PIOENV': target, '$BOARD': board}
+        self.upload_protocol = 'esptool'
+        self.upload_command = 'stock serial upload'
 
     def subst(self, key):
         return self.values[key]
@@ -22,11 +24,12 @@ class Environment:
         pass
 
     def Replace(self, **kwargs):
-        self.upload_command=kwargs.get("UPLOADCMD")
+        if 'UPLOADCMD' in kwargs: self.upload_command = kwargs['UPLOADCMD']
+        if 'UPLOAD_PROTOCOL' in kwargs: self.upload_protocol = kwargs['UPLOAD_PROTOCOL']
 
 
 class UploadPreflightTest(unittest.TestCase):
-    def check_guard(self, target, board='seeed_xiao_esp32s3', stale=False, fetch_failed=False):
+    def check_guard(self, target, board='seeed_xiao_esp32s3', stale=False, fetch_failed=False, ota=True):
         calls = []
         def git_run(command, **kwargs):
             args = command[1:]
@@ -41,10 +44,11 @@ class UploadPreflightTest(unittest.TestCase):
         def exit_guard(code):
             raise SystemExit(code)
         output = io.StringIO()
-        with patch.dict(os.environ, {'JR_R1_ALLOW_UNSAFE_UPLOAD': '0', 'JR_R1_OTA_URL': 'http://127.0.0.1:8785'}), patch('subprocess.run', git_run), contextlib.redirect_stdout(output):
+        self.last_env = Environment(target, board)
+        with patch.dict(os.environ, {'JR_R1_ALLOW_UNSAFE_UPLOAD': '0', 'JR_R1_OTA_URL': 'http://127.0.0.1:8785' if ota else ''}), patch('subprocess.run', git_run), contextlib.redirect_stdout(output):
             try:
                 runpy.run_path(str(ROOT / 'tools/upload_preflight.py'), init_globals={
-                    'Import': lambda name: None, 'env': Environment(target, board),
+                    'Import': lambda name: None, 'env': self.last_env,
                     'COMMAND_LINE_TARGETS': ['upload'], 'Exit': exit_guard})
                 passed = True
             except SystemExit:
@@ -60,6 +64,17 @@ class UploadPreflightTest(unittest.TestCase):
 
     def test_wifi_transport_still_refuses_stale_branch(self):
         self.assertFalse(self.check_guard('seeed_xiao_esp32s3-pcb', stale=True)[0])
+        self.assertEqual(self.last_env.upload_protocol, 'esptool')
+
+    def test_wifi_selects_custom_transport_before_platform_builder(self):
+        self.assertTrue(self.check_guard('seeed_xiao_esp32s3-pcb')[0])
+        self.assertEqual(self.last_env.upload_protocol, 'custom')
+        self.assertIn('tools/upload_wifi.py', self.last_env.upload_command)
+
+    def test_usb_keeps_stock_transport(self):
+        self.assertTrue(self.check_guard('seeed_xiao_esp32s3-pcb', ota=False)[0])
+        self.assertEqual(self.last_env.upload_protocol, 'esptool')
+        self.assertEqual(self.last_env.upload_command, 'stock serial upload')
 
     def test_legacy_hardware_refused(self):
         for target in ('esp32-s3-devkitc-1', 'esp32-s3-devkitc-1-portrait', 'esp32-s3-devkitc-1-btt', 'esp32-s3-devkitc-1-display-test'):

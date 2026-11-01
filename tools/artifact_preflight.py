@@ -33,3 +33,18 @@ def verify(root, environment, board, targets, manifest_name):
     if hashlib.sha256(boot.read_bytes()).hexdigest() != manifest['boot_app0_sha256']:
         raise ValueError('Pi framework boot_app0 differs from the tested Mac version')
     return manifest
+
+
+def upload_images(root, environment):
+    """Match a normal S3 Arduino upload, including OTA slot-0 selection.
+
+    PlatformIO's nobuild path skips framework setup, so FLASH_EXTRA_IMAGES
+    would otherwise be empty. NVS and the map filesystem are not written.
+    """
+    if environment != 'seeed_xiao_esp32s3-pcb':
+        raise ValueError('Unsupported artifact boot layout')
+    root=Path(root)
+    build=root/'.pio/build'/environment
+    return [('0x0000',str(build/'bootloader.bin')),
+            ('0x8000',str(build/'partitions.bin')),
+            ('0xe000',str(Path.home()/'.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin'))]

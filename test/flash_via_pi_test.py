@@ -54,6 +54,19 @@ class FlashWorkflowTests(unittest.TestCase):
         p.write_bytes(b'changed')
         with self.assertRaises(ValueError):flash.verify_manifest(self.root,manifest)
 
+    def test_nobuild_includes_boot_selection(self):
+        spec=importlib.util.spec_from_file_location('artifact_preflight',ROOT/'tools/artifact_preflight.py')
+        artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+        with patch.object(artifact.Path,'home',return_value=self.root):
+            images=artifact.upload_images(self.root,flash.ENVIRONMENTS[0])
+        self.assertEqual([offset for offset,_ in images],['0x0000','0x8000','0xe000'])
+        self.assertTrue(images[0][1].endswith('/bootloader.bin'))
+        self.assertTrue(images[1][1].endswith('/partitions.bin'))
+        self.assertTrue(images[2][1].endswith('/boot_app0.bin'))
+        self.assertNotIn('0x9000',[offset for offset,_ in images]) # preserve NVS
+        with self.assertRaises(ValueError):artifact.upload_images(self.root,'wrong')
+        self.assertIn('env.Replace(FLASH_EXTRA_IMAGES=upload_images', (ROOT/'tools/upload_preflight.py').read_text())
+
     def test_source_free_artifact_guard(self):
         spec=importlib.util.spec_from_file_location('artifact_preflight',ROOT/'tools/artifact_preflight.py')
         artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)

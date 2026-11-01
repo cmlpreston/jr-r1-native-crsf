@@ -134,3 +134,8 @@ Entries below distinguish prepared source from firmware already installed.
   status; works without Wi-Fi. Drafts remain unconfirmed until the sensor replies.
 - Retained landscape/portrait layouts, keypad focus and normal Back navigation.
 - Include native sensor commissioning in the next README/manual refresh.
+
+- Fixed Pi binary-only USB uploads after OTA: restore the normal bootloader,
+  partition and OTA-slot-selection writes when PlatformIO uses `nobuild`.
+  Application-only verification could otherwise leave the previous OTA slot running.
+  NVS/model settings and map storage are preserved.

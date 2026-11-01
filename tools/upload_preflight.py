@@ -70,6 +70,8 @@ if "upload" in targets:
                 except (OSError, ValueError, KeyError) as error:
                     fail(str(error))
             manifest = check_artifacts()
+            upload_images = runpy.run_path(os.path.join(project_dir, "tools", "artifact_preflight.py"))["upload_images"]
+            env.Replace(FLASH_EXTRA_IMAGES=upload_images(project_dir, pio_environment))
             def pre_upload_artifacts(*args, **kwargs):
                 check_artifacts()
                 return 0

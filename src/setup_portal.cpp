@@ -379,10 +379,10 @@ static void routes() {
             int endX=0,endY=0,duration=0;
             if(!number("x",0,479,x)||!number("y",0,479,y)||!number("endX",0,479,endX)||
                !number("endY",0,479,endY)||!number("duration",0,1200,duration)){
-                server.send(400,"text/plain","Invalid swipe");return;
+                server.send(400,"text/plain","Invalid gesture");return;
             }
             const bool ok=handset->portalPageSwipe(x,y,endX,endY,duration);
-            server.send(ok?200:409,"text/plain",ok?"Page swipe applied":"Swipe unavailable on this screen");return;
+            server.send(ok?200:409,"text/plain",ok?"Gesture applied":"Gesture unavailable on this screen");return;
         }
         if(!number("action",0,6,action)||((action==0||action==3||action==4||action==6)&&(!number("x",0,479,x)||!number("y",0,479,y)))||((action==4||action==5||action==6)&&!number("hold",1,INT32_MAX,hold))){server.send(400,"text/plain","Invalid tap");return;}
         Serial.printf("WEB TOUCH: action=%d xy=(%d,%d) epoch=%d\n",action,x,y,epoch);

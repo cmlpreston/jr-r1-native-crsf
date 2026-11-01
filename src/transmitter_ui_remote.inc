@@ -121,6 +121,12 @@ bool TransmitterUi::portalPageSwipe(int x,int y,int endX,int endY,uint32_t durat
        pinPurpose_!=PinPurpose::None||x<0||endX<0||y<0||endY<0||
        x>=kScreenWidth||endX>=kScreenWidth||y>=kScreenHeight||endY>=kScreenHeight)return false;
     remoteArmHold_.cancel();lastInteractionMs_=millis();
+    if(duration>=650&&abs(endX-x)<24&&abs(endY-y)<24){
+        if(handleDashboardWidgetHold(x,y,endX,endY,duration))return true;
+        // A stationary hold elsewhere retains ordinary tap behaviour, never
+        // the privileged Drive/output-enable hold path.
+        return portalRemoteInput(endX,endY,0,0,0);
+    }
     return handlePageSwipe(x,y,endX,endY,duration);
 }
 

@@ -34,5 +34,14 @@ const reset=()=>{ctx.webWritable=true;ctx.pinLocked=false;ctx.document.hidden=fa
  assert.equal(taps[0][3].endX,100);assert.equal(taps[0][3].endY,154);assert.equal(taps[0][3].duration,400);
  taps=[];ctx.lcd.onpointerdown(pointer(250,150));set('liveEpoch++');ctx.lcd.onpointerup(pointer(100,154));assert.equal(taps.length,0);
  reset();set('remoteWake=true');ctx.lcd.onpointerdown(pointer(250,150));ctx.lcd.onpointerup(pointer(100,154));assert.equal(taps.length,0);
+ // A stationary long press is a UI gesture, never a Drive arm request.
+ reset();set('remoteWake=false;pinLocked=false');taps=[];
+ ctx.lcd.onpointerdown(pointer(250,150));now+=800;ctx.lcd.onpointerup(pointer(250,150));
+ assert.equal(taps.length,1);assert.deepEqual(taps[0].slice(0,3),[8,250,150]);assert.equal(taps[0][3].duration,800);
+ taps=[];ctx.lcd.onpointerdown(pointer(250,150));now+=2000;ctx.lcd.onpointerup(pointer(250,150));
+ assert.equal(taps[0][3].duration,1200);
+ taps=[];ctx.lcd.onpointerdown(pointer(250,150));now+=800;set('liveEpoch++');ctx.lcd.onpointerup(pointer(250,150));assert.equal(taps.length,0);
+ reset();set('remoteWake=true');taps=[];ctx.lcd.onpointerdown(pointer(250,150));now+=800;ctx.lcd.onpointerup(pointer(250,150));assert.deepEqual(taps,[[0,250,150]]);
+ reset();set('remoteWake=false;pinLocked=true');taps=[];ctx.lcd.onpointerdown(pointer(250,150));now+=800;ctx.lcd.onpointerup(pointer(250,150));assert.deepEqual(taps,[[0,250,150]]);
  console.log('Remote web hold: short release, ready release, nonce, PIN, visibility, generation and connection-loss cancellation PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});

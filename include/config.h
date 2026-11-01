@@ -28,7 +28,13 @@ constexpr gpio_num_t BUZZER_PIN = GPIO_NUM_43;      // D6
 constexpr gpio_num_t CRSF_SIGNAL_PIN = GPIO_NUM_17;
 constexpr gpio_num_t BUZZER_PIN = GPIO_NUM_4;
 #endif
-constexpr uint8_t BUZZER_LEDC_CHANNEL = 7;
+// Arduino-ESP32 2.x pairs LEDC channels on one timer. Channel 7 shares the
+// backlight's channel-6 timer: tone() changes it to 10-bit audio PWM, reducing
+// an 8-bit full-brightness duty to about 25%. Reserve a separate timer for audio.
+constexpr uint8_t BUZZER_LEDC_CHANNEL = 4;
+static_assert(!DISPLAY_HAS_PWM_BACKLIGHT ||
+              BUZZER_LEDC_CHANNEL / 2 != TFT_BACKLIGHT_LEDC_CHANNEL / 2,
+              "Buzzer and LCD backlight must use separate LEDC timers");
 
 // Waveshare MCP23017 I/O expansion board on the same I2C bus as the selected
 // touch controller. With A0/A1/A2 all open, Waveshare pulls all three address

@@ -236,6 +236,8 @@ private:
     void toggleRunTimer();
     void resetSpeedStatistics();
     void drawDashboardWidgets();
+    DashboardWidget dashboardWidgetForView(uint8_t cell) const;
+    bool handleDashboardWidgetHold(int startX,int startY,int endX,int endY,uint32_t duration);
     void updateDashboardWidgets(const CrsfTelemetryState &telemetry, uint16_t tx, bool txValid);
     ChannelResponseProfile &profileForChannel(uint8_t channel);
     const ChannelResponseProfile &profileForChannel(uint8_t channel) const;
@@ -525,6 +527,7 @@ private:
     static constexpr uint8_t kModelNameCapacity = 13;
     DashboardLayout dashboardLayouts_[kModelMemoryCount];
     uint8_t widgetCell_ = 0;
+    int8_t maximizedWidget_ = -1; // Temporary presentation only; never persisted.
     DashboardWidget widgetDraft_;
     uint32_t dashboardHidden_[kModelMemoryCount][4] = {};
     uint32_t widgetHiddenDraft_ = 0;

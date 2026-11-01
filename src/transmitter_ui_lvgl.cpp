@@ -3645,6 +3645,7 @@ void TransmitterUi::controlNavigation(uint8_t item, PageControlEvent)
 
 void TransmitterUi::navigateBack()
 {
+    if(activePage_==UiPage::Dashboard&&maximizedWidget_>=0){maximizedWidget_=-1;drawDashboard();return;}
     if(activePage_==UiPage::ModuleLink){controlDesign(241,PageControlEvent::Activate);return;}
     if(activePage_==UiPage::QuickNavigation){drawDesignPage(keypadReturnPage_);return;}
     if(activePage_==UiPage::FieldResetConfirmation){drawDesignPage(UiPage::ValueEditor);return;}
@@ -6169,7 +6170,9 @@ void TransmitterUi::updateTouch()
     updateWifiKeyPreview(-1, -1);
     if(driveProgress_)lv_bar_set_value(driveProgress_,0,LV_ANIM_OFF);
     if(armProgress_)lv_bar_set_value(armProgress_,0,LV_ANIM_OFF);
-    if(touchStartPage_==activePage_&&!handlePageSwipe(touchStartX_,touchStartY_,touchGestureX_,touchGestureY_,lastTouchDurationMs_))
+    if(touchStartPage_==activePage_&&
+       !handleDashboardWidgetHold(touchStartX_,touchStartY_,touchGestureX_,touchGestureY_,lastTouchDurationMs_)&&
+       !handlePageSwipe(touchStartX_,touchStartY_,touchGestureX_,touchGestureY_,lastTouchDurationMs_))
         handleTouch(releasedX, releasedY);
     armGestureValid_=false;
 }

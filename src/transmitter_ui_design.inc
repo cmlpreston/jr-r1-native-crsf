@@ -1,6 +1,8 @@
 // Shared Drive / Tune / Data / Setup presentation. Included by the LVGL
 // translation unit so all screens use one colour, font and focus system.
 namespace {
+// Temporarily keep GPS controls/navigation visible, including after idle.
+constexpr bool kGpsAutoFullscreenEnabled = false;
 const char *const designSensorNames[] = {"SPEED", "TEMPERATURE", "RPM", "RX VOLTAGE", "LINK QUALITY", "SATELLITES", "DRIVE PACK", "LOWEST CELL", "CELL 1", "CELL 2", "CELL 3", "CELL 4", "FAS VOLTAGE", "FAS CURRENT"};
 const char *const speedValueNames[] = {"Current", "Maximum", "Average"};
 const char *const speedValueTitles[] = {"SPEED", "MAX SPEED", "AVG SPEED"};
@@ -217,7 +219,7 @@ void TransmitterUi::updateSteeringEndpointSelection()
 
 void TransmitterUi::updateGpsPresentation(uint32_t now)
 {
-    if(activePage_==UiPage::Gps&&!gpsFullScreen_&&!touchWasDown_&&now-lastInteractionMs_>=4000){
+    if(kGpsAutoFullscreenEnabled&&activePage_==UiPage::Gps&&!gpsFullScreen_&&!touchWasDown_&&now-lastInteractionMs_>=4000){
         gpsFullScreen_=true;drawDesignPage(UiPage::Gps);
     }
 }
@@ -265,6 +267,7 @@ void TransmitterUi::drawSettingsRow(const char *title,const char *value,int y,in
 
 void TransmitterUi::drawDesignPage(UiPage page)
 {
+    if(page!=UiPage::Dashboard)maximizedWidget_=-1;
     if(page==UiPage::Gps&&activePage_!=UiPage::Gps){gpsFullScreen_=false;lastInteractionMs_=millis();}
     activePage_ = page;
     startScreen(); resetLvglObjects(); beginPageFocus(false);
@@ -313,9 +316,20 @@ void TransmitterUi::drawDesignPage(UiPage page)
     if(!navigationIsModal())drawSectionNavigation(nav);
     if(page==UiPage::QuickNavigation||page==UiPage::FieldResetConfirmation||page==UiPage::TimerControl){drawKeypadPage();}
     else if (page == UiPage::Dashboard) {
-        const char *modes[]={"Normal","Walk"};const uint8_t actions[]={183,182};
-        drawPageTabs(modes,actions,2,driveModeSettings_.activeMode==DriveMode::Walk?1:0,&TransmitterUi::controlDesign);
+        lv_obj_t *minimize=nullptr;
+        if(maximizedWidget_>=0){
+            // Register before the widget's broad touch target, then raise the
+            // overlay after drawing so taps reach the visible chevron.
+            minimize=button(kScreenWidth/2-20,50,40,22,LV_SYMBOL_DOWN,243);
+            lv_obj_set_style_bg_opa(minimize,LV_OPA_80,0);
+            lv_obj_set_style_border_width(minimize,0,0);
+            lv_obj_set_style_radius(minimize,11,0);
+        }else{
+            const char *modes[]={"Normal","Walk"};const uint8_t actions[]={183,182};
+            drawPageTabs(modes,actions,2,driveModeSettings_.activeMode==DriveMode::Walk?1:0,&TransmitterUi::controlDesign);
+        }
         drawDashboardWidgets();
+        if(minimize)lv_obj_move_foreground(minimize);
     } else if(page==UiPage::TxBatterySetup) {
         label("TX battery",12,48,UiText::Heading);
         const char *names[]={"Chemistry","Cell count","Low alarm","Voltage sensing"};
@@ -692,6 +706,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
 void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
 {
     playKeyClick();
+    if(item==243){
+        if(activePage_==UiPage::Dashboard){maximizedWidget_=-1;drawDashboard();}
+        return;
+    }
     if(item>=239&&item<=242){
         if(remoteTouchActive_){remoteTouchRejected_=true;return;}
         if(item==239){moduleLinkReturnPage_=activePage_;drawDesignPage(UiPage::ModuleLink);return;}
@@ -1060,26 +1078,53 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     if(lowRx){if(static_cast<int32_t>(now-nextRxLowBatteryAlarmMs_)>=0){playBuzzer(300);nextRxLowBatteryAlarmMs_=now+kLowBatteryRepeatMs;}}else nextRxLowBatteryAlarmMs_=now;
 }
 
+DashboardWidget TransmitterUi::dashboardWidgetForView(uint8_t cell) const
+{
+    auto widget=dashboardLayouts_[activeModelSlot_].cells[cell];
+    if(maximizedWidget_==cell){widget.width=2;widget.height=2;}
+    return widget;
+}
+
+bool TransmitterUi::handleDashboardWidgetHold(int startX,int startY,int endX,int endY,uint32_t duration)
+{
+    if(activePage_!=UiPage::Dashboard||duration<650||abs(endX-startX)>=24||abs(endY-startY)>=24)return false;
+    for(uint8_t i=0;i<pageFocusCount_;++i){
+        const auto &target=pageFocusTargets_[i];
+        if(target.handler!=&TransmitterUi::controlDesign||target.argument<130||target.argument>133)continue;
+        const auto &r=target.activate;
+        auto inside=[&](int x,int y){return x>=r.x&&x<r.x+r.width&&y>=r.y&&y<r.y+r.height;};
+        if(inside(startX,startY)&&inside(endX,endY)){
+            const int cell=target.argument-130;
+            maximizedWidget_=maximizedWidget_==cell?-1:cell;
+            drawDashboard();return true;
+        }
+    }
+    return false;
+}
+
 void TransmitterUi::drawDashboardWidgets()
 {
     const auto &layout=dashboardLayouts_[activeModelSlot_];
-    constexpr int gap=kPanelGap, top=83;
+    constexpr int gap=kPanelGap;
+    const int top=maximizedWidget_>=0?48:83;
     const int cellW=(kScreenWidth-20-gap)/2, cellH=(designFooterY-top-gap-6)/2;
-    const uint8_t visible=visibleDashboardWidgets(layout);
+    const uint8_t visible=maximizedWidget_>=0?uint8_t(1<<maximizedWidget_):visibleDashboardWidgets(layout);
     uint8_t occupied=0;
     for(uint8_t i=0;i<4;++i)if(visible&(1<<i))occupied |= dashboardWidgetMask(i,layout.cells[i]);
     for(uint8_t cell=0;cell<4;++cell){
-        const auto &w=layout.cells[cell];
-        int x=10+cell%2*(cellW+gap),y=top+cell/2*(cellH+gap);
+        if(maximizedWidget_>=0&&cell!=maximizedWidget_)continue;
+        const auto w=dashboardWidgetForView(cell);
+        int x=maximizedWidget_>=0?10:10+cell%2*(cellW+gap),y=maximizedWidget_>=0?top:top+cell/2*(cellH+gap);
         if(w.kind==DashboardWidgetKind::Empty){
             if(!(occupied&(1<<cell)))makePageActionButton(x,y,cellW,cellH,"+ Add widget",UiText::Secondary,cPanel,cDim,cLine,&TransmitterUi::controlDesign,110+cell);
             continue;
         }
         if(!(visible&(1<<cell)))continue;
         auto &view=widgetViews_[cell];
-        const int width=cellW*w.width+gap*(w.width-1),height=cellH*w.height+gap*(w.height-1);
+        const int width=cellW*w.width+gap*(w.width-1),height=maximizedWidget_>=0?designFooterY-top-6:cellH*w.height+gap*(w.height-1);
         view.panel=makePanel(x,y,width,height,cPanel,cLine);
         auto title=makeLabel(view.panel,dashboardKindName(w.kind),8,5,UiText::Caption,cDim);view.title=title;
+        if(maximizedWidget_>=0)lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
         const bool channelPreview=w.kind==DashboardWidgetKind::Channels ||
             (w.kind==DashboardWidgetKind::AllChannels&&w.source!=1);
         boundedLabel(title,width-(channelPreview?40:16));
@@ -1247,9 +1292,8 @@ void TransmitterUi::drawDashboardWidgets()
 
 void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t tx,bool txValid)
 {
-    const auto &layout=dashboardLayouts_[activeModelSlot_];
     for(uint8_t cell=0;cell<4;++cell){
-        const auto &w=layout.cells[cell];auto &view=widgetViews_[cell];if(!view.panel)continue;
+        const auto w=dashboardWidgetForView(cell);auto &view=widgetViews_[cell];if(!view.panel)continue;
         if(view.heldOutputIcon){
             const bool hidden=lv_obj_has_flag(view.heldOutputIcon,LV_OBJ_FLAG_HIDDEN);
             if(dashboardOutputsLive_&&!hidden)lv_obj_add_flag(view.heldOutputIcon,LV_OBJ_FLAG_HIDDEN);

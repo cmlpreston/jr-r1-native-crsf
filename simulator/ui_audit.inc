@@ -1400,23 +1400,17 @@ bool TransmitterUi::runSimulatorUiAudit()
     controlDesign(82,activate);updateDesign(noGps,OutputSafetyStatus::Cut,99,true);
     lastInteractionMs_=millis();updateGpsPresentation(lastInteractionMs_+3999);assert(!gpsFullScreen_);
     touchWasDown_=true;updateGpsPresentation(lastInteractionMs_+4001);assert(!gpsFullScreen_);touchWasDown_=false;
-    updateGpsPresentation(lastInteractionMs_+4001);assert(gpsFullScreen_);
+    updateGpsPresentation(lastInteractionMs_+4001);assert(!gpsFullScreen_);
+    updateGpsPresentation(lastInteractionMs_+60000);assert(!gpsFullScreen_);
     gpsMap=lv_obj_get_parent(designCurve_);lv_obj_update_layout(lv_scr_act());
-    assert(lv_obj_get_width(gpsMap)==kScreenWidth&&lv_obj_get_height(gpsMap)==kScreenHeight);
-    assert(!driveProgress_&&!designStatus_); // No hidden output-enable targets.
-    assert(lv_obj_get_child_cnt(lv_scr_act())==1); // Only the map, including portrait footer area.
-    const int oldZoom=gpsZoom_;const bool oldTrail=gpsTrailVisible_;
-    handleTouch(20,kScreenHeight-20); // Reveals only, even on the old Drive target.
-    assert(!gpsFullScreen_&&gpsZoom_==oldZoom&&gpsTrailVisible_==oldTrail&&!armRequested_);
+    assert(lv_obj_get_width(gpsMap)==kScreenWidth-20&&lv_obj_get_height(gpsMap)==designFooterY-88);
+    assert(sectionNavigationVisible_&&driveProgress_&&designDetails_[0]);
+    Serial.println("GPS presentation: controls and navigation remain visible after idle PASS");
     OfflineMap::install(OfflineMap::Package{});
     if(const char *prefix=getenv("JR_R1_GPS_LAYOUT_SCREENSHOTS")){
         drawDesignPage(UiPage::Gps);updateDesign(noGps,OutputSafetyStatus::Cut,99,true);
         lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
         char path[256];snprintf(path,sizeof(path),"%s-controls.bmp",prefix);simulatorSaveScreenshot(path);
-        gpsFullScreen_=true;drawDesignPage(UiPage::Gps);updateDesign(noGps,OutputSafetyStatus::Cut,99,true);
-        lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
-        snprintf(path,sizeof(path),"%s-full.bmp",prefix);simulatorSaveScreenshot(path);
-        handleTouch(20,20);
     }
 
     auditSportGps();
@@ -1471,6 +1465,55 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(headlessTesting() && hardwareRecovery() && !lcdTransportReady);
     assert(!armRequested() && !controlConfigurationSnapshot().armRequested);
     lcdTransportReady=transport; // Restore the simulator sink for later visual audits.
+
+    // Exercise temporary maximization from every kind and all four cell origins.
+    // Use rendered action rectangles, so Timer buttons remain separate targets.
+    bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;touchWasDown_=false;
+    const auto layoutBeforeMax=dashboardLayouts_[activeModelSlot_];
+    for(int kind=1;kind<int(DashboardWidgetKind::Count);++kind){
+        const int cell=(kind-1)%4;
+        dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+        auto &widget=dashboardLayouts_[activeModelSlot_].cells[cell];
+        widget.kind=static_cast<DashboardWidgetKind>(kind);
+        if(widget.kind==DashboardWidgetKind::AllChannels)widget.style=DashboardWidgetStyle::Bars;
+        const auto saved=dashboardLayouts_[activeModelSlot_];
+        drawDashboard();lv_obj_update_layout(lv_scr_act());
+        auto rectangle=[&](){for(uint8_t i=0;i<pageFocusCount_;++i){const auto &target=pageFocusTargets_[i];
+            if(target.handler==&TransmitterUi::controlDesign&&target.argument==130+cell)return target.activate;}
+            assert(false);return pageFocusTargets_[0].activate;};
+        auto r=rectangle();int x=r.x+8,y=r.y+8;
+        assert(!handleDashboardWidgetHold(x,y,x,y,649));
+        assert(!handleDashboardWidgetHold(x,y,x+30,y,900));
+        assert(!handleDashboardWidgetHold(0,0,x,y,900));
+        const bool approved=moduleLink_.enabled();
+        assert(handleDashboardWidgetHold(x,y,x,y,700));
+        assert(maximizedWidget_==cell&&activePage_==UiPage::Dashboard&&sectionNavigationVisible_);
+        assert(!armRequested_&&moduleLink_.enabled()==approved);
+        lv_obj_update_layout(lv_scr_act());updateDashboardWidgets(designTelemetry_,designTxVoltage_,designTxValid_);
+        lv_refr_now(nullptr);auditTypography(lv_scr_act());
+        assert(lv_obj_get_x(widgetViews_[cell].panel)==10&&lv_obj_get_y(widgetViews_[cell].panel)==48);
+        assert(lv_obj_get_width(widgetViews_[cell].panel)==kScreenWidth-20);
+        assert(lv_obj_get_height(widgetViews_[cell].panel)==designFooterY-54);
+        assert(lv_obj_has_flag(widgetViews_[cell].title,LV_OBJ_FLAG_HIDDEN));
+        for(int other=0;other<4;++other)if(other!=cell)assert(!widgetViews_[other].panel);
+        assert(!memcmp(&saved,&dashboardLayouts_[activeModelSlot_],sizeof(saved)));
+        if(widget.kind==DashboardWidgetKind::AllChannels){
+            if(const char *prefix=getenv("JR_R1_WIDGET_MAX_SCREENSHOT")){char path[256];snprintf(path,sizeof(path),"%s-%dx%d.bmp",prefix,kScreenWidth,kScreenHeight);simulatorSaveScreenshot(path);}
+            assert(touchAction(&TransmitterUi::controlDesign,130+cell)); // short tap still pages
+            assert(maximizedWidget_==cell&&activePage_==UiPage::Dashboard);
+        }
+        assert(touchAction(&TransmitterUi::controlDesign,243));assert(maximizedWidget_==-1);
+        assert(!memcmp(&saved,&dashboardLayouts_[activeModelSlot_],sizeof(saved)));
+        r=rectangle();x=r.x+8;y=r.y+8;assert(handleDashboardWidgetHold(x,y,x,y,800));
+        r=rectangle();x=r.x+8;y=r.y+8;assert(handleDashboardWidgetHold(x,y,x,y,800));assert(maximizedWidget_==-1);
+        r=rectangle();x=r.x+8;y=r.y+8;assert(handleDashboardWidgetHold(x,y,x,y,800));
+        navigateBack();assert(maximizedWidget_==-1&&activePage_==UiPage::Dashboard);
+        r=rectangle();x=r.x+8;y=r.y+8;assert(handleDashboardWidgetHold(x,y,x,y,800));
+        drawDesignPage(UiPage::Tune);assert(maximizedWidget_==-1);drawDashboard();
+        assert(!memcmp(&saved,&dashboardLayouts_[activeModelSlot_],sizeof(saved)));
+    }
+    dashboardLayouts_[activeModelSlot_]=layoutBeforeMax;drawDashboard();
+    Serial.println("Widget maximize: every kind, four origins, hold/drag guards, live rendering, overlay minimise/Back/navigation and unchanged layout/output state PASS");
     Serial.println("Hardware recovery: PIN, remote navigation, offscreen rendering and arm inhibition PASS");
     Serial.println("LVGL UI audit: navigation, drafts, widgets, model guards, timer, endpoints, colour schemes, startup fault display, arm hold and bounds PASS");
     dashboardEnabledChannelMask_=0xffff;

@@ -2059,6 +2059,17 @@ bool TransmitterUi::removeSelectedBinding()
 
 void TransmitterUi::playBuzzer(uint16_t durationMs)
 {
+    // Quiet navigation clicks must not truncate a cue. Longer alert sounds
+    // can interrupt it; a timer warning must not suppress a fault indication.
+    if (timerBuzzer_.active(millis())) {
+        if (durationMs < 80) return;
+        timerBuzzer_.cancel();
+    }
+    emitBuzzerTone(durationMs);
+}
+
+void TransmitterUi::emitBuzzerTone(uint16_t durationMs)
+{
     if (!systemSettings_.buzzerEnabled) return;
 #ifdef JR_R1_SIMULATOR
     simulatorBeep(systemSettings_.buzzerPitchHz, durationMs);
@@ -2069,11 +2080,13 @@ void TransmitterUi::playBuzzer(uint16_t durationMs)
 
 void TransmitterUi::playKeyClick()
 {
+    if (timerBuzzer_.active(millis())) return;
     if (systemSettings_.keyClicksEnabled) playBuzzer(systemSettings_.keyClickDurationMs);
 }
 
 void TransmitterUi::stopBuzzer()
 {
+    timerBuzzer_.cancel();
 #ifdef JR_R1_SIMULATOR
     simulatorStopBeep();
 #else

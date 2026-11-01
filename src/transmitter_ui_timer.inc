@@ -44,7 +44,14 @@ void TransmitterUi::updateRaceTimer(uint32_t now){
     const bool valid=bootPinUnlocked_&&pinPurpose_==PinPurpose::None&&!hardwareRecovery_&&!calibrationActive()&&input.mapped&&!input.faulted;
     const bool before=t.running();t.tick(now,mapAdcToPermille(latestRawAdc_),valid);
     const auto alarm=t.takeAlarms();
-    if(alarm){snprintf(timerNotice_,sizeof(timerNotice_),alarm&RaceTimer::RaceEnd?"Race time reached":"Target lap time");playBuzzer(alarm&RaceTimer::RaceEnd?450:100);}
+    if(alarm&(RaceTimer::RaceEnd|RaceTimer::Target))
+        snprintf(timerNotice_,sizeof(timerNotice_),alarm&RaceTimer::RaceEnd?"Race time reached":"Target lap time");
+    if(!t.running()||(t.settings.mode==TimerMode::Down&&!t.settings.raceAlarm)||!systemSettings_.buzzerEnabled){
+        if(timerBuzzer_.active(now))stopBuzzer();
+    }else{
+        if(alarm)timerBuzzer_.begin(alarm,t.settings.mode,now);
+        if(const auto duration=timerBuzzer_.poll(now))emitBuzzerTone(duration);
+    }
     if(before!=t.running()&&(activePage_==UiPage::TimerControl||activePage_==UiPage::Dashboard))redrawActivePage();
 }
 bool TransmitterUi::portalSetTimerSettings(const TimerSettings &settings){

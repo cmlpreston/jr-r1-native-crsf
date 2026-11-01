@@ -485,6 +485,7 @@ private:
     bool writeGt911Register(uint16_t reg, uint8_t value);
     void applyBacklight(uint8_t percent);
     void playBuzzer(uint16_t durationMs);
+    void emitBuzzerTone(uint16_t durationMs);
     void playKeyClick();
     void stopBuzzer();
     void resetLvglObjects();
@@ -574,6 +575,7 @@ private:
     bool designTouchDispatch_ = false;
     bool armGestureValid_ = false;
     RaceTimer timers_[kModelMemoryCount];
+    TimerBuzzerSequence timerBuzzer_;
     uint8_t timerBank_=0,timerSettingsPage_=0,timerLapPage_=0,timerConfirmation_=0;
     uint32_t timerTickMs_=0,timerOnRemainder_=0,timerLastSavedOn_=0,timerNextSaveMs_=0;
     bool timerClockSet_=false;

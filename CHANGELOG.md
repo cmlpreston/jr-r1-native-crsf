@@ -103,6 +103,11 @@ Entries below distinguish prepared source from firmware already installed.
 
 ## Documentation follow-up
 
+- Deferred README request (1 November 2026): show a range of Drive dashboard
+  arrangements and widget contents in screenshots, including different sizes,
+  combinations of channels/inputs, maps/course, timer, speed, power/cells and
+  model artwork. Prefer native handset captures; label simulator examples.
+
 - Replace widget-focus simulator examples with native handset captures once the
   handset is reachable and the new layout has been checked on hardware.
 - Confirm physical backlight brightness after the PWM timer fix.

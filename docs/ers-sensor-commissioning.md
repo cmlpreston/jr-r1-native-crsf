@@ -28,6 +28,20 @@ An ERS-only arrangement can free the S.Port output for PWM after explicit
 receiver configuration. Do not attach two GPS sources, or two cell-source-0
 sensors, simultaneously: source arbitration between those buses is not implemented.
 
+## Setup on the R1 touchscreen
+
+Open **Setup → Model → second page → ERS sensors**. Tap **Discover**, allow four
+seconds, then select a sensor. **Read settings** retrieves its confirmed values.
+Use minus/plus to edit GPS mode, total motor pole count or battery capacity, then
+**Apply**. Capacity offers steps of 100 or 1 mAh. The draft stays unconfirmed until
+the sensor acknowledges it; a timeout leaves it available for review and retry.
+**Sensor list** discards an unapplied draft. CV01 currently offers settings readback
+only. The **Link** shortcut opens module-link controls without starting Wi-Fi.
+
+Discovery and settings use the receiver RF link. Keep CUT and the module link
+and receiver powered. Wi-Fi is not required. Touch and the normal keypad focus/
+select/plus/minus navigation are supported in landscape and portrait.
+
 ## Setup on the R1 web page
 
 1. Leave the R1 in CUT but enable its module link and establish an RF link.

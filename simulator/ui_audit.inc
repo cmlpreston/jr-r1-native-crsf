@@ -25,6 +25,42 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_ERS_NATIVE_AUDIT_ONLY")) {
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;designSafety_=OutputSafetyStatus::Cut;moduleLinkManaged_=false;
+        for(unsigned orientation=0;orientation<2;++orientation){
+            setupBank_=setupPage_=0;drawMainMenu();controlDesign(244,activate);
+            assert(activePage_==UiPage::ErsSensors && ersSelected_==-1);
+            controlErsSensor(0,activate);assert(ersConfig_.busy());ErsRequest q;
+            assert(ersConfig_.poll(q,millis()) && q.type==255);
+            const uint8_t types[]={3,8,4,2};
+            for(auto type:types){uint8_t response[]={0xea,0xc8,type,1,0,0,'E','R','S',0};ersConfig_.receive(0x7b,response,sizeof(response),millis());}
+            ersConfig_.update(millis()+4000);drawDesignPage(UiPage::ErsSensors);assert(ersConfig_.count()==4);
+            controlErsSensor(10,activate);assert(ersSelected_==0 && ersDraft_==2);
+            controlErsSensor(6,activate);assert(ersDraft_==1 && ersDraftDirty_);
+            controlErsSensor(8,activate);assert(ersConfig_.busy() && ersDraft_==1 && ersDraftDirty_);
+            assert(ersConfig_.poll(q,millis()) && q.command==15 && q.value==1);
+            const uint8_t wrong[]={0xea,0xc8,3,1,15,2};ersConfig_.receive(0x7b,wrong,sizeof(wrong),millis());assert(ersConfig_.busy());
+            const uint8_t ack[]={0xea,0xc8,3,1,15,1};ersConfig_.receive(0x7b,ack,sizeof(ack),millis());
+            drawDesignPage(UiPage::ErsSensors);assert(!ersConfig_.busy() && !ersDraftDirty_ && ersDraft_==1);
+            lv_obj_update_layout(lv_scr_act());auditTypography(lv_scr_act());lv_refr_now(nullptr);
+            simulatorSaveScreenshot(portraitUi?"/tmp/r1-ers-native-portrait.bmp":"/tmp/r1-ers-native-landscape.bmp");
+            controlErsSensor(4,activate);controlErsSensor(11,activate);assert(ersSelected_==1 && ersDraft_==2);
+            controlErsSensor(7,activate);assert(ersDraft_==3);controlErsSensor(4,activate); // discard, no write
+            assert(!ersConfig_.busy());controlErsSensor(12,activate);assert(ersDraft_==5000);
+            controlErsSensor(7,activate);assert(ersDraft_==5100);controlErsSensor(9,activate);controlErsSensor(6,activate);assert(ersDraft_==5099);
+            ersDraft_=65535;controlErsSensor(7,activate);assert(ersDraft_==65535);
+            controlErsSensor(3,activate);assert(ersConfig_.poll(q,millis()) && q.command==12);
+            const uint8_t settings[]={0xea,0xc8,4,1,12,0,17,0x58,0x1b};ersConfig_.receive(0x7b,settings,sizeof(settings),millis());
+            drawDesignPage(UiPage::ErsSensors);assert(ersDraft_==7000 && !ersDraftDirty_);
+            controlErsSensor(4,activate);controlErsSensor(13,activate);assert(ersSelected_==3);
+            controlErsSensor(8,activate);assert(!ersConfig_.busy()); // cells read-only
+            controlErsSensor(4,activate);controlErsSensor(4,activate);assert(activePage_==UiPage::MainMenu && setupPage_==1 && setupBank_==0);
+            controlDesign(244,activate);armRequested_=true;controlErsSensor(0,activate);assert(!ersConfig_.busy());armRequested_=false;
+            controlErsSensor(0,activate);assert(ersConfig_.busy());ersConfig_.cancel();
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("Native ERS: menu/list/details, discovery, confirmed writes, readback, drafts, bounds, CUT and both orientations PASS");return true;
+    }
     if(getenv("JR_R1_ERS_AUDIT_ONLY")) {
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
         CrsfTelemetryState t{};t.ersBatteryValid=t.ersRemainingValid=true;

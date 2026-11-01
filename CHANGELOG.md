@@ -125,3 +125,12 @@ Entries below distinguish prepared source from firmware already installed.
 - Physical ERS sensor/chain and configuration acknowledgement tests remain outstanding.
   Commissioning notes: docs/ers-sensor-commissioning.md. Include in the next periodic README/manual refresh.
 - Stock ExpressLRS CU01 packets are supported through an explicit, saved standard-battery role selector; no inference from current or voltage.
+
+### Native ERS commissioning — 2026-11-01
+
+- Setup → Model → ERS sensors adds discovery, sensor list, settings reads and
+  GPS mode / motor pole count / current-sensor capacity editing on the LCD.
+- Shares the web client's RF queue, CUT/module-link guards and acknowledged
+  status; works without Wi-Fi. Drafts remain unconfirmed until the sensor replies.
+- Retained landscape/portrait layouts, keypad focus and normal Back navigation.
+- Include native sensor commissioning in the next README/manual refresh.

@@ -68,7 +68,7 @@ void boundedLabel(lv_obj_t *label, int width)
 bool TransmitterUi::designPage() const
 {
     switch (activePage_) {
-        case UiPage::TimerControl: case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation:
+        case UiPage::ErsSensors: case UiPage::TimerControl: case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation:
         case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor:
         case UiPage::Telemetry: case UiPage::Gps: case UiPage::ChannelMonitor:
         case UiPage::SensorDetail: case UiPage::MainMenu: case UiPage::Channels:
@@ -364,6 +364,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
             boundedLabel(label("Display off saves the most power.",20,designPortrait?278:207,UiText::Caption,cDim),kScreenWidth-40);
         }
         drawPageControls(displaySetupBank_,2);
+    } else if(page==UiPage::ErsSensors) {
+        drawErsSensorContent();
     } else if(page==UiPage::ModuleLink) {
         label("Module link",12,52,UiText::Heading);
         label(moduleLink_.enabled()?"Pause module communication?":moduleLink_.present()?"Enable module communication?":"TX battery not detected",12,100,UiText::Menu,cCyan);
@@ -604,10 +606,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
         }else{
             const char *tabs[]={"Model","Handset"};const uint8_t actions[]={140,141};
             drawPageTabs(tabs,actions,2,setupBank_?1:0,&TransmitterUi::controlDesign);
-            const char *names[2][8]={{"Channels","Control map","Dashboard","Drive modes","RF module","RX battery","ESC settings",""},{"Display","Sounds / alerts","TX battery","Network / web","System","","",""}};
-            const uint8_t ids[2][8]={{41,42,49,43,44,146,46,0},{142,47,145,205,206,0,0,0}};
+            const char *names[2][8]={{"Channels","Control map","Dashboard","Drive modes","RF module","RX battery","ESC settings","ERS sensors"},{"Display","Sounds / alerts","TX battery","Network / web","System","","",""}};
+            const uint8_t ids[2][8]={{41,42,49,43,44,146,46,244},{142,47,145,205,206,0,0,0}};
             const char *values[2][8]={{"CH1-16","","",driveModeSettings_.activeMode==DriveMode::Walk?"Walk":"Normal","ELRS","","Preview only",""},{"","","","","","","",""}};
-            const uint8_t section=setupBank_?1:0,total=section?5:7;
+            const uint8_t section=setupBank_?1:0,total=section?5:8;
             for(int i=0;i<4;++i){int n=setupPage_*4+i;if(n>=total)break;menuRow(85+i*(designPortrait?67:38),names[section][n],values[section][n],ids[section][n]);}
             drawPageControls(setupPage_,2);
         }
@@ -708,6 +710,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
 void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
 {
     playKeyClick();
+    if(item==244){
+        ersSelected_=-1;ersListBank_=0;ersPageMessage_[0]=0;
+        drawDesignPage(UiPage::ErsSensors);return;
+    }
     if(item==243){
         if(activePage_==UiPage::Dashboard){maximizedWidget_=-1;drawDashboard();}
         return;

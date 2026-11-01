@@ -702,6 +702,7 @@ const char *uiPageName(UiPage page)
         case UiPage::ParameterControlPicker:return "parameter-control-picker";
         case UiPage::ResponseProfile:return "response-profile";
         case UiPage::MixingOverview:return "mixing-overview";
+        case UiPage::ErsSensors:return "ers-sensors";
         case UiPage::NetworkOptions:return "network-options";
         case UiPage::SystemMenu:return "system";
         case UiPage::TimerControl:return "timer";
@@ -761,6 +762,7 @@ void TransmitterUi::setDisplayCacheEnabled(bool enabled)
 
 
 #include "transmitter_ui_timer.inc"
+#include "transmitter_ui_ers.inc"
 #include "transmitter_ui_design.inc"
 #include "transmitter_ui_portrait.inc"
 #ifdef JR_R1_SIMULATOR
@@ -3683,6 +3685,7 @@ void TransmitterUi::navigateBack()
         return;
     }
     if (designPage()) {
+        if(activePage_==UiPage::ErsSensors){controlErsSensor(4,PageControlEvent::Activate);return;}
         if(activePage_==UiPage::ModelSelect && modelAppearanceEditing_){modelAppearanceEditing_=false;drawModelSelectPage();return;}
         if(activePage_==UiPage::WidgetEditor && widgetInputsEditing_){widgetInputsEditing_=false;drawDesignPage(UiPage::WidgetEditor);return;}
         if(activePage_==UiPage::OutputStatus||activePage_==UiPage::ModeChooser||activePage_==UiPage::DriveModes||activePage_==UiPage::ChannelPlaceholder||activePage_==UiPage::ChannelInput||activePage_==UiPage::ChannelResponseSetup||activePage_==UiPage::ParameterControlPicker||activePage_==UiPage::ResponseProfile||activePage_==UiPage::MixingOverview||activePage_==UiPage::NetworkOptions||activePage_==UiPage::SystemMenu){controlDesign(209,PageControlEvent::Activate);return;}
@@ -6264,6 +6267,10 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     }
     if(designSafety_!=OutputSafetyStatus::Cut || armRequested_ || (moduleLinkManaged_ && !moduleLink_.enabled()))ersConfig_.cancel();
     ersConfig_.update(millis());
+    if(ersUiRevision_!=ersConfig_.revision()){
+        ersUiRevision_=ersConfig_.revision();
+        if(activePage_==UiPage::ErsSensors)drawDesignPage(UiPage::ErsSensors);
+    }
     if(!elrsRequestPending_){
         ErsRequest request;
         if(ersConfig_.poll(request,millis())){

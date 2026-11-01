@@ -107,6 +107,7 @@ enum class UiPage : uint8_t {
     FieldResetConfirmation,
     TimerControl,
     ModuleLink,
+    ErsSensors,
 };
 
 class TransmitterUi {
@@ -647,6 +648,14 @@ private:
     RxBatterySettings rxBatterySettings_;
     DriveModeSettings driveModeSettings_;
     bool standardBatteryVehicle_=false;
+    void drawErsSensorContent();
+    void controlErsSensor(uint8_t item, PageControlEvent event);
+    int8_t ersSelected_=-1;
+    uint8_t ersListBank_=0;
+    uint16_t ersDraft_=0;
+    bool ersDraftDirty_=false,ersFine_=false;
+    uint32_t ersUiRevision_=0;
+    char ersPageMessage_[96]={};
     ErsSensorConfig ersConfig_;
     uint32_t ersSequence_=0;
     CrsfTxConfig txConfig_;

@@ -39,15 +39,15 @@ public:
         if(busy_ || !validErsRequest(r))return false;
         if(r.type!=255 && !find(r.type,r.id))return false;
         if(r.type==255){count_=0;memset(devices_,0,sizeof(devices_));}
-        pending_=r;busy_=true;queued_=true;started_=now;
+        pending_=r;busy_=true;queued_=true;started_=now;++revision_;
         status_=r.type==255?"Discovering sensors":"Queued; awaiting sensor acknowledgement";
         return true;
     }
     bool poll(ErsRequest &r,uint32_t now) { update(now);if(!queued_)return false;r=pending_;queued_=false;return true; }
     void update(uint32_t now) {
-        if(busy_ && uint32_t(now-started_)>=4000){busy_=queued_=false;status_=pending_.type==255?(count_?"Discovery complete":"No ERS sensors replied"):"No acknowledgement; refresh settings before retrying";}
+        if(busy_ && uint32_t(now-started_)>=4000){busy_=queued_=false;++revision_;status_=pending_.type==255?(count_?"Discovery complete":"No ERS sensors replied"):"No acknowledgement; refresh settings before retrying";}
     }
-    void cancel() {if(busy_){busy_=queued_=false;status_="Cancelled; refresh settings before retrying";}}
+    void cancel() {if(busy_){busy_=queued_=false;++revision_;status_="Cancelled; refresh settings before retrying";}}
     void receive(uint8_t frameType,const uint8_t *p,size_t n,uint32_t now) {
         if((frameType!=0x7a && frameType!=0x7b && frameType!=0x7c) || n<6 || p[0]!=0xea || p[1]!=0xc8)return;
         if(p[2]!=2 && p[2]!=3 && p[2]!=4 && p[2]!=8)return;
@@ -55,7 +55,7 @@ public:
         auto *d=find(p[2],p[3]);
         if(p[4]==0 && busy_ && pending_.type==255) {
             if(!d){if(count_==MaxDevices)return;d=&devices_[count_++];d->type=p[2];d->id=p[3];}
-            d->updatedMs=now;
+            d->updatedMs=now;++revision_;
             size_t i=0;while(6+i<n && i<sizeof(d->name)-1 && p[6+i]>=32 && p[6+i]<=126){d->name[i]=char(p[6+i]);++i;}d->name[i]=0;
             return;
         }
@@ -76,9 +76,10 @@ public:
             if(v!=pending_.value)return;
             set(*d,p[4],v);
         }
-        d->updatedMs=now;busy_=queued_=false;status_="Sensor confirmed";
+        d->updatedMs=now;busy_=queued_=false;++revision_;status_="Sensor confirmed";
     }
     const ErsDevice &device(uint8_t i)const{return devices_[i<MaxDevices?i:0];}
+    uint32_t revision()const{return revision_;}
     uint8_t count()const{return count_;}
     bool busy()const{return busy_;}
     const char *status()const{return status_;}
@@ -90,6 +91,7 @@ private:
         if(d.type==4 && c==17 && v){d.capacityMah=v;d.known|=4;}
         if((d.type==2 || d.type==8) && c==14 && v<=127){d.telemetryId=v;d.known|=8;}
     }
+    uint32_t revision_=0;
     ErsDevice devices_[MaxDevices]={};uint8_t count_=0;
     ErsRequest pending_;bool busy_=false,queued_=false;uint32_t started_=0;
     const char *status_="Discover sensors to begin";

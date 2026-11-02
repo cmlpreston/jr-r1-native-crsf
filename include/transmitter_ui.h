@@ -554,6 +554,8 @@ private:
         lv_obj_t *secondPlot = nullptr;
         lv_obj_t *marker = nullptr;
         lv_obj_t *detail = nullptr;
+        lv_obj_t *satellites = nullptr;
+        uint8_t gpsRenderedCount = 0;
         lv_point_t points[48] = {};
         lv_point_t secondPoints[30] = {};
     };
@@ -628,6 +630,7 @@ private:
     void drawGpsMapView(bool fullScreen);
     void updateGpsPresentation(uint32_t now);
     lv_point_t gpsPoints_[48] = {};
+    uint8_t gpsRenderedCount_ = 0;
     uint8_t activeModelSlot_ = 0;
     bool modelAppearanceEditing_ = false;
     uint8_t modelImages_[kModelMemoryCount] = {};

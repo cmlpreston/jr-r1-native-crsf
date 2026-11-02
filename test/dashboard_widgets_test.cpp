@@ -45,8 +45,10 @@ int main()
         assert(dashboardWidgetFromV2(0,stored).source==(source>=8 && source<12?0:source));
     }
     speed.source=DashboardSensorCount;assert(sanitizedDashboardWidget(0,speed).source==0);
-    assert(nextDashboardSensorSource(7,1)==12);
-    assert(nextDashboardSensorSource(12,-1)==7);
+    assert(nextDashboardSensorSource(7,1)==14);
+    assert(nextDashboardSensorSource(14,-1)==7);
+    assert(displaySensorSource(11)==11 && displaySensorSource(12)==14 && displaySensorSource(15)==17);
+    assert(displaySensorSource(16)==DashboardSensorCount);
     assert(nextDashboardSensorSource(17,1)==0 && nextDashboardSensorSource(0,-1)==17);
     auto layout=defaultDashboardLayout();
     assert(dashboardWidgetMask(0,layout.cells[0])==3);

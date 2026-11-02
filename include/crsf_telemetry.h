@@ -18,6 +18,11 @@ struct CrsfTelemetryState {
     uint16_t ersVoltageDeciV=0, ersCurrentDeciA=0;
     uint32_t ersCapacityMah=0, ersBatteryUpdatedMs=0;
     uint8_t ersRemainingPercent=0;
+    // CRC-valid GPS packets, including rejected payloads; never reset on expiry.
+    uint32_t gpsWireFrames=0, gpsDecodedFrames=0, gpsRejectedFrames=0, gpsWireUpdatedMs=0;
+    uint8_t gpsLastPayloadLength=0;
+    bool gpsSpeedValid=false, gpsSatellitesValid=false;
+    uint32_t gpsSpeedUpdatedMs=0, gpsSatellitesUpdatedMs=0, gpsDecodedUpdatedMs=0, gpsSpeedFrames=0;
     bool gpsCourseValid = false;
     bool gpsValid = false, temperatureValid = false, rpmValid = false;
     int32_t latitudeE7 = 0, longitudeE7 = 0;
@@ -58,16 +63,19 @@ struct CrsfTelemetryState {
     uint32_t receiverUidUpdatedMs = 0;
 };
 
-// S.Port GPS forwarding has no satellite/fix-quality field. A zero count is
-// unknown, not a confirmed fix: allow fresh non-placeholder reported values,
-// keep known low-satellite reports unavailable and label uncertainty in the UI.
+// Ground speed has its own validity and age, independent of map coordinates.
+inline bool gpsSpeedAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
+    return t.gpsSpeedValid && uint32_t(nowMs-t.gpsSpeedUpdatedMs)<=3000;
+}
+// S.Port omits satellite/fix quality: zero means unknown, while a fresh
+// non-placeholder position remains usable. Known low counts remain unavailable.
 inline bool gpsPositionAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
     return t.gpsValid && uint32_t(nowMs-t.gpsUpdatedMs)<=3000 &&
         (t.satellites>=4 || (t.satellites==0 && (t.latitudeE7!=0 || t.longitudeE7!=0)));
 }
 // Course over ground is unreliable near rest; this is a display threshold only.
 inline bool gpsCourseAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
-    return gpsPositionAvailable(t,nowMs) && t.gpsCourseValid &&
+    return gpsPositionAvailable(t,nowMs) && gpsSpeedAvailable(t,nowMs) && t.gpsCourseValid &&
         t.headingCentiDegrees < 36000 && t.groundSpeedDeciKmh >= 10;
 }
 inline const char *gpsCourseCardinal(uint16_t centidegrees) {

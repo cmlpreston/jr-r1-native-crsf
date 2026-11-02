@@ -35,6 +35,8 @@ int main() {
     be32(-378134000); be32(1449631000);
     gps.insert(gps.end(),{0x01,0xc2,0x23,0x28,0x04,0x10,12}); // 45.0 km/h, 90 deg, 40 m
     feed(parser,0x02,gps);
+    assert(parser.state().gpsWireFrames==1 && parser.state().gpsDecodedFrames==1 && parser.state().gpsRejectedFrames==0);
+    assert(parser.state().gpsWireUpdatedMs==testNow && parser.state().gpsLastPayloadLength==15);
     assert(parser.state().latitudeE7==-378134000 && parser.state().longitudeE7==1449631000);
     assert(parser.state().groundSpeedDeciKmh==450 && parser.state().headingCentiDegrees==9000);
     assert(parser.state().altitudeMetres==40 && parser.state().satellites==12);
@@ -56,10 +58,16 @@ int main() {
     unknown.latitudeE7=unknown.longitudeE7=0;assert(!gpsPositionAvailable(unknown,testNow));
     unknown=parser.state();unknown.satellites=3;assert(!gpsPositionAvailable(unknown,testNow));
     testNow+=1;
+    const auto gpsBefore=parser.state();
     auto malformed=gps; malformed.resize(14); feed(parser,0x02,malformed);
+    assert(parser.state().gpsRejectedFrames==gpsBefore.gpsRejectedFrames+1);
     assert(parser.state().gpsUpdatedMs==1234);
     malformed=gps;malformed[0]=0x7f;feed(parser,0x02,malformed);
     assert(parser.state().gpsUpdatedMs==1234); // out-of-range coordinates ignored
+    assert(parser.state().gpsWireFrames==gpsBefore.gpsWireFrames+2);
+    assert(parser.state().gpsDecodedFrames==gpsBefore.gpsDecodedFrames+1);
+    assert(parser.state().gpsRejectedFrames==gpsBefore.gpsRejectedFrames+1);
+    assert(parser.state().gpsWireUpdatedMs==testNow);
     feed(parser,0x0c,{0,0,0x75,0x30}); // motor 0: 30000 RPM
     assert(parser.state().rpm==30000 && parser.state().rpmValid);
     feed(parser,0x0c,{1,0,0,100}); // unrelated motor does not overwrite source 0
@@ -173,9 +181,52 @@ int main() {
     assert(!parser.state().receiverVoltageValid);
     feed(parser,0x08,{0,160,0,0,0,0,0,100,0});
     assert(parser.state().ersCurrentDeciA==0 && !parser.state().receiverVoltageValid);
+    // Stock ER6G local ADC group remains independent of a CU01 battery.
+    testNow=1000;
+    feed(parser,0x0e,{128,0x1a,0x25}); // 6693 mV RX supply
+    assert(parser.state().receiverVoltageValid && parser.state().receiverVoltageDecivolts==67);
+    assert(parser.state().ersVoltageDeciV==160 && parser.state().ersCurrentDeciA==0);
+    feed(parser,0x08,{0,0,0,0,0,0,0,0}); // CU01 powered, measurement input disconnected
+    assert(parser.state().ersVoltageDeciV==0 && parser.state().receiverVoltageDecivolts==67);
+    testNow=1100;feed(parser,0x0e,{128,0xff,0xff});
+    feed(parser,0x0e,{129,0x1a,0x25});
+    feed(parser,0x0e,{128,0x1a,0x25},true);
+    assert(parser.state().batteryUpdatedMs==1000 && parser.state().receiverVoltageDecivolts==67);
+    feed(parser,0x0e,{128,0x1a,0x25,0x30,0x39}); // additional ADC is not RX voltage
+    assert(parser.state().receiverVoltageDecivolts==67 && parser.state().batteryUpdatedMs==1100);
+    testNow=31100;parser.updateFreshness();assert(parser.state().receiverVoltageValid);
+    testNow=31101;parser.updateFreshness();assert(!parser.state().receiverVoltageValid);
+    testNow=UINT32_MAX-100;feed(parser,0x0e,{128,0x1a,0x25});
+    testNow=200;parser.updateFreshness();assert(parser.state().receiverVoltageValid);
+    feed(parser,0x0e,{128,0,0});assert(!parser.state().receiverVoltageValid);
     parser.setStandardBatteryVehicle(false);parser.updateFreshness();
     assert(!parser.state().ersBatteryValid);
     feed(parser,0x08,{0,67,0,0,0,0,0,0});assert(parser.state().receiverVoltageValid);
+    // Unavailable FF fields must not be interpreted as -0.0000001 coordinates,
+    // 6553.5 km/h speed, 255 satellites, or a reason to discard valid speed.
+    CrsfTelemetryParser speedOnly;
+    testNow=1000;feed(speedOnly,0x02,gps);
+    const auto lastPosition=speedOnly.state();
+    auto speedPacket=std::vector<uint8_t>(15,0xff);speedPacket[8]=1;speedPacket[9]=194;
+    for(unsigned i=1;i<=20;++i){
+        testNow=1000+i*100;feed(speedOnly,0x02,speedPacket);
+        assert(gpsSpeedAvailable(speedOnly.state(),testNow));
+        assert(!gpsPositionAvailable(speedOnly.state(),testNow) && !speedOnly.state().gpsCourseValid);
+        assert(!speedOnly.state().gpsSatellitesValid && speedOnly.state().satellites==0);
+        assert(speedOnly.state().latitudeE7==lastPosition.latitudeE7 && speedOnly.state().longitudeE7==lastPosition.longitudeE7);
+        assert(speedOnly.state().gpsUpdatedMs==lastPosition.gpsUpdatedMs);
+        assert(speedOnly.state().groundSpeedDeciKmh==450);
+    }
+    assert(speedOnly.state().gpsDecodedFrames==21 && speedOnly.state().gpsRejectedFrames==0);
+    assert(speedOnly.state().gpsSpeedFrames==21);
+    feed(speedOnly,0x02,speedPacket,true);assert(speedOnly.state().gpsSpeedFrames==21);
+    auto unavailable=std::vector<uint8_t>(15,0xff);feed(speedOnly,0x02,unavailable);
+    assert(!gpsSpeedAvailable(speedOnly.state(),testNow) && speedOnly.state().gpsRejectedFrames==1);
+    testNow=4000;feed(speedOnly,0x02,gps);
+    assert(gpsPositionAvailable(speedOnly.state(),testNow) && gpsSpeedAvailable(speedOnly.state(),testNow));
+    testNow=7001;speedOnly.updateFreshness();assert(!gpsSpeedAvailable(speedOnly.state(),testNow));
+    testNow=UINT32_MAX-100;feed(speedOnly,0x02,speedPacket);
+    testNow=200;speedOnly.updateFreshness();assert(gpsSpeedAvailable(speedOnly.state(),testNow));
     // Custom sensor replies do not pollute TX configuration or binding replies.
     auto txseq=parser.state().txParameterSequence;
     feed(parser,0x7b,{0xea,0xc8,3,1,0,0,'G','P','S',0});

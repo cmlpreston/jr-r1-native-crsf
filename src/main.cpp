@@ -710,6 +710,25 @@ void printInputMonitorSnapshot()
 }
 
 // Read-only telemetry snapshot for RF bench verification over USB.
+void printGpsTelemetrySnapshot()
+{
+    const auto t=readTelemetrySnapshot();
+    const uint32_t now=millis();
+    const char *status=!t.gpsWireFrames?"no-packets":!t.gpsDecodedFrames?"no-decodable-packets":
+        uint32_t(now-t.gpsDecodedUpdatedMs)>3000?"stale":
+        gpsPositionAvailable(t,now)?"position-available":gpsSpeedAvailable(t,now)?"speed-only":"no-usable-position";
+    // Packet ages are -1 before the first packet. Coordinates stay private.
+    Serial.printf("@GPS status=%s packets=%lu decoded=%lu rejected=%lu packet_age_ms=%ld decoded_age_ms=%ld payload_bytes=%u position_available=%u fix_confirmed=%u satellites=%u course_valid=%u speed_dkmh=%u speed_available=%u speed_age_ms=%ld speed_packets=%lu\n",
+        status,static_cast<unsigned long>(t.gpsWireFrames),static_cast<unsigned long>(t.gpsDecodedFrames),
+        static_cast<unsigned long>(t.gpsRejectedFrames),
+        t.gpsWireFrames?static_cast<long>(uint32_t(now-t.gpsWireUpdatedMs)):-1L,
+        t.gpsDecodedFrames?static_cast<long>(uint32_t(now-t.gpsDecodedUpdatedMs)):-1L,
+        t.gpsLastPayloadLength,gpsPositionAvailable(t,now),gpsFixConfirmed(t,now),
+        t.satellites,t.gpsCourseValid,t.groundSpeedDeciKmh,gpsSpeedAvailable(t,now),
+        t.gpsSpeedFrames?static_cast<long>(uint32_t(now-t.gpsSpeedUpdatedMs)):-1L,
+        static_cast<unsigned long>(t.gpsSpeedFrames));
+}
+
 void printCellTelemetrySnapshot()
 {
     const auto t = readTelemetrySnapshot();
@@ -720,6 +739,11 @@ void printCellTelemetrySnapshot()
     Serial.printf("@FAS voltage_valid=%u voltage_mv=%u voltage_raw_cv=%u current_valid=%u current_raw_da=%u within_300a=%u temperature_valid=%u temperature_dc=%d\n",
         t.fasVoltageValid,t.fasVoltageMv,t.fasVoltageMv/10,t.fasCurrentValid,t.fasCurrentDeciA,
         t.fasCurrentDeciA<=3000,t.temperatureValid,t.temperatureDeciC);
+    Serial.printf("@ERS battery_role=%s valid=%u voltage_dv=%u current_da=%u used_mah=%lu remaining_valid=%u remaining_pct=%u age_ms=%lu rpm_valid=%u rpm=%ld\n",
+        transmitterUi.portalStandardBatteryVehicle()?"vehicle":"receiver",t.ersBatteryValid,
+        t.ersVoltageDeciV,t.ersCurrentDeciA,static_cast<unsigned long>(t.ersCapacityMah),
+        t.ersRemainingValid,t.ersRemainingPercent,static_cast<unsigned long>(millis()-t.ersBatteryUpdatedMs),
+        t.rpmValid,static_cast<long>(t.rpm));
     if (t.vehicleCellsValid)
         Serial.printf("@CELLS_MV %u %u %u %u total=%u minimum=%u\n",
             t.vehicleCellsMv[0],t.vehicleCellsMv[1],t.vehicleCellsMv[2],t.vehicleCellsMv[3],
@@ -830,7 +854,8 @@ bool consumeScreenshotCommand()
             }
             if (strcmp(usbCommand, "WIFISTATUS") == 0) printWifiSetupStatus();
             if (strcmp(usbCommand, "INPUTMON") == 0) printInputMonitorSnapshot();
-            if (strcmp(usbCommand, "TELEMETRY") == 0) printCellTelemetrySnapshot();
+            if (strcmp(usbCommand, "TELEMETRY") == 0) {printCellTelemetrySnapshot();printGpsTelemetrySnapshot();}
+            if (strcmp(usbCommand, "GPSSTATUS") == 0) printGpsTelemetrySnapshot();
             if(strcmp(usbCommand,"ERSSTATUS")==0){
                 const auto t=readTelemetrySnapshot();
                 Serial.printf("ERS RX: configFrames=%lu accepted=%lu lastType=%02x header=%02x %02x %02x %02x %02x\n",

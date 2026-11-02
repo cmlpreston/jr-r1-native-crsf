@@ -63,6 +63,7 @@ constexpr uint16_t kTouchPressureThreshold = 40;
 constexpr uint32_t kTouchReleaseDebounceMs = 25;
 constexpr uint32_t kTouchRetriggerGuardMs = 100;
 constexpr uint32_t kDashboardArmHoldMs = 800;
+constexpr uint32_t kDriveHoldFeedbackDelayMs = 1000;
 constexpr PhysicalControlId kParameterControls[] = {
     PhysicalControlId::Count, PhysicalControlId::GripTrimA,
     PhysicalControlId::GripTrimB, PhysicalControlId::ThrottleTrim,
@@ -3119,7 +3120,7 @@ void TransmitterUi::controlPageDot(uint8_t page,PageControlEvent event)
 {
     if(event!=PageControlEvent::Activate)return;
     if(activePage_==UiPage::Tune&&page<2){tuneBank_=page;drawDesignPage(activePage_);}
-    else if(activePage_==UiPage::Telemetry&&page<(DashboardSensorCount+5)/6){sensorBank_=page;drawDesignPage(activePage_);}
+    else if(activePage_==UiPage::Telemetry&&page<(DisplaySensorCount+5)/6){sensorBank_=page;drawDesignPage(activePage_);}
     else if(activePage_==UiPage::ChannelMonitor&&page<4){designBank_=page;drawDesignPage(activePage_);}
     else if(activePage_==UiPage::MainMenu&&page<2){setupPage_=page;drawMainMenu();}
     else if(activePage_==UiPage::DisplaySetup&&page<2){displaySetupBank_=page;drawDisplayPage();}
@@ -3134,7 +3135,7 @@ bool TransmitterUi::handlePageSwipe(int16_t x,int16_t y,int16_t endX,int16_t end
         case UiPage::TimerControl:page=timerBank_==2?timerSettingsPage_:timerBank_==1?timerLapPage_:0;count=timerBank_==2?3:timerBank_==1?max<unsigned>(1,(timers_[activeModelSlot_].lapCount()+4)/5):1;break;
         case UiPage::DisplaySetup:page=displaySetupBank_;count=2;break;
         case UiPage::Tune:page=tuneBank_;count=2;break;
-        case UiPage::Telemetry:page=sensorBank_;count=(DashboardSensorCount+5)/6;break;
+        case UiPage::Telemetry:page=sensorBank_;count=(DisplaySensorCount+5)/6;break;
         case UiPage::ChannelMonitor:page=designBank_;count=4;break;
         case UiPage::MainMenu:page=setupPage_;count=2;break;
         case UiPage::InputMonitor:page=inputMonitorBank_;count=(kPhysicalControlCount+4)/5;break;
@@ -6028,7 +6029,11 @@ void TransmitterUi::updateDriveHoldFeedback(uint32_t now)
 {
     const bool physical=touchWasDown_&&armGestureValid_&&touchStartPage_==activePage_;
     const bool remote=!touchWasDown_&&remoteArmHold_.active(now)&&remoteArmPage_==static_cast<uint32_t>(activePage_);
-    if((!physical&&!remote)||!bootPinUnlocked_||pinPurpose_!=PinPurpose::None||hardwareRecovery_||displaySleeping_){
+    const uint32_t elapsed=physical?uint32_t(now-touchDownStartedMs_):remoteArmHold_.elapsed(now);
+    const bool driveTab=physical&&driveProgress_&&touchStartX_>=0&&touchStartX_<kScreenWidth/4&&
+        touchStartY_>=kScreenHeight-(portraitUi?60:40);
+    const uint32_t delay=driveTab?kDriveHoldFeedbackDelayMs:0;
+    if((!physical&&!remote)||elapsed<delay||!bootPinUnlocked_||pinPurpose_!=PinPurpose::None||hardwareRecovery_||displaySleeping_){
         if(driveHoldOverlay_)lv_obj_add_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN);
         return;
     }
@@ -6043,8 +6048,8 @@ void TransmitterUi::updateDriveHoldFeedback(uint32_t now)
         lv_obj_clear_flag(driveHoldLabel_,LV_OBJ_FLAG_CLICKABLE);
         lv_obj_clear_flag(driveHoldBar_,LV_OBJ_FLAG_CLICKABLE);
     }
-    const uint32_t elapsed=physical?uint32_t(now-touchDownStartedMs_):remoteArmHold_.elapsed(now);
-    const bool complete=elapsed>=kDashboardArmHoldMs;
+    const uint32_t progressElapsed=elapsed-delay;
+    const bool complete=progressElapsed>=kDashboardArmHoldMs;
     const char *text=armRequested_?(complete?"Release to CUT":"Keep holding to CUT"):
         SetupPortal::active()?"Finish Wi-Fi setup first":
         moduleLinkManaged_&&!moduleLink_.enabled()?"Enable the module link first":
@@ -6055,7 +6060,7 @@ void TransmitterUi::updateDriveHoldFeedback(uint32_t now)
     const auto accent=colour(armRequested_||blocked?cAmber:cCyan);
     uiSetTextColor(driveHoldLabel_,accent,0);
     uiSetBgColor(driveHoldBar_,accent,LV_PART_INDICATOR);
-    const int progress=elapsed>=kDashboardArmHoldMs?kDashboardArmHoldMs:int((elapsed/25)*25);
+    const int progress=progressElapsed>=kDashboardArmHoldMs?kDashboardArmHoldMs:int((progressElapsed/25)*25);
     if(lv_bar_get_value(driveHoldBar_)!=progress)lv_bar_set_value(driveHoldBar_,progress,LV_ANIM_OFF);
     if(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN)){
         lv_obj_clear_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN);
@@ -6166,7 +6171,11 @@ void TransmitterUi::updateTouch()
             const bool inside=lastTouchX_>=12&&lastTouchX_<kScreenWidth-12&&lastTouchY_>=(portraitUi?238:184)&&lastTouchY_<(portraitUi?286:232);
             lv_bar_set_value(armProgress_,inside&&armGestureValid_?min(800,int(now-touchDownStartedMs_)):0,LV_ANIM_OFF);
         }
-        if(driveProgress_)lv_bar_set_value(driveProgress_,armGestureValid_?min(800,int(now-touchDownStartedMs_)):0,LV_ANIM_OFF);
+        if(driveProgress_){
+            const uint32_t elapsed=now-touchDownStartedMs_;
+            const int progress=armGestureValid_&&elapsed>=kDriveHoldFeedbackDelayMs?min<int>(kDashboardArmHoldMs,elapsed-kDriveHoldFeedbackDelayMs):0;
+            lv_bar_set_value(driveProgress_,progress,LV_ANIM_OFF);
+        }
         updateWifiKeyPreview(lastTouchX_, lastTouchY_);
         return;
     }
@@ -6239,8 +6248,8 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
         drawDesignPage(UiPage::ModuleLink);
     }
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None){armRequested_=false;if(activePage_!=UiPage::BootSplash&&activePage_!=UiPage::BootPin)drawBootPin();}
-    speedStatistics_.update(telemetry.groundSpeedDeciKmh, telemetry.gpsUpdatedMs, millis(),
-                            gpsPositionAvailable(telemetry,millis()));
+    speedStatistics_.update(telemetry.groundSpeedDeciKmh, telemetry.gpsSpeedUpdatedMs, millis(),
+                            gpsSpeedAvailable(telemetry,millis()));
     designTelemetry_ = telemetry; designSafety_ = safetyStatus;
     designTxVoltage_ = txVoltageDecivolts; designTxValid_ = txVoltageValid;
     latestRawAdc_ = rawAdc;

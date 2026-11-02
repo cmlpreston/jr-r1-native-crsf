@@ -125,6 +125,16 @@ void updateGpsBasemap(lv_obj_t *object, GpsMapViewport &view,
     lv_obj_invalidate(object);
 }
 
+void followGpsBasemap(lv_obj_t *object, GpsMapViewport &view,
+                      int32_t lat, int32_t lon, double scale) {
+    if(!object)return;
+    const bool recenter=!view.following || view.pixelsPerMetre!=scale ||
+        GpsMap::needsRecenter(view.latitude,view.longitude,lat,lon,scale,
+                              lv_obj_get_width(object),lv_obj_get_height(object));
+    updateGpsBasemap(object,view,recenter?lat:view.latitude,recenter?lon:view.longitude,scale);
+    view.following=true;
+}
+
 double gpsBasemapPreviewScale(lv_obj_t *object, bool fillViewport) {
     if(!object)return 0.5;
     const auto &map=OfflineMap::current();
@@ -139,6 +149,7 @@ double gpsBasemapPreviewScale(lv_obj_t *object, bool fillViewport) {
 }
 void previewGpsBasemap(lv_obj_t *object, GpsMapViewport &view, bool fillViewport, double zoom) {
     if(!object)return;
+    view.following=false;
     const auto &map=OfflineMap::current();
     const int32_t lat=map.valid?map.south+(int64_t(map.north)-map.south)/2:GpsMap::OriginLat;
     const int32_t lon=map.valid?map.west+(int64_t(map.east)-map.west)/2:GpsMap::OriginLon;

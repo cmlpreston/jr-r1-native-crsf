@@ -4,7 +4,88 @@ Record user-visible changes here as they are implemented. Update the operating
 manual periodically rather than regenerating it for every firmware change.
 Entries below distinguish prepared source from firmware already installed.
 
-## Pending transmitter upload
+## Simulator published 2 November 2026
+
+- Rebuilt both WebAssembly orientations with Emscripten 4.0.15 and deployed the
+  current working tree to https://jr-r1-demo.vercel.app/. Includes speed-widget
+  Reset, delayed Drive hold, satellite captions and stationary-map follow/redraw
+  improvements. Updated browser help with demo PIN 1234 and current hold timing.
+- Vercel deployment `dpl_Hp2VAXz3m7LAd5izEEsiW4q8fKRJ`, build ID
+  `dc893780c85b791d`; production HTML, app loader and both WASM hashes matched
+  local output. Portrait interaction and both orientation renders checked.
+- This publication does not upload transmitter firmware.
+
+## Installed 2 November 2026 — satellite/map follow upload
+
+Guarded Pi USB upload of the current working tree from
+`codex/safety-control-refactor` / HEAD `2954bec`, environment
+`seeed_xiao_esp32s3-pcb`, Waveshare LCD F landscape 480×320.
+Fresh main ancestry, local firmware build, host/web tests and full UI audit
+passed; PlatformIO verified the flashed images. Startup #608 passed all
+K1/K2/touch/LCD/UI checks and USB acknowledged CUT. Vehicle/CU01 role persisted.
+No receiver link or packets were present in the post-flash snapshot; live map
+responsiveness remains for the user's hardware trial.
+Source/artifact record `/tmp/r1-flash-6t_8bh17`; log
+`/tmp/r1-satellite-map-follow-flash.log`.
+
+- GPS page and map widgets keep the image stationary while the position marker
+  moves within the central 60% of the viewport. First position, zoom changes or
+  reaching an outer 20% margin recenter it. Dashboard maps keep a fixed scale
+  instead of repeatedly fitting the trail. Marker/trail use the viewport centre
+  for alignment; duplicate positions and unchanged overlay geometry/visibility/
+  opacity no longer trigger repeated redraws. Trail objects use their actual
+  bounds instead of extending to the map origin. Synthetic raster UI audit:
+  a five-pixel movement redrew 1,620 pixels versus an 88,320-pixel landscape
+  map area; unchanged updates redrew zero. Live hardware timing remains to be
+  checked during the on-device trial.
+
+- Show a small satellite count in dashboard GPS course and speed widgets,
+  including maximized views. Unavailable or stale satellite reports show
+  `-- sats`, independently of speed, position and course availability.
+
+## Installed 2 November 2026 — speed reset and Drive hold upload
+
+Guarded Pi USB upload from `codex/safety-control-refactor`, HEAD `2954bec`
+plus the preserved working-tree changes, using `seeed_xiao_esp32s3-pcb`
+(Waveshare LCD F, landscape 480×320). Build, host/web tests and full landscape
+UI audit passed; PlatformIO verified all flashed images. Post-flash startup
+#607 passed K1/K2, touch, LCD driver and UI checks; USB acknowledged CUT.
+Local source/artifact record: `/tmp/r1-flash-a2p6pgzg`; upload log:
+`/tmp/r1-widget-drive-delay-flash.log`. Receiver link was absent at the post-flash
+snapshot, so this upload does not include a fresh live telemetry validation.
+
+- Physical Drive-tab holds wait one second before showing progress, followed
+  by the existing 0.8-second hold before release can request output or CUT.
+  Normal navigation taps do not flash the hold overlay or footer progress bar.
+
+- Add a Reset button directly to dashboard speed widgets, clearing the shared
+  session maximum, average and speed graph history without leaving Drive.
+
+- Decode GPS speed, position, course and satellites independently. CRSF all-FF
+  unavailable fields no longer become map coordinates or block fresh speed.
+  Speed widgets/statistics use their own freshness; maps retain the last usable
+  point and resume only when valid position fields return. USB GPSSTATUS shows
+  speed availability and age. Prepared from EdgeTX's missing-field convention;
+  blue-mode hardware behaviour and effective RF update rate still need testing.
+
+
+- In CU01/vehicle-battery mode, decode stock ExpressLRS voltage-group source 128
+  as the receiver's independent ADC supply reading. CU01 0x08 packets continue
+  to populate vehicle data; CV01 cell groups remain separate. Legacy FrSky FAS
+  source-128 interpretation remains available in receiver-battery mode.
+
+
+- Hide dedicated FrSky FAS voltage/current cards and new-widget choices during
+  ERS testing, retaining persisted source IDs and legacy decoding.
+- Data → Sensors → Current / energy adds a CUT-only, saved choice for ordinary
+  CRSF battery packets: Receiver supply or Vehicle pack / CU01. This changes
+  handset interpretation only; it sends no discovery or configuration commands.
+- USB TELEMETRY includes ERS battery role, voltage/current/capacity/remaining and RPM.
+
+
+- USB `GPSSTATUS` and `TELEMETRY` now distinguish GPS packet reception, rejected
+  payloads, stale data and usable position. Include cumulative GPS counters and
+  packet/update ages without printing coordinates.
 
 - Remove alternating fix-unknown/stale text from the GPS page and map widget.
   Show No GPS position only until the first usable point; retain the last point

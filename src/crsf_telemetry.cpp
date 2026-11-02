@@ -116,22 +116,41 @@ void CrsfTelemetryParser::processFrame()
     }
     // GPS uses the deployed ELRS/Betaflight 0.1 km/h scale. See the
     // protocol notes in docs/ui-firmware-port.md (TBS prose differs).
-    if (frameType == 0x02 && payloadLength >= 15) {
+    if (frameType == 0x02) {
+        ++state_.gpsWireFrames;state_.gpsWireUpdatedMs=millis();
+        state_.gpsLastPayloadLength=payloadLength;
+        if(payloadLength<15){++state_.gpsRejectedFrames;return;}
+        const uint32_t now=millis();
+        auto present=[&](unsigned offset,unsigned size){
+            for(unsigned i=0;i<size;++i)if(payload[offset+i]!=0xff)return true;
+            return false;
+        };
         auto u32 = [](const uint8_t *p) { return (uint32_t(p[0]) << 24) |
             (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3]; };
-        const int32_t lat = static_cast<int32_t>(u32(payload));
-        const int32_t lon = static_cast<int32_t>(u32(payload + 4));
-        const uint16_t heading = (uint16_t(payload[10]) << 8) | payload[11];
-        if (lat < -900000000 || lat > 900000000 || lon < -1800000000 ||
-            lon > 1800000000 || heading > 36000) return;
-        state_.latitudeE7 = lat; state_.longitudeE7 = lon;
-        state_.groundSpeedDeciKmh = (uint16_t(payload[8]) << 8) | payload[9];
-        const bool r1Validity = payloadLength >= 18 && payload[15]=='R' && payload[16]=='1';
-        state_.gpsCourseValid = !r1Validity || (payload[17] & 1);
-        state_.headingCentiDegrees = heading == 36000 ? 0 : heading;
-        state_.altitudeMetres = ((uint16_t(payload[12]) << 8) | payload[13]) - 1000;
-        state_.satellites = payload[14];
-        state_.gpsValid = true; state_.gpsUpdatedMs = millis();
+        const int32_t lat=static_cast<int32_t>(u32(payload));
+        const int32_t lon=static_cast<int32_t>(u32(payload+4));
+        // CRSF fields filled with FF are unavailable (as handled by EdgeTX).
+        // Decode each independently: speed-only packets must not move the map.
+        const bool position=present(0,4) && present(4,4) && lat>=-900000000 &&
+            lat<=900000000 && lon>=-1800000000 && lon<=1800000000;
+        state_.gpsValid=position;
+        if(position){state_.latitudeE7=lat;state_.longitudeE7=lon;state_.gpsUpdatedMs=now;}
+        state_.gpsSpeedValid=present(8,2);
+        if(state_.gpsSpeedValid){
+            state_.groundSpeedDeciKmh=(uint16_t(payload[8])<<8)|payload[9];
+            state_.gpsSpeedUpdatedMs=now;++state_.gpsSpeedFrames;
+        }
+        const uint16_t heading=(uint16_t(payload[10])<<8)|payload[11];
+        const bool r1Validity=payloadLength>=18 && payload[15]=='R' && payload[16]=='1';
+        state_.gpsCourseValid=present(10,2) && heading<=36000 && (!r1Validity || (payload[17]&1));
+        if(state_.gpsCourseValid)state_.headingCentiDegrees=heading==36000?0:heading;
+        if(present(12,2))state_.altitudeMetres=((uint16_t(payload[12])<<8)|payload[13])-1000;
+        state_.gpsSatellitesValid=present(14,1);
+        state_.satellites=state_.gpsSatellitesValid?payload[14]:0;
+        if(state_.gpsSatellitesValid)state_.gpsSatellitesUpdatedMs=now;
+        if(position || state_.gpsSpeedValid || state_.gpsCourseValid || state_.gpsSatellitesValid){
+            ++state_.gpsDecodedFrames;state_.gpsDecodedUpdatedMs=now;
+        }else ++state_.gpsRejectedFrames;
         return;
     }
     // RadioMaster replies are opaque to the binding/MSP parser. Preserve a
@@ -166,6 +185,19 @@ void CrsfTelemetryParser::processFrame()
         state_.temperatureValid = true; state_.temperatureUpdatedMs = millis(); return;
     }
 
+    // Stock ELRS still emits its local ADC voltage group (source 128) after
+    // external CU01 battery packets suppress its ordinary 0x08 RX report.
+    // The explicit vehicle-battery profile distinguishes this stock source
+    // from our legacy S.Port FAS source-128 convention. Never infer from volts.
+    if (standardBatteryVehicle_ && frameType==0x0e && payloadLength>=3 &&
+        payloadLength<=9 && (payloadLength-1)%2==0 && payload[0]==128) {
+        const uint16_t millivolts=(uint16_t(payload[1])<<8)|payload[2];
+        if(millivolts>60000)return;
+        state_.receiverVoltageDecivolts=(millivolts+50U)/100U;
+        state_.receiverVoltageValid=millivolts!=0;
+        state_.batteryUpdatedMs=millis();
+        return;
+    }
     // FAS general-voltage group, kept separate from both drive cells and RX supply.
     if (frameType == 0x0e && payloadLength == 3 && payload[0] == 128) {
         const uint16_t voltage = (uint16_t(payload[1]) << 8) | payload[2];
@@ -258,6 +290,9 @@ void CrsfTelemetryParser::updateFreshness()
     if (state_.fasVoltageValid && now - state_.fasVoltageUpdatedMs > 3000) state_.fasVoltageValid = false;
     if (state_.fasCurrentValid && now - state_.fasCurrentUpdatedMs > 3000) state_.fasCurrentValid = false;
     if (state_.vehicleCellsValid && now - state_.vehicleCellsUpdatedMs > kVehicleCellsFreshMs) state_.vehicleCellsValid = false;
+    if(state_.gpsCourseValid && now-state_.gpsDecodedUpdatedMs>3000)state_.gpsCourseValid=false;
+    if(state_.gpsSpeedValid && now-state_.gpsSpeedUpdatedMs>3000)state_.gpsSpeedValid=false;
+    if(state_.gpsSatellitesValid && now-state_.gpsSatellitesUpdatedMs>3000)state_.gpsSatellitesValid=false;
     if (state_.gpsValid && now - state_.gpsUpdatedMs > 3000) { state_.gpsValid = false; state_.gpsCourseValid = false; }
     if (state_.rpmValid && now - state_.rpmUpdatedMs > 3000) state_.rpmValid = false;
     if (state_.temperatureValid && now - state_.temperatureUpdatedMs > 10000) state_.temperatureValid = false;

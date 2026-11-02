@@ -184,11 +184,11 @@ int main(int argc, char **argv)
         telemetry.batteryUpdatedMs = now;
         // Optional simulator-only fixture. Never compiled into the ESP32 target.
         const bool sensors = controls.vehicleTelemetry && controls.linkValid;
-        telemetry.gpsCourseValid = sensors;
+        telemetry.gpsCourseValid = telemetry.gpsSpeedValid = telemetry.gpsSatellitesValid = sensors;
         telemetry.gpsValid = telemetry.temperatureValid = telemetry.rpmValid = sensors;
         if (sensors) {
             const double phase = (now / 1000) * 0.12;
-            telemetry.gpsUpdatedMs = telemetry.temperatureUpdatedMs = telemetry.rpmUpdatedMs = (now/1000)*1000;
+            telemetry.gpsSpeedUpdatedMs = telemetry.gpsSatellitesUpdatedMs = telemetry.gpsUpdatedMs = telemetry.temperatureUpdatedMs = telemetry.rpmUpdatedMs = (now/1000)*1000;
             telemetry.latitudeE7 = GpsMap::DemoLat + static_cast<int32_t>(sin(phase)*4500);
             telemetry.longitudeE7 = GpsMap::DemoLon + static_cast<int32_t>(cos(phase)*6000);
             telemetry.groundSpeedDeciKmh = 220 + static_cast<int>(sin(phase)*50);

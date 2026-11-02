@@ -6,6 +6,16 @@
 
 // LVGL 8 label/style setters invalidate even unchanged content. Use these only
 // for live values on existing objects; page construction still sets local styles.
+inline void uiSetHidden(lv_obj_t *obj, bool hidden)
+{
+    if(lv_obj_has_flag(obj,LV_OBJ_FLAG_HIDDEN)==hidden)return;
+    if(hidden)lv_obj_add_flag(obj,LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_clear_flag(obj,LV_OBJ_FLAG_HIDDEN);
+}
+inline void uiSetOpacity(lv_obj_t *obj, lv_opa_t opacity)
+{
+    if(lv_obj_get_style_opa(obj,0)!=opacity)lv_obj_set_style_opa(obj,opacity,0);
+}
 inline void uiSetText(lv_obj_t *obj, const char *text)
 {
     if (std::strcmp(lv_label_get_text(obj), text) != 0) lv_label_set_text(obj, text);

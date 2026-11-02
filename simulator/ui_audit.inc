@@ -68,7 +68,13 @@ bool TransmitterUi::runSimulatorUiAudit()
         for(int orientation=0;orientation<2;++orientation){
             sensorBank_=2;drawDesignPage(UiPage::Telemetry);updateDesign(t,OutputSafetyStatus::Cut,99,true);
             const char *expected[]={"16.0","12.3","500","75"};
-            for(int i=0;i<4;++i)assert(strcmp(lv_label_get_text(designValues_[i+2]),expected[i])==0);
+            for(int i=0;i<4;++i)assert(strcmp(lv_label_get_text(designValues_[i]),expected[i])==0);
+            const bool oldRole=standardBatteryVehicle_;
+            controlDesign(245,activate);assert(standardBatteryVehicle_!=oldRole);
+            armRequested_=true;controlDesign(245,activate);assert(standardBatteryVehicle_!=oldRole);
+            armRequested_=false;controlDesign(245,activate);assert(standardBatteryVehicle_==oldRole);
+            controlDesign(70,activate);assert(sensorSelected_==14);
+            sensorBank_=2;drawDesignPage(UiPage::Telemetry);updateDesign(t,OutputSafetyStatus::Cut,99,true);
             for(uint8_t source=14;source<18;++source)for(int span=0;span<4;++span){
                 dashboardLayouts_[activeModelSlot_]=DashboardLayout{};DashboardWidget w;
                 w.kind=DashboardWidgetKind::Sensor;w.source=source;w.width=(span&1)?2:1;w.height=(span&2)?2:1;
@@ -82,6 +88,125 @@ bool TransmitterUi::runSimulatorUiAudit()
         }
         Serial.println("ERS current/energy page and all widget sizes, both orientations and stale readings PASS");return true;
     }
+    if(getenv("JR_R1_MAP_FOLLOW_AUDIT_ONLY")) {
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
+        if(getenv("JR_R1_MAP_FOLLOW_RASTER")){
+            OfflineMap::Package raster{};raster.valid=true;raster.width=raster.height=64;
+            raster.south=GpsMap::DemoLat-10000;raster.north=GpsMap::DemoLat+10000;
+            raster.west=GpsMap::DemoLon-10000;raster.east=GpsMap::DemoLon+10000;
+            strcpy(raster.attribution,"Synthetic raster test");
+            auto *pixels=OfflineMap::allocatePixels(64*64);assert(pixels);
+            for(unsigned y=0;y<64;++y)for(unsigned x=0;x<64;++x)pixels[y*64+x]=((x/8+y/8)%2)?0x9e73:0xbdf7;
+            OfflineMap::install(raster,pixels);
+        }
+        auto *display=lv_disp_get_default();auto oldMonitor=display->driver->monitor_cb;
+        display->driver->monitor_cb=auditRefreshMonitor;
+        for(unsigned orientation=0;orientation<2;++orientation){
+            for(bool page:{false,true})for(unsigned span=0;span<(page?1u:4u);++span){
+                dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+                auto &widget=dashboardLayouts_[activeModelSlot_].cells[0];widget.kind=DashboardWidgetKind::Map;
+                widget.width=(span&1)?2:1;widget.height=(span&2)?2:1;
+                gpsCount_=1;gpsLat_[0]=GpsMap::DemoLat;gpsLon_[0]=GpsMap::DemoLon;gpsZoom_=1;
+                if(page)drawDesignPage(UiPage::Gps);else drawDashboard();
+                lv_obj_update_layout(lv_scr_act());
+                auto map=page?lv_obj_get_parent(designCurve_):widgetViews_[0].basemap;
+                auto marker=page?designMarker_:widgetViews_[0].marker;
+                auto &view=page?designMapViewport_:widgetViews_[0].mapViewport;
+                const int width=lv_obj_get_width(map),height=lv_obj_get_height(map);
+                CrsfTelemetryState t{};t.gpsValid=t.gpsSpeedValid=true;t.satellites=8;
+                auto render=[&](){
+                    t.latitudeE7=gpsLat_[gpsCount_-1];t.longitudeE7=gpsLon_[gpsCount_-1];
+                    t.gpsUpdatedMs=t.gpsSpeedUpdatedMs=gpsLastSampleMs_=millis();
+                    if(page)updateDesign(t,OutputSafetyStatus::Cut,99,true);else updateDashboardWidgets(t,99,true);
+                    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+                };
+                render();assert(view.latitude==gpsLat_[0] && view.longitude==gpsLon_[0]);
+                const auto centreLat=view.latitude,centreLon=view.longitude;const double scale=view.pixelsPerMetre;
+                const int oldX=lv_obj_get_x(marker);
+                gpsCount_=2;gpsLat_[1]=gpsLat_[0];
+                gpsLon_[1]=centreLon+int32_t(5/(GpsMap::MetresPerE7*GpsMap::longitudeScale(centreLat)*scale));
+                auditRedrawnPixels=0;render();
+                assert(view.latitude==centreLat && view.longitude==centreLon && view.pixelsPerMetre==scale);
+                assert(lv_obj_get_x(marker)>oldX && auditRedrawnPixels>0);
+                assert(auditRedrawnPixels<uint64_t(width)*height/10);
+                Serial.printf("GPS redraw %s %dx%d: 5px movement=%llu pixels (map=%u)\n",page?"page":"widget",width,height,
+                    static_cast<unsigned long long>(auditRedrawnPixels),unsigned(width*height));
+                const auto *points=page?gpsPoints_:widgetViews_[0].points;
+                auto trail=page?designCurve_:widgetViews_[0].plot;
+                assert(points[1].x+lv_obj_get_x(trail)==lv_obj_get_x(marker)+(page?9:8));
+                assert(points[1].y+lv_obj_get_y(trail)==lv_obj_get_y(marker)+(page?9:8));
+                auditRedrawnPixels=0;
+                for(unsigned i=0;i<10;++i)render();
+                assert(auditRedrawnPixels==0); // No repeated map or trail invalidation.
+                if(const char *prefix=getenv("JR_R1_MAP_FOLLOW_SCREENSHOTS")){
+                    char path[256];snprintf(path,sizeof(path),"%s-%s-%s-%u.bmp",prefix,portraitUi?"portrait":"landscape",page?"page":"widget",span);
+                    simulatorSaveScreenshot(path);
+                }
+                gpsLon_[1]=centreLon+int32_t((width*.31+2)/(GpsMap::MetresPerE7*GpsMap::longitudeScale(centreLat)*scale));
+                render();assert(view.longitude==gpsLon_[1] && view.latitude==gpsLat_[1]);
+                assert(abs(lv_obj_get_x(marker)-(width/2-(page?9:8)))<=1);
+                assert(points[1].x+lv_obj_get_x(trail)==lv_obj_get_x(marker)+(page?9:8));
+                assert(points[1].y+lv_obj_get_y(trail)==lv_obj_get_y(marker)+(page?9:8));
+                assert(view.pixelsPerMetre==scale); // The trail never auto-zooms the widget.
+                // Zoom centres on the current fix, then starts a new stationary region.
+                followGpsBasemap(map,view,gpsLat_[1],gpsLon_[1],scale*2);
+                assert(view.pixelsPerMetre==scale*2 && view.longitude==gpsLon_[1]);
+                assert(!armRequested_);
+            }
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        display->driver->monitor_cb=oldMonitor;
+        Serial.println("GPS follow: stationary viewport, moving marker/aligned trail, edge recenter, fixed widget scale, zoom and partial/zero redraws in both orientations PASS");return true;
+    }
+    if(getenv("JR_R1_SAT_WIDGET_AUDIT_ONLY")) {
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
+        for(unsigned orientation=0;orientation<2;++orientation){
+            for(auto kind:{DashboardWidgetKind::Sensor,DashboardWidgetKind::Course}){
+                for(auto style:{DashboardWidgetStyle::Numbers,DashboardWidgetStyle::Dials,DashboardWidgetStyle::Graph}){
+                    if(kind==DashboardWidgetKind::Course && style==DashboardWidgetStyle::Graph)continue;
+                    for(unsigned span=0;span<4;++span){
+                        dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+                        auto &widget=dashboardLayouts_[activeModelSlot_].cells[0];
+                        widget.kind=kind;widget.source=0;widget.style=style;
+                        widget.width=(span&1)?2:1;widget.height=(span&2)?2:1;
+                        for(bool maximized:{false,true}){
+                            maximizedWidget_=maximized?0:-1;drawDashboard();
+                            CrsfTelemetryState t{};t.gpsValid=t.gpsSpeedValid=t.gpsCourseValid=t.gpsSatellitesValid=true;
+                            t.gpsUpdatedMs=t.gpsSpeedUpdatedMs=t.gpsSatellitesUpdatedMs=millis();
+                            t.groundSpeedDeciKmh=235;t.headingCentiDegrees=27000;t.satellites=8;
+                            updateDashboardWidgets(t,99,true);lv_obj_update_layout(lv_scr_act());
+                            auto &view=widgetViews_[0];assert(view.satellites);
+                            assert(strcmp(lv_label_get_text(view.satellites),"8 sats")==0);
+                            assert(lv_obj_get_style_text_font(view.satellites,0)==UiText::font(UiText::Caption));
+                            assert(lv_obj_get_x(view.satellites)>=0 && lv_obj_get_y(view.satellites)>=0);
+                            assert(lv_obj_get_x(view.satellites)+lv_obj_get_width(view.satellites)<=lv_obj_get_width(view.panel));
+                            assert(lv_obj_get_y(view.satellites)+lv_obj_get_height(view.satellites)<=24);
+                            if(span==0 && !maximized)if(const char *prefix=getenv("JR_R1_SAT_WIDGET_SCREENSHOTS")){
+                                char path[256];snprintf(path,sizeof(path),"%s-%s-%u-%u.bmp",prefix,portraitUi?"portrait":"landscape",unsigned(kind),unsigned(style));
+                                lv_refr_now(nullptr);simulatorSaveScreenshot(path);
+                            }
+                            // Zero is a real report; missing/stale fields never retain an old count.
+                            t.satellites=0;updateDashboardWidgets(t,99,true);
+                            assert(strcmp(lv_label_get_text(view.satellites),"0 sats")==0);
+                            t.satellites=254;updateDashboardWidgets(t,99,true);
+                            assert(strcmp(lv_label_get_text(view.satellites),"254 sats")==0);
+                            t.gpsSatellitesValid=false;updateDashboardWidgets(t,99,true);
+                            assert(strcmp(lv_label_get_text(view.satellites),"-- sats")==0);
+                            t.gpsSatellitesValid=true;t.gpsSatellitesUpdatedMs=millis()-3001;updateDashboardWidgets(t,99,true);
+                            assert(strcmp(lv_label_get_text(view.satellites),"-- sats")==0);
+                            t.gpsSatellitesUpdatedMs=millis();t.satellites=8;
+                            t.gpsValid=t.gpsSpeedValid=t.gpsCourseValid=false;updateDashboardWidgets(t,99,true);
+                            assert(strcmp(lv_label_get_text(view.satellites),"8 sats")==0);
+                            assert(!armRequested_);
+                        }
+                        maximizedWidget_=-1;
+                    }
+                }
+            }
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("Satellite captions: speed/course, all sizes/styles, maximized, both orientations, zero/missing/stale and independent validity PASS");return true;
+    }
     if(getenv("JR_R1_COURSE_AUDIT_ONLY")) {
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
         for(int orientation=0;orientation<2;++orientation){
@@ -92,9 +217,9 @@ bool TransmitterUi::runSimulatorUiAudit()
                     widget.kind=DashboardWidgetKind::Course;widget.style=style;
                     widget.width=(span&1)?2:1;widget.height=(span&2)?2:1;
                     drawDashboard();lv_obj_update_layout(lv_scr_act());
-                    CrsfTelemetryState course{};course.gpsValid=course.gpsCourseValid=true;
+                    CrsfTelemetryState course{};course.gpsValid=course.gpsCourseValid=course.gpsSpeedValid=true;
                     course.satellites=8;course.groundSpeedDeciKmh=100;
-                    course.gpsUpdatedMs=millis();course.headingCentiDegrees=27000;
+                    course.gpsUpdatedMs=course.gpsSpeedUpdatedMs=millis();course.headingCentiDegrees=27000;
                     updateDesign(course,OutputSafetyStatus::Cut,99,true);
                     assert(strstr(lv_label_get_text(widgetViews_[0].values[0]),"270.0"));
                     assert(strstr(lv_label_get_text(widgetViews_[0].detail),"W / travel"));
@@ -243,7 +368,11 @@ bool TransmitterUi::runSimulatorUiAudit()
     const auto auditDriveHold=[&](){
         SetupPortal::stop();drawDashboard();armRequested_=false;
         touchWasDown_=armGestureValid_=true;touchStartPage_=activePage_;touchDownStartedMs_=1000;
-        updateDriveHoldFeedback(1400);lv_obj_update_layout(lv_scr_act());
+        touchStartX_=30;touchStartY_=kScreenHeight-(portraitUi?40:20);
+        updateDriveHoldFeedback(1400);assert(!driveHoldOverlay_);
+        updateDriveHoldFeedback(1999);assert(!driveHoldOverlay_);
+        updateDriveHoldFeedback(2000);assert(driveHoldOverlay_&&lv_bar_get_value(driveHoldBar_)==0);
+        updateDriveHoldFeedback(2400);lv_obj_update_layout(lv_scr_act());
         assert(driveHoldOverlay_&&!lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN));
         assert(lv_obj_get_width(driveHoldOverlay_)==kScreenWidth-20&&lv_bar_get_value(driveHoldBar_)==400);
         assert(strstr(lv_label_get_text(driveHoldLabel_),"Keep holding"));
@@ -251,9 +380,11 @@ bool TransmitterUi::runSimulatorUiAudit()
             lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
             snprintf(path,sizeof(path),"%s-%s.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);
         }
-        updateDriveHoldFeedback(1800);assert(!armRequested_&&lv_bar_get_value(driveHoldBar_)==800);
+        updateDriveHoldFeedback(2800);assert(!armRequested_&&lv_bar_get_value(driveHoldBar_)==800);
         assert(strstr(lv_label_get_text(driveHoldLabel_),"Release to request"));
-        armGestureValid_=false;updateDriveHoldFeedback(1801);assert(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN));
+        armGestureValid_=false;updateDriveHoldFeedback(2801);assert(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN));
+        armGestureValid_=true;touchDownStartedMs_=3000;updateDriveHoldFeedback(3100);
+        assert(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN));
         touchWasDown_=false;remoteArmPage_=static_cast<uint32_t>(activePage_);
         auto hold=remoteArmHold_.begin(remoteArmPage_,2000);updateDriveHoldFeedback(2400);
         assert(lv_bar_get_value(driveHoldBar_)==400&&!armRequested_);
@@ -262,9 +393,18 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN)&&!armRequested_);
         remoteArmHold_.cancel();(void)hold;
         SetupPortal::start();touchWasDown_=armGestureValid_=true;touchDownStartedMs_=4000;
-        updateDriveHoldFeedback(4800);assert(strstr(lv_label_get_text(driveHoldLabel_),"Wi-Fi setup")&&!armRequested_);
-        SetupPortal::stop();armRequested_=true;updateDriveHoldFeedback(4800);
+        updateDriveHoldFeedback(5800);assert(strstr(lv_label_get_text(driveHoldLabel_),"Wi-Fi setup")&&!armRequested_);
+        SetupPortal::stop();armRequested_=true;updateDriveHoldFeedback(5800);
         assert(strstr(lv_label_get_text(driveHoldLabel_),"Release to CUT")&&armRequested_);
+        // A normal Drive navigation tap and incomplete holds must not CUT.
+        touchWasDown_=false;designTouchDispatch_=true;
+        for(uint32_t duration:{100u,800u,1000u,1799u}){
+            lastTouchDurationMs_=duration;controlDesign(0,activate);assert(armRequested_);
+        }
+        lastTouchDurationMs_=1800;controlDesign(0,activate);assert(!armRequested_);
+        lastTouchDurationMs_=1799;controlDesign(0,activate);assert(!armRequested_);
+        lastTouchDurationMs_=1800;controlDesign(0,activate);assert(armRequested_);
+        designTouchDispatch_=false;
         touchWasDown_=armGestureValid_=armRequested_=false;drawDashboard();
         assert(!driveHoldOverlay_); // A new page owns no stale overlay objects.
         Serial.println("Drive hold: wide progress, release cue, blockers, cancel/expiry, remote preview and no auto-arm PASS");
@@ -330,7 +470,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     const auto auditModuleLink=[&](){
         moduleLinkManaged_=false;moduleLink_=ModuleLink{};
         SetupPortal::start();drawDashboard();
-        lastTouchDurationMs_=800;armGestureValid_=designTouchDispatch_=true;
+        lastTouchDurationMs_=1800;armGestureValid_=designTouchDispatch_=true;
         controlDesign(0,activate);designTouchDispatch_=armGestureValid_=false;
         assert(activePage_==UiPage::OutputStatus&&!armRequested_);
         assert(strstr(lv_label_get_text(designDetails_[1]),"Finish Wi-Fi setup"));
@@ -371,18 +511,31 @@ bool TransmitterUi::runSimulatorUiAudit()
     };
     if(getenv("JR_R1_MODULE_LINK_AUDIT_ONLY")){auditModuleLink();return true;}
     const auto auditSportGps=[&](){
-        CrsfTelemetryState sportGps{};sportGps.gpsValid=true;sportGps.satellites=0;
+        CrsfTelemetryState sportGps{};sportGps.gpsValid=sportGps.gpsSpeedValid=true;sportGps.satellites=0;
         sportGps.latitudeE7=GpsMap::DemoLat;sportGps.longitudeE7=GpsMap::DemoLon;
-        sportGps.gpsUpdatedMs=millis();sportGps.groundSpeedDeciKmh=235;
+        sportGps.gpsUpdatedMs=sportGps.gpsSpeedUpdatedMs=millis();sportGps.groundSpeedDeciKmh=235;
         gpsCount_=0;gpsLastSampleMs_=sportGps.gpsUpdatedMs-1;
         designTelemetry_=sportGps;gpsFullScreen_=false;drawDesignPage(UiPage::Gps);lv_obj_update_layout(lv_scr_act());updateDesign(sportGps,OutputSafetyStatus::Cut,99,true);
         assert(gpsCount_==1 && lv_obj_has_flag(designDetails_[0],LV_OBJ_FLAG_HIDDEN));
+        delay(1);sportGps.gpsUpdatedMs=millis();updateDesign(sportGps,OutputSafetyStatus::Cut,99,true);
+        assert(gpsCount_==1); // A fresh packet with identical coordinates adds no trail point.
         assert(lv_obj_get_style_opa(designMarker_,0)==LV_OPA_COVER);
         int32_t speed=0;uint32_t stamp=0;assert(sensorReading(sportGps,0,speed,stamp)&&speed==235);
         assert(!sensorReading(sportGps,5,speed,stamp)); // unknown count is not zero satellites
         sportGps.gpsValid=false;updateDesign(sportGps,OutputSafetyStatus::Cut,99,true);assert(gpsCount_==1);
         assert(lv_obj_has_flag(designDetails_[0],LV_OBJ_FLAG_HIDDEN));
         assert(lv_obj_get_style_opa(designMarker_,0)==LV_OPA_50);
+        assert(sensorReading(sportGps,0,speed,stamp) && speed==235); // fresh speed, no position
+        const auto oldLayout=dashboardLayouts_[activeModelSlot_];
+        dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+        DashboardWidget speedWidget;speedWidget.kind=DashboardWidgetKind::Sensor;
+        speedWidget.source=0;speedWidget.width=speedWidget.height=2;
+        placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,speedWidget);
+        drawDashboard();updateDashboardWidgets(sportGps,99,true);
+        assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"23.5")==0);
+        sportGps.gpsSpeedValid=false;updateDashboardWidgets(sportGps,99,true);
+        assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"--")==0);
+        dashboardLayouts_[activeModelSlot_]=oldLayout;
         gpsCount_=0;assert(!armRequested_);
         Serial.println("S.Port GPS: unknown fix display, speed, map position and stale handling PASS");
     };
@@ -502,8 +655,8 @@ bool TransmitterUi::runSimulatorUiAudit()
     lastTouchDurationMs_=1000;controlDesign(181,activate);assert(armRequested_&&activePage_==UiPage::Dashboard);
     lastTouchDurationMs_=20;controlDesign(0,activate);assert(armRequested_);
     armGestureValid_=false;lastTouchDurationMs_=1000;controlDesign(0,activate);assert(armRequested_);armGestureValid_=true;
-    lastTouchDurationMs_=799;controlDesign(0,activate);assert(armRequested_);
-    lastTouchDurationMs_=800;controlDesign(0,activate);assert(!armRequested_);designTouchDispatch_=false;
+    lastTouchDurationMs_=1799;controlDesign(0,activate);assert(armRequested_);
+    lastTouchDurationMs_=1800;controlDesign(0,activate);assert(!armRequested_);designTouchDispatch_=false;
     // Drive mode tabs select directly, without the old chooser. Reselecting
     // the active mode preserves a live request; changing modes always CUTs.
     drawDashboard();armRequested_=true;safetyResetRequested_=false;
@@ -1079,7 +1232,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         dashboardLayouts_[activeModelSlot_]=savedLayout;designTelemetry_=savedTelemetry;sensorBank_=savedBank;
     }
     Serial.println("Vehicle cells: CRSF parser, 4S cards, stale values, sensor detail and dashboard widgets PASS");
-    // FAS third page and widgets accept live test readings without touching RX supply.
+    // Dedicated FrSky cards are hidden; persisted FAS widget IDs still decode without relabelling.
     {
         const auto savedTelemetry=designTelemetry_;const auto savedLayout=dashboardLayouts_[activeModelSlot_];
         const auto savedBank=sensorBank_;
@@ -1088,10 +1241,10 @@ bool TransmitterUi::runSimulatorUiAudit()
         fas.fasVoltageUpdatedMs=fas.fasCurrentUpdatedMs=millis();
         fas.receiverVoltageValid=true;fas.receiverVoltageDecivolts=66;
         designTelemetry_=fas;sensorBank_=2;drawTelemetryPage();updateDesign(fas,OutputSafetyStatus::Cut,99,true);
-        assert(strcmp(lv_label_get_text(designValues_[0]),"16.040")==0);
-        assert(strcmp(lv_label_get_text(designValues_[1]),"1155.9")==0);
-        assert(strcmp(lv_label_get_text(designDetails_[1]),"Over 300A")==0);
-        for(unsigned i=2;i<6;++i)assert(designValues_[i] && strcmp(lv_label_get_text(designValues_[i]),"--")==0);
+        for(unsigned i=0;i<4;++i)assert(designValues_[i] && strcmp(lv_label_get_text(designValues_[i]),"--")==0);
+        assert(!designValues_[4] && !designValues_[5]);
+        controlDesign(70,activate);assert(sensorSelected_==14);
+        drawTelemetryPage();updateDesign(fas,OutputSafetyStatus::Cut,99,true);
         lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
         if(const char *prefix=getenv("JR_R1_FAS_SCREENSHOTS")){
             char path[256];snprintf(path,sizeof(path),"%s-%s.bmp",prefix,designPortrait?"portrait":"landscape");simulatorSaveScreenshot(path);
@@ -1103,7 +1256,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"--")==0);
         dashboardLayouts_[activeModelSlot_]=savedLayout;designTelemetry_=savedTelemetry;sensorBank_=savedBank;
     }
-    Serial.println("FAS telemetry: separate voltage/current cards, range marker, widgets and stale values PASS");
+    Serial.println("ERS page hides FrSky cards; legacy FAS widgets retain their persisted meaning and stale values PASS");
     // Assigned reset clears only speed statistics, ignores release, and keeps channels/timer intact.
     speedStatistics_.update(120,1000,1000,true);speedStatistics_.update(300,2000,2000,true);
     auto speedResetId=static_cast<uint16_t>(TransmitterFunction::ResetSpeedStatistics);
@@ -1115,9 +1268,28 @@ bool TransmitterUi::runSimulatorUiAudit()
     speedStatistics_.update(100,3000,3000,true);controlDesign(148,activate);assert(!speedStatistics_.available());
     for(uint8_t width=1;width<=2;++width){for(uint8_t height=1;height<=2;++height){
         DashboardWidget speed;speed.kind=DashboardWidgetKind::Sensor;speed.source=0;speed.width=width;speed.height=height;
-        for(auto style:{DashboardWidgetStyle::Numbers,DashboardWidgetStyle::Graph}){
+        for(auto style:{DashboardWidgetStyle::Numbers,DashboardWidgetStyle::Graph,DashboardWidgetStyle::Dials}){
             speed.style=style;placeDashboardWidget(dashboardLayouts_[0],0,speed);drawDashboard();
             assert(widgetViews_[0].values[1]!=nullptr);
+            lv_obj_update_layout(lv_scr_act());
+            const PageFocusTarget *reset=nullptr;
+            for(uint8_t i=0;i<pageFocusCount_;++i)if(pageFocusTargets_[i].handler==&TransmitterUi::controlDesign && pageFocusTargets_[i].argument==148)reset=&pageFocusTargets_[i];
+            assert(reset);
+            lv_area_t panel;lv_obj_get_coords(widgetViews_[0].panel,&panel);
+            assert(reset->activate.x>=panel.x1 && reset->activate.y>=panel.y1);
+            assert(reset->activate.x+reset->activate.width<=panel.x2+1);
+            assert(reset->activate.y+reset->activate.height<=panel.y2+1);
+            if(const char *prefix=getenv("JR_R1_SPEED_RESET_SCREENSHOTS")){
+                char path[256];snprintf(path,sizeof(path),"%s-%s-%ux%u-%u.bmp",prefix,designPortrait?"portrait":"landscape",width,height,unsigned(style));
+                lv_refr_now(nullptr);simulatorSaveScreenshot(path);
+            }
+            speedStatistics_.reset(0);speedStatistics_.update(120,1,1,true);speedStatistics_.update(300,1001,1001,true);
+            sensorHistoryValid_[0][29]=true;
+            const auto timerBefore=timers_[activeModelSlot_].display();
+            assert(dispatchPageControlTouch(reset->activate.x+reset->activate.width/2,reset->activate.y+reset->activate.height/2));
+            assert(activePage_==UiPage::Dashboard && !speedStatistics_.available());
+            assert(!sensorHistoryValid_[0][29] && timers_[activeModelSlot_].display()==timerBefore);
+            assert(controlConfigurationSnapshot().throttleChannel==beforeReset.throttleChannel);
         }
     }}
     dashboardLayouts_[0]=defaultDashboardLayout();
@@ -1133,15 +1305,15 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(dashboardLayouts_[0].cells[0].speedValue==SpeedWidgetValue::Maximum);
     assert(dashboardLayouts_[1].cells[0].speedValue==SpeedWidgetValue::Current);
     speedStatistics_.reset(0);speedStatistics_.update(100,1,1,true);speedStatistics_.update(300,1001,1001,true);
-    CrsfTelemetryState speedFeed{};speedFeed.gpsValid=true;speedFeed.satellites=12;
-    speedFeed.groundSpeedDeciKmh=400;speedFeed.gpsUpdatedMs=millis();
+    CrsfTelemetryState speedFeed{};speedFeed.gpsValid=speedFeed.gpsSpeedValid=true;speedFeed.satellites=12;
+    speedFeed.groundSpeedDeciKmh=400;speedFeed.gpsUpdatedMs=speedFeed.gpsSpeedUpdatedMs=millis();
     const char *expected[]={"40.0","30.0","20.0"};
     for(uint8_t choice=0;choice<3;++choice){
         dashboardLayouts_[0].cells[0].speedValue=static_cast<SpeedWidgetValue>(choice);
         drawDashboard();updateDesign(speedFeed,OutputSafetyStatus::Cut,99,true);
         assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),expected[choice])==0);
     }
-    speedFeed.gpsValid=false;updateDesign(speedFeed,OutputSafetyStatus::Cut,99,true);
+    speedFeed.gpsValid=speedFeed.gpsSpeedValid=false;updateDesign(speedFeed,OutputSafetyStatus::Cut,99,true);
     assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"20.0")==0);
     assert(strstr(lv_label_get_text(widgetViews_[0].values[1]),"Now --"));
     dashboardLayouts_[0]=defaultDashboardLayout();saveModelMemorySettings();
@@ -1149,11 +1321,11 @@ bool TransmitterUi::runSimulatorUiAudit()
     drawDashboard();lastTouchDurationMs_=1000;designTouchDispatch_=false;
     controlDesign(0,activate);assert(!armRequested_);
     designTouchDispatch_=true;armGestureValid_=true;lastTouchDurationMs_=100;controlDesign(0,activate);assert(!armRequested_);
-    lastTouchDurationMs_=900;controlDesign(0,activate);assert(armRequested_);
+    lastTouchDurationMs_=1800;controlDesign(0,activate);assert(armRequested_);
     lastTouchDurationMs_=20;controlDesign(0,activate);assert(armRequested_);
     armGestureValid_=false;lastTouchDurationMs_=1000;controlDesign(0,activate);assert(armRequested_);armGestureValid_=true;
-    lastTouchDurationMs_=799;controlDesign(0,activate);assert(armRequested_);
-    lastTouchDurationMs_=800;controlDesign(0,activate);assert(!armRequested_);designTouchDispatch_=false;
+    lastTouchDurationMs_=1799;controlDesign(0,activate);assert(armRequested_);
+    lastTouchDurationMs_=1800;controlDesign(0,activate);assert(!armRequested_);designTouchDispatch_=false;
     // Calibration is stored as one verified record and survives settings reload.
     const auto oldCalibration = triggerInput_.calibration();
     calibratingSteering_ = false;

@@ -1,13 +1,47 @@
-# RadioMaster ERS commissioning — 1 November 2026
+# RadioMaster ERS commissioning — 2 November 2026
 
 Prepared for ERS-GPS, ERS-CV01, ERS-CU01 and ERS-RB01. Software tests and builds
 are not a substitute for the first physical sensor/chain test. Sensor calibration,
-accuracy and update rates have not yet been verified with this set.
+accuracy have not yet been fully verified with this set. Delivery-rate evidence
+is recorded below; it does not validate measurement accuracy.
+
+## Current baseline and remaining checks
+
+The ER6G is now running official ExpressLRS 4.1.0 (a9d4a9cb), without our S.Port
+bridge. GPS telemetry returned after the stock upload. The exact failure cause
+is not isolated; do not use R1 ERS discovery/configuration during baseline testing.
+A working chain, real packet source IDs, engineering scales and physical accuracy
+still require one-at-a-time checks for CV01, CU01 and RB01. Decoder fixtures alone
+are not proof that this sensor set is commissioned.
+
+Installed R1 changes hide dedicated FAS cards/new-widget choices without reusing
+persisted source IDs. Data → Sensors → Current / energy includes a saved,
+CUT-only Standard CRSF battery selector: Receiver supply or Vehicle pack / CU01.
+This is local handset interpretation; it sends no command to the sensors.
+Under stock ELRS, the ordinary battery packet is assigned to CU01. Receiver
+supply instead comes from the stock receiver ADC voltage group (source 128,
+first reading), so the two voltages can be displayed independently. This profile
+must not be combined with the legacy FrSky FAS source-128 bridge.
+
+### Measured delivery at 250 Hz / telemetry ratio 1:4
+
+On 2 November, the user changed the Ranger Nano telemetry ratio from Std to 1:4.
+A 30-second R1 USB sample received 211 GPS packets (about 7.0 Hz), all decoded
+with zero rejects and zero CRSF CRC errors. Maximum sampled ages at 200 ms
+polling were GPS 203 ms, CV01 272 ms and CU01 258 ms. These are sampled ages,
+not exact maximum interpacket gaps. No stale events were sampled. The earlier
+Std baseline delivered GPS/CV01/CU01 about every 4.8 seconds, exceeding the
+three-second GPS/CU01 freshness limit. Retain the existing freshness policy.
+The user subsequently reported a good backyard position trace in green mode.
+
+CU01 measurement leads were not connected inline; its zero readings do not
+validate current, voltage or consumption accuracy. GPS mode-specific accuracy
+and full 10 Hz delivery are not established by this measurement.
 
 ## Receiver connection
 
-Stock ExpressLRS already supports ERS. Our updated ER6G S.Port-trial firmware
-adds independent receiver/vehicle battery identities for this setup. ERS uses non-inverted CRSF UART,
+Stock ExpressLRS already supports ERS. The custom S.Port-trial battery identities
+described below are historical; they are not present in the current stock baseline. ERS uses non-inverted CRSF UART,
 420000 baud, separate TX and RX, not the inverted single-wire S.Port connection.
 Daisy-chain the four ERS modules on one UART. Sensor TX connects to receiver RX;
 sensor RX connects to receiver TX. Use the marked connector pinout, not wire colour.
@@ -105,3 +139,15 @@ then type-255 / ID-255 HEART_BEAT broadcasts every two seconds during an
 eight-second scan. Both PING and HEART_BEAT registration replies are accepted.
 USB `ERSSTATUS` reports only configuration frame counts/header metadata, not GPS
 coordinates. `ERS TX` serial lines identify requests that reached the UART sender.
+
+## Installed GPS speed-field handling
+
+EdgeTX's CRSF decoder treats each all-FF GPS field as unavailable independently.
+R1 now follows that convention: fresh speed has its own timestamp and validity;
+missing/out-of-range coordinates cannot move or extend the stored map trail.
+Missing heading and satellite fields do not invalidate speed. A live position
+resumes map updates normally; stale speed still expires after three seconds.
+GPSSTATUS includes speed_packets, speed_available and speed_age_ms for rate checks.
+This is not a sensor-mode detector: hardware validation is still needed in blue
+and red modes. No sensor discovery, setting writes or RF-rate changes are used.
+Reference: https://github.com/EdgeTX/edgetx/blob/main/radio/src/telemetry/crossfire.cpp

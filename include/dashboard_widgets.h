@@ -17,10 +17,16 @@ struct DashboardWidget {
 // and 12..13 are FAS voltage/current.
 // Append IDs: ERS pack voltage, current, consumed mAh, remaining percent.
 constexpr uint8_t DashboardSensorCount = 18;
+// Keep persisted IDs stable while hiding dedicated FrSky FAS cards for ERS testing.
+constexpr uint8_t DisplaySensorCount = 16;
+inline uint8_t displaySensorSource(uint8_t index) {
+    return index<12?index:index<DisplaySensorCount?index+2:DashboardSensorCount;
+}
+
 // Individual-cell IDs 8..11 migrate to BatteryCells; other sensor IDs persist.
 inline uint8_t nextDashboardSensorSource(uint8_t source, int direction) {
     do { source=(source+DashboardSensorCount+(direction<0?-1:1))%DashboardSensorCount; }
-    while(source>=8 && source<12);
+    while(source>=8 && source<14);
     return source;
 }
 struct DashboardLayout { DashboardWidget cells[4]; };

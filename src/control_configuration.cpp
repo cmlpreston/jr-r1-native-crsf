@@ -445,3 +445,35 @@ void previewChannelMixCurve(const ControlConfigurationSnapshot &c,uint8_t channe
         output[n]=previewChannelMix(c,channel,m,sweep==0?x:base,values,high,walk).output;
     }
 }
+
+ChannelMixMonitor monitorChannelMix(const ControlConfigurationSnapshot &configuration,
+    const MixInputSnapshot &inputs,const CrsfChannelOutputModel &bindings,
+    uint8_t channel,const ChannelMixSettings &draft,int8_t sweep)
+{
+    ChannelMixMonitor monitor;
+    if(channel<1 || channel>16)return monitor;
+    auto c=configuration;c.mixing[channel-1]=draft;
+    const auto plan=compileConfiguredMixing(c);if(!plan.valid)return monitor;
+    ChannelMixRuntime runtime;
+    MixEvaluation e(c,inputs,bindings,runtime,0,false);evaluateMixPlan(e,plan);
+    if(!e.valid[channel-1])return monitor;
+    monitor.valid=true;
+    monitor.base=channel==c.steeringChannel?inputs.values[0]:channel==c.throttleChannel?inputs.values[1]:
+        bindings.enabled(channel)?permilleFromCrsfValue(bindings.requested(channel)):0;
+    for(unsigned n=0;n<2;++n)monitor.sources[n]=e.inputs.values[draft.rules[n].source];
+    auto calculate=[&](const MixInputSnapshot &samples,int16_t base){
+        ChannelMixPreview result;ChannelMixRuntime settled;int16_t rate=1000;
+        result.mixed=settled.apply(channel,draft,samples,c.driveMode==DriveMode::Walk,base,0,false,&rate,result.contributions);
+        ChannelSlewRuntime slew;
+        result.output=limitMixedOutput(draft,processConfiguredProportionalChannel(c,channel,result.mixed,0,slew,0,false,rate).requestedPermille);
+        return result;
+    };
+    monitor.result=calculate(e.inputs,monitor.base);
+    if(sweep>=0 && sweep<=2)for(unsigned n=0;n<kMixCurvePoints;++n){
+        const int16_t value=-1000+n*2000/(kMixCurvePoints-1);
+        auto samples=e.inputs;
+        if(sweep>0)samples.values[draft.rules[sweep-1].source]=value;
+        monitor.curve[n]=calculate(samples,sweep==0?value:monitor.base).output;
+    }
+    return monitor;
+}

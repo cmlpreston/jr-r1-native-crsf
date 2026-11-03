@@ -7,6 +7,9 @@
 #include "channel_response.h"
 #include "dashboard_widgets.h"
 #include "speed_statistics.h"
+#include "sensor_statistics.h"
+#include "drive_battery.h"
+#include "rf_link_warning.h"
 #include "race_timer.h"
 #include "gps_acquisition_chime.h"
 #include "control_configuration.h"
@@ -108,6 +111,8 @@ enum class UiPage : uint8_t {
     TimerControl,
     ModuleLink,
     ErsSensors,
+    DriveBatterySetup,
+    RfWarningSetup,
 };
 
 class TransmitterUi {
@@ -214,6 +219,7 @@ public:
     }
 #endif
     void setPhysicalInputStates(const PhysicalInputStateStore &states);
+    void setMixMonitorInputs(const MixInputSnapshot &inputs, const CrsfChannelOutputModel &bindings);
     bool handleKeypadEvent(PhysicalControlId key, InputEvent event, uint32_t now);
     void setStartupPreflight(bool complete, uint32_t unsafeMask);
     size_t copyBindings(ControlBinding *destination, size_t capacity) const;
@@ -375,6 +381,9 @@ private:
     void controlChannelSpeed(uint8_t row, PageControlEvent event);
     void controlDashboard(uint8_t item, PageControlEvent event);
     void drawChannelMixing();
+    void drawMixMonitor();
+    void refreshChannelMixing();
+    void refreshTuneParameters();
     void controlChannelMixing(uint8_t item, PageControlEvent event);
     bool saveMixing(uint8_t channel, const ChannelMixSettings &settings);
     void loadMixing();
@@ -388,6 +397,12 @@ private:
     lv_point_t mixingCurvePoints_[41]={};
     bool mixingPreviewHigh_ = false, mixingPreviewWalk_ = false;
     bool mixingSaveError_ = false;
+    bool mixingLiveInputs_ = true;
+    MixInputSnapshot mixingLiveSamples_;
+    CrsfChannelOutputModel mixingLiveBindings_;
+    uint32_t mixingLiveUpdatedMs_ = 0;
+    lv_obj_t *mixingReadouts_[6] = {}, *mixingLiveBars_[6] = {};
+    lv_obj_t *mixingCurve_ = nullptr, *mixingCursor_ = nullptr, *mixingSentCursor_ = nullptr, *mixingSummary_ = nullptr;
     void controlChannelConfig(uint8_t item, PageControlEvent event);
     void controlInputMonitor(uint8_t item, PageControlEvent event);
     void controlElrsBinding(uint8_t item, PageControlEvent event);
@@ -482,6 +497,8 @@ private:
                           ElrsManagementTarget target);
     void updateTouch();
     void updateDriveHoldFeedback(uint32_t now);
+    void showChannelAdjustment(uint8_t channel, ChannelParameterKind kind);
+    void updateChannelAdjustment(uint32_t now);
     void startCalibration(uint16_t adc, bool steering = false);
     void updateCalibration(uint16_t adc);
     void cancelCalibration();
@@ -570,6 +587,10 @@ private:
     bool channelRoleConflict_ = false;
     lv_obj_t *armProgress_ = nullptr;
     lv_obj_t *driveHoldOverlay_ = nullptr, *driveHoldLabel_ = nullptr, *driveHoldBar_ = nullptr;
+    lv_obj_t *adjustmentOverlay_ = nullptr;
+    uint8_t adjustmentChannel_ = 0;
+    ChannelParameterKind adjustmentKind_ = ChannelParameterKind::Trim;
+    uint32_t adjustmentChangedMs_ = 0;
     lv_obj_t *driveProgress_ = nullptr, *driveHint_ = nullptr, *driveIcon_ = nullptr;
     uint8_t editorField_ = 0;
     int editorDraft_ = 0;
@@ -589,6 +610,7 @@ private:
     RaceTimer timers_[kModelMemoryCount];
     TimerBuzzerSequence timerBuzzer_;
     GpsAcquisitionChime gpsChime_;
+    uint32_t trimNeutralCueUntilMs_ = 0;
     uint8_t timerBank_=0,timerSettingsPage_=0,timerLapPage_=0,timerConfirmation_=0;
     uint32_t timerTickMs_=0,timerOnRemainder_=0,timerLastSavedOn_=0,timerNextSaveMs_=0;
     bool timerClockSet_=false;
@@ -620,12 +642,31 @@ private:
     bool sensorHistoryValid_[DashboardSensorCount][30] = {};
     uint8_t sensorHistoryCount_ = 0;
     SpeedStatistics speedStatistics_;
+    SensorStatistics sensorStatistics_[DashboardSensorCount];
+    bool sensorSessionStats_[DashboardSensorCount]={};
+    void resetSensorStatistics(uint8_t sensor);
+    void loadDriveBatterySettings();
+    void saveDriveBatterySettings();
+    void controlDriveBattery(uint8_t row,PageControlEvent event);
+    void updateDriveBatteryWarning(const CrsfTelemetryState &telemetry,uint32_t now);
+    DriveBatterySettings driveBatterySettings_;
+    DriveBatteryAlarm drivePackAlarm_,driveCellAlarm_;
+    lv_obj_t *driveBatteryWarning_=nullptr,*driveBatteryWarningText_=nullptr;
+    RfLinkWarningSettings rfWarningSettings_;
+    UiPage rfWarningReturnPage_=UiPage::Setup;
+    RfWarningLatch rfRssiWarning_,rfLqWarning_,rfTelemetryWarning_;
+    bool rfTelemetrySeen_=false;
+    lv_obj_t *rfWarningPanel_=nullptr,*rfWarningText_=nullptr;
+    void loadRfWarningSettings();
+    void saveRfWarningSettings();
+    void controlRfWarning(uint8_t row,PageControlEvent event);
+    void updateRfWarning(const CrsfTelemetryState &,uint32_t now);
     uint32_t nextSensorSampleMs_ = 0;
     int32_t gpsLat_[48] = {}, gpsLon_[48] = {};
     uint8_t gpsCount_ = 0;
     uint32_t gpsLastSampleMs_ = 0;
     bool gpsTrailVisible_ = true;
-    uint8_t gpsZoom_ = 1;
+    int8_t gpsZoom_ = 0; // power-of-two steps; negative steps zoom out
     bool gpsFullScreen_ = false;
     void drawGpsMapView(bool fullScreen);
     void updateGpsPresentation(uint32_t now);
@@ -651,6 +692,7 @@ private:
     RxBatterySettings rxBatterySettings_;
     DriveModeSettings driveModeSettings_;
     bool standardBatteryVehicle_=false;
+    bool ersUsePackCapacity_=false;
     void drawErsSensorContent();
     void controlErsSensor(uint8_t item, PageControlEvent event);
     int8_t ersSelected_=-1;
@@ -701,6 +743,7 @@ private:
     ControlBinding bindingDraft_;
     char bindingError_[64] = {};
     ControlBinding bindings_[kPhysicalControlCount] = {};
+    bool bindingParameterReversals_[16]={};
     size_t bindingCount_ = 0;
     bool channelRolesChanged_ = false;
     bool safetyResetRequested_ = false;

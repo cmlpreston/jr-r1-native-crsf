@@ -72,6 +72,7 @@ void TransmitterUi::controlErsSensor(uint8_t item,PageControlEvent event)
     if(item>=10 && item<=13 && ersSelected_<0){
         const unsigned index=ersListBank_*4+item-10;if(index>=ersConfig_.count())return;
         ersSelected_=index;ersDraftDirty_=false;ersFine_=false;ersPageMessage_[0]=0;
+        if(ersUsePackCapacity_ && ersConfig_.device(index).type==4){ersDraft_=driveBatterySettings_.capacityMah;ersDraftDirty_=true;ersUsePackCapacity_=false;}
         drawDesignPage(UiPage::ErsSensors);return;
     }
     if(item==9){ersFine_=!ersFine_;drawDesignPage(UiPage::ErsSensors);return;}

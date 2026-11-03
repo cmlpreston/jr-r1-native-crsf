@@ -259,6 +259,9 @@ int main(int argc, char **argv)
         const uint16_t crsf=live?channelOutputs.requested(ui.throttleChannel()):channelOutputs.safe(ui.throttleChannel());
         const int16_t output=permilleFromCrsfValue(crsf);
         ui.updateModulePower(controls.transmitterVoltageDecivolts>=25,now);
+        mixInputs.values[0]=result.steering.normalisedPermille;mixInputs.values[1]=result.throttle.normalisedPermille;
+        mixInputs.valid=(mixInputs.valid&~uint64_t{3})|(result.steering.valid?1:0)|(result.throttle.valid?2:0);
+        ui.setMixMonitorInputs(mixInputs,input.bindings);
         ui.update(rawAdc, steeringAdc, rawPermille, output, crsf, safety, telemetry,
                   controls.transmitterVoltageDecivolts, true,
                   channelOutputs, safety == OutputSafetyStatus::Armed);

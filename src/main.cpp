@@ -1195,6 +1195,14 @@ void loop()
     transmitterUi.updateModulePower(txVoltageValid,nowMs);
     moduleLinkEnabled.store(transmitterUi.moduleLinkEnabled());
     const SharedChannelOutputState channelOutputs = readChannelOutputs();
+    auto monitorInputs=readMixInputs(nowMs);
+    monitorInputs.values[0]=control.steeringRawPermille;monitorInputs.values[1]=control.rawPermille;
+    if(control.inputValid)monitorInputs.valid|=3;
+    CrsfChannelOutputModel monitorBindings;
+    portENTER_CRITICAL(&bindingResolverMux);
+    bindingResolver.applyChannelOutputs(monitorBindings,configuredRoleOwnedChannels(lastPublishedControlConfiguration));
+    portEXIT_CRITICAL(&bindingResolverMux);
+    transmitterUi.setMixMonitorInputs(monitorInputs,monitorBindings);
     transmitterUi.update(control.adc, control.steeringAdc, control.rawPermille,
                       control.outputPermille,
                       control.transmittedCrsf,

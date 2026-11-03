@@ -4,6 +4,158 @@ Record user-visible changes here as they are implemented. Update the operating
 manual periodically rather than regenerating it for every firmware change.
 Entries below distinguish prepared source from firmware already installed.
 
+## Installed 3 November 2026 — Setup menu scope and course retirement
+
+Guarded Pi USB PlatformIO upload verified, approved XIAO/Waveshare landscape
+profile, branch `codex/safety-control-refactor`, HEAD `91cf80c` plus current source.
+Fresh main ancestry, firmware build, host/web tests and full UI/rotation audit
+passed. Boot #628 passed startup checks and reported CUT, arm_request=no.
+Record `/tmp/r1-flash-8huchyfh`; log `/tmp/r1-setup-scope-flash.log`.
+
+- Move live RF module configuration to Handset, labelled Shared. Handset now
+  groups display, sounds, RF module, TX battery, network and system settings.
+- Model groups channels, assignments, dashboard, drive modes, vehicle batteries,
+  per-model RF warnings, ESC settings and ERS sensors. Remove the TX battery
+  shortcut from Model's battery submenu; RX and drive pack remain there.
+- Remove the model-warning shortcut from handset sound settings. RF diagnostics
+  retains an explicitly labelled Model alarms shortcut. Warning Back navigation
+  returns to its originating page. Existing settings and persistence retained.
+- Not pushed or published.
+
+## Installed 3 November 2026 — retire GPS course widget
+
+- Remove GPS course from the widget picker and renderer because the installed
+  sensor chain does not provide usable course values. Saved course slots become
+  empty; retired kind ID 9 remains reserved and other saved IDs stay unchanged.
+  Speed, satellite count, GPS position/map and telemetry decoding remain intact.
+- Included in the verified upload above; not pushed or published.
+
+## Installed 3 November 2026 — taller sensor graphs and RF warnings
+
+Guarded Pi USB PlatformIO upload verified, approved XIAO/Waveshare landscape
+profile, branch `codex/safety-control-refactor`, HEAD `91cf80c` plus current source.
+Fresh main ancestry, firmware build, host/web tests and full UI/rotation audit
+passed. Boot #626 passed startup checks and reported CUT, arm_request=no.
+Record `/tmp/r1-flash-ft6v9kuz`; log `/tmp/r1-graph-link-flash.log`.
+
+- Compact sensor readings/statistics above the graph; remove the history footer.
+  Landscape plot height increases from 62 to 115 pixels, portrait from 202 to
+  255. Add top/mid/bottom numeric Y-axis labels and grid lines, with units in the
+  statistics line, padding for flat signals, and explicit empty-history labels.
+- Configurable per-model RF warnings under Sounds / alerts and RF diagnostics.
+  2.4 GHz ELRS 4.x sensitivity table is default (recorded receiver is 4.1.0);
+  3.x selectable. Unknown RF modes suppress RSSI-margin alarms and retain LQ.
+  Defaults: margin at/below 8 dB or LQ at/below 90%, one-second dwell, recovery
+  hysteresis and five-second repeat. Warn only while output is requested.
+- Missing link statistics are separately identified as unavailable telemetry,
+  never treated as a measured weak RSSI. SNR/margin diagnostics clear on stale
+  data. Warning display/sounds do not change control or module power settings.
+- Not pushed or published.
+
+## Installed 3 November 2026 — inaugural-drive follow-up
+
+Guarded Pi USB PlatformIO upload verified, approved XIAO/Waveshare landscape
+profile, branch `codex/safety-control-refactor`, HEAD `91cf80c` plus current source.
+Fresh main ancestry, firmware build, host/web tests and full UI/rotation audit
+passed. Boot #624 passed startup checks and reported CUT, arm_request=no.
+Record `/tmp/r1-flash-pooe1kt_`; log `/tmp/r1-first-drive-flash.log`.
+
+- Steering/throttle parameter controls respect channel reversal. Existing stored
+  output offsets and neutral remain unchanged; UI/control signs use physical
+  input direction. Rebase parameter bindings when reversal changes.
+- Configurable per-model drive-pack and lowest-cell warnings, 4S LiPo initial
+  preset 14.00 V / 3.50 V, with LiFe/LFP, Li-ion and NiMH presets, independent
+  enables and adjustable thresholds. Fresh pack telemetry prioritizes cells,
+  then ERS, then FAS; cell alarms require actual individual-cell telemetry.
+  Two-second debounce, hysteresis, ten-second beep repeat and visible banner.
+- All sensor details offer 30-second/session max and average plus Reset;
+  all sensor widgets can select Current/Maximum/Average and reset their source.
+  RPM defaults to session max hold. Statistics ignore duplicate/stale samples;
+  generic averages are fresh-packet sample means; speed keeps its existing
+  time-weighted session average. Graph histories remain the last 30 samples.
+- Drive capacity defaults to the user's 6500 mAh. ERS Remaining links to CU01
+  settings and stages this capacity on selection, requiring guarded Apply and
+  sensor readback. The reported remaining percentage is never fabricated.
+- GPS position uses a directionless dot. Map zoom spans 1/8x to 8x; wider
+  uploaded imagery is still necessary for coverage beyond the offline map.
+- RF diagnostics label receiver antenna, RF mode and decoded RF output mW.
+  No electrical current/power measurement is available from current hardware.
+- Not pushed or published.
+
+## Installed 3 November 2026 — remove temperature display, trim-neutral cue
+
+Guarded Pi USB PlatformIO verified upload, approved XIAO/Waveshare landscape
+profile, branch `codex/safety-control-refactor`, HEAD `91cf80c` plus working-tree
+changes. Fresh main ancestry, firmware build, host/web tests and full UI/rotation
+audit passed. Boot #618 passed startup checks and confirmed CUT.
+Record `/tmp/r1-flash-tmcw2qe1`; log `/tmp/r1-trim-neutral-flash.log`.
+
+- Hide temperature from Data → Sensors and sensor-widget choices, keeping all
+  persisted source IDs stable. Existing temperature widgets become empty slots.
+  Temperature telemetry decoding remains available internally.
+- Trim/subtrim changes beep for 100 ms when a nonzero value reaches or crosses
+  zero in either direction. Leaving zero and unchanged values are silent.
+  Respects buzzer mute; navigation clicks cannot truncate the neutral cue.
+- Not pushed or published.
+
+## Installed 3 November 2026 — transient trim/subtrim feedback
+
+Guarded Pi USB PlatformIO upload verified on the approved XIAO/Waveshare
+landscape environment, branch `codex/safety-control-refactor`, HEAD `91cf80c`
+plus working-tree changes. Main ancestry, firmware build, host/web tests and
+full UI/rotation audit passed. Boot #616 passed startup checks and confirmed
+CUT. Record `/tmp/r1-flash-vlgyrjtu`; log `/tmp/r1-adjustment-overlay-flash.log`.
+
+- Steering/throttle trim or subtrim changes show a touch-through overlay for
+  1.2 seconds after the last adjustment. A fixed ±100% scale shows response
+  endpoints in cyan and neutral in amber, with signed values and clipping.
+  Uses the configured proportional response before mixes, without advancing
+  slew or changing output behaviour. Page rebuilds retain the brief expiry.
+- Both channel trim and channel subtrim currently add offsets to the response,
+  clipped at ±100%; subtrim does not preserve endpoints. Existing trim-live and
+  subtrim-CUT behaviour is retained and the subtrim popup says CUT requested.
+- Not pushed or published.
+
+## Installed 3 November 2026 — live Tune values and mix monitor
+
+Guarded Pi USB upload from `codex/safety-control-refactor`, HEAD `91cf80c`
+plus working-tree changes, using `seeed_xiao_esp32s3-pcb`, Waveshare LCD F
+landscape 480×320, schematic (5). Fresh main ancestry, build, host/web tests and
+full UI/rotation audit passed; PlatformIO verified the flash. Boot #614 passed
+K1/K2/touch/LCD/UI checks and acknowledged CUT. Record `/tmp/r1-flash-p2emb46t`;
+log `/tmp/r1-live-tune-mix-flash.log`.
+
+- Tune page two refreshes trim/subtrim from the channel model while assigned
+  physical controls are used. Signed values show 0.1% resolution, with centred
+  bars over the existing ±20% adjustment range. No page rebuild is needed.
+  Existing live-trim and subtrim-CUT behavior is retained.
+- Mixer inputs and curve pages default to Live controls. Show named input
+  sources, mix effects and the draft target, separately from the resolved Sent
+  value and CUT/LIVE state. The transfer curve has an amber draft marker and
+  a green Sent marker at the current input;
+  other inputs stay at their current values while the selected axis is swept.
+  Test values remain an explicit mode, adjusted on the Inputs page. Apply is
+  still required to save a draft; monitoring never changes outputs or settings.
+- The read-only draft calculation reuses control-pipeline source shaping and
+  channel dependencies, including independent activation switches. It displays
+  a settled target; rate transitions, slew and threshold latch history remain
+  owned by the real control engine. Missing/stale input snapshots are unavailable.
+- This work has not been pushed or published to Vercel.
+
+## Installed 2 November 2026 — stacked speed-widget labels
+
+Guarded Pi USB upload from `codex/safety-control-refactor`, HEAD `91cf80c`
+plus the layout changes below, using `seeed_xiao_esp32s3-pcb`, Waveshare LCD F
+landscape 480×320. Fresh main ancestry, build, host/web tests and full UI audit
+passed; PlatformIO verified the flash. Boot #609 passed all K1/K2/touch/LCD/UI
+checks, and USB acknowledged CUT. Source/artifact record:
+`/tmp/r1-flash-qsfjcxc5`; log `/tmp/r1-speed-sats-stacked-flash.log`.
+This layout correction is not yet published to Vercel.
+
+- Put the speed widget's satellite count on a separate line beneath km/h,
+  right-aligned, so the count cannot read as part of the speed unit. Reserve
+  space in Numbers, Dials and Graph layouts, including compact widgets.
+
 ## Simulator published 2 November 2026
 
 - Rebuilt both WebAssembly orientations with Emscripten 4.0.15 and deployed the

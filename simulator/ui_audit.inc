@@ -25,6 +25,288 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_SETUP_SCOPE_AUDIT_ONLY")){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;moduleLinkManaged_=false;
+        auto has=[&](uint8_t action){for(uint8_t n=0;n<pageFocusCount_;++n)if(pageFocusTargets_[n].handler==&TransmitterUi::controlDesign&&pageFocusTargets_[n].argument==action)return true;return false;};
+        auto shot=[&](const char *name){if(const char *prefix=getenv("JR_R1_SETUP_SCOPE_IMAGES")){
+            lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",name);simulatorSaveScreenshot(path);}};
+        for(unsigned orientation=0;orientation<2;++orientation){
+            controlDesign(140,activate);controlDesign(208,activate);
+            assert(has(143)&&has(254)&&has(244)&&!has(44)&&!has(145));shot("model");
+            controlDesign(254,activate);navigateBack();assert(activePage_==UiPage::MainMenu&&setupBank_==0&&setupPage_==1);
+            controlDesign(143,activate);assert(has(146)&&has(246)&&!has(145));shot("batteries");
+            controlDesign(141,activate);assert(has(44)&&has(145)&&!has(254));shot("handset");
+            controlDesign(44,activate);assert(activePage_==UiPage::ElrsTxConfig);navigateBack();assert(activePage_==UiPage::MainMenu&&setupBank_==1);
+            controlDesign(208,activate);assert(has(205)&&has(206));shot("handset-page2");
+            drawRadioDiagnostics();controlDesign(254,activate);navigateBack();assert(activePage_==UiPage::RadioDiagnostics);
+            assert(!armRequested_);assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("Setup scope: shared RF/TX handset routes, model warning/battery routes, page access and originating-page Back in both dimensions PASS");return true;
+    }
+    if(getenv("JR_R1_GRAPH_LINK_AUDIT_ONLY")){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
+        systemSettings_.buzzerEnabled=true;
+        for(unsigned orientation=0;orientation<2;++orientation){
+            auto shot=[&](const char *name){if(const char *prefix=getenv("JR_R1_GRAPH_LINK_IMAGES")){
+                lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",name);simulatorSaveScreenshot(path);}};
+            nextSensorSampleMs_=millis()+100000;sensorSelected_=2;
+            memset(sensorHistoryValid_[2],0,sizeof(sensorHistoryValid_[2]));
+            for(unsigned n=0;n<30;++n){sensorHistory_[2][n]=6000+n*200;sensorHistoryValid_[2][n]=true;}
+            CrsfTelemetryState t{};t.rpmValid=true;t.rpm=11800;t.rpmUpdatedMs=millis();designTelemetry_=t;
+            drawDesignPage(UiPage::SensorDetail);updateDesign(t,OutputSafetyStatus::Cut,99,true);lv_obj_update_layout(lv_scr_act());
+            assert(strcmp(lv_label_get_text(designDetails_[3]),"11800")==0);
+            assert(strcmp(lv_label_get_text(designDetails_[4]),"8900")==0);
+            assert(strcmp(lv_label_get_text(designDetails_[5]),"6000")==0);
+            auto graph=lv_obj_get_parent(designCurve_);const int height=lv_obj_get_height(graph),width=lv_obj_get_width(graph);
+            assert(height==(portraitUi?255:115));
+            for(unsigned n=0;n<30;++n)assert(designPoints_[n].x>=60&&designPoints_[n].x<width&&designPoints_[n].y>=7&&designPoints_[n].y<height-7);
+            assert(lv_obj_has_flag(designDetails_[1],LV_OBJ_FLAG_HIDDEN));shot("rpm-graph");
+            sensorSelected_=7;memset(sensorHistoryValid_[7],0,sizeof(sensorHistoryValid_[7]));
+            for(unsigned n=0;n<30;++n){sensorHistory_[7][n]=3980+n;sensorHistoryValid_[7][n]=true;}
+            drawDesignPage(UiPage::SensorDetail);assert(strcmp(lv_label_get_text(designDetails_[3]),"4.009")==0);shot("cell-graph");
+            for(unsigned n=0;n<30;++n)sensorHistory_[7][n]=4000;
+            updateDesign(t,OutputSafetyStatus::Cut,99,true);
+            assert(strcmp(lv_label_get_text(designDetails_[3]),"4.040")==0&&strcmp(lv_label_get_text(designDetails_[5]),"3.960")==0);
+            for(unsigned n=0;n<30;++n)assert(designPoints_[n].y>7&&designPoints_[n].y<height-7);
+            memset(sensorHistoryValid_[7],0,sizeof(sensorHistoryValid_[7]));updateDesign(t,OutputSafetyStatus::Cut,99,true);
+            assert(strcmp(lv_label_get_text(designDetails_[3]),"--")==0&&lv_obj_has_flag(designCurve_,LV_OBJ_FLAG_HIDDEN));
+            armRequested_=false;controlDesign(254,activate);assert(activePage_==UiPage::RfWarningSetup);shot("rf-settings");
+            rfWarningSettings_=RfLinkWarningSettings{};const auto now=millis();
+            t.linkValid=true;t.rfMode=27;t.uplinkRssiDbm=-100;t.uplinkLinkQuality=100;t.linkUpdatedMs=now;
+            auto cues=simulatorBeepCount();updateRfWarning(t,now);updateRfWarning(t,now+1100);assert(simulatorBeepCount()==cues&&!rfRssiWarning_.active());
+            armRequested_=true;updateRfWarning(t,now+1200);t.linkUpdatedMs=now+2200;updateRfWarning(t,now+2200);
+            assert(rfRssiWarning_.active()&&simulatorBeepCount()==cues+1&&armRequested_);shot("rf-warning");
+            t.uplinkRssiDbm=-96;updateRfWarning(t,now+2300);assert(!rfRssiWarning_.active());
+            t.rfMode=255;t.uplinkLinkQuality=80;updateRfWarning(t,now+2400);t.linkUpdatedMs=now+3400;updateRfWarning(t,now+3400);
+            assert(!rfRssiWarning_.active()&&rfLqWarning_.active());
+            updateRfWarning(t,now+5000);assert(!rfLqWarning_.active());updateRfWarning(t,now+6000);assert(rfTelemetryWarning_.active());
+            assert(strstr(lv_label_get_text(rfWarningText_),"TELEMETRY LOST"));
+            armRequested_=false;updateRfWarning(t,now+6001);assert(!rfTelemetryWarning_.active());
+            controlRfWarning(2,PageControlEvent::Increase);loadRfWarningSettings();assert(rfWarningSettings_.marginDb==9);
+            rfWarningSettings_=RfLinkWarningSettings{};saveRfWarningSettings();
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("Graph/link: taller plots, numeric/flat/fractional/no-data axes; versioned RSSI margin, drive-only cues, LQ fallback, missing telemetry and persisted settings in both dimensions PASS");return true;
+    }
+    if(getenv("JR_R1_FIRST_DRIVE_AUDIT_ONLY")){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;bindingCount_=0;
+        for(bool reversed:{false,true})for(auto kind:{ChannelParameterKind::Trim,ChannelParameterKind::Subtrim}){
+            const auto channel=steeringChannel();channelModel_.responses[channel-1]=ChannelResponseProfile{};
+            channelModel_.responses[channel-1].reversed=reversed;
+            channelModel_.parameters[channel-1]=ChannelParameterValues{};
+            channelModel_.parameters[channel-1].trimPermille=75;
+            assert(channelParameterValue(channel,ChannelParameterKind::Trim)==(reversed?-75:75));
+            assert(channelModel_.parameters[channel-1].trimPermille==75); // no migration of saved neutral
+            channelModel_.parameters[channel-1]=ChannelParameterValues{};
+            assert(assignChannelParameterControl(channel,kind,PhysicalControlId::GripTrimA));
+            ControlBinding copied[kPhysicalControlCount];const auto count=copyBindings(copied,kPhysicalControlCount);
+            BindingResolver resolver;assert(resolver.setBindings(copied,count).ok());
+            PhysicalInputEvent press;press.input=PhysicalControlId::GripTrimA;press.event=InputEvent::NegativePress;press.timestampMs=millis();
+            ResolvedBindingActionBuffer actions;resolver.processEvent(press,ContextDashboard,actions);
+            assert(actions.size()==1 && actions[0].value<0);
+            armRequested_=true;assert(applyChannelParameterAction(actions[0].targetId,actions[0].value));
+            assert(channelParameterValue(channel,kind)==actions[0].value);
+            const auto configuration=controlConfigurationSnapshot();const auto neutral=configuredChannelNeutral(configuration,channel);
+            assert(reversed?neutral>0:neutral<0);
+            assert(armRequested_==(kind==ChannelParameterKind::Trim));
+            bindingCount_=0;
+        }
+        armRequested_=false;
+        for(unsigned orientation=0;orientation<2;++orientation){
+            drawDesignPage(UiPage::BatteryMenu);controlDesign(246,activate);assert(activePage_==UiPage::DriveBatterySetup);
+            assert(driveBatterySettings_.cells==4&&driveBatterySettings_.capacityMah==6500);
+            for(uint8_t n=0;n<pageFocusCount_;++n){const auto r=pageFocusTargets_[n].focus;assert(r.x>=0&&r.y>=0&&r.x+r.width<=kScreenWidth&&r.y+r.height<=kScreenHeight);}
+            auto shot=[&](const char *name){if(const char *prefix=getenv("JR_R1_FIRST_DRIVE_IMAGES")){
+                lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",name);simulatorSaveScreenshot(path);}};
+            shot("battery");controlDriveBattery(0,PageControlEvent::Decrease);assert(driveBatterySettings_.chemistry==0&&driveBatterySettings_.cellMv==3000);
+            controlDriveBattery(0,PageControlEvent::Increase);assert(driveBatterySettings_.packMv==14000);
+            saveDriveBatterySettings();loadDriveBatterySettings();assert(driveBatterySettings_.capacityMah==6500);
+            CrsfTelemetryState telemetry{};const auto now=millis();telemetry.vehicleCellsValid=true;
+            telemetry.vehiclePackMv=13900;telemetry.vehicleMinimumCellMv=3400;telemetry.vehicleCellsUpdatedMs=now;
+            drawDashboard();updateDriveBatteryWarning(telemetry,now);assert(!drivePackAlarm_.active());
+            updateDriveBatteryWarning(telemetry,now+2000);assert(drivePackAlarm_.active()&&driveCellAlarm_.active()&&driveBatteryWarning_);
+            shot("warning");updateDriveBatteryWarning(telemetry,now+4000);assert(!drivePackAlarm_.active()&&!driveCellAlarm_.active());
+            sensorStatistics_[2]=SensorStatistics{};sensorSessionStats_[2]=true;
+            sensorStatistics_[2].update(12000,now,now,true);sensorStatistics_[2].update(6000,now+1,now+1,true);
+            sensorSelected_=2;drawDesignPage(UiPage::SensorDetail);
+            assert(strstr(lv_label_get_text(designDetails_[2]),"Max 12000 / Avg 9000"));shot("rpm");
+            controlDesign(248,activate);assert(!sensorSessionStats_[2]);controlDesign(248,activate);assert(sensorSessionStats_[2]);
+            dashboardLayouts_[activeModelSlot_]=DashboardLayout{};DashboardWidget widget;
+            widget.kind=DashboardWidgetKind::Sensor;widget.source=2;widget.width=2;widget.speedValue=SpeedWidgetValue::Maximum;
+            placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,widget);drawDashboard();
+            assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"12000")==0);shot("rpm-widget");
+            controlDesign(250,activate);assert(!sensorStatistics_[2].result(true,millis()).valid);
+            sensorSelected_=17;drawDesignPage(UiPage::SensorDetail);controlDesign(249,activate);assert(activePage_==UiPage::ErsSensors&&ersUsePackCapacity_);
+            gpsCount_=1;gpsLat_[0]=GpsMap::DemoLat;gpsLon_[0]=GpsMap::DemoLon;gpsZoom_=0;drawDesignPage(UiPage::Gps);
+            const double original=designMapViewport_.pixelsPerMetre;
+            controlDesign(82,activate);assert(gpsZoom_==-1);assert(designMapViewport_.pixelsPerMetre<original);
+            assert(lv_obj_get_style_radius(designMarker_,0)==8);shot("gps");
+            for(unsigned n=0;n<8;++n)controlDesign(82,activate);assert(gpsZoom_==-3);
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("First drive: reversed physical trim without neutral migration, battery config/persistence/debounce/stale, RPM hold/reset, statistics modes, CU01 capacity entry, map dot/zoom in both dimensions PASS");return true;
+    }
+    if(getenv("JR_R1_TRIM_NEUTRAL_AUDIT_ONLY")){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
+        systemSettings_.buzzerEnabled=true;systemSettings_.keyClicksEnabled=true;
+        timerBuzzer_.cancel();gpsChime_.cancel();
+        for(auto kind:{ChannelParameterKind::Trim,ChannelParameterKind::Subtrim}){
+            const auto target=encodeChannelParameterTarget(steeringChannel(),kind);
+            applyChannelParameterAction(target,0);
+            auto count=simulatorBeepCount();
+            for(int value:{10,20,10}){assert(applyChannelParameterAction(target,value));assert(simulatorBeepCount()==count);}
+            for(int value:{0,-10,10,-10,0}){
+                const int old=channelParameterValue(steeringChannel(),kind);
+                assert(applyChannelParameterAction(target,value));
+                if(old!=0 && (value==0 || (old<0)!=(value<0)))++count;
+                assert(simulatorBeepCount()==count);
+            }
+            applyChannelParameterAction(target,0);assert(simulatorBeepCount()==count);
+            playKeyClick();assert(simulatorBeepCount()==count); // do not truncate neutral cue
+            systemSettings_.buzzerEnabled=false;applyChannelParameterAction(target,10);applyChannelParameterAction(target,-10);
+            assert(simulatorBeepCount()==count);systemSettings_.buzzerEnabled=true;
+        }
+        for(uint8_t i=0;i<DisplaySensorCount;++i)assert(displaySensorSource(i)!=1);
+        for(unsigned orientation=0;orientation<2;++orientation){
+            for(sensorBank_=0;sensorBank_<3;++sensorBank_){
+                drawTelemetryPage();lv_obj_update_layout(lv_scr_act());
+                for(uint8_t i=0;i<6;++i){const auto source=displaySensorSource(sensorBank_*6+i);
+                    if(source<DashboardSensorCount){controlDesign(70+i,activate);assert(sensorSelected_==source);drawTelemetryPage();}
+                }
+            }
+            armRequested_=false;assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("Trim neutral: zero arrival, bidirectional crossings, leave/repeat silence, key-click protection, mute, both parameter kinds and temperature-free sensor navigation PASS");return true;
+    }
+    if(getenv("JR_R1_ADJUSTMENT_OVERLAY_AUDIT_ONLY")){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
+        for(unsigned orientation=0;orientation<2;++orientation){
+            for(uint8_t channel:{steeringChannel(),throttleChannel()}){
+                channelModel_.parameters[channel-1]=ChannelParameterValues{};
+                channelModel_.setResponse(channel,ChannelResponseProfile{});
+                drawDashboard();armRequested_=true;
+                const auto page=activePage_;const auto count=pageFocusCount_;
+                assert(applyChannelParameterAction(encodeChannelParameterTarget(channel,ChannelParameterKind::Trim),100));
+                assert(armRequested_ && activePage_==page && pageFocusCount_==count && adjustmentOverlay_);
+                lv_obj_update_layout(lv_scr_act());
+                auto overlay=adjustmentOverlay_;
+                assert(!lv_obj_has_flag(overlay,LV_OBJ_FLAG_CLICKABLE));
+                for(uint32_t n=0;n<lv_obj_get_child_cnt(overlay);++n)
+                    assert(!lv_obj_has_flag(lv_obj_get_child(overlay,n),LV_OBJ_FLAG_CLICKABLE));
+                auto detail=lv_obj_get_child(overlay,lv_obj_get_child_cnt(overlay)-1);
+                assert(strstr(lv_label_get_text(detail),"-90.0%") && strstr(lv_label_get_text(detail),"N +10.0%") && strstr(lv_label_get_text(detail),"+100.0%"));
+                updateChannelAdjustment(adjustmentChangedMs_+1199);assert(adjustmentOverlay_==overlay);
+                // Repeated steps extend the display and page rebuilds preserve the short expiry.
+                assert(applyChannelParameterAction(encodeChannelParameterTarget(channel,ChannelParameterKind::Trim),110));
+                drawDashboard();assert(!adjustmentOverlay_ && adjustmentChannel_==channel);
+                updateChannelAdjustment(adjustmentChangedMs_+1);assert(adjustmentOverlay_);
+                if(const char *prefix=getenv("JR_R1_ADJUSTMENT_OVERLAY_IMAGES")){
+                    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+                    snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",channel==steeringChannel()?"steering":"throttle");simulatorSaveScreenshot(path);
+                }
+                updateChannelAdjustment(adjustmentChangedMs_+1200);assert(!adjustmentOverlay_ && !adjustmentChannel_);
+                assert(activePage_==page && armRequested_);
+                assert(applyChannelParameterAction(encodeChannelParameterTarget(channel,ChannelParameterKind::Subtrim),-200));
+                assert(!armRequested_ && adjustmentOverlay_);
+                detail=lv_obj_get_child(adjustmentOverlay_,lv_obj_get_child_cnt(adjustmentOverlay_)-1);
+                assert(strstr(lv_label_get_text(detail),"N -9.0%"));
+                bootPinUnlocked_=false;updateChannelAdjustment(millis());assert(!adjustmentOverlay_ && !adjustmentChannel_);
+                assert(!applyChannelParameterAction(encodeChannelParameterTarget(channel,ChannelParameterKind::Trim),120));
+                bootPinUnlocked_=true;
+            }
+            // AUX adjustments should not display a steering/throttle popup.
+            assert(applyChannelParameterAction(encodeChannelParameterTarget(3,ChannelParameterKind::Trim),45));
+            assert(!adjustmentOverlay_ && !adjustmentChannel_);
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("Adjustment overlay: response clipping, neutral/endpoints, trim-live/subtrim-CUT, expiry, repeated steps, rebuilds, pass-through and lock guards in both orientations PASS");return true;
+    }
+    if(getenv("JR_R1_LIVE_TUNE_MIX_AUDIT_ONLY")){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
+        moduleLinkManaged_=false;bindingCount_=0;
+        for(unsigned orientation=0;orientation<2;++orientation){
+            for(uint8_t role:{0,1,3}){
+                tuneRole_=role;selectedChannel_=role==3?3:role==0?steeringChannel():throttleChannel();tuneBank_=1;
+                assert(assignChannelParameterControl(selectedChannel_,ChannelParameterKind::Trim,PhysicalControlId::GripTrimA));
+                assert(assignChannelParameterControl(selectedChannel_,ChannelParameterKind::Subtrim,PhysicalControlId::GripTrimB));
+                drawDesignPage(UiPage::Tune);auto label=designValues_[5];
+                armRequested_=true;
+                assert(applyChannelParameterAction(encodeChannelParameterTarget(selectedChannel_,ChannelParameterKind::Trim),37));
+                assert(armRequested_ && designValues_[5]==label);
+                assert(strcmp(lv_label_get_text(label),"+3.7%")==0 && lv_bar_get_value(designBars_[0])==37);
+                const int subtrim=-24-int(orientation);
+                assert(applyChannelParameterAction(encodeChannelParameterTarget(selectedChannel_,ChannelParameterKind::Subtrim),subtrim));
+                assert(!armRequested_ && strcmp(lv_label_get_text(designValues_[6]),orientation?"-2.5%":"-2.4%")==0);
+                assert(lv_bar_get_value(designBars_[1])==subtrim);
+                BindingResolver resolver;assert(resolver.setBindings(bindings_,bindingCount_).ok());
+                PhysicalInputEvent press;press.input=PhysicalControlId::GripTrimA;press.event=InputEvent::PositivePress;press.timestampMs=millis();
+                ResolvedBindingActionBuffer actions;resolver.processEvent(press,ContextMenu,actions);
+                assert(actions.size()==1 && actions[0].target==AssignmentTarget::ModelParameter);
+                assert(applyChannelParameterAction(actions[0].targetId,actions[0].value));
+                char actual[24];snprintf(actual,sizeof(actual),"%+.1f%%",actions[0].value/10.0);
+                assert(designValues_[5]==label && strcmp(lv_label_get_text(label),actual)==0);
+                assert(lv_bar_get_value(designBars_[0])==actions[0].value);
+                if(const char *prefix=getenv("JR_R1_LIVE_TUNE_MIX_IMAGES")){
+                    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+                    snprintf(path,sizeof(path),"%s-%s-trim-%u.bmp",prefix,portraitUi?"portrait":"landscape",role);simulatorSaveScreenshot(path);
+                }
+                bindingCount_=0;
+            }
+            channelModel_.parameters[2]=ChannelParameterValues{};
+            selectedChannel_=3;mixingDraft_=ChannelMixSettings{};mixingDraft_.includeBase=0;
+            mixingDraft_.rules[0].enabled=1;mixingDraft_.rules[0].source=0;mixingDraft_.rules[0].weight=50;
+            mixingDraft_.rules[1].enabled=1;mixingDraft_.rules[1].source=1;mixingDraft_.rules[1].weight=25;
+            mixingLiveInputs_=true;mixingCurveSource_=1;memset(mixingPreviewValues_,0,sizeof(mixingPreviewValues_));
+            MixInputSnapshot samples;samples.valid=(uint64_t{1}<<19)-1;samples.values[0]=600;samples.values[1]=-400;
+            CrsfChannelOutputModel raw;raw.configure(3,CRSF_CHANNEL_MID,CRSF_CHANNEL_MID,true);
+            setMixMonitorInputs(samples,raw);dashboardChannelValues_[2]=CRSF_CHANNEL_MID;dashboardOutputsLive_=false;
+            const auto saved=channelModel_.mixing[2];
+            for(uint8_t bank:{5,7}){
+                mixingBank_=bank;drawChannelMixing();
+                assert(strstr(lv_label_get_text(mixingSummary_),"Draft +20%"));
+                assert(strstr(lv_label_get_text(mixingSummary_),"Sent +0% CUT"));
+                auto summary=mixingSummary_;auto cursor=mixingCursor_;
+                lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+                if(const char *prefix=getenv("JR_R1_LIVE_TUNE_MIX_IMAGES")){
+                    char path[256];snprintf(path,sizeof(path),"%s-%s-live-%u.bmp",prefix,portraitUi?"portrait":"landscape",bank);simulatorSaveScreenshot(path);
+                }
+                const int oldX=cursor?lv_obj_get_x(cursor):0;
+                samples.values[0]=-400;samples.values[1]=800;setMixMonitorInputs(samples,raw);refreshChannelMixing();
+                lv_obj_update_layout(lv_scr_act());
+                assert(mixingSummary_==summary && strstr(lv_label_get_text(summary),"Draft +0%"));
+                if(cursor)assert(lv_obj_get_x(cursor)!=oldX);
+                if(mixingSentCursor_){
+                    const int oldY=lv_obj_get_y(mixingSentCursor_);
+                    dashboardChannelValues_[2]=crsfValueFromPermille(500);refreshChannelMixing();lv_obj_update_layout(lv_scr_act());
+                    char expected[32];snprintf(expected,sizeof(expected),"Sent %+d%% CUT",permilleFromCrsfValue(dashboardChannelValues_[2])/10);
+                    assert(lv_obj_get_y(mixingSentCursor_)<oldY && strstr(lv_label_get_text(summary),expected));
+                    dashboardChannelValues_[2]=CRSF_CHANNEL_MID;refreshChannelMixing();
+                }
+                assert(!armRequested_ && memcmp(&saved,&channelModel_.mixing[2],sizeof(saved))==0);
+                // Cached refreshes must not repaint a stationary graph/bar screen.
+                lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+                auto *display=lv_disp_get_default();auto oldMonitor=display->driver->monitor_cb;
+                display->driver->monitor_cb=auditRefreshMonitor;auditRedrawnPixels=0;
+                for(unsigned n=0;n<10;++n){refreshChannelMixing();lv_refr_now(nullptr);}
+                assert(auditRedrawnPixels==0);display->driver->monitor_cb=oldMonitor;
+                controlChannelMixing(14,activate);assert(!mixingLiveInputs_);
+                if(bank==5){controlChannelMixing(0,activate);assert(mixingPreviewValues_[0]==100);}
+                if(const char *prefix=getenv("JR_R1_LIVE_TUNE_MIX_IMAGES")){
+                    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+                    snprintf(path,sizeof(path),"%s-%s-test-%u.bmp",prefix,portraitUi?"portrait":"landscape",bank);simulatorSaveScreenshot(path);
+                }
+                const auto manual=mixingPreviewValues_[0];samples.values[0]=900;setMixMonitorInputs(samples,raw);refreshChannelMixing();
+                assert(mixingPreviewValues_[0]==manual);
+                controlChannelMixing(14,activate);assert(mixingLiveInputs_);
+                mixingLiveUpdatedMs_=millis()-501;refreshChannelMixing();
+                assert(strstr(lv_label_get_text(mixingSummary_),"No live inputs"));
+                if(mixingCurve_)assert(lv_obj_has_flag(mixingCurve_,LV_OBJ_FLAG_HIDDEN));
+                samples.values[0]=600;samples.values[1]=-400;setMixMonitorInputs(samples,raw);
+            }
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("Live Tune/mix: assigned trim labels/bars, subtrim CUT, live inputs/curve, draft vs sent, explicit tests, stale inputs and idle redraws in both orientations PASS");return true;
+    }
     if(getenv("JR_R1_ERS_NATIVE_AUDIT_ONLY")) {
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;designSafety_=OutputSafetyStatus::Cut;moduleLinkManaged_=false;
         for(unsigned orientation=0;orientation<2;++orientation){
@@ -68,12 +350,12 @@ bool TransmitterUi::runSimulatorUiAudit()
         for(int orientation=0;orientation<2;++orientation){
             sensorBank_=2;drawDesignPage(UiPage::Telemetry);updateDesign(t,OutputSafetyStatus::Cut,99,true);
             const char *expected[]={"16.0","12.3","500","75"};
-            for(int i=0;i<4;++i)assert(strcmp(lv_label_get_text(designValues_[i]),expected[i])==0);
+            for(int i=0;i<3;++i)assert(strcmp(lv_label_get_text(designValues_[i]),expected[i+1])==0);
             const bool oldRole=standardBatteryVehicle_;
             controlDesign(245,activate);assert(standardBatteryVehicle_!=oldRole);
             armRequested_=true;controlDesign(245,activate);assert(standardBatteryVehicle_!=oldRole);
             armRequested_=false;controlDesign(245,activate);assert(standardBatteryVehicle_==oldRole);
-            controlDesign(70,activate);assert(sensorSelected_==14);
+            controlDesign(70,activate);assert(sensorSelected_==15);
             sensorBank_=2;drawDesignPage(UiPage::Telemetry);updateDesign(t,OutputSafetyStatus::Cut,99,true);
             for(uint8_t source=14;source<18;++source)for(int span=0;span<4;++span){
                 dashboardLayouts_[activeModelSlot_]=DashboardLayout{};DashboardWidget w;
@@ -106,7 +388,7 @@ bool TransmitterUi::runSimulatorUiAudit()
                 dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
                 auto &widget=dashboardLayouts_[activeModelSlot_].cells[0];widget.kind=DashboardWidgetKind::Map;
                 widget.width=(span&1)?2:1;widget.height=(span&2)?2:1;
-                gpsCount_=1;gpsLat_[0]=GpsMap::DemoLat;gpsLon_[0]=GpsMap::DemoLon;gpsZoom_=1;
+                gpsCount_=1;gpsLat_[0]=GpsMap::DemoLat;gpsLon_[0]=GpsMap::DemoLon;gpsZoom_=0;
                 if(page)drawDesignPage(UiPage::Gps);else drawDashboard();
                 lv_obj_update_layout(lv_scr_act());
                 auto map=page?lv_obj_get_parent(designCurve_):widgetViews_[0].basemap;
@@ -161,9 +443,8 @@ bool TransmitterUi::runSimulatorUiAudit()
     if(getenv("JR_R1_SAT_WIDGET_AUDIT_ONLY")) {
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
         for(unsigned orientation=0;orientation<2;++orientation){
-            for(auto kind:{DashboardWidgetKind::Sensor,DashboardWidgetKind::Course}){
+            for(auto kind:{DashboardWidgetKind::Sensor}){
                 for(auto style:{DashboardWidgetStyle::Numbers,DashboardWidgetStyle::Dials,DashboardWidgetStyle::Graph}){
-                    if(kind==DashboardWidgetKind::Course && style==DashboardWidgetStyle::Graph)continue;
                     for(unsigned span=0;span<4;++span){
                         dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
                         auto &widget=dashboardLayouts_[activeModelSlot_].cells[0];
@@ -180,7 +461,11 @@ bool TransmitterUi::runSimulatorUiAudit()
                             assert(lv_obj_get_style_text_font(view.satellites,0)==UiText::font(UiText::Caption));
                             assert(lv_obj_get_x(view.satellites)>=0 && lv_obj_get_y(view.satellites)>=0);
                             assert(lv_obj_get_x(view.satellites)+lv_obj_get_width(view.satellites)<=lv_obj_get_width(view.panel));
-                            assert(lv_obj_get_y(view.satellites)+lv_obj_get_height(view.satellites)<=24);
+                            if(kind==DashboardWidgetKind::Sensor){
+                                assert(lv_obj_get_y(view.satellites)>=lv_obj_get_y(view.detail)+lv_obj_get_height(view.detail));
+                                assert(lv_obj_get_y(view.satellites)+lv_obj_get_height(view.satellites)<=38);
+                                assert(lv_obj_get_x(view.satellites)==lv_obj_get_x(view.detail));
+                            }else assert(lv_obj_get_y(view.satellites)+lv_obj_get_height(view.satellites)<=24);
                             if(span==0 && !maximized)if(const char *prefix=getenv("JR_R1_SAT_WIDGET_SCREENSHOTS")){
                                 char path[256];snprintf(path,sizeof(path),"%s-%s-%u-%u.bmp",prefix,portraitUi?"portrait":"landscape",unsigned(kind),unsigned(style));
                                 lv_refr_now(nullptr);simulatorSaveScreenshot(path);
@@ -205,49 +490,22 @@ bool TransmitterUi::runSimulatorUiAudit()
             }
             assert(requestDisplayRotation());applyDisplayRotation();
         }
-        Serial.println("Satellite captions: speed/course, all sizes/styles, maximized, both orientations, zero/missing/stale and independent validity PASS");return true;
+        Serial.println("Satellite captions: speed, all sizes/styles, maximized, both orientations, zero/missing/stale and independent validity PASS");return true;
     }
     if(getenv("JR_R1_COURSE_AUDIT_ONLY")) {
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
-        for(int orientation=0;orientation<2;++orientation){
-            for(auto style:{DashboardWidgetStyle::Dials,DashboardWidgetStyle::Numbers}){
-                for(int span=0;span<4;++span){
-                    dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
-                    auto &widget=dashboardLayouts_[activeModelSlot_].cells[0];
-                    widget.kind=DashboardWidgetKind::Course;widget.style=style;
-                    widget.width=(span&1)?2:1;widget.height=(span&2)?2:1;
-                    drawDashboard();lv_obj_update_layout(lv_scr_act());
-                    CrsfTelemetryState course{};course.gpsValid=course.gpsCourseValid=course.gpsSpeedValid=true;
-                    course.satellites=8;course.groundSpeedDeciKmh=100;
-                    course.gpsUpdatedMs=course.gpsSpeedUpdatedMs=millis();course.headingCentiDegrees=27000;
-                    updateDesign(course,OutputSafetyStatus::Cut,99,true);
-                    assert(strstr(lv_label_get_text(widgetViews_[0].values[0]),"270.0"));
-                    assert(strstr(lv_label_get_text(widgetViews_[0].detail),"W / travel"));
-                    if(widgetViews_[0].plot)assert(!lv_obj_has_flag(widgetViews_[0].plot,LV_OBJ_FLAG_HIDDEN));
-                    if(style==DashboardWidgetStyle::Dials && span==0){
-                        lv_refr_now(nullptr);
-                        if(const char *prefix=getenv("JR_R1_COURSE_SCREENSHOT")){
-                            char path[256];snprintf(path,sizeof(path),"%s-%dx%d.bmp",prefix,kScreenWidth,kScreenHeight);simulatorSaveScreenshot(path);
-                        }
-                    }
-                    course.gpsCourseValid=false;updateDesign(course,OutputSafetyStatus::Cut,99,true);
-                    assert(strcmp(lv_label_get_text(widgetViews_[0].values[0]),"--")==0);
-                    assert(strstr(lv_label_get_text(widgetViews_[0].detail),"unavailable"));
-                    if(widgetViews_[0].plot)assert(lv_obj_has_flag(widgetViews_[0].plot,LV_OBJ_FLAG_HIDDEN));
-                    course.gpsCourseValid=true;course.groundSpeedDeciKmh=0;
-                    updateDesign(course,OutputSafetyStatus::Cut,99,true);
-                    assert(strstr(lv_label_get_text(widgetViews_[0].detail),"Stopped"));
-                    course.gpsUpdatedMs=millis()-3001;
-                    updateDesign(course,OutputSafetyStatus::Cut,99,true);
-                    assert(strstr(lv_label_get_text(widgetViews_[0].detail),"No GPS"));
-                    maximizedWidget_=0;drawDashboard();lv_obj_update_layout(lv_scr_act());
-                    maximizedWidget_=-1;
-                }
-            }
+        for(unsigned orientation=0;orientation<2;++orientation){
+            DashboardWidget retired;retired.kind=DashboardWidgetKind::Course;retired.width=2;
+            dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+            placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,retired);
+            assert(dashboardLayouts_[activeModelSlot_].cells[0].kind==DashboardWidgetKind::Empty);
+            drawDashboard();widgetCell_=0;widgetDraft_=DashboardWidget{};
+            drawDesignPage(UiPage::WidgetEditor);
+            for(unsigned n=0;n<20;++n){controlDesign(120,activate);assert(widgetDraft_.kind!=DashboardWidgetKind::Course);}
+            for(unsigned n=0;n<20;++n){controlDesign(120,PageControlEvent::Decrease);assert(widgetDraft_.kind!=DashboardWidgetKind::Course);}
             assert(requestDisplayRotation());applyDisplayRotation();
         }
-        Serial.println("GPS course widget: both orientations, all sizes/styles, maximisation and unavailable/slow/stale states PASS");
-        return true;
+        Serial.println("Retired GPS course: old slots cleared, picker skips both directions, other widget IDs retained in both orientations PASS");return true;
     }
 
     const auto touchAction=[&](PageControlHandler handler,uint8_t argument){
@@ -1160,10 +1418,10 @@ bool TransmitterUi::runSimulatorUiAudit()
         designTelemetry_=cells;sensorBank_=0;drawTelemetryPage();controlDesign(81,activate);
         assert(sensorBank_==1 && activePage_==UiPage::Telemetry);
         updateDesign(cells,OutputSafetyStatus::Cut,99,true);
-        assert(strcmp(lv_label_get_text(designValues_[0]),"16.040")==0);
+        assert(strcmp(lv_label_get_text(designValues_[0]),"3.988")==0);
         assert(strcmp(lv_label_get_text(designValues_[1]),"3.988")==0);
-        assert(strcmp(lv_label_get_text(designValues_[2]),"3.988")==0);
-        assert(strcmp(lv_label_get_text(designValues_[5]),"4.032")==0);
+        assert(strcmp(lv_label_get_text(designValues_[2]),"4.014")==0);
+        assert(strcmp(lv_label_get_text(designValues_[4]),"4.032")==0);
         lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
         for(unsigned i=0;i<6;++i){
             auto panel=lv_obj_get_parent(designValues_[i]);
@@ -1175,7 +1433,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         cells.vehicleCellsValid=false;updateDesign(cells,OutputSafetyStatus::Cut,99,true);
         assert(strcmp(lv_label_get_text(designValues_[0]),"--")==0);
         assert(strcmp(lv_label_get_text(designValues_[2]),"--")==0);
-        controlDesign(72,activate);assert(sensorSelected_==8 && activePage_==UiPage::SensorDetail);
+        controlDesign(71,activate);assert(sensorSelected_==8 && activePage_==UiPage::SensorDetail);
         cells.vehicleCellsValid=true;updateDesign(cells,OutputSafetyStatus::Cut,99,true);
         assert(strcmp(lv_label_get_text(designValues_[0]),"3.988")==0);
         for(uint8_t slot=0;slot<4;++slot){
@@ -1241,9 +1499,9 @@ bool TransmitterUi::runSimulatorUiAudit()
         fas.fasVoltageUpdatedMs=fas.fasCurrentUpdatedMs=millis();
         fas.receiverVoltageValid=true;fas.receiverVoltageDecivolts=66;
         designTelemetry_=fas;sensorBank_=2;drawTelemetryPage();updateDesign(fas,OutputSafetyStatus::Cut,99,true);
-        for(unsigned i=0;i<4;++i)assert(designValues_[i] && strcmp(lv_label_get_text(designValues_[i]),"--")==0);
-        assert(!designValues_[4] && !designValues_[5]);
-        controlDesign(70,activate);assert(sensorSelected_==14);
+        for(unsigned i=0;i<3;++i)assert(designValues_[i] && strcmp(lv_label_get_text(designValues_[i]),"--")==0);
+        assert(!designValues_[3] && !designValues_[4] && !designValues_[5]);
+        controlDesign(70,activate);assert(sensorSelected_==15);
         drawTelemetryPage();updateDesign(fas,OutputSafetyStatus::Cut,99,true);
         lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
         if(const char *prefix=getenv("JR_R1_FAS_SCREENSHOTS")){
@@ -1666,7 +1924,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
     if(const char *path=getenv("JR_R1_AUDIT_RASTER_SCREENSHOT"))simulatorSaveScreenshot(path);
     lv_obj_del(rasterObject);
-    gpsCount_=0;gpsZoom_=1;CrsfTelemetryState noGps{};
+    gpsCount_=0;gpsZoom_=0;CrsfTelemetryState noGps{};
     drawDesignPage(UiPage::Gps);updateDesign(noGps,OutputSafetyStatus::Cut,99,true);
     auto gpsMap=lv_obj_get_parent(designCurve_);lv_obj_update_layout(lv_scr_act());
     assert(lv_obj_get_height(gpsMap)==designFooterY-88);
@@ -1748,6 +2006,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;touchWasDown_=false;
     const auto layoutBeforeMax=dashboardLayouts_[activeModelSlot_];
     for(int kind=1;kind<int(DashboardWidgetKind::Count);++kind){
+        if(!dashboardWidgetKindAvailable(static_cast<DashboardWidgetKind>(kind)))continue;
         const int cell=(kind-1)%4;
         dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
         auto &widget=dashboardLayouts_[activeModelSlot_].cells[cell];

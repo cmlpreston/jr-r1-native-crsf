@@ -28,6 +28,7 @@ bool simulatorTouchDown();
 void simulatorSetDisplayEnabled(bool enabled);
 void simulatorSetBrightness(uint8_t percent);
 void simulatorBeep(uint16_t pitchHz, uint16_t durationMs);
+uint32_t simulatorBeepCount();
 void simulatorStopBeep();
 void simulatorWriteScreenshot(Stream &output);
 bool simulatorSaveScreenshot(const char *path);

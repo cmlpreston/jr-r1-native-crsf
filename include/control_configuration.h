@@ -156,3 +156,15 @@ void previewChannelMixCurve(const ControlConfigurationSnapshot &configuration,
     uint8_t channel,const ChannelMixSettings &settings,int16_t base,
     const int16_t sources[2],bool switchHigh,bool walk,uint8_t sweep,
     int16_t output[kMixCurvePoints]);
+
+// Read-only draft monitor using the same dependency/source shaping as the
+// control pipeline. Rates are settled; no runtime latches or outputs are changed.
+struct ChannelMixMonitor {
+    bool valid=false;
+    int16_t base=0, sources[2]={};
+    ChannelMixPreview result;
+    int16_t curve[kMixCurvePoints]={};
+};
+ChannelMixMonitor monitorChannelMix(const ControlConfigurationSnapshot &configuration,
+    const MixInputSnapshot &inputs,const CrsfChannelOutputModel &bindings,
+    uint8_t channel,const ChannelMixSettings &draft,int8_t sweep=-1);

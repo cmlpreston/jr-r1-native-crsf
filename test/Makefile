@@ -6,6 +6,8 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  graph_link_warning_test \
+  first_drive_features_test \
   ers_sensor_config_test \
   gps_acquisition_chime_test \
   race_timer_test \
@@ -186,5 +188,13 @@ $(BUILD)/gps_acquisition_chime_test: gps_acquisition_chime_test.cpp $(ROOT)/incl
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/ers_sensor_config_test: ers_sensor_config_test.cpp $(ROOT)/include/ers_sensor_config.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/first_drive_features_test: first_drive_features_test.cpp $(ROOT)/include/drive_battery.h $(ROOT)/include/sensor_statistics.h
+	@mkdir -p $(@D)
+	$(CXX) -Icrsf_mocks $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/graph_link_warning_test: graph_link_warning_test.cpp $(ROOT)/include/rf_link_warning.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@

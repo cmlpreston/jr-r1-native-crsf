@@ -66,7 +66,7 @@ void TransmitterUi::keypadPage(int direction)
             else controlTimer(11,PageControlEvent::Activate);
             return;
         case UiPage::Tune:page=tuneBank_;count=2;break;
-        case UiPage::Telemetry:page=sensorBank_;count=(DashboardSensorCount+5)/6;break;
+        case UiPage::Telemetry:page=sensorBank_;count=(DisplaySensorCount+5)/6;break;
         case UiPage::ChannelMonitor:page=designBank_;count=4;break;
         case UiPage::MainMenu:page=setupPage_;count=2;break;
         case UiPage::InputMonitor:page=inputMonitorBank_;count=(kPhysicalControlCount+4)/5;break;

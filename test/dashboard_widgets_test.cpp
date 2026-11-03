@@ -4,6 +4,13 @@
 #include <initializer_list>
 int main()
 {
+    static_assert(int(DashboardWidgetKind::Course)==9,"Retired layout ID must stay reserved");
+    DashboardWidget course;course.kind=DashboardWidgetKind::Course;course.width=2;
+    assert(sanitizedDashboardWidget(0,course).kind==DashboardWidgetKind::Empty);
+    const uint8_t retired[]={9,2,2,1,0,1};
+    assert(dashboardWidgetFromV2(0,retired).kind==DashboardWidgetKind::Empty);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryCells,1)==DashboardWidgetKind::Empty);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::BatteryCells);
     uint8_t monitor[DashboardMonitorMaxEntries]={};
     assert(dashboardMonitorEntries(0xffff,2,monitor)==21);
     assert(monitor[16]==(0x80|3)&&monitor[17]==(0x80|9));
@@ -36,7 +43,7 @@ int main()
     assert(sanitizedDashboardWidget(0,all).style!=DashboardWidgetStyle::VerticalBars);
     DashboardWidget speed;speed.kind=DashboardWidgetKind::Sensor;speed.style=DashboardWidgetStyle::Dials;
     assert(sanitizedDashboardWidget(0,speed).style==DashboardWidgetStyle::Dials);
-    speed.source=1;assert(sanitizedDashboardWidget(0,speed).style==DashboardWidgetStyle::Numbers);
+    speed.source=1;assert(sanitizedDashboardWidget(0,speed).kind==DashboardWidgetKind::Empty);
     // Pack summaries retain IDs; old per-cell widgets migrate to the group.
     for(uint8_t source=0;source<DashboardSensorCount;++source){
         speed.source=source;speed.style=DashboardWidgetStyle::Graph;
@@ -47,8 +54,10 @@ int main()
     speed.source=DashboardSensorCount;assert(sanitizedDashboardWidget(0,speed).source==0);
     assert(nextDashboardSensorSource(7,1)==14);
     assert(nextDashboardSensorSource(14,-1)==7);
-    assert(displaySensorSource(11)==11 && displaySensorSource(12)==14 && displaySensorSource(15)==17);
-    assert(displaySensorSource(16)==DashboardSensorCount);
+    assert(displaySensorSource(0)==0 && displaySensorSource(1)==2 && displaySensorSource(10)==11);
+    assert(displaySensorSource(11)==14 && displaySensorSource(14)==17);
+    assert(displaySensorSource(15)==DashboardSensorCount);
+    assert(nextDashboardSensorSource(0,1)==2 && nextDashboardSensorSource(2,-1)==0);
     assert(nextDashboardSensorSource(17,1)==0 && nextDashboardSensorSource(0,-1)==17);
     auto layout=defaultDashboardLayout();
     assert(dashboardWidgetMask(0,layout.cells[0])==3);

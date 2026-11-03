@@ -1,4 +1,9 @@
 #pragma once
+// CRSF link-statistics RF output-power enumeration; not electrical consumption.
+inline unsigned crsfPowerMilliwatts(unsigned code) {
+    const unsigned values[]={0,10,25,100,500,1000,2000,250,50};
+    return code<sizeof(values)/sizeof(*values)?values[code]:0;
+}
 
 #include <Arduino.h>
 #include <atomic>

@@ -703,6 +703,8 @@ const char *uiPageName(UiPage page)
         case UiPage::ParameterControlPicker:return "parameter-control-picker";
         case UiPage::ResponseProfile:return "response-profile";
         case UiPage::MixingOverview:return "mixing-overview";
+        case UiPage::DriveBatterySetup:return "drive-battery";
+        case UiPage::RfWarningSetup:return "rf-warning";
         case UiPage::ErsSensors:return "ers-sensors";
         case UiPage::NetworkOptions:return "network-options";
         case UiPage::SystemMenu:return "system";
@@ -765,6 +767,8 @@ void TransmitterUi::setDisplayCacheEnabled(bool enabled)
 #include "transmitter_ui_timer.inc"
 #include "transmitter_ui_ers.inc"
 #include "transmitter_ui_design.inc"
+#include "transmitter_ui_drive_battery.inc"
+#include "transmitter_ui_rf_warning.inc"
 #include "transmitter_ui_portrait.inc"
 #ifdef JR_R1_SIMULATOR
 #include "../simulator/ui_audit.inc"
@@ -1070,9 +1074,16 @@ void TransmitterUi::resetLvglObjects()
     for (auto &value : designValues_) value = nullptr;
     for (auto &value : designDetails_) value = nullptr;
     for (auto &value : designBars_) value = nullptr;
+    for(auto &value:mixingReadouts_)value=nullptr;
+    for(auto &value:mixingLiveBars_)value=nullptr;
+    mixingCurve_=mixingCursor_=mixingSentCursor_=mixingSummary_=nullptr;
+    memset(mixingCurvePoints_,0,sizeof(mixingCurvePoints_));
     designStatus_ = designLink_ = designCurve_ = designMarker_ = nullptr;
     armProgress_=nullptr;
     driveHoldOverlay_=driveHoldLabel_=driveHoldBar_=nullptr;
+    adjustmentOverlay_=nullptr;
+    driveBatteryWarning_=driveBatteryWarningText_=nullptr;
+    rfWarningPanel_=rfWarningText_=nullptr;
     logoSaverLogo_ = nullptr;
     logoSaverDesignation_ = nullptr;
     dashboardThrottleBar_ = nullptr;
@@ -1286,6 +1297,7 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     timerOnRemainder_=0;timerConfirmation_=0;timerBank_=timerLapPage_=0;
     resetSpeedStatistics();
     gpsCount_ = sensorHistoryCount_ = 0;
+    for(auto &statistics:sensorStatistics_)statistics=SensorStatistics{};
     gpsLastSampleMs_ = designTelemetry_.gpsUpdatedMs;
     memset(sensorHistoryValid_, 0, sizeof(sensorHistoryValid_));
     activeModelSlot_ = slot;
@@ -1504,6 +1516,10 @@ size_t TransmitterUi::copyBindings(ControlBinding *destination,
 
 bool TransmitterUi::consumeBindingsChanged()
 {
+    // Rebase parameter accumulators after a direction edit, including web edits.
+    for(uint8_t n=0;n<16;++n)if(bindingParameterReversals_[n]!=channelModel_.responses[n].reversed){
+        bindingParameterReversals_[n]=channelModel_.responses[n].reversed;bindingsChanged_=true;
+    }
     const bool changed = bindingsChanged_;
     bindingsChanged_ = false;
     return changed;
@@ -1643,6 +1659,7 @@ void TransmitterUi::saveTxBatterySettings()
 
 void TransmitterUi::loadRxBatterySettings()
 {
+    loadDriveBatterySettings();
     Preferences preferences;
     char name[16];
     preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-rxbat",
@@ -2108,6 +2125,7 @@ void TransmitterUi::emitBuzzerNote(uint16_t pitchHz, uint16_t durationMs)
 
 void TransmitterUi::playKeyClick()
 {
+    if(static_cast<int32_t>(trimNeutralCueUntilMs_-millis())>0)return;
     if (timerBuzzer_.active(millis()) || gpsChime_.active(millis())) return;
     if (systemSettings_.keyClicksEnabled) playBuzzer(systemSettings_.keyClickDurationMs);
 }
@@ -2508,8 +2526,9 @@ int16_t TransmitterUi::channelParameterValue(uint8_t channel,
 {
     if (channel < 1 || channel > 16) return 0;
     const ChannelParameterValues &values = channelModel_.parameters[channel - 1];
-    return kind == ChannelParameterKind::Subtrim
+    const int16_t output=kind == ChannelParameterKind::Subtrim
         ? values.subtrimPermille : values.trimPermille;
+    return channelModel_.responses[channel-1].reversed?-output:output;
 }
 
 bool TransmitterUi::applyChannelParameterAction(uint16_t targetId, int16_t value)
@@ -2523,17 +2542,27 @@ bool TransmitterUi::applyChannelParameterAction(uint16_t targetId, int16_t value
          kind != ChannelParameterKind::Subtrim)) return false;
     value = constrain(value, -kChannelParameterLimitPermille,
                       kChannelParameterLimitPermille);
+    // Parameter controls use physical input direction; persisted offsets remain
+    // in output coordinates so upgrading does not move an existing neutral.
+    if(channelModel_.responses[channel-1].reversed)value=-value;
     int16_t &stored = kind == ChannelParameterKind::Subtrim
         ? channelModel_.parameters[channel - 1].subtrimPermille
         : channelModel_.parameters[channel - 1].trimPermille;
     if (stored == value) return true;
+    const bool neutralCrossed=stored!=0 && (value==0 || (stored<0)!=(value<0));
     if (kind == ChannelParameterKind::Subtrim) requestConfigurationCut();
     stored = value;
+    if(neutralCrossed && systemSettings_.buzzerEnabled){
+        playBuzzer(100);
+        trimNeutralCueUntilMs_=millis()+100;
+    }
     scheduleChannelParameterSave();
     Serial.printf("CHANNEL PARAM: CH%u %s=%+.1f%%\n", channel,
                   channelParameterKindName(kind), value / 10.0f);
     if (activePage_ == UiPage::ChannelPlaceholder && selectedChannel_ == channel)
         drawChannelPlaceholder();
+    if(activePage_==UiPage::Tune && selectedChannel_==channel)refreshTuneParameters();
+    if(channel==steeringChannel() || channel==throttleChannel())showChannelAdjustment(channel,kind);
     return true;
 }
 
@@ -2787,7 +2816,8 @@ void TransmitterUi::drawRadioDiagnostics()
     makeLabel(power, "POWER / RF", 10, 7, UiText::Caption, cCyan);
     telemetryTxVoltageLabel_ = makeLabel(power, "TX  --.- V", 10, 31, UiText::Menu, cDim);
     telemetryRxVoltageLabel_ = makeLabel(power, "RX  --.- V", 10, 59, UiText::Menu, cDim);
-    telemetryRadioLabel_ = makeLabel(power, "ANT -   MODE -   PWR -", 10, 94, UiText::Caption, cDim);
+    telemetryRadioLabel_ = makeLabel(power, "RX ant -- | RF mode --\nRF output -- mW", 10, 90, UiText::Caption, cDim);
+    lv_obj_set_width(telemetryRadioLabel_,panelWidth-20);lv_obj_set_height(telemetryRadioLabel_,32);
 
     lv_obj_t *stream = makePanel(kPanelMargin, top+(portraitUi?2:1)*(cardHeight+kPanelGap), kScreenWidth-2*kPanelMargin, portraitUi ? 120 : 98);
     makeLabel(stream, "CRSF STREAM", 10, 7, UiText::Caption, cCyan);
@@ -2797,6 +2827,7 @@ void TransmitterUi::drawRadioDiagnostics()
     telemetryAgeLabel_ = makeLabel(stream, "AGE          ----", portraitUi ? 150 : 245, portraitUi ? 78 : 58, portraitUi ? UiText::Caption : UiText::Menu, cDim);
 
     makeLabel(lv_scr_act(), "Live receiver telemetry via Ranger Nano", 12, portraitUi ? 446 : 293, UiText::Caption, cDim);
+    makePageActionButton(kScreenWidth-100,5,92,34,"Model alarms",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,254);
     finishPageFocus();
 }
 
@@ -2848,19 +2879,24 @@ void TransmitterUi::drawTelemetryLive(const CrsfTelemetryState &telemetry,
             colour(telemetry.linkValid ? cWhite : cDim), 0);
     }
     if (telemetrySnrLabel_) {
-        if (telemetry.linkValid)
-            lv_label_set_text_fmt(telemetrySnrLabel_, "SNR  %3d dB",
-                                  telemetry.uplinkSnrDb);
-        else lv_label_set_text(telemetrySnrLabel_, "SNR  -- dB");
+        if (telemetry.linkValid && uint32_t(millis()-telemetry.linkUpdatedMs)<=1500){
+            const int limit=elrs24Sensitivity(telemetry.rfMode,rfWarningSettings_.elrsMajor);
+            if(limit)lv_label_set_text_fmt(telemetrySnrLabel_,"SNR %d | Margin %d dB",telemetry.uplinkSnrDb,telemetry.uplinkRssiDbm-limit);
+            else lv_label_set_text_fmt(telemetrySnrLabel_,"SNR %d | Margin unknown",telemetry.uplinkSnrDb);
+        }
+        else lv_label_set_text(telemetrySnrLabel_, "SNR -- | Margin --");
         lv_obj_set_style_text_color(telemetrySnrLabel_,
             colour(telemetry.linkValid ? cWhite : cDim), 0);
     }
     if (telemetryRadioLabel_) {
-        if (telemetry.linkValid)
-            lv_label_set_text_fmt(telemetryRadioLabel_, "ANT %u   MODE %u   PWR %u",
+        if (telemetry.linkValid){
+            char power[16];const unsigned mw=crsfPowerMilliwatts(telemetry.txPowerCode);
+            if(mw)snprintf(power,sizeof(power),"%u mW",mw);else snprintf(power,sizeof(power),"unreported");
+            lv_label_set_text_fmt(telemetryRadioLabel_, "RX ant %u | RF mode %u\nRF output %s",
                                   telemetry.activeAntenna + 1,
-                                  telemetry.rfMode, telemetry.txPowerCode);
-        else lv_label_set_text(telemetryRadioLabel_, "ANT -   MODE -   PWR -");
+                                  telemetry.rfMode, power);
+        }
+        else lv_label_set_text(telemetryRadioLabel_, "RX ant -- | RF mode --\nRF output -- mW");
     }
     if (telemetryTxVoltageLabel_) {
         if (txVoltageValid) {
@@ -3584,7 +3620,7 @@ void TransmitterUi::controlDashboard(uint8_t item, PageControlEvent)
 void TransmitterUi::controlChannelConfig(uint8_t item, PageControlEvent event)
 {
     if(item==5) {
-        mixingDraft_=channelModel_.mixing[selectedChannel_-1];mixingBank_=0;mixingSaveError_=false;
+        mixingDraft_=channelModel_.mixing[selectedChannel_-1];mixingBank_=0;mixingSaveError_=false;mixingLiveInputs_=true;
         drawChannelMixing();return;
     }
     if (item == 4) {
@@ -3693,6 +3729,8 @@ void TransmitterUi::navigateBack()
         if (activePage_ == UiPage::ValueEditor) drawDesignPage(editorReturn_);
         else if (activePage_ == UiPage::WidgetEditor) drawDesignPage(UiPage::WidgetSelect);
         else if (activePage_ == UiPage::SensorDetail || activePage_ == UiPage::Gps || activePage_ == UiPage::ChannelMonitor) drawTelemetryPage();
+        else if(activePage_==UiPage::DriveBatterySetup)drawDesignPage(UiPage::BatteryMenu);
+        else if(activePage_==UiPage::RfWarningSetup){if(rfWarningReturnPage_==UiPage::RadioDiagnostics)drawRadioDiagnostics();else drawDesignPage(rfWarningReturnPage_);}
         else if (activePage_ == UiPage::TxBatterySetup || activePage_ == UiPage::DisplaySetup || activePage_ == UiPage::WidgetSelect || activePage_ == UiPage::Channels || activePage_ == UiPage::ModelSelect || activePage_ == UiPage::BatteryMenu) drawMainMenu();
         else drawDashboard();
         return;
@@ -6025,6 +6063,64 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
     }
 }
 
+void TransmitterUi::showChannelAdjustment(uint8_t channel,ChannelParameterKind kind)
+{
+    adjustmentChannel_=channel;adjustmentKind_=kind;adjustmentChangedMs_=millis();
+    // Rebuild this small transient panel only when the adjustment changes.
+    if(adjustmentOverlay_){lv_obj_del(adjustmentOverlay_);adjustmentOverlay_=nullptr;}
+    updateChannelAdjustment(adjustmentChangedMs_);
+}
+
+void TransmitterUi::updateChannelAdjustment(uint32_t now)
+{
+    if(!adjustmentChannel_)return;
+    if(uint32_t(now-adjustmentChangedMs_)>=1200 || !bootPinUnlocked_ ||
+       pinPurpose_!=PinPurpose::None || hardwareRecovery_ || displaySleeping_){
+        if(adjustmentOverlay_){lv_obj_del(adjustmentOverlay_);adjustmentOverlay_=nullptr;}
+        adjustmentChannel_=0;return;
+    }
+    if(adjustmentOverlay_)return;
+    const uint8_t channel=adjustmentChannel_;
+    const bool steering=channel==steeringChannel();
+    const int width=kScreenWidth-48,rail=width-36;
+    adjustmentOverlay_=makePanel(24,kScreenHeight-(portraitUi?60:40)-122,width,112,cPanel2,cCyan);
+    auto panel=adjustmentOverlay_;
+    char title[48];snprintf(title,sizeof(title),"%s %s",steering?"Steering":"Throttle",
+        adjustmentKind_==ChannelParameterKind::Trim?"trim":"subtrim");
+    makeLabel(panel,title,12,6,UiText::Secondary,cWhite);
+    char value[24];snprintf(value,sizeof(value),"%+.1f%%",channelParameterValue(channel,adjustmentKind_)/10.0);
+    auto number=makeLabel(panel,value,width-80,6,UiText::Secondary,cCyan);
+    lv_obj_set_width(number,68);lv_obj_set_style_text_align(number,LV_TEXT_ALIGN_RIGHT,0);
+    makeLabel(panel,adjustmentKind_==ChannelParameterKind::Subtrim?"Response before mixes; CUT requested":"Response before mixes",12,29,UiText::Caption,cDim);
+    makeLabel(panel,"-100%",12,46,UiText::Caption,cDim);
+    auto right=makeLabel(panel,"+100%",width-60,46,UiText::Caption,cDim);
+    lv_obj_set_width(right,48);lv_obj_set_style_text_align(right,LV_TEXT_ALIGN_RIGHT,0);
+    auto rect=[&](int x,int y,int w,int h,uint32_t color){
+        auto object=makePanel(0,0,w,h,color,color,0);lv_obj_set_parent(object,panel);lv_obj_set_pos(object,x,y);return object;
+    };
+    rect(18,70,rail,2,cLine);rect(18+rail/2,63,1,16,cDim);
+    // Use the same settled proportional response as the control pipeline.
+    // This is a response diagram, independent of mixer rules and sent/CUT output.
+    const auto configuration=controlConfigurationSnapshot();ChannelSlewRuntime slew;
+    int values[3];
+    for(unsigned n=0;n<3;++n)values[n]=processConfiguredProportionalChannel(
+        configuration,channel,int(n)*1000-1000,0,slew,0,false).requestedPermille;
+    auto x=[&](int v){return 18+(constrain(v,-1000,1000)+1000)*rail/2000;};
+    const int left=min(x(values[0]),x(values[2])),rightX=max(x(values[0]),x(values[2]));
+    rect(left,69,max(1,rightX-left),4,cCyan);
+    rect(x(values[0])-1,65,2,12,cCyan);rect(x(values[2])-1,65,2,12,cCyan);
+    rect(x(values[1])-2,62,4,18,cAmber);
+    char detail[80];snprintf(detail,sizeof(detail),"%s %+.1f%%   N %+.1f%%   %s %+.1f%%",
+        steering?"L":"B",values[0]/10.0,values[1]/10.0,steering?"R":"F",values[2]/10.0);
+    auto label=makeLabel(panel,detail,12,88,UiText::Caption,cWhite);
+    lv_obj_set_width(label,width-24);lv_label_set_long_mode(label,LV_LABEL_LONG_CLIP);
+    // The transient display never consumes touch or joins keyboard focus.
+    lv_obj_clear_flag(panel,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
+    for(uint32_t n=0;n<lv_obj_get_child_cnt(panel);++n)
+        lv_obj_clear_flag(lv_obj_get_child(panel,n),LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_move_foreground(panel);
+}
+
 void TransmitterUi::updateDriveHoldFeedback(uint32_t now)
 {
     const bool physical=touchWasDown_&&armGestureValid_&&touchStartPage_==activePage_;
@@ -6251,6 +6347,10 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     speedStatistics_.update(telemetry.groundSpeedDeciKmh, telemetry.gpsSpeedUpdatedMs, millis(),
                             gpsSpeedAvailable(telemetry,millis()));
     designTelemetry_ = telemetry; designSafety_ = safetyStatus;
+    for(uint8_t sensor=0;sensor<DashboardSensorCount;++sensor){
+        int32_t value=0;uint32_t stamp=0;const bool valid=sensorReading(telemetry,sensor,value,stamp);
+        sensorStatistics_[sensor].update(value,stamp,millis(),valid);
+    }
     designTxVoltage_ = txVoltageDecivolts; designTxValid_ = txVoltageValid;
     latestRawAdc_ = rawAdc;
     updateRaceTimer(millis());
@@ -6351,6 +6451,9 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     }
     updateWifiStatusIcon();
     updateTouch();
+    updateDriveBatteryWarning(telemetry,millis());
+    updateRfWarning(telemetry,millis());
+    updateChannelAdjustment(millis());
     updateDriveHoldFeedback(millis());
     if(rotationPending_&&!touchWasDown_)applyDisplayRotation();
     if (calibrationActive()) updateCalibration(
@@ -6404,6 +6507,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
         else if (activePage_ == UiPage::ThrottleResponse)
             refreshThrottleResponseGraph(rawInputPermille);
         else if (activePage_ == UiPage::InputMonitor) refreshInputMonitorRows();
+        else if(activePage_==UiPage::ChannelMixing)refreshChannelMixing();
     }
     const uint32_t renderedBefore = uiMetrics.rendered;
     // Make layout cost explicit for page transitions. LVGL would otherwise

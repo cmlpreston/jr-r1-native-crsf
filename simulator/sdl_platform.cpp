@@ -261,8 +261,11 @@ void simulatorSetBrightness(uint8_t percent)
     brightnessPercent = constrain<uint8_t>(percent, 0, 100);
 }
 
+static uint32_t beepCount=0;
+uint32_t simulatorBeepCount() { return beepCount; }
 void simulatorBeep(uint16_t pitchHz, uint16_t durationMs)
 {
+    ++beepCount;
     std::printf("SIM: beep %u Hz for %u ms\n", pitchHz, durationMs);
 }
 

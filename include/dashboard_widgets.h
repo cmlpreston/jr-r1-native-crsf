@@ -4,6 +4,15 @@
 // Persisted UI-only data. Each model has a two-column, two-row dashboard.
 // Fields are bytes (no ABI padding); version is encoded in the NVS key.
 enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, AllChannels, BatteryCells, Course, Count };
+// Course ID 9 is retired but reserved so existing layout IDs remain stable.
+inline bool dashboardWidgetKindAvailable(DashboardWidgetKind kind) {
+    return kind<DashboardWidgetKind::Count && kind!=DashboardWidgetKind::Course;
+}
+inline DashboardWidgetKind nextDashboardWidgetKind(DashboardWidgetKind kind,int direction){
+    do {kind=static_cast<DashboardWidgetKind>((int(kind)+int(DashboardWidgetKind::Count)+(direction<0?-1:1))%int(DashboardWidgetKind::Count));}
+    while(!dashboardWidgetKindAvailable(kind));
+    return kind;
+}
 enum class DashboardWidgetStyle : uint8_t { Numbers, Bars, Dials, Graph, Switches, VerticalBars, Count };
 enum class SpeedWidgetValue : uint8_t { Current, Maximum, Average, Count };
 struct DashboardWidget {
@@ -17,16 +26,16 @@ struct DashboardWidget {
 // and 12..13 are FAS voltage/current.
 // Append IDs: ERS pack voltage, current, consumed mAh, remaining percent.
 constexpr uint8_t DashboardSensorCount = 18;
-// Keep persisted IDs stable while hiding dedicated FrSky FAS cards for ERS testing.
-constexpr uint8_t DisplaySensorCount = 16;
+// Keep persisted IDs stable while hiding temperature and dedicated FAS cards.
+constexpr uint8_t DisplaySensorCount = 15;
 inline uint8_t displaySensorSource(uint8_t index) {
-    return index<12?index:index<DisplaySensorCount?index+2:DashboardSensorCount;
+    return index==0?0:index<11?index+1:index<DisplaySensorCount?index+3:DashboardSensorCount;
 }
 
 // Individual-cell IDs 8..11 migrate to BatteryCells; other sensor IDs persist.
 inline uint8_t nextDashboardSensorSource(uint8_t source, int direction) {
     do { source=(source+DashboardSensorCount+(direction<0?-1:1))%DashboardSensorCount; }
-    while(source>=8 && source<14);
+    while(source==1 || (source>=8 && source<14));
     return source;
 }
 struct DashboardLayout { DashboardWidget cells[4]; };
@@ -42,7 +51,6 @@ inline uint8_t dashboardWidgetMask(uint8_t cell, const DashboardWidget &widget)
 inline bool dashboardStyleAllowed(DashboardWidgetKind kind, DashboardWidgetStyle style)
 {
     if (style == DashboardWidgetStyle::Numbers) return true;
-    if (kind == DashboardWidgetKind::Course) return style == DashboardWidgetStyle::Dials;
     if (kind == DashboardWidgetKind::Power) return style == DashboardWidgetStyle::Bars || style == DashboardWidgetStyle::Dials;
     if (kind == DashboardWidgetKind::AllChannels) return style == DashboardWidgetStyle::Bars || style == DashboardWidgetStyle::VerticalBars;
     if (kind == DashboardWidgetKind::Channels) return style <= DashboardWidgetStyle::Switches;
@@ -53,6 +61,8 @@ inline DashboardWidget sanitizedDashboardWidget(uint8_t cell, DashboardWidget wi
 {
     if (widget.speedValue >= SpeedWidgetValue::Count) widget.speedValue = SpeedWidgetValue::Current;
     if (widget.kind >= DashboardWidgetKind::Count) widget = DashboardWidget{};
+    if (widget.kind == DashboardWidgetKind::Course) widget.kind = DashboardWidgetKind::Empty;
+    if (widget.kind == DashboardWidgetKind::Sensor && widget.source == 1) widget.kind = DashboardWidgetKind::Empty;
     // Preserve old layouts while replacing individual-cell widgets with the group.
     if (widget.kind == DashboardWidgetKind::Sensor && widget.source >= 8 && widget.source < 12) {
         widget.kind = DashboardWidgetKind::BatteryCells; widget.source = 0;

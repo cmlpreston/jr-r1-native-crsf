@@ -65,7 +65,7 @@ void TransmitterUi::controlErsSensor(uint8_t item,PageControlEvent event)
 {
     if(activePage_!=UiPage::ErsSensors)return;
     if(item==4){
-        if(ersSelected_<0){setupBank_=0;setupPage_=1;drawMainMenu();}
+        if(ersSelected_<0){if(v2SensorSetupReturn_){v2SensorSetupReturn_=false;drawDesignPage(UiPage::SensorDetail);}else{setupBank_=0;setupPage_=1;drawMainMenu();}}
         else{ersSelected_=-1;ersDraftDirty_=false;ersPageMessage_[0]=0;drawDesignPage(UiPage::ErsSensors);}return;
     }
     if(item==1 || item==2){ersListBank_=item==1?0:ersConfig_.count()>4?1:0;drawDesignPage(UiPage::ErsSensors);return;}

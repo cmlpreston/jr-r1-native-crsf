@@ -1,5 +1,16 @@
 # R-1 EVO change record
 
+## V2 native UI trial — 3 November 2026
+
+- Preserve V1 at `codex/r1-v1` / `r1-v1-2026-11-03`; develop V2 separately.
+- Add real-telemetry Drive overview, live trim/rate strip, GPS/Widgets shortcuts,
+  graph pause/time cursor, sensor setup links, per-model editable Quick and run
+  review with explicit statistics reset. Preserve native safety/control paths.
+- Embed DM Sans and Manrope bitmap fonts, retain icon fallback and use the
+  approved trial's light palette. Keep the top model label informational.
+- Remove gearing calculator from the browser trial and restore a GPS demo route;
+  native GPS map/trail/zoom and per-model widget layouts remain available.
+
 Record user-visible changes here as they are implemented. Update the operating
 manual periodically rather than regenerating it for every firmware change.
 Entries below distinguish prepared source from firmware already installed.

@@ -150,11 +150,8 @@ void TransmitterUi::drawKeypadPage()
         makePageActionButton(kScreenWidth/2+6,portraitUi?220:164,kScreenWidth/2-18,42,"Reset draft",UiText::Menu,cPanel2,cWhite,cLine,&TransmitterUi::controlKeypadMenu,1);
         return;
     }
-    makePageActionButton(8,5,76,34,"Back",UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlKeypadMenu,8);
-    makeLabel(lv_scr_act(),"Quick menu",12,48,UiText::Heading,cWhite);
-    const char *labels[]={"UP: Steering expo","PAGE: Endpoints","SEL: Throttle","DOWN: Trims","+: Models","-: Timer","CLR: Drive","MODE: Setup"};
-    const int w=(kScreenWidth-30)/2,h=portraitUi?58:36,step=portraitUi?72:42;
-    for(uint8_t i=0;i<8;++i)makePageActionButton(10+(i%2)*(w+10),86+(i/2)*step,w,h,labels[i],UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlKeypadMenu,i);
+    if(activePage_==UiPage::QuickNavigation){drawV2Quick();return;}
+
 }
 
 void TransmitterUi::controlKeypadMenu(uint8_t item,PageControlEvent event)
@@ -172,11 +169,13 @@ void TransmitterUi::controlKeypadMenu(uint8_t item,PageControlEvent event)
         drawDesignPage(UiPage::ValueEditor);return;
     }
     if(item==8){drawDesignPage(keypadReturnPage_);return;}
-    if(item==0||item==1){tuneRole_=0;tuneBank_=0;selectedChannel_=steeringChannel();openDesignEditor(item==0?1:2,UiPage::Tune);}
-    else if(item==2){tuneRole_=1;tuneBank_=0;selectedChannel_=throttleChannel();drawDesignPage(UiPage::Tune);}
-    else if(item==3){tuneRole_=0;tuneBank_=1;drawDesignPage(UiPage::Tune);}
-    else if(item==4)drawModelSelectPage();
-    else if(item==5)drawDesignPage(UiPage::TimerControl);
-    else if(item==6)drawDashboard();
-    else if(item==7)drawMainMenu();
+    if(activePage_==UiPage::QuickNavigation&&item<8){
+        loadV2Quick();
+        if(v2QuickEditing_){
+            v2QuickSlots_[item]=(v2QuickSlots_[item]+1)%v2ShortcutCount;
+            saveV2Quick();drawDesignPage(UiPage::QuickNavigation);
+        }else openV2Shortcut(v2QuickSlots_[item]);
+        return;
+    }
+
 }

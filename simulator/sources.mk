@@ -19,6 +19,12 @@ SHARED_APP_CPP := \
   $(ROOT)/src/output_safety.cpp \
   $(ROOT)/src/jr_propo_boot_logo.cpp \
   $(ROOT)/src/r1_evo_wordmark.cpp \
+  $(ROOT)/src/r1_dm_12.cpp \
+  $(ROOT)/src/r1_dm_14.cpp \
+  $(ROOT)/src/r1_dm_16.cpp \
+  $(ROOT)/src/r1_manrope_22.cpp \
+  $(ROOT)/src/r1_manrope_32.cpp \
+  $(ROOT)/src/r1_manrope_48.cpp \
   $(ROOT)/src/setup_portal.cpp \
   $(ROOT)/src/offline_map.cpp \
   $(ROOT)/src/gps_basemap.cpp \

@@ -105,7 +105,7 @@ bool TransmitterUi::designPage() const
 {
     switch (activePage_) {
         case UiPage::RfWarningSetup: case UiPage::DriveBatterySetup: case UiPage::ErsSensors: case UiPage::TimerControl: case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation:
-        case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor:
+        case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor: case UiPage::RunReview:
         case UiPage::Telemetry: case UiPage::Gps: case UiPage::ChannelMonitor:
         case UiPage::SensorDetail: case UiPage::MainMenu: case UiPage::Channels:
         case UiPage::TxBatterySetup: case UiPage::DisplaySetup: case UiPage::ModuleLink: case UiPage::OutputStatus: case UiPage::ModeChooser: case UiPage::ChannelPlaceholder:
@@ -326,6 +326,7 @@ void TransmitterUi::drawSettingsRow(const char *title,const char *value,int y,in
 
 void TransmitterUi::drawDesignPage(UiPage page)
 {
+    if(page!=UiPage::SensorDetail || activePage_!=UiPage::SensorDetail)v2GraphPaused_=false;
     if(page!=UiPage::Dashboard)maximizedWidget_=-1;
     if(page==UiPage::Gps&&activePage_!=UiPage::Gps){gpsFullScreen_=false;lastInteractionMs_=millis();}
     activePage_ = page;
@@ -362,19 +363,21 @@ void TransmitterUi::drawDesignPage(UiPage page)
             auto logo=lv_img_create(lv_scr_act());lv_img_set_src(logo,art);lv_img_set_zoom(logo,min(36*256/int(art->header.w),30*256/int(art->header.h)));
             lv_img_set_pivot(logo,0,0);lv_obj_set_pos(logo,5,4);
         }
-        addPageActionTarget(0,0,kScreenWidth-110,38,&TransmitterUi::controlDesign,4);
     }
     auto modelLabel=label(modelNames_[activeModelSlot_],modelX,10,UiText::Secondary,0xe7edef);
-    boundedLabel(modelLabel,kScreenWidth-modelX-112);
+    boundedLabel(modelLabel,kScreenWidth-modelX-146);
+    label("V2",kScreenWidth-142,12,UiText::Caption,0xa4d6ae);
     designLink_=label("LQ --",kScreenWidth-104,12,UiText::Caption,cDim);boundedLabel(designLink_,60);
     makeWifiStatusIcon(kScreenWidth-33,11);
     if(!navigationIsModal())addPageActionTarget(kScreenWidth-110,0,72,38,&TransmitterUi::controlDesign,63);
     const bool data = page == UiPage::Telemetry || page == UiPage::Gps || page == UiPage::ChannelMonitor || page == UiPage::SensorDetail;
     const UiPage sectionPage=page==UiPage::TimerControl?UiPage::Dashboard:page==UiPage::OutputStatus?statusReturnPage_:page;
-    const bool dataSection=sectionPage==UiPage::Telemetry||sectionPage==UiPage::Gps||sectionPage==UiPage::ChannelMonitor||sectionPage==UiPage::SensorDetail;
+    const bool dataSection=sectionPage==UiPage::Telemetry||sectionPage==UiPage::Gps||sectionPage==UiPage::ChannelMonitor||sectionPage==UiPage::SensorDetail||sectionPage==UiPage::RunReview;
     const uint8_t nav=(sectionPage==UiPage::Dashboard||sectionPage==UiPage::ModeChooser)?0:(sectionPage==UiPage::Tune||sectionPage==UiPage::ValueEditor)?1:dataSection?2:3;
     if(!navigationIsModal())drawSectionNavigation(nav);
     if(page==UiPage::QuickNavigation||page==UiPage::FieldResetConfirmation||page==UiPage::TimerControl){drawKeypadPage();}
+    else if(page==UiPage::RunReview){drawV2RunReview();}
+    else if (page == UiPage::Dashboard && v2Overview_ && !designPortrait) {drawV2Overview();}
     else if (page == UiPage::Dashboard) {
         lv_obj_t *minimize=nullptr;
         if(maximizedWidget_>=0){
@@ -385,10 +388,15 @@ void TransmitterUi::drawDesignPage(UiPage page)
             lv_obj_set_style_border_width(minimize,0,0);
             lv_obj_set_style_radius(minimize,11,0);
         }else{
-            const char *modes[]={"Normal","Walk"};const uint8_t actions[]={183,182};
-            drawPageTabs(modes,actions,2,driveModeSettings_.activeMode==DriveMode::Walk?1:0,&TransmitterUi::controlDesign);
+            if(designPortrait){const char *modes[]={"Normal","Walk"};const uint8_t actions[]={183,182};
+                drawPageTabs(modes,actions,2,driveModeSettings_.activeMode==DriveMode::Walk?1:0,&TransmitterUi::controlDesign);
+            }else{
+                button(10,48,100,29,"Normal",183,driveModeSettings_.activeMode==DriveMode::Normal);
+                button(116,48,100,29,"Walk",182,driveModeSettings_.activeMode==DriveMode::Walk);
+            }
         }
         drawDashboardWidgets();
+        if(!designPortrait && maximizedWidget_<0)makePageActionButton(kScreenWidth-102,47,90,30,"Overview",UiText::Caption,cPanel,cCyan,cLine,&TransmitterUi::controlV2,1);
         if(minimize)lv_obj_move_foreground(minimize);
     } else if(page==UiPage::RfWarningSetup){
         label("Model RF warnings",12,48,UiText::Heading);
@@ -645,7 +653,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         button(kScreenWidth/2+5,designFooterY,kScreenWidth/2-15,36,"Apply",35,true);
     } else if (data) {
         const char *tabs[]={"Sensors","GPS","Channels","Inputs"};const uint8_t actions[]={60,61,62,223};
-        drawPageTabs(tabs,actions,4,page==UiPage::Gps?1:page==UiPage::ChannelMonitor?2:0,&TransmitterUi::controlDesign);
+        if(page!=UiPage::SensorDetail || designPortrait)drawPageTabs(tabs,actions,4,page==UiPage::Gps?1:page==UiPage::ChannelMonitor?2:0,&TransmitterUi::controlDesign);
         if(page==UiPage::Telemetry) {
             label(sensorBank_==2 ? "Current / energy" : sensorBank_ ? "Drive battery" : "Radio / motion",12,88,UiText::Caption,cCyan);
             drawPageControls(sensorBank_,(DisplaySensorCount+5)/6);
@@ -668,15 +676,21 @@ void TransmitterUi::drawDesignPage(UiPage page)
                 makePageActionButton(x+8,y+25,wide-16,32,standardBatteryVehicle_?"Vehicle pack / CU01":"Receiver supply",UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,245);
             }
         } else if(page==UiPage::SensorDetail) {
-            boundedLabel(label(designSensorNames[sensorSelected_],12,90,UiText::Menu,cDim),kScreenWidth-156);
+            boundedLabel(label(designSensorNames[sensorSelected_],12,designPortrait?90:49,UiText::Menu,cDim),kScreenWidth-156);
             designValues_[0]=label("--",12,110,UiText::Heading);
             designDetails_[0]=label("No data",kScreenWidth-140,118,UiText::Caption,cDim);
-            makePageActionButton(kScreenWidth-140,85,70,30,sensorSessionStats_[sensorSelected_]?"Session":"30s",UiText::Caption,cPanel,cCyan,cLine,&TransmitterUi::controlDesign,248);
-            makePageActionButton(kScreenWidth-66,85,54,30,"Reset",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,247);
+            makePageActionButton(kScreenWidth-140,designPortrait?85:47,70,30,sensorSessionStats_[sensorSelected_]?"Session":"30s",UiText::Caption,cPanel,cCyan,cLine,&TransmitterUi::controlDesign,248);
+            makePageActionButton(kScreenWidth-66,designPortrait?85:47,54,30,"Reset",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,247);
             designDetails_[2]=label("Max -- / Avg --",12,137,UiText::Caption,cDim);
             boundedLabel(designDetails_[2],kScreenWidth-24);
             lv_label_set_long_mode(designDetails_[2],LV_LABEL_LONG_CLIP);lv_obj_set_height(designDetails_[2],UiText::font(UiText::Caption)->line_height);
-            const int graphTop=157,graphHeight=designFooterY-graphTop-8;
+            if(!designPortrait){
+                // Make room for a taller graph and direct sensor configuration.
+                lv_obj_set_pos(designValues_[0],12,77);lv_obj_set_pos(designDetails_[0],140,82);
+                lv_obj_set_pos(designDetails_[2],200,82);boundedLabel(designDetails_[2],268);
+
+            }
+            const int graphTop=designPortrait?157:111,graphHeight=designFooterY-graphTop-(designPortrait?8:48);
             auto panel=makePanel(12,graphTop,kScreenWidth-24,graphHeight,cPanel,cLine);
             for(unsigned n=0;n<3;++n){
                 const int y=n*(graphHeight-16)/2;
@@ -690,6 +704,15 @@ void TransmitterUi::drawDesignPage(UiPage page)
             lv_obj_set_style_line_color(designCurve_,colour(cCyan),0);lv_obj_set_style_line_width(designCurve_,2,0);
             designDetails_[1]=makeLabel(panel,"Waiting for history",64,graphHeight/2-7,UiText::Caption,cDim);
             lv_obj_set_width(designDetails_[1],kScreenWidth-108);lv_label_set_long_mode(designDetails_[1],LV_LABEL_LONG_CLIP);
+            if(!designPortrait && sensorSelected_!=17){
+                makePageActionButton(12,238,68,30,v2GraphPaused_?"Live":"Pause",UiText::Caption,cPanel,cCyan,cLine,&TransmitterUi::controlV2,20);
+                makePageActionButton(84,238,30,30,"<",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlV2,21);
+                makePageActionButton(118,238,30,30,">",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlV2,22);
+                designDetails_[6]=label("30 s history",154,245,UiText::Caption,cDim);boundedLabel(designDetails_[6],143);
+                const char *setup=sensorSelected_==0?"Dashboard setup":sensorSelected_==2?"ERS / motor poles":sensorSelected_==4?"RF warnings":sensorSelected_>=6&&sensorSelected_<=11?"Battery alarms":sensorSelected_>=14?"ERS sensor setup":"Sensor settings";
+                makePageActionButton(300,238,168,30,setup,UiText::Caption,cPanel2,cCyan,cLine,&TransmitterUi::controlV2,30);
+                v2GraphCursorLine_=lv_line_create(panel);lv_obj_set_style_line_color(v2GraphCursorLine_,colour(cAmber),0);lv_obj_set_style_line_width(v2GraphCursorLine_,1,0);
+            }
             if(sensorSelected_==17){
                 lv_obj_add_flag(panel,LV_OBJ_FLAG_HIDDEN);
                 boundedLabel(label("Reported by CU01, not voltage-derived.",12,184,UiText::Caption,cDim),kScreenWidth-24);
@@ -832,6 +855,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
 {
     playKeyClick();
     if(item==244){
+        v2SensorSetupReturn_=false;
         ersSelected_=-1;ersListBank_=0;ersPageMessage_[0]=0;
         drawDesignPage(UiPage::ErsSensors);return;
     }
@@ -1032,12 +1056,12 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         case 61:drawDesignPage(UiPage::Gps);return;
         case 62:designBank_=0;drawDesignPage(UiPage::ChannelMonitor);return;
     }
-    if(item==246){drawDesignPage(UiPage::DriveBatterySetup);return;}
+    if(item==246){v2SensorSetupReturn_=false;drawDesignPage(UiPage::DriveBatterySetup);return;}
     if(item==254){if(activePage_!=UiPage::RfWarningSetup)rfWarningReturnPage_=activePage_;drawDesignPage(UiPage::RfWarningSetup);return;}
     if(item>=250&&item<=253){const auto &w=dashboardLayouts_[activeModelSlot_].cells[item-250];if(w.kind==DashboardWidgetKind::Sensor)resetSensorStatistics(w.source);return;}
-    if(item==247){resetSensorStatistics(sensorSelected_);return;}
+    if(item==247){resetSensorStatistics(sensorSelected_);v2GraphPaused_=false;drawDesignPage(UiPage::SensorDetail);return;}
     if(item==248){sensorSessionStats_[sensorSelected_]=!sensorSessionStats_[sensorSelected_];saveDriveBatterySettings();drawDesignPage(UiPage::SensorDetail);return;}
-    if(item==249){ersSelected_=-1;ersDraftDirty_=false;ersUsePackCapacity_=true;ersListBank_=0;drawDesignPage(UiPage::ErsSensors);return;}
+    if(item==249){v2SensorSetupReturn_=true;ersSelected_=-1;ersDraftDirty_=false;ersUsePackCapacity_=true;ersListBank_=0;drawDesignPage(UiPage::ErsSensors);return;}
     if(item==245 && activePage_==UiPage::Telemetry){
         if(portalSetStandardBatteryVehicle(!standardBatteryVehicle_))playKeyClick();
         drawDesignPage(UiPage::Telemetry);return;
@@ -1170,8 +1194,9 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
 
     }else if(activePage_==UiPage::Tune){
         refreshTuneParameters();
+    }else if(activePage_==UiPage::RunReview){updateV2RunReview();
     }else if(activePage_==UiPage::Dashboard){
-        updateDashboardWidgets(t,tx,txValid);
+        if(v2Overview_&&!designPortrait)updateV2Overview();else updateDashboardWidgets(t,tx,txValid);
     } else if(activePage_==UiPage::Telemetry){for(int i=0;i<6;++i){const uint8_t sensor=displaySensorSource(sensorBank_*6+i);if(sensor<DashboardSensorCount)reading(sensor,designValues_[i],designDetails_[i]);}}
     else if(activePage_==UiPage::SensorDetail){
         reading(sensorSelected_,designValues_[0],designDetails_[0]);
@@ -1180,21 +1205,24 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
         if(stats.valid){char maximum[24],average[24];sensorText(sensorSelected_,stats.maximum,maximum,sizeof(maximum));sensorText(sensorSelected_,stats.average,average,sizeof(average));
             uiSetTextFmt(designDetails_[2],"Max %s / Avg %s %s",maximum,average,designSensorUnits[sensorSelected_]);}
         else uiSetTextFmt(designDetails_[2],"Max -- / Avg -- %s",designSensorUnits[sensorSelected_]);
+        const auto *history=v2GraphPaused_?v2FrozenHistory_:sensorHistory_[sensorSelected_];
+        const auto *valid=v2GraphPaused_?v2FrozenValid_:sensorHistoryValid_[sensorSelected_];
         int32_t lo=INT32_MAX,hi=INT32_MIN;int count=0;
         // Draw only the most recent contiguous valid segment, never across gaps.
-        int start=30;while(start>0 && sensorHistoryValid_[sensorSelected_][start-1])--start;
-        for(int i=start;i<30;++i){lo=min(lo,sensorHistory_[sensorSelected_][i]);hi=max(hi,sensorHistory_[sensorSelected_][i]);++count;}
+        int start=30;while(start>0 && valid[start-1])--start;
+        for(int i=start;i<30;++i){lo=min(lo,history[i]);hi=max(hi,history[i]);++count;}
         if(count){
             if(lo==hi){const int32_t padding=max<int64_t>(1,llabs(int64_t(lo))/100);lo=max<int64_t>(INT32_MIN,int64_t(lo)-padding);hi=min<int64_t>(INT32_MAX,int64_t(hi)+padding);}
             for(unsigned n=0;n<3;++n){char text[24];sensorText(sensorSelected_,int64_t(hi)-(int64_t(hi)-lo)*n/2,text,sizeof(text));uiSetText(designDetails_[3+n],text);}
         }else for(unsigned n=0;n<3;++n)uiSetText(designDetails_[3+n],"--");
         if(count>=2){
             const auto panel=lv_obj_get_parent(designCurve_);const int height=lv_obj_get_height(panel),width=lv_obj_get_width(panel);
-            for(int i=start;i<30;++i)designPoints_[i-start]={static_cast<lv_coord_t>(60+(i-start)*(width-70)/max(1,count-1)),static_cast<lv_coord_t>(height-9-(static_cast<int64_t>(sensorHistory_[sensorSelected_][i])-lo)*(height-16)/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
+            for(int i=start;i<30;++i)designPoints_[i-start]={static_cast<lv_coord_t>(60+(i-start)*(width-70)/max(1,count-1)),static_cast<lv_coord_t>(height-9-(static_cast<int64_t>(history[i])-lo)*(height-16)/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
             lv_line_set_points(designCurve_,designPoints_,count);lv_obj_clear_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);
             uiSetHidden(designDetails_[1],true);
         } else {lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);uiSetHidden(designDetails_[1],false);uiSetText(designDetails_[1],"Waiting for history");}
         if(sensorSelected_==17)uiSetText(designDetails_[1],"Discover CU01, read, set mAh, then Apply.");
+        updateV2GraphCursor();
     } else if(activePage_==UiPage::ChannelMonitor){
         for(int i=0;i<4;++i){int ch=designBank_*4+i;int output=permilleFromCrsfValue(dashboardChannelValues_[ch]);
             uiSetTextFmt(designValues_[i],"%+d / %+d%% %s",permilleFromCrsfValue(designRequested_[ch])/10,output/10,(dashboardEnabledChannelMask_&(1U<<ch))?"":"off");lv_bar_set_value(designBars_[i],output,LV_ANIM_OFF);

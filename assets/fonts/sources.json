@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/google/fonts",
+  "commit": "2fe1e8c6b137fb13041a7cfca6fdcd8a910ea4dc",
+  "files": {
+    "DMSans-Variable.ttf": {
+      "path": "ofl/dmsans/DMSans%5Bopsz,wght%5D.ttf",
+      "sha256": "8cd08d97e89c24d0aa92edd2f0f4c8ee6195eee9b7c9f154865a58b02f0c1c0d"
+    },
+    "Manrope-Variable.ttf": {
+      "path": "ofl/manrope/Manrope%5Bwght%5D.ttf",
+      "sha256": "3ae11c49db0455a3cc33e37d380f20fdb8c7f8b41dc07625c177e3d87a9d6ae6"
+    },
+    "DM-Sans-OFL.txt": {
+      "path": "ofl/dmsans/OFL.txt",
+      "sha256": "9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1"
+    },
+    "Manrope-OFL.txt": {
+      "path": "ofl/manrope/OFL.txt",
+      "sha256": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b"
+    }
+  }
+}

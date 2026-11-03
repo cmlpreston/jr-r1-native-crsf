@@ -113,6 +113,7 @@ enum class UiPage : uint8_t {
     ErsSensors,
     DriveBatterySetup,
     RfWarningSetup,
+    RunReview,
 };
 
 class TransmitterUi {
@@ -197,6 +198,7 @@ public:
     void setDisplayCacheEnabled(bool enabled);
 #ifdef JR_R1_SIMULATOR
     bool runSimulatorUiAudit();
+    bool runSimulatorV2Audit();
     bool runSimulatorPerformanceAudit();
     bool selectSimulatorTxParameter(uint8_t id) {
         const auto p = txConfig_.parameter(id);
@@ -635,6 +637,25 @@ private:
     lv_obj_t *designLink_ = nullptr;
     lv_obj_t *designCurve_ = nullptr;
     lv_obj_t *designMarker_ = nullptr;
+    // V2 presentation is isolated from persisted V1 dashboard layouts.
+    bool v2Overview_=true,v2QuickEditing_=false,v2GraphPaused_=false;
+    uint8_t v2QuickModel_=255,v2QuickSlots_[8]={1,3,6,7,8,5,9,10},v2GraphCursor_=29;
+    bool v2ReviewConfirm_=false,v2SensorSetupReturn_=false;
+    int32_t v2FrozenHistory_[30]={};
+    bool v2FrozenValid_[30]={};
+    lv_obj_t *v2Values_[4]={},*v2Details_[4]={},*v2Adjustments_[4]={};
+    lv_obj_t *v2GraphCursorLine_=nullptr;
+    lv_point_t v2GraphCursorPoints_[2]={};
+    void drawV2Overview();
+    void updateV2Overview();
+    void drawV2Quick();
+    void loadV2Quick();
+    void saveV2Quick();
+    void openV2Shortcut(uint8_t id);
+    void drawV2RunReview();
+    void updateV2RunReview();
+    void updateV2GraphCursor();
+    void controlV2(uint8_t item,PageControlEvent event);
     GpsMapViewport designMapViewport_;
     lv_point_t designPoints_[33] = {};
     uint16_t channelHistory_[16][30] = {};

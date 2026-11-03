@@ -1,6 +1,7 @@
-# R1 EVO — Design 05
+# R1 EVO — V2 browser trial
 
-Separate interactive browser proposal, 3 November 2026. This is not LVGL or
+Separate interactive browser proposal, 3 November 2026. Native V2 development
+is tracked on `codex/r1-v2`; see `docs/UI-VERSIONS.md` from the repository root. This is not LVGL or
 firmware, and never connects to the transmitter, module or sensors. Design 04
 in `../trial/` and the production simulator are preserved.
 
@@ -37,7 +38,8 @@ folder at `/trial-next/` for a future explicitly requested deployment.
   explicit reset confirmation. Statistics reset does not reset consumed charge
   at the simulated sensor.
 - Setup: model battery/alarms/assignments versus shared handset RF hierarchy.
-  Gearing calculator starts with 64 km/h, 16T → 17T and supports live changes.
+  GPS map uses a fictional background and synthetic position with trail/zoom.
+  Model selection is on the external bench, not the handset top bar.
 
 ## Scope and verification
 
@@ -47,12 +49,11 @@ audio scheduling. Pole count and ERS capacity saves are local drafts only.
 Throttle trim/subtrim and RF-module configuration are explanatory placeholders;
 this is a navigation/design trial rather than a complete transmitter emulator.
 
-Browser settings use `r1-design05-models`, separate from Design 04. Statistics
+Browser settings use `r1-v2-models`, separate from Design 04. Statistics
 are held in memory until reset/reload/model change. Graph inspection does not
 stop collection. Each per-sensor reset preserves other sensor histories.
 
 Verified in the browser: sensor → settings → Apply → graph; model-specific
 thresholds; graph freeze/cursor; live mixed output saturation; trim screen fit;
-Quick pin/reorder/remove; identify/assign/duplicate feedback; 16T → 18T estimate
-of 72 km/h. Screen contents use native 480×320 coordinates; the enlarged preview
+Quick pin/reorder/remove; identify/assign/duplicate feedback; GPS route/zoom/trail. Screen contents use native 480×320 coordinates; the enlarged preview
 scales them for browser review. Browser fonts approximate a possible native UI.

@@ -269,14 +269,14 @@ lv_color_t lineBuffer[DISPLAY_LANDSCAPE_WIDTH * 16];
 lv_color_t colour(uint32_t rgb)
 {
     if (!uiNightMode) {
-        if (rgb == cBlack) rgb = 0xe6e9e7;
-        else if (rgb == cHeader) rgb = 0x1b3039;
-        else if (rgb == cPanel) rgb = 0xf7f9f7;
-        else if (rgb == cPanel2) rgb = 0xd4e8e9;
-        else if (rgb == cLine) rgb = 0xbcc6c8;
-        else if (rgb == cWhite) rgb = 0x17262e;
-        else if (rgb == cDim) rgb = 0x53636c;
-        else if (rgb == cCyan) rgb = 0x00707d;
+        if (rgb == cBlack) rgb = 0xf3f5f1;
+        else if (rgb == cHeader) rgb = 0x203739;
+        else if (rgb == cPanel) rgb = 0xffffff;
+        else if (rgb == cPanel2) rgb = 0xe0e9df;
+        else if (rgb == cLine) rgb = 0xd0ddd3;
+        else if (rgb == cWhite) rgb = 0x213a3c;
+        else if (rgb == cDim) rgb = 0x60776d;
+        else if (rgb == cCyan) rgb = 0x007e6c;
         else if (rgb == cGreen) rgb = 0x176b50;
         else if (rgb == cAmber) rgb = 0x875b0b;
         else if (rgb == cSafetyCut) rgb = 0xf1dca9;
@@ -767,10 +767,12 @@ void TransmitterUi::setDisplayCacheEnabled(bool enabled)
 #include "transmitter_ui_timer.inc"
 #include "transmitter_ui_ers.inc"
 #include "transmitter_ui_design.inc"
+#include "transmitter_ui_v2.inc"
 #include "transmitter_ui_drive_battery.inc"
 #include "transmitter_ui_rf_warning.inc"
 #include "transmitter_ui_portrait.inc"
 #ifdef JR_R1_SIMULATOR
+#include "../simulator/ui_v2_audit.inc"
 #include "../simulator/ui_audit.inc"
 #endif
 
@@ -1079,6 +1081,10 @@ void TransmitterUi::resetLvglObjects()
     mixingCurve_=mixingCursor_=mixingSentCursor_=mixingSummary_=nullptr;
     memset(mixingCurvePoints_,0,sizeof(mixingCurvePoints_));
     designStatus_ = designLink_ = designCurve_ = designMarker_ = nullptr;
+    for(auto &v:v2Values_)v=nullptr;
+    for(auto &v:v2Details_)v=nullptr;
+    for(auto &v:v2Adjustments_)v=nullptr;
+    v2GraphCursorLine_=nullptr;
     armProgress_=nullptr;
     driveHoldOverlay_=driveHoldLabel_=driveHoldBar_=nullptr;
     adjustmentOverlay_=nullptr;
@@ -3729,7 +3735,7 @@ void TransmitterUi::navigateBack()
         if (activePage_ == UiPage::ValueEditor) drawDesignPage(editorReturn_);
         else if (activePage_ == UiPage::WidgetEditor) drawDesignPage(UiPage::WidgetSelect);
         else if (activePage_ == UiPage::SensorDetail || activePage_ == UiPage::Gps || activePage_ == UiPage::ChannelMonitor) drawTelemetryPage();
-        else if(activePage_==UiPage::DriveBatterySetup)drawDesignPage(UiPage::BatteryMenu);
+        else if(activePage_==UiPage::DriveBatterySetup){const bool sensor=v2SensorSetupReturn_;v2SensorSetupReturn_=false;drawDesignPage(sensor?UiPage::SensorDetail:UiPage::BatteryMenu);}
         else if(activePage_==UiPage::RfWarningSetup){if(rfWarningReturnPage_==UiPage::RadioDiagnostics)drawRadioDiagnostics();else drawDesignPage(rfWarningReturnPage_);}
         else if (activePage_ == UiPage::TxBatterySetup || activePage_ == UiPage::DisplaySetup || activePage_ == UiPage::WidgetSelect || activePage_ == UiPage::Channels || activePage_ == UiPage::ModelSelect || activePage_ == UiPage::BatteryMenu) drawMainMenu();
         else drawDashboard();

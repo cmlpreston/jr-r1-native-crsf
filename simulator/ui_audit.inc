@@ -25,6 +25,10 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_V2_AUDIT_ONLY"))return runSimulatorV2Audit();
+    // Legacy widget coverage uses the retained Widgets view. The complete run
+    // also executes the V2 overview audit below.
+    v2Overview_=false;
     if(getenv("JR_R1_SETUP_SCOPE_AUDIT_ONLY")){
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;moduleLinkManaged_=false;
         auto has=[&](uint8_t action){for(uint8_t n=0;n<pageFocusCount_;++n)if(pageFocusTargets_[n].handler==&TransmitterUi::controlDesign&&pageFocusTargets_[n].argument==action)return true;return false;};
@@ -58,7 +62,7 @@ bool TransmitterUi::runSimulatorUiAudit()
             assert(strcmp(lv_label_get_text(designDetails_[4]),"8900")==0);
             assert(strcmp(lv_label_get_text(designDetails_[5]),"6000")==0);
             auto graph=lv_obj_get_parent(designCurve_);const int height=lv_obj_get_height(graph),width=lv_obj_get_width(graph);
-            assert(height==(portraitUi?255:115));
+            assert(height==(portraitUi?255:121));
             for(unsigned n=0;n<30;++n)assert(designPoints_[n].x>=60&&designPoints_[n].x<width&&designPoints_[n].y>=7&&designPoints_[n].y<height-7);
             assert(lv_obj_has_flag(designDetails_[1],LV_OBJ_FLAG_HIDDEN));shot("rpm-graph");
             sensorSelected_=7;memset(sensorHistoryValid_[7],0,sizeof(sensorHistoryValid_[7]));
@@ -800,6 +804,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     if(getenv("JR_R1_GPS_AUDIT_ONLY")){
         auditSportGps();assert(requestDisplayRotation());applyDisplayRotation();auditSportGps();return true;
     }
+    assert(runSimulatorV2Audit());
     auditWifiShortcut();
     auditDriveHold();
     auditTxBattery();
@@ -821,15 +826,17 @@ bool TransmitterUi::runSimulatorUiAudit()
             lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
             snprintf(path,sizeof(path),"%s-%s-quick.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);
         }
-        press(PhysicalControlId::KeyMode);assert(activePage_==UiPage::MainMenu);
+        press(PhysicalControlId::KeyMode);assert(activePage_==UiPage::ControlAssignments);
+        drawMainMenu();
         press(PhysicalControlId::KeyPlus);assert(setupBank_==1);
         press(PhysicalControlId::KeyMode,true);assert(activePage_==UiPage::Dashboard&&armRequested_&&!safetyResetRequested_);
-        press(PhysicalControlId::KeyMode);press(PhysicalControlId::KeyMinus);assert(activePage_==UiPage::TimerControl);
+        press(PhysicalControlId::KeyMode);press(PhysicalControlId::KeyClear);assert(activePage_==UiPage::TimerControl);
         const bool wasRunning=timers_[activeModelSlot_].running();controlKeypadMenu(9,activate);assert(timers_[activeModelSlot_].running()!=wasRunning&&armRequested_);
         controlKeypadMenu(9,activate);assert(timers_[activeModelSlot_].running()==wasRunning);
         press(PhysicalControlId::KeyMode,true);
         press(PhysicalControlId::KeyMode);press(PhysicalControlId::KeyUp);
-        assert(activePage_==UiPage::ValueEditor&&editorField_==1&&armRequested_);
+        assert(activePage_==UiPage::SensorDetail&&sensorSelected_==0&&armRequested_);
+        tuneRole_=0;tuneBank_=0;selectedChannel_=steeringChannel();openDesignEditor(1,UiPage::Tune);
         const auto savedProfile=profileForChannel(selectedChannel_);const int draft=editorDraft_;
         press(PhysicalControlId::KeyPlus);assert(editorDraft_>draft);
         const int edited=editorDraft_;press(PhysicalControlId::KeyMode);
@@ -849,7 +856,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         handleKeypadEvent(PhysicalControlId::KeyClear,InputEvent::InvalidState,keyTime+10);
         handleKeypadEvent(PhysicalControlId::KeyClear,InputEvent::Released,keyTime+80);
         assert(activePage_==UiPage::QuickNavigation); // cancelled pointer / failed input
-        press(PhysicalControlId::KeyClear);assert(activePage_==UiPage::Dashboard);
+        press(PhysicalControlId::KeyClear);assert(activePage_==UiPage::TimerControl);
         bootPinUnlocked_=false;pinPurpose_=PinPurpose::Boot;drawBootPin();
         press(PhysicalControlId::KeyMode,true);assert(activePage_==UiPage::BootPin&&!armRequested());
         controlBootPin(1,activate);press(PhysicalControlId::KeyClear);assert(!bootPinDigits_[0]&&!bootPinUnlocked());

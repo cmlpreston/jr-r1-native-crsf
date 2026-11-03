@@ -38,6 +38,11 @@ folder at `/trial-next/` for a future explicitly requested deployment.
   explicit reset confirmation. Statistics reset does not reset consumed charge
   at the simulated sensor.
 - Setup: model battery/alarms/assignments versus shared handset RF hierarchy.
+  Handset now includes Display, Sounds / alerts, RF module, TX battery,
+  Network / web and System. Palette/brightness and sound settings affect this
+  preview; shared drafts use `r1-v2-handset` independently of model settings.
+  Network, PIN and restart pages explicitly require the actual R1. Screen
+  timeout and idle-action drafts are stored, but the preview stays awake.
   GPS map uses a fictional background and synthetic position with trail/zoom.
   Model selection is on the external bench, not the handset top bar.
 

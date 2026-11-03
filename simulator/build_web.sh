@@ -25,7 +25,7 @@ cp web/vendor/* web/dist/vendor/
 mkdir -p web/dist/trial
 cp web/trial/index.html web/trial/trial.css web/trial/trial.js web/trial/pixel-preview.js web/trial/channels-data.js web/dist/trial/
 mkdir -p web/dist/trial-next
-cp web/trial-next/index.html web/trial-next/trial.css web/trial-next/trial.js web/dist/trial-next/
+cp web/trial-next/index.html web/trial-next/trial.css web/trial-next/trial.js web/trial-next/handset.js web/dist/trial-next/
 {
     printf 'LVGL 8.4.0\n\n'
     cat third_party/lvgl/LICENCE.txt

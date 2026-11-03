@@ -14,3 +14,17 @@
 .quick-item{height:40px}.quick-list{gap:4px}#view:has(.quick-list) .help{font-size:9px;line-height:1.3;margin:4px 0}
 
 .drive-grid .tile{padding:6px 9px}.drive-grid .big{font-size:28px;line-height:1.1}.drive-grid small{line-height:1.1}.sensor-grid .big{line-height:1.1}.sensor-grid small{line-height:1.1}
+/* Handset palette is shared across models, matching native setting ownership. */
+#screen{background:var(--ui-bg,#f3f5f1);color:var(--ui-text,#213a3c)}
+#screen .menu-grid button{height:54px}
+#screen[data-theme=night] .tile,#screen[data-theme=night] .menu-grid button,#screen[data-theme=night] .quick-item{background:var(--ui-surface)!important;border-color:var(--ui-line)}
+#screen[data-theme=night] .soft,#screen[data-theme=night] .tabs button,#screen[data-theme=night] .adjust-strip button,#screen[data-theme=night] .mix-equation,#screen[data-theme=night] #nav{background:var(--ui-selection)!important;color:var(--ui-text)!important}
+#screen[data-theme=night] .primary,#screen[data-theme=night] .tabs button.chosen{background:var(--ui-accent)!important;color:var(--ui-bg)!important}
+#screen[data-theme=night] .tiny,#screen[data-theme=night] .help,#screen[data-theme=night] .tile-label,#screen[data-theme=night] .tile small,#screen[data-theme=night] .menu-grid small,#screen[data-theme=night] .stat-line,#screen[data-theme=night] .title .meta,#screen[data-theme=night] .row small,#screen[data-theme=night] .drive-foot,#screen[data-theme=night] .trim-labels,#screen[data-theme=night] .mix-legend{color:var(--ui-muted)!important}
+#screen[data-theme=night] .adjust-strip b{color:var(--ui-text)}
+#screen[data-theme=night] input,#screen[data-theme=night] select{background:var(--ui-surface);color:var(--ui-text);border-color:var(--ui-line)}
+#screen[data-theme=night] .row,#screen[data-theme=night] #nav{border-color:var(--ui-line)}
+#screen[data-theme=night] #nav button.active{background:var(--ui-surface);color:var(--ui-accent);border-color:var(--ui-accent)}
+#screen[data-theme=night] .chart text{fill:var(--ui-muted)}
+#screen[data-theme=night] .chart line{stroke:var(--ui-line)}
+#screen[data-theme=night] .tile.alert{background:#4d3523!important}

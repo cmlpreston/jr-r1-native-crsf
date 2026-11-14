@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include "ui_symbol_fonts.h"
 LV_FONT_DECLARE(r1_dm_12);
 LV_FONT_DECLARE(r1_dm_14);
 LV_FONT_DECLARE(r1_dm_16);

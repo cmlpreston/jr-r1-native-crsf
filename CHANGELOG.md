@@ -1,5 +1,21 @@
 # R-1 EVO change record
 
+## 14 November 2026 — editor reuse, smaller fonts and display comparison
+
+- Refresh ordinary value editors in place, retaining their header, controls,
+  focus targets and page epoch. The measured 320-action fixture renders 90.2%
+  fewer pixels and creates no new LVGL objects; Apply/Cancel and safety rules
+  are preserved. Broader cross-page chrome caching remains deferred.
+- Replace complete fallback fonts with required glyph subsets. Fallback storage
+  falls from 209,046 to 25,513 B; the preferred 95,116 B font set is unchanged.
+  Net firmware flash falls by 176,740 B (172.6 KiB); static RAM rises by 48 B.
+- Add an opt-in Standard/Trial LCD transfer comparison using the same commands,
+  pins, mode 3 and 80 MHz clock. Standard remains the default after every boot.
+  Authenticated changes require CUT, an unlocked handset and released holds.
+- Host tests, both simulator builds, focused checks and the full portrait UI
+  audit passed. Guarded landscape checks/upload and hardware A/B validation are
+  pending; no Trial transport speed improvement is claimed yet.
+
 ## 14 November 2026 — live expo and shared feedback panels
 
 - Keep bounded expo adjustments live, including Tune draft preview, Apply,

@@ -165,3 +165,63 @@ and a coalesced save after safe output/painting. Full audits retain interaction,
 rotation, display equivalence and memory checks in both orientations. Hardware
 touch-to-visible timing and safe bench validation of the new firmware remain
 pending; this change has not been flashed.
+
+## Ordinary-editor reuse and LCD trial — 2026-11-14
+
+Ordinary value-editor +/-/Fine/Reset now update existing labels and curve points.
+Their header, controls, focus targets and screen epoch remain alive through the
+edit; true navigation still rebuilds and advances the epoch. Apply/Cancel, live
+expo/endpoints, deferred saving and CUT/fault protections are unchanged. This is
+editor reuse, not a cache of every page or shared chrome across different pages.
+
+Before/after measurements use the same 320 actual touch actions across 80
+field/role/orientation cases:
+
+| Quantity | Before | Candidate |
+| --- | ---: | ---: |
+| Rendered pixels | 48,144,963 | 4,706,282 |
+| New LVGL objects during adjustment | 7,764 | 0 |
+| Aggregate host controller-call time | 200,826 µs | 27,002 µs |
+
+Rendered work falls by 90.2% in this fixture. This is not a measured hardware
+latency or frame-rate improvement. Allocation blocks/bytes remain stable through
+each four-action sequence; ten unchanged Resets produce zero rendered pixels
+and new objects. Sixteen before/after editor screenshots are byte-identical,
+including with the new fallback font subsets. The preferred fonts are unchanged;
+the [dated performance review](CODE-PERFORMANCE-REVIEW-2026-11-14.md) records exact
+font and firmware size savings.
+
+The approved XIAO display backend also offers an opt-in **Trial** pixel path.
+It retains the verified commands, pins, mode 3 and 80 MHz clock. Standard is used
+on every boot. For ideal aligned full-frame writes, outer SPI API calls change
+from 4,800 to 20 landscape/30 portrait; the approximately 4,800 FIFO loads remain.
+This is synchronous transfer, not DMA. Host checks cover exact RGB565 byte order,
+odd counts, alignment, bounded scratch handling and guarded mode changes.
+
+### Hardware comparison still required
+
+Use the authenticated web **Display comparison** panel. Changing the method or
+resetting its counters requires an unlocked, awake handset in acknowledged CUT,
+with holds released and no firmware update or ESC programming interlock.
+
+1. Select **Standard**, allow its initial full redraw, then choose **Reset display
+   counters**. Keep the row-cache setting and sensor state consistent.
+2. Repeat a fixed navigation/editor/map sequence. Record pixels/bytes, API calls,
+   pixel-transfer time, longest write and the control/radio/input gap counters.
+3. Select **Trial**, allow its initial redraw and reset counters, then repeat the
+   identical sequence. Return to Standard and repeat as a consistency check.
+4. Compare like-for-like transfer totals. Check colours, partial/odd rectangles,
+   wake/rotation and extended panel/control stability before considering a new
+   default. No hardware A/B result exists yet.
+
+Pixel-transfer time excludes drawing and address-window commands; preemption can
+be included. Task maximum gaps and dropped-event counts are since boot and are
+not reset by **Reset display counters**. Row-cache fragmentation and alignment
+can raise API-call counts above the ideal full-frame figures.
+
+The same authenticated diagnostics use `GET /api/display-test`; guarded writes
+use `POST` with `action=mode&mode=standard|trial` or `action=reset` through the
+existing session/token mechanism. This avoids opening USB for routine comparison.
+Host tests, both simulator builds, focused checks and the full portrait audit
+passed. Guarded landscape checks/upload and real hardware qualification remain
+pending; no Trial transport speed improvement is claimed.

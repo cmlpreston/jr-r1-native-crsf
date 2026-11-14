@@ -768,6 +768,16 @@ opens the input monitor. `WIFISTATUS` reports network access details and may exp
 credentials; do not publish its unredacted output. Close a serial monitor before
 flashing if it holds the USB port.
 
+### Display comparison
+
+The authenticated web page includes a **Display comparison** section for bench
+testing Standard and Trial screen-transfer methods. Keep the handset unlocked,
+awake and CUT, with holds released, before changing the method. Restart always
+restores Standard. This setting does not change the LCD clock or driving setup.
+Let the first redraw finish, reset the display counters, then repeat the same
+navigation with each method. Trial hardware performance and stability still need
+validation; use [UI responsiveness](ui-responsiveness.md) for the test procedure.
+
 A native screenshot export is available over USB/web rendering. It does not read
 back display glass, so a good capture cannot rule out LCD wiring or panel faults.
 

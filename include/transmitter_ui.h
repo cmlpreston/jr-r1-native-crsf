@@ -202,6 +202,9 @@ public:
     DriveMode driveMode() const { return driveModeSettings_.activeMode; }
     bool captureScreenshot(Stream &output);
     void setDisplayCacheEnabled(bool enabled);
+    bool displayTransferChangeAllowed() const;
+    bool setDisplayTransferMode(bool native);
+    bool resetDisplayTransferStats();
 #ifdef JR_R1_SIMULATOR
     bool runSimulatorUiAudit();
     bool runSimulatorV2Audit();
@@ -625,8 +628,9 @@ private:
     bool steeringEndpointEditor() const;
     void selectSteeringEndpoint(uint8_t side);
     void refreshSteeringEndpointEditor(bool curveChanged);
+    void refreshValueEditor(bool curveChanged);
     lv_obj_t *steeringEndpointButtons_[2] = {};
-    lv_obj_t *editorStepButton_ = nullptr;
+    lv_obj_t *editorStepButton_ = nullptr, *editorValueLabel_ = nullptr;
     void updateSteeringEndpointSelection();
     UiPage editorReturn_ = UiPage::Tune;
     bool editorFine_ = false;

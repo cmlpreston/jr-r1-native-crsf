@@ -12,6 +12,7 @@ TESTS := \
   input_bus_guard_test \
   ui_cold_storage_test \
   raster_map_sampler_test \
+  lcd_pixel_transport_test \
   brake_abs_test \
   er6g_mode_pin_test \
   esc_drive_programmer_test \
@@ -119,6 +120,8 @@ $(BUILD)/rf_bench_session_test: rf_bench_session_test.cpp $(ROOT)/include/rf_ben
 
 run: all
 	$(PYTHON) critical_task_boundary_test.py
+	$(PYTHON) font_subset_test.py
+	$(PYTHON) lcd_pixel_bus_test.py
 	$(PYTHON) package_ota_test.py
 	$(PYTHON) upload_preflight_test.py
 	$(PYTHON) er4_upload_preflight_test.py
@@ -302,6 +305,10 @@ $(BUILD)/brake_abs_test: brake_abs_test.cpp $(ROOT)/include/brake_abs.h
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/raster_map_sampler_test: raster_map_sampler_test.cpp $(ROOT)/include/raster_map_sampler.h $(ROOT)/include/gps_map_projection.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/lcd_pixel_transport_test: lcd_pixel_transport_test.cpp $(ROOT)/include/lcd_pixel_transport.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 

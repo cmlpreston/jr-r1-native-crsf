@@ -14,16 +14,20 @@
 #endif
 
 #define LV_FONT_MONTSERRAT_10 0
-#define LV_FONT_MONTSERRAT_12 1
-#define LV_FONT_MONTSERRAT_14 1
-#define LV_FONT_MONTSERRAT_16 1
+#define LV_FONT_MONTSERRAT_12 0
+#define LV_FONT_MONTSERRAT_14 0
+#define LV_FONT_MONTSERRAT_16 0
 #define LV_FONT_MONTSERRAT_18 0
 #define LV_FONT_MONTSERRAT_20 0
-#define LV_FONT_MONTSERRAT_22 1
+#define LV_FONT_MONTSERRAT_22 0
 #define LV_FONT_MONTSERRAT_24 0
 #define LV_FONT_MONTSERRAT_28 0
-#define LV_FONT_MONTSERRAT_32 1
-#define LV_FONT_MONTSERRAT_48 1
+#define LV_FONT_MONTSERRAT_32 0
+#define LV_FONT_MONTSERRAT_48 0
+
+// Preserve the original LVGL default face/metrics without six complete fallbacks.
+#define LV_FONT_CUSTOM_DECLARE LV_FONT_DECLARE(r1_default_14)
+#define LV_FONT_DEFAULT &r1_default_14
 
 #define LV_USE_LOG 0
 #define LV_USE_PERF_MONITOR 0

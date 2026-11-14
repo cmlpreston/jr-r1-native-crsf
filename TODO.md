@@ -20,7 +20,24 @@ The first/high-priority implementation is recorded in that review: deferred
 critical-task logs, independent physical sampling/CUT, cold UI storage, guarded
 graphs and cached map sampling. UI-owned edit latency is still serialized.
 Hardware timing, stack margins and runtime heap qualification remain required;
-medium/lower-priority recommendations are still outstanding.
+the current medium-priority implementation adds ordinary-editor reuse, smaller
+font fallbacks and a guarded LCD transfer trial. See the review's follow-up
+measurements and [UI responsiveness](docs/ui-responsiveness.md).
+
+- [x] Refresh value-editor drafts without rebuilding their objects/header;
+  verify unchanged focus/epochs, pixels, Apply/Cancel and safety behaviour.
+- [x] Subset fallback fonts while preserving the preferred fonts, required
+  glyphs/default font and exact rendered output.
+- [x] Add an opt-in Standard/Trial pixel-transfer path with authenticated CUT-only
+  controls and transfer/task-gap diagnostics; boot always restores Standard.
+- [ ] Compare Standard/Trial on the installed panel, including colour order,
+  partial/odd writes, wake/rotation, stability and control/radio/input gaps.
+- [ ] Measure real editor touch-to-visible improvement; host/controller timing
+  and rendered-pixel savings are not handset latency measurements.
+- [ ] Consider shared chrome across different pages after its ownership/theme/
+  focus/epoch lifetimes are designed. Only editor chrome is retained currently.
+
+Other medium/lower-priority review recommendations remain outstanding.
 
 ## Status reconciliation — 2026-09-19
 

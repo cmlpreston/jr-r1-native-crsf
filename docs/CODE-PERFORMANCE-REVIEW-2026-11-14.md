@@ -11,6 +11,60 @@ setup portal and current receiver programming paths. It is not a formal proof
 of every safety property. Estimates below are explicitly distinguished from
 measurements.
 
+## Implementation update — editors, fonts and LCD transfer trial
+
+The subsequent medium-priority candidate implements ordinary-editor reuse and
+font subsetting, plus an opt-in LCD transport comparison. It has not yet been
+hardware-qualified. Host tests, both simulator builds, focused audits and the
+full portrait UI audit passed; the guarded landscape checks/upload are pending.
+
+Ordinary value-editor +/-/Fine/Reset now retain the complete editor tree,
+including header, focus targets and screen epoch. Only changed text and curve
+points update. Actual navigation still advances the epoch and clears page-owned
+pointers. Existing live expo/steering endpoint, Apply/Cancel, deferred persistence
+and CUT/fault behaviour are retained. Broad cross-page chrome reuse is deferred.
+
+| Same 320-action editor fixture, 80 field/role/orientation cases | Before | Candidate |
+| --- | ---: | ---: |
+| LVGL rendered pixels | 48,144,963 | 4,706,282 |
+| LVGL objects created during adjustment | 7,764 | 0 |
+| Host controller-call processing, aggregate | 200,826 µs | 27,002 µs |
+
+This is **90.2% fewer rendered pixels** in that fixture, not a whole-UI speedup.
+The host processing timings exclude the hardware LCD/input path. Used allocation
+blocks/bytes remain stable over each four-action sequence; repeated unchanged
+Reset produces zero pixels and objects. All 16 before/after editor screenshots
+are byte-identical, including after font subsetting.
+
+The six preferred DM Sans/Manrope fonts remain **95,116 B**. Fallback storage
+falls from **209,046 to 25,513 B**: a font-only saving of **183,533 B (179.23 KiB,
+87.8%)**, rather than the original 204 KiB gross upper bound. Required symbol
+glyphs and a compatible default font are retained; glyph descriptors, bitmaps,
+kerning, source coverage and rendered pages are checked.
+
+| Approved-target build | Installed `488d94b` | Candidate |
+| --- | ---: | ---: |
+| Application flash | 2,390,145 B | 2,213,405 B |
+| Static internal RAM | 203,932 B | 203,980 B |
+
+Net firmware flash falls by **176,740 B (172.6 KiB)** after the added code and
+diagnostics. Static RAM rises by **48 B**, including an 8 B font cache increase.
+These are build measurements, not runtime heap/stack qualification.
+
+The XIAO-only Trial transport uses the native RGB565 SPI pixel API, preserving
+commands, pins, mode 3, reset handling and 80 MHz clock. Standard remains the
+default at every boot; Trial is neither persisted nor selected automatically.
+Ideal aligned full-frame outer API calls fall from 4,800 to 20 landscape or 30
+portrait. The same approximately 4,800 hardware FIFO loads remain: this is not
+DMA/asynchronous drawing or a wire-rate increase. Partial/unaligned/odd writes
+have bounded handling and may require more API calls.
+
+The authenticated web **Display comparison** panel exposes the trial and transfer/
+task-gap counters. Changes require acknowledged CUT, an unlocked/awake handset,
+released holds and no firmware update/programming interlock. Hardware A/B has
+not yet been performed, so no Trial speedup or long-run panel stability is claimed.
+See [UI responsiveness](ui-responsiveness.md) for the comparison procedure.
+
 ## Implementation update — first and high-priority work
 
 The subsequent implementation addresses critical-task logging, independent

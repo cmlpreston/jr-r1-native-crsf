@@ -1199,6 +1199,18 @@ void loop()
     publishUiControlConfigurationIfChanged();
     const bool wifiArmRequested=readControlConfiguration().armRequested;
     const auto wifiSafety=readCrsfRuntime().outputSafetyStatus;
+    if(SetupPortal::state().running){
+        SetupPortal::RuntimeTiming timing;timing.ready=true;
+        timing.controlMaximumGapUs=readControlState().maximumTaskGapUs;
+        timing.radioMaximumGapUs=readCrsfRuntime().maximumTaskGapUs;
+        const auto sample=readInputSample();
+        timing.inputMaximumGapUs=sample.maximumGapUs;
+        timing.inputAgeMs=millis()-sample.sampledMs;
+        timing.inputHealthy=sample.available&&physicalInputSampleFresh(millis(),sample.sampledMs);
+        portENTER_CRITICAL(&inputDispatchMux);timing.inputDropped=inputDispatch.dropped();portEXIT_CRITICAL(&inputDispatchMux);
+        portENTER_CRITICAL(&diagnosticMux);timing.diagnosticDropped=diagnosticEvents.dropped();portEXIT_CRITICAL(&diagnosticMux);
+        SetupPortal::setRuntimeTiming(timing);
+    }
     SetupPortal::tick(remoteControlAllowed(wifiArmRequested,wifiSafety),
         wifiConnectionAllowed(wifiArmRequested,wifiSafety));
     const ControlConfigurationSnapshot uiConfiguration =

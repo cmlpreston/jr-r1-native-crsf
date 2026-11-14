@@ -1,0 +1,11 @@
+{
+  "source": "LVGL v8.4.0 src/font/lv_font_montserrat_{size}.c",
+  "sha256": {
+    "12": "d60af037f3d662208d2480d85e3da136d5eafee4ea1f57c840e538cc15d8248e",
+    "14": "15549af3e2316d408cc3870abb441ce11c096a4addce601861e43fd1617d29fd",
+    "16": "395faf6d0427c77c24149ec6e8b09047649f8c7ac489487f8374efcfb519d36d",
+    "22": "1c69e0df6fb0db1626df9cf3cd44b3f2a355aa1eb5f07447e9684c9a1d496cc0",
+    "32": "65cfd6f41946a99037ffdbde2c74ab2d0899000abadedfc87f00b517d8510633",
+    "48": "f2c8ef9e9ffc81f72ff05f03344f744c3b808be6f32aeed6912ecd95242097a7"
+  }
+}

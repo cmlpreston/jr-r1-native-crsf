@@ -25,6 +25,7 @@ SHARED_APP_CPP := \
   $(ROOT)/src/r1_manrope_22.cpp \
   $(ROOT)/src/r1_manrope_32.cpp \
   $(ROOT)/src/r1_manrope_48.cpp \
+  $(ROOT)/src/r1_symbol_fonts.cpp \
   $(ROOT)/src/setup_portal.cpp \
   $(ROOT)/src/offline_map.cpp \
   $(ROOT)/src/gps_basemap.cpp \

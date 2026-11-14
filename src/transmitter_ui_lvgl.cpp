@@ -7,6 +7,7 @@
 #include "ui_pixel_cache.h"
 #include "waveshare_touch_orientation.h"
 #include "input_bus_guard.h"
+#include "lcd_pixel_transport.h"
 
 #include <Preferences.h>
 #include "boot_diagnostics.h"
@@ -24,6 +25,9 @@
 #endif
 
 #include "config.h"
+#if !defined(JR_R1_SIMULATOR) && defined(JR_R1_XIAO_PCB) && DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+#include "xiao_lcd_pixel_bus.h"
+#endif
 #include "binding_resolver.h"
 #include "firmware_identity.h"
 #include "r1_input_map.h"
@@ -181,9 +185,10 @@ const char *modelNamespace(uint8_t slot, const char *legacy,
 #if defined(JR_R1_XIAO_PCB) && DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
 // Use the same SPIClass transport as the verified grounded-CS bench test.
 SPIClass waveshareSpi(FSPI);
-Arduino_DataBus *displayBus = new Arduino_HWSPI(
+XiaoLcdPixelBus *xiaoPixelBus = new XiaoLcdPixelBus(
     TFT_DC_PIN, TFT_CS_PIN, TFT_SCK_PIN, TFT_MOSI_PIN, TFT_MISO_PIN,
     &waveshareSpi);
+Arduino_DataBus *displayBus = xiaoPixelBus;
 #else
 Arduino_DataBus *displayBus = new Arduino_ESP32SPI(
     TFT_DC_PIN, TFT_CS_PIN, TFT_SCK_PIN, TFT_MOSI_PIN, TFT_MISO_PIN);
@@ -767,6 +772,48 @@ void TransmitterUi::setDisplayCacheEnabled(bool enabled)
                   pixelCache.enabled() ? "on" : "off");
 }
 
+LcdPixelTransfer::Snapshot LcdPixelTransfer::snapshot()
+{
+#if !defined(JR_R1_SIMULATOR) && defined(JR_R1_XIAO_PCB) && DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+    return xiaoPixelBus->snapshot();
+#else
+    return {};
+#endif
+}
+
+bool TransmitterUi::displayTransferChangeAllowed() const
+{
+    return displayReady_ && lcdTransportReady && startupPreflightComplete_ && !hardwareRecovery_ && !rfBenchMode_ &&
+        bootPinUnlocked_ && pinPurpose_==PinPurpose::None && !armRequested_ &&
+        designSafety_==OutputSafetyStatus::Cut && !calibrationActive() &&
+        !touchWasDown_ && !armGestureValid_ && !remoteArmHold_.id() &&
+        !displaySleeping_ && !escProgrammer_.blocksArm() && !SetupPortal::firmwareUpdating();
+}
+
+bool TransmitterUi::setDisplayTransferMode(bool native)
+{
+    if(!displayTransferChangeAllowed())return false;
+#if !defined(JR_R1_SIMULATOR) && defined(JR_R1_XIAO_PCB) && DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+    xiaoPixelBus->setNative(native);
+    // Re-prime both modes identically. No bus/panel reinitialization, clock or
+    // pin changes, page epoch changes or settings writes occur during this test.
+    pixelCache.invalidate();lv_obj_invalidate(lv_scr_act());uiMetrics=UiFrameMetrics{};
+    return true;
+#else
+    (void)native;return false;
+#endif
+}
+
+bool TransmitterUi::resetDisplayTransferStats()
+{
+    if(!displayTransferChangeAllowed())return false;
+#if !defined(JR_R1_SIMULATOR) && defined(JR_R1_XIAO_PCB) && DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+    xiaoPixelBus->resetStats();return true;
+#else
+    return false;
+#endif
+}
+
 
 #include "transmitter_ui_timer.inc"
 #include "transmitter_ui_ers.inc"
@@ -1096,7 +1143,7 @@ void TransmitterUi::resetLvglObjects()
 {
     standardDetailHeader=false;
     sectionNavigationVisible_=false;detailContentCompacted_=false;
-    steeringEndpointButtons_[0]=steeringEndpointButtons_[1]=editorStepButton_=nullptr;
+    steeringEndpointButtons_[0]=steeringEndpointButtons_[1]=editorStepButton_=editorValueLabel_=nullptr;
     driveProgress_=driveHint_=driveIcon_=nullptr;
     wifiKeyPreview_ = nullptr;
     for (auto &view : widgetViews_) view = DashboardWidgetView{};

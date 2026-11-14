@@ -26,6 +26,12 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_DISPLAY_TRANSFER_AUDIT_ONLY")){
+#include "ui_display_transfer_audit.inc"
+    }
+    if(getenv("JR_R1_EDITOR_REFRESH_AUDIT_ONLY")){
+#include "ui_editor_refresh_audit.inc"
+    }
     if(getenv("JR_R1_DRIVE_PACK_WIDGET_AUDIT_ONLY")){
 #include "ui_drive_pack_widget_audit.inc"
     }

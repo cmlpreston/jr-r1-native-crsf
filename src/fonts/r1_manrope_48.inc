@@ -2,7 +2,7 @@
 /*******************************************************************************
  * Size: 48 px
  * Bpp: 4
- * Opts: --font tmp/font-tools/instances/Manrope-800.ttf --range 0x20-0x7e,0xa0,0xb0,0xd7,0x2013-0x2014,0x2022,0x2026,0x2212 --size 48 --bpp 4 --format lvgl --no-compress --lv-font-name r1_manrope_48 --lv-fallback lv_font_montserrat_48 -o src/fonts/r1_manrope_48.inc
+ * Opts: --font tmp/font-tools/instances/Manrope-800.ttf --range 0x20-0x7e,0xa0,0xb0,0xd7,0x2013-0x2014,0x2022,0x2026,0x2212 --size 48 --bpp 4 --format lvgl --no-compress --lv-font-name r1_manrope_48 --lv-fallback r1_symbols_48 -o src/fonts/r1_manrope_48.inc
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -5879,7 +5879,7 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
 #endif
 };
 
-extern const lv_font_t lv_font_montserrat_48;
+extern const lv_font_t r1_symbols_48;
 
 
 /*-----------------
@@ -5905,7 +5905,7 @@ lv_font_t r1_manrope_48 = {
 #endif
     .dsc = &font_dsc,          /*The custom font data. Will be accessed by `get_glyph_bitmap/dsc` */
 #if LV_VERSION_CHECK(8, 2, 0) || LVGL_VERSION_MAJOR >= 9
-    .fallback = &lv_font_montserrat_48,
+    .fallback = &r1_symbols_48,
 #endif
     .user_data = NULL,
 };

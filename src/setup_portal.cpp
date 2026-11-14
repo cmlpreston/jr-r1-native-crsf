@@ -12,6 +12,7 @@
 #include "wifi_retry.h"
 #include "network_hostname.h"
 #include "display_profile.h"
+#include "lcd_pixel_transport.h"
 #include <Preferences.h>
 #ifndef JR_R1_SIMULATOR
 #include <esp_system.h>
@@ -20,6 +21,8 @@
 
 namespace SetupPortal {
 static State info;
+static RuntimeTiming runtimeTiming;
+void setRuntimeTiming(const RuntimeTiming &timing){runtimeTiming=timing;}
 static char browserSession[33]={};
 static bool updateInProgress=false;
 bool firmwareUpdating(){return updateInProgress;}
@@ -44,6 +47,9 @@ static bool usbScreenshotActive=false;
 static uint32_t screenEpoch=1;
 void resizeScreen(int width,int height){if(remotePixels)remoteScreen.attach(remotePixels,width,height);screenChanged();}
 void screenChanged(){if(++screenEpoch==0)screenEpoch=1;}
+#ifdef JR_R1_SIMULATOR
+uint32_t screenEpochForTesting(){return screenEpoch;}
+#endif
 void captureScreen(int x,int y,int width,int height,const uint16_t *pixels){
     if(info.running||usbScreenshotActive)remoteScreen.capture(x,y,width,height,pixels);
 }
@@ -239,6 +245,21 @@ static bool authorized(bool write=false) {
     server.sendHeader("X-Content-Type-Options","nosniff");
     return true;
 }
+static void sendDisplayTestSnapshot(){
+    const auto s=LcdPixelTransfer::snapshot();
+    DynamicJsonDocument d(1024);
+    d["supported"]=s.supported;d["mode"]=s.native?"trial":"standard";
+    d["pixelCalls"]=s.pixelCalls;d["backendCalls"]=s.backendCalls;
+    d["pixels"]=s.pixels;d["bytes"]=s.bytes;d["scratchPixels"]=s.scratchPixels;
+    d["elapsedUs"]=s.elapsedUs;d["maxWriteUs"]=s.maxWriteUs;
+    auto t=d.createNestedObject("runtime");t["ready"]=runtimeTiming.ready;
+    t["inputHealthy"]=runtimeTiming.inputHealthy;t["inputAgeMs"]=runtimeTiming.inputAgeMs;
+    t["controlMaximumGapUs"]=runtimeTiming.controlMaximumGapUs;
+    t["radioMaximumGapUs"]=runtimeTiming.radioMaximumGapUs;
+    t["inputMaximumGapUs"]=runtimeTiming.inputMaximumGapUs;
+    t["inputDropped"]=runtimeTiming.inputDropped;t["diagnosticDropped"]=runtimeTiming.diagnosticDropped;
+    String body;serializeJson(d,body);server.send(200,"application/json",body);
+}
 // The HTTP handler runs on the UI task. Keep setup active throughout an upload
 // so the independently running control task cannot receive an arm request.
 static uint8_t firmwareHeader[FirmwarePackage::HeaderSize];
@@ -433,6 +454,23 @@ static void routes() {
         settings.autoStart=autoStart;settings.raceAlarm=race;
         const bool ok=handset->portalSetTimerSettings(settings);
         server.send(ok?200:409,"text/plain",ok?"Timer settings saved; clock reset, lap history retained":"Timer settings rejected");
+    });
+    server.on("/api/display-test",HTTP_GET,[]{
+        if(!authorized())return;
+        sendDisplayTestSnapshot();
+    });
+    server.on("/api/display-test",HTTP_POST,[]{
+        if(!authorized(true))return;
+        bool applied=false;
+        if(server.arg("action")=="reset"){
+            applied=handset&&handset->resetDisplayTransferStats();
+        }else if(server.arg("action")=="mode"){
+            const auto mode=server.arg("mode");
+            if(mode!="standard"&&mode!="trial"){server.send(400,"text/plain","Unknown display method");return;}
+            applied=handset&&handset->setDisplayTransferMode(mode=="trial");
+        }else{server.send(400,"text/plain","Unknown display test action");return;}
+        if(!applied){server.send(423,"text/plain","Display test unavailable: keep CUT, unlock the handset and release all holds");return;}
+        sendDisplayTestSnapshot();
     });
     server.on("/api/memory",HTTP_GET,[]{
         if(!authorized())return;

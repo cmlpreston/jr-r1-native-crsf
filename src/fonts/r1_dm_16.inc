@@ -2,7 +2,7 @@
 /*******************************************************************************
  * Size: 16 px
  * Bpp: 4
- * Opts: --font tmp/font-tools/instances/DMSans-600.ttf --range 0x20-0x7e,0xa0,0xb0,0xd7,0x2013-0x2014,0x2022,0x2026,0x2212,0x2190-0x2193 --size 16 --bpp 4 --format lvgl --no-compress --lv-font-name r1_dm_16 --lv-fallback lv_font_montserrat_16 -o src/fonts/r1_dm_16.inc
+ * Opts: --font tmp/font-tools/instances/DMSans-600.ttf --range 0x20-0x7e,0xa0,0xb0,0xd7,0x2013-0x2014,0x2022,0x2026,0x2212,0x2190-0x2193 --size 16 --bpp 4 --format lvgl --no-compress --lv-font-name r1_dm_16 --lv-fallback r1_symbols_16 -o src/fonts/r1_dm_16.inc
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -2374,7 +2374,7 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
 #endif
 };
 
-extern const lv_font_t lv_font_montserrat_16;
+extern const lv_font_t r1_symbols_16;
 
 
 /*-----------------
@@ -2400,7 +2400,7 @@ lv_font_t r1_dm_16 = {
 #endif
     .dsc = &font_dsc,          /*The custom font data. Will be accessed by `get_glyph_bitmap/dsc` */
 #if LV_VERSION_CHECK(8, 2, 0) || LVGL_VERSION_MAJOR >= 9
-    .fallback = &lv_font_montserrat_16,
+    .fallback = &r1_symbols_16,
 #endif
     .user_data = NULL,
 };

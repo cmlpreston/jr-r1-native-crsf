@@ -539,7 +539,7 @@ records that process and the model generations used during the project.
 Start with the [development guide](DEVELOPMENT.md),
 [prototype build and firmware history](docs/build-history.md),
 [current PCB wiring](docs/xiao-pcb.md), [control inventory](docs/r1-control-map.md),
-[architecture review](docs/architecture-review.md) and [TODO list](TODO.md).
+[architecture review](docs/architecture-review.md), [memory and performance review](docs/CODE-PERFORMANCE-REVIEW-2026-11-14.md) and [TODO list](TODO.md).
 The [receiver project](https://github.com/cmlpreston/ExpressLRS-SPort/tree/codex/sport-telemetry)
 is maintained separately. Build and upload instructions must be matched to the
 actual hardware; the repository's [upload rules](AGENTS.md) apply to firmware work.

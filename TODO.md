@@ -11,6 +11,14 @@ The authoritative architecture-refactor execution order is recorded under
 [`docs/architecture-review.md`](docs/architecture-review.md). Follow that order
 before beginning later driving-control features.
 
+## Memory and responsiveness review — 2026-11-14
+
+The [dated code review](docs/CODE-PERFORMANCE-REVIEW-2026-11-14.md) records measured
+memory/layout evidence and a proposed optimisation order. First address blocking
+critical-task logging, then graph/map redraws and UI-owned memory placement.
+Its recommendations are outstanding work, not implemented performance gains.
+Hardware timing and peak-memory qualification are still required.
+
 ## Status reconciliation — 2026-09-19
 
 Checked against current source, host tests, simulator notes and user-reported

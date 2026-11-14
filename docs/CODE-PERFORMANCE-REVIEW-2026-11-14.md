@@ -16,9 +16,14 @@ measurements.
 The subsequent implementation addresses critical-task logging, independent
 physical sampling/CUT, RF/history memory placement, graph invalidation and map
 sampling. The review findings below describe the original `c792652` baseline.
-The changes have not been flashed; hardware qualification is still pending.
+Source `dd53728` was installed on user request through the guarded approved XIAO
+landscape workflow. Build, host tests and full UI checks passed again; PlatformIO
+upload succeeded with device hash verification and reset. Record
+`/tmp/r1-flash-ym377dwe`, log `/tmp/r1-priority-fixes-flash-2026-11-14.log`.
+Physical postboot behaviour and hardware qualification are still pending. ABS is
+included and remains Off by default; medium-priority changes await bench results.
 
-| Build measurement | Before | Candidate |
+| Build measurement | Before | Installed |
 | --- | ---: | ---: |
 | Static internal RAM | 251,668 B (76.8%) | 203,932 B (62.2%) |
 | `TransmitterUi` | 70,400 B | 17,936 B |

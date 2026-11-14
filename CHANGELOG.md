@@ -13,8 +13,10 @@
   Pixel-equivalent host sampling benchmark improves ~8.6x, excluding LCD work.
 - Report allocator LVGL peak and worker stack margins; add race, backpressure,
   input, I²C, allocation-failure and graph/map regression coverage.
-- Candidate not flashed. UI/model edit callbacks remain UI-owned; hardware timing
-  and safe bench qualification are pending.
+- Installed source `dd53728` on the approved XIAO landscape profile after build,
+  host tests and full UI checks; guarded PlatformIO upload and device hash
+  verification passed. This includes ABS, Off by default. UI/model edit callbacks
+  remain UI-owned; hardware timing and safe bench qualification are pending.
 
 ## 14 November 2026 — ABS pulsed-braking candidate
 

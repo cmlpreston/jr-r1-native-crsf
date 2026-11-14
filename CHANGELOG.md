@@ -2,6 +2,9 @@
 
 ## 14 November 2026 — ESC programming workflow
 
+- Installed on the R1 from `0066113`: approved XIAO landscape build, full tests
+  and UI audit passed; guarded PlatformIO upload and device hash verified.
+
 - Keep Program, Read ESC and Drive in a fixed action bar on every ESC tab and
   while editing. Keep Apply one and Cancel separate above that bar.
 - Show the numbered sequence: Program and wait for acknowledgement; ESC off

@@ -626,6 +626,42 @@ string parameter types that the current editor does not support are read-only.
 The receiver needs compatible settings to reconnect after RF changes. See the
 [RF configuration notes](elrs-tx-configuration.md) for protocol details.
 
+### ABS pulsed braking
+
+Open **Tune → Brake → second page → ABS braking**. This is timed pulsed braking,
+not wheel-lock sensing. It is **Off by default** and is supported only with the
+ESC set to **Forward/Brake**, with reverse disabled.
+
+First use the ESC programmer to read its settings, set **Run mode → Fwd/brake**,
+and wait for verified write/readback. Alternatively read an ESC already set to
+that mode. Return through Drive and its required power cycle. The ABS page then
+shows the last verified **Forward / Brake** setting and allows ABS to be enabled.
+No ESC setting is changed automatically by this page. Verification is saved per
+model; if the ESC is changed using a card or another transmitter, re-read its run
+mode before relying on ABS. It is a record of configuration, not live ESC-state
+feedback. Beginning another programming session clears verification and turns
+ABS off; re-enable it explicitly after verifying the mode again.
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| Activation | Physical brake-trigger travel required to start the delay | 30% |
+| Brake release | Reduction from requested braking during the weaker half of each pulse | 30% |
+| Pulse frequency | Complete strong/weak cycles per second; 2–10 Hz | 5 Hz |
+| Delay | Initial continuous braking before pulsing; 0–1000 ms | 200 ms |
+
+The pattern has 50% strong and 50% reduced braking. A 30% release means a 100%
+brake request alternates with approximately 70%, subject to response settings.
+ABS follows response/mixing/trim/ramp processing, affects only the throttle
+output on the physical brake side, and never creates forward drive during its
+release half. CUT, invalid inputs, configuration errors and stale-control safety
+still override it. Changing ABS settings requests CUT and normal re-arming.
+An **ABS** marker in the header indicates it is enabled, not necessarily pulsing.
+
+The initial implementation has host/simulator coverage; actual ESC braking and
+receiver PWM must be bench-validated before driving with ABS. Keep ABS off in
+Forward/Reverse/Brake mode: a brake-side trigger alone cannot distinguish braking
+from reverse. Steering-dependent ABS and switch activation are not included yet.
+
 ### ESC programming (custom ER6G)
 
 The current bench-tested implementation uses custom ER6G r14/r8 firmware and

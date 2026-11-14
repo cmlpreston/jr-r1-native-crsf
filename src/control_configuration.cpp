@@ -54,7 +54,8 @@ bool validChannel(uint8_t channel)
 bool equivalentControlConfiguration(const ControlConfigurationSnapshot &left,
                                     const ControlConfigurationSnapshot &right)
 {
-    if (!equalInputProfile(left.throttleInput, right.throttleInput) ||
+    if (!equalBrakeAbs(left.brakeAbs,right.brakeAbs) ||
+        !equalInputProfile(left.throttleInput, right.throttleInput) ||
         !equalInputProfile(left.steeringInput, right.steeringInput) ||
         left.proportionalOutputMask != right.proportionalOutputMask ||
         left.steeringChannel != right.steeringChannel ||

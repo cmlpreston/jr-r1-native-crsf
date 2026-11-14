@@ -738,6 +738,7 @@ const char *uiPageName(UiPage page)
         case UiPage::BindingEditor: return "binding-editor";
         case UiPage::InputMonitor: return "input-monitor";
         case UiPage::DriveModes: return "drive-modes";
+        case UiPage::BrakeAbs: return "brake-abs";
         case UiPage::ChannelPlaceholder: return "channel-placeholder";
         case UiPage::Setup: return "setup";
         case UiPage::TxBatterySetup: return "tx-battery";
@@ -1727,8 +1728,47 @@ void TransmitterUi::saveRxBatterySettings()
     preferences.end();
 }
 
+void TransmitterUi::loadBrakeAbs()
+{
+    brakeAbs_=BrakeAbsSettings{};brakeAbsStorageValid_=true;
+    Preferences p;char name[16];
+    if(!p.begin(modelNamespace(activeModelSlot_,"jr-r1-abs","abs",name,sizeof(name)),true))return;
+    if(p.isKey("config")){
+        uint8_t data[kBrakeAbsRecordSize];
+        brakeAbsStorageValid_=p.getBytesLength("config")==sizeof(data)&&
+            p.getBytes("config",data,sizeof(data))==sizeof(data)&&decodeBrakeAbs(data,sizeof(data),brakeAbs_);
+    }
+    p.end();
+}
+bool TransmitterUi::saveBrakeAbs()
+{
+    uint8_t data[kBrakeAbsRecordSize],check[kBrakeAbsRecordSize];Preferences p;char name[16];
+    bool ok=encodeBrakeAbs(brakeAbs_,data,sizeof(data))&&
+        p.begin(modelNamespace(activeModelSlot_,"jr-r1-abs","abs",name,sizeof(name)),false);
+    if(ok)ok=p.putBytes("config",data,sizeof(data))==sizeof(data)&&
+        p.getBytesLength("config")==sizeof(check)&&p.getBytes("config",check,sizeof(check))==sizeof(check)&&
+        !memcmp(data,check,sizeof(data));
+    p.end();brakeAbsStorageValid_=ok;
+    if(!ok)requestConfigurationCut();
+    return ok;
+}
+void TransmitterUi::controlBrakeAbs(uint8_t item,PageControlEvent event)
+{
+    if(item>5)return;
+    if(item==5){requestConfigurationCut();drawEscProgrammingPage();return;}
+    if(item==0&&!brakeAbs_.enabled&&!brakeAbs_.forwardBrakeVerified){drawDesignPage(UiPage::BrakeAbs);return;}
+    requestConfigurationCut();const int direction=event==PageControlEvent::Decrease?-1:1;
+    if(item==0)brakeAbs_.enabled=!brakeAbs_.enabled;
+    if(item==1)brakeAbs_.activationPercent=constrain(int(brakeAbs_.activationPercent)+direction*5,10,90);
+    if(item==2)brakeAbs_.releasePercent=constrain(int(brakeAbs_.releasePercent)+direction*5,10,90);
+    if(item==3)brakeAbs_.frequencyHz=constrain(int(brakeAbs_.frequencyHz)+direction,2,10);
+    if(item==4)brakeAbs_.delayMs=constrain(int(brakeAbs_.delayMs)+direction*50,0,1000);
+    saveBrakeAbs();drawDesignPage(UiPage::BrakeAbs);
+}
+
 void TransmitterUi::loadDriveModeSettings()
 {
+    loadBrakeAbs();
     Preferences preferences;
     char name[16];
     preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-drive",
@@ -2538,7 +2578,8 @@ ControlConfigurationSnapshot TransmitterUi::controlConfigurationSnapshot() const
     snapshot.escSelectorReserved=false;
     snapshot.escProgramming=escProgrammer_.blocksArm();
     snapshot.escProgrammerSelected=false; // Single ER6G; no CH12 handover.
-    snapshot.modelStorageValid = !modelStorageFault_;
+    snapshot.modelStorageValid = !modelStorageFault_ && brakeAbsStorageValid_;
+    snapshot.brakeAbs = brakeAbs_;
     for (size_t index = 0; index < bindingCount_; ++index) {
         const ControlBinding &binding = bindings_[index];
         if (!binding.enabled || binding.target != AssignmentTarget::CrsfChannel ||
@@ -3639,6 +3680,7 @@ void TransmitterUi::controlEscProgramming(uint8_t item, PageControlEvent event)
 #else
             const uint32_t nonce=now^0x52614345u;
 #endif
+            brakeAbs_.enabled=brakeAbs_.forwardBrakeVerified=false;saveBrakeAbs();
             escProgrammer_.begin(now,nonce?nonce:1,true,true);
         }
     }
@@ -3663,7 +3705,10 @@ void TransmitterUi::controlEscProgramming(uint8_t item, PageControlEvent event)
         escDraftValue_=(escDraftValue_+count+(event==PageControlEvent::Decrease?-1:1))%count;
     }
     if(item==31&&escEditingParameter_<15){
-        if(escProgrammer_.write(escEditingParameter_,escDraftValue_,now))escEditingParameter_=255;
+        if(escProgrammer_.write(escEditingParameter_,escDraftValue_,now)) {
+            if(escEditingParameter_==7){brakeAbs_.enabled=brakeAbs_.forwardBrakeVerified=false;saveBrakeAbs();}
+            escEditingParameter_=255;
+        }
     }
     if(item==32)escEditingParameter_=255;
     drawEscProgrammingPage();
@@ -3680,7 +3725,19 @@ void TransmitterUi::updateEscProgrammer(const CrsfTelemetryState &t,OutputSafety
     escProgrammer_.update(now,safety==OutputSafetyStatus::Cut, !moduleLinkManaged_||moduleLink_.enabled());
     if(escRxSequence_!=t.rxParameterSequence){
         escRxSequence_=t.rxParameterSequence;
+        const auto revision=escProgrammer_.revision();EscWire::Message reply;
         escProgrammer_.receive(t.rxParameterType,t.rxParameterPayload,t.rxParameterLength,now);
+        if(escProgrammer_.revision()!=revision &&
+           EscWire::parse(t.rxParameterType,t.rxParameterPayload,t.rxParameterLength,true,reply)&&
+           (reply.op==EscWire::Op::Read||reply.op==EscWire::Op::Write)&&reply.parameter==7&&
+           reply.status==EscWire::Status::Ok&&escProgrammer_.known(7)) {
+            const bool verified=escProgrammer_.value(7)==1; // Surpass Fwd/Brake
+            if(brakeAbs_.forwardBrakeVerified!=verified) {
+                brakeAbs_.forwardBrakeVerified=verified;
+                if(!verified)brakeAbs_.enabled=false;
+                requestConfigurationCut();saveBrakeAbs();
+            }
+        }
     }
     if(escProgrammer_.blocksArm()&&!elrsRequestPending_&&safety==OutputSafetyStatus::Cut){
         EscWire::Message request;bool probe=false;
@@ -3881,6 +3938,7 @@ void TransmitterUi::navigateBack()
     }
     if(activePage_==UiPage::Calibration){cancelCalibration();return;}
     if (designPage()) {
+        if(activePage_==UiPage::BrakeAbs){tuneRole_=2;tuneBank_=1;drawDesignPage(UiPage::Tune);return;}
         if(activePage_==UiPage::ChannelRoles){if(assignmentChannelContext_)drawChannelPlaceholder();else drawChannelsPage();return;}
         if(activePage_==UiPage::Channel2){drawChannelsPage();return;}
         if(activePage_==UiPage::ChannelSpeed){drawThrottleResponsePage();return;}

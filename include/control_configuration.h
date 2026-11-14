@@ -6,6 +6,7 @@
 #include "channel_mixing.h"
 #include "crsf_channel_output.h"
 #include "proportional_input.h"
+#include "brake_abs.h"
 
 struct ChannelRoleSettings {
     uint8_t steeringChannel = 1;
@@ -39,6 +40,7 @@ struct DriveModeSettings {
 // pointer back into mutable UI state.
 struct ControlConfigurationSnapshot {
     uint32_t revision = 0;
+    BrakeAbsSettings brakeAbs;
     ProportionalInputProfile throttleInput;
     ProportionalInputProfile steeringInput;
     ChannelResponseProfile channelProfiles[CRSF_CHANNEL_COUNT] = {};

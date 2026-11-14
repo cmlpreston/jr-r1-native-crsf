@@ -105,7 +105,7 @@ bool TransmitterUi::designPage() const
 {
     switch (activePage_) {
         case UiPage::RfWarningSetup: case UiPage::DriveBatterySetup: case UiPage::ErsSensors: case UiPage::TimerControl: case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation:
-        case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor: case UiPage::RunReview:
+        case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor: case UiPage::RunReview: case UiPage::BrakeAbs:
         case UiPage::Telemetry: case UiPage::Gps: case UiPage::ChannelMonitor:
         case UiPage::SensorDetail: case UiPage::MainMenu: case UiPage::Channels:
         case UiPage::ChannelRoles: case UiPage::Channel2: case UiPage::ThrottleResponse: case UiPage::ChannelSpeed:
@@ -389,14 +389,15 @@ void TransmitterUi::drawDesignPage(UiPage page)
         }
     }
     auto modelLabel=label(modelNames_[activeModelSlot_],modelX,10,UiText::Secondary,0xe7edef);
-    boundedLabel(modelLabel,kScreenWidth-modelX-112);
+    boundedLabel(modelLabel,kScreenWidth-modelX-(brakeAbs_.enabled?154:112));
+    if(brakeAbs_.enabled)label("ABS",kScreenWidth-146,12,UiText::Caption,cAmber);
     designLink_=label("LQ --",kScreenWidth-104,12,UiText::Caption,cDim);boundedLabel(designLink_,60);
     makeWifiStatusIcon(kScreenWidth-33,11);
     if(!navigationIsModal())addPageActionTarget(kScreenWidth-110,0,72,38,&TransmitterUi::controlDesign,63);
     const bool data = page == UiPage::Telemetry || page == UiPage::Gps || page == UiPage::ChannelMonitor || page == UiPage::SensorDetail;
     const UiPage sectionPage=page==UiPage::TimerControl?UiPage::Dashboard:page==UiPage::OutputStatus?statusReturnPage_:page;
     const bool dataSection=sectionPage==UiPage::Telemetry||sectionPage==UiPage::Gps||sectionPage==UiPage::ChannelMonitor||sectionPage==UiPage::SensorDetail||sectionPage==UiPage::RunReview||(sectionPage==UiPage::InputMonitor&&inputMonitorReturnPage_==UiPage::Telemetry);
-    const uint8_t nav=(sectionPage==UiPage::Dashboard||sectionPage==UiPage::ModeChooser)?0:(sectionPage==UiPage::Tune||sectionPage==UiPage::ValueEditor)?1:dataSection?2:3;
+    const uint8_t nav=(sectionPage==UiPage::Dashboard||sectionPage==UiPage::ModeChooser)?0:(sectionPage==UiPage::Tune||sectionPage==UiPage::ValueEditor||sectionPage==UiPage::BrakeAbs)?1:dataSection?2:3;
     if(!navigationIsModal())drawSectionNavigation(nav);
     if(page==UiPage::QuickNavigation||page==UiPage::FieldResetConfirmation||page==UiPage::TimerControl){drawKeypadPage();}
     else if(page==UiPage::RunReview){drawV2RunReview();}
@@ -405,7 +406,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
     else if(page==UiPage::InputMonitor){drawInputMonitorContent();}
     else if(page==UiPage::ColourScheme){drawColourSchemeContent();}
     else if(page==UiPage::ElrsTxConfig){drawElrsTxConfigContent();}
-    else if(page==UiPage::ChannelRoles||page==UiPage::Channel2||page==UiPage::ThrottleResponse||page==UiPage::ChannelSpeed||page==UiPage::FirmwareInfo||page==UiPage::ElrsBinding||page==UiPage::EscProgramming||page==UiPage::Calibration){drawSetupDetailsContent();}
+    else if(page==UiPage::BrakeAbs||page==UiPage::ChannelRoles||page==UiPage::Channel2||page==UiPage::ThrottleResponse||page==UiPage::ChannelSpeed||page==UiPage::FirmwareInfo||page==UiPage::ElrsBinding||page==UiPage::EscProgramming||page==UiPage::Calibration){drawSetupDetailsContent();}
     else if (page == UiPage::Dashboard) {
         lv_obj_t *minimize=nullptr;
         if(maximizedWidget_>=0){
@@ -602,6 +603,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
                 lv_obj_set_pos(zero,(designPortrait?106:10)+(designPortrait?kScreenWidth-146:kScreenWidth-60)/2,designPortrait?41:28);
             }
         }
+        if(tuneRole_==2 && tuneBank_==1)row(designPortrait?276:206,"ABS braking",brakeAbs_.enabled?"On":"Off",153,designPortrait?54:28);
         drawPageControls(tuneBank_,2);
         button(kScreenWidth-165,designFooterY-(designPortrait?72:34),155,28,"Channel setup",29);
     } else if (page == UiPage::ValueEditor) {
@@ -1024,6 +1026,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         if(page!=tuneBank_){tuneBank_=page;drawDesignPage(UiPage::Tune);}
         return;
     }
+    if(item==153 && activePage_==UiPage::Tune && tuneRole_==2){drawDesignPage(UiPage::BrakeAbs);return;}
     if(item==29){drawChannelPlaceholder();return;}
     if((item==150 || item==151) && steeringEndpointEditor()) {
         if(event==PageControlEvent::Activate) selectSteeringEndpoint(item-150);

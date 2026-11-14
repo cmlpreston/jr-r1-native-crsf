@@ -147,8 +147,11 @@ Complete these after steering shares the generic proportional pipeline:
   editing on the existing live response graph.
 - [ ] Add assignable throttle hold, commanding configured neutral and requiring
   neutral before release resumes drive.
-- [ ] Add brake-side ABS with configurable activation point, depth and
-  frequency; CUT, failsafe and hold always take priority.
+- [x] Add brake-side ABS with activation, release depth, frequency and delay,
+  restricted to verified Forward/Brake ESC mode. Off by default; CUT/failsafe
+  remain authoritative. Future throttle hold must take priority.
+- [ ] Bench-validate ABS receiver PWM, actual braking and return to neutral;
+  steering-dependent modulation and switch activation remain future work.
 - [ ] Allow a physical dial or digital trim to adjust the Walk-mode forward
   limit while retaining full brake authority.
 - [ ] Later: race-start countdown with an optional randomised start delay and

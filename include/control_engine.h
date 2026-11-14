@@ -47,6 +47,7 @@ private:
     ControlSafetyPolicy policy_;
     ProportionalInputRuntime throttle_, steering_;
     ChannelSlewRuntime slew_;
+    BrakeAbsRuntime abs_;
     ChannelMixRuntime mix_;
     CompiledMixPlan mixPlan_;
     ControlConfigurationSnapshot previous_;

@@ -3,6 +3,7 @@
 
 void ControlEngine::reset(uint32_t nowMs)
 {
+    abs_.reset();
     armed_ = neutralTiming_ = linkTiming_ = false;
     neutralSince_ = linkSince_ = 0;
     slew_.reset(nowMs);
@@ -14,7 +15,7 @@ OutputSafetyStatus ControlEngine::qualify(const ControlConfigurationSnapshot &c,
     bool inputsValid, bool mixedNeutral)
 {
     OutputSafetyStatus veto = OutputSafetyStatus::Armed;
-    if (!c.modelStorageValid || !mixPlan_.valid) veto = OutputSafetyStatus::ConfigurationFault;
+    if (!c.modelStorageValid || !mixPlan_.valid || !validBrakeAbs(c.brakeAbs)) veto = OutputSafetyStatus::ConfigurationFault;
     else if (c.escSelectorReserved && (c.steeringChannel == EscWire::SelectorChannel || c.throttleChannel == EscWire::SelectorChannel)) veto = OutputSafetyStatus::ConfigurationFault;
     else if (c.escProgramming || c.escProgrammerSelected) veto = OutputSafetyStatus::Cut;
     else if (c.calibrationActive) veto = OutputSafetyStatus::Calibration;
@@ -89,8 +90,17 @@ ControlCycleResult ControlEngine::update(const ControlConfigurationSnapshot &c,
     result.inputsValid = c.modelStorageValid && result.throttle.valid && inspection.inputsValid;
     result.safety = qualify(c, in, result.throttle, result.inputsValid, inspection.throttleNeutral);
     const bool live = result.safety == OutputSafetyStatus::Armed;
-    if (!live) slew_.reset(in.nowMs);
+    if (!live) {slew_.reset(in.nowMs);abs_.reset();}
     processConfiguredMixedOutputs(c, result.outputs, inputs, mix_, slew_, in.nowMs, live, &mixPlan_);
+    if (c.throttleChannel>=1 && c.throttleChannel<=CRSF_CHANNEL_COUNT) {
+        const auto ch=c.throttleChannel;
+        const auto neutral=permilleFromCrsfValue(result.outputs.safe(ch));
+        const auto requested=permilleFromCrsfValue(result.outputs.requested(ch));
+        const auto pulsed=abs_.apply(c.brakeAbs,result.throttle.normalisedPermille,
+            requested,neutral,c.channelProfiles[ch-1].reversed,in.nowMs,live);
+        if (pulsed!=requested) result.outputs.configure(ch,crsfValueFromPermille(pulsed),
+            result.outputs.safe(ch),result.outputs.enabled(ch));
+    }
     // Selector must survive CUT substitution and override bindings/mixes/trim.
     if(c.escSelectorReserved) {
         const uint16_t selector=crsfValueFromPermille(c.escProgramming && c.escProgrammerSelected ? 1000 : -1000);

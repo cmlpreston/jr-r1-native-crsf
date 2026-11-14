@@ -127,6 +127,29 @@ static void testLiveSteeringEndpoints() {
     }
 }
 
+static void testBrakeAbsSafety() {
+    for(bool reversed:{false,true}) {
+        auto c=configuration();c.brakeAbs.enabled=c.brakeAbs.forwardBrakeVerified=true;
+        c.brakeAbs.delayMs=0;c.channelProfiles[1].reversed=reversed;
+        ControlEngine e;qualify(e,c,10);auto i=input(1514);i.throttleAdc=1000;
+        auto r=e.update(c,i);assert(r.safety==OutputSafetyStatus::Armed);
+        assert(r.outputs.requested(2)==crsfValueFromPermille(reversed?1000:-1000));
+        i.nowMs+=100;r=e.update(c,i);
+        assert(r.safety==OutputSafetyStatus::Armed);
+        assert(r.outputs.requested(2)==crsfValueFromPermille(reversed?700:-700));
+        assert(r.outputs.requested(1)==CRSF_CHANNEL_MID);
+        const auto stale=arbitrateOutputSafety(r.safety,false);uint16_t sent[16];
+        r.outputs.resolve(stale.transmitRequested,sent);assert(sent[1]==r.outputs.safe(2));
+        c.armRequested=false;++c.revision;i.nowMs+=4;r=e.update(c,i);
+        r.outputs.resolve(false,sent);assert(r.safety==OutputSafetyStatus::Cut&&sent[1]==CRSF_CHANNEL_MID);
+        c.brakeAbs.forwardBrakeVerified=false;++c.revision;
+        assert(e.update(c,i).safety==OutputSafetyStatus::ConfigurationFault);
+    }
+    auto c=configuration();ControlEngine e;qualify(e,c,10);
+    c.brakeAbs.forwardBrakeVerified=c.brakeAbs.enabled=true;++c.revision;
+    assert(e.update(c,input(1514)).safety==OutputSafetyStatus::Cut); // edits require re-arm
+}
+
 static void testArmingVetoes() {
     auto c = configuration(); ControlEngine e;
     auto i = input(0); i.startupComplete = false;
@@ -213,6 +236,7 @@ int main() {
     testEscSelectionSurvivesCutAndVetoesEveryArmRequest();
     testAppliedSteeringEndpointReachesOutputAfterRearm();
     testLiveSteeringEndpoints();
+    testBrakeAbsSafety();
     testSafety(); testArmingVetoes(); testStructuralEditsAndLiveTrim(); testResetPublicationOrder(); testMixCompilation();
     puts("Control engine: input faults, dwell, edits, reset publication, compiled mixes and wrap PASS");
 }

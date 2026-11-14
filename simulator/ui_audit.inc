@@ -47,6 +47,61 @@ bool TransmitterUi::runSimulatorUiAudit()
         Serial.println("Normal build: startup PIN remains required PASS");return true;
 #endif
     }
+    if(getenv("JR_R1_ABS_AUDIT_ONLY")){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
+        auto reply=[&](EscWire::Message m,uint8_t value){
+            uint8_t frame[21];m.status=EscWire::Status::Ok;m.value=value;
+            m.flags=EscWire::ModeSelect|EscWire::Programming|EscWire::Interface|EscWire::Writes;
+            assert(EscWire::build(m,true,frame,sizeof(frame)));
+            CrsfTelemetryState t;t.rxParameterSequence=escRxSequence_+1;
+            t.rxParameterType=frame[2];t.rxParameterLength=17;memcpy(t.rxParameterPayload,frame+3,17);
+            elrsRequestPending_=true;updateEscProgrammer(t,OutputSafetyStatus::Cut);
+        };
+        for(unsigned orientation=0;orientation<2;++orientation){
+            brakeAbs_=BrakeAbsSettings{};assert(saveBrakeAbs());
+            tuneRole_=2;tuneBank_=1;drawDesignPage(UiPage::Tune);controlDesign(153,activate);
+            assert(activePage_==UiPage::BrakeAbs);
+            controlBrakeAbs(0,activate);assert(!brakeAbs_.enabled); // unverified mode cannot enable
+            auto verify=[&](uint8_t mode){
+                escProgrammer_=EscDriveProgrammer{};
+                assert(escProgrammer_.begin(millis(),1234+mode,true,true));
+                EscWire::Message m;bool probe;
+                assert(escProgrammer_.poll(millis(),m,probe));reply(m,0);
+                assert(escProgrammer_.read(millis()));
+                for(unsigned p=0;p<15;++p){
+                    assert(escProgrammer_.poll(millis(),m,probe));assert(m.parameter==p);
+                    if(p==7){auto wrong=m;++wrong.session;reply(wrong,1);assert(!brakeAbs_.forwardBrakeVerified);}
+                    reply(m,p==7?mode:0);delay(35);
+                }
+            };
+            verify(0);assert(!brakeAbs_.forwardBrakeVerified);
+            verify(1);assert(brakeAbs_.forwardBrakeVerified);
+            escProgrammer_=EscDriveProgrammer{};elrsRequestPending_=false;
+            armRequested_=true;controlBrakeAbs(0,activate);
+            assert(!armRequested_&&brakeAbs_.enabled);
+            controlBrakeAbs(1,PageControlEvent::Increase);assert(brakeAbs_.activationPercent==35);
+            controlBrakeAbs(2,PageControlEvent::Decrease);assert(brakeAbs_.releasePercent==25);
+            controlBrakeAbs(3,PageControlEvent::Increase);assert(brakeAbs_.frequencyHz==6);
+            controlBrakeAbs(4,PageControlEvent::Increase);assert(brakeAbs_.delayMs==250);
+            const auto expected=brakeAbs_;loadBrakeAbs();assert(equalBrakeAbs(expected,brakeAbs_));
+            const auto slot=activeModelSlot_;activeModelSlot_=slot==0?1:0;loadBrakeAbs();
+            assert(!brakeAbs_.enabled&&!brakeAbs_.forwardBrakeVerified);activeModelSlot_=slot;loadBrakeAbs();
+            assert(equalBrakeAbs(expected,brakeAbs_));
+            drawDesignPage(UiPage::BrakeAbs);lv_obj_update_layout(lv_scr_act());auditTypography(lv_scr_act());
+            for(uint8_t n=0;n<pageFocusCount_;++n){const auto r=pageFocusTargets_[n].focus;
+                assert(r.x>=0&&r.y>=0&&r.x+r.width<=kScreenWidth&&r.y+r.height<=kScreenHeight);}
+            if(const char *prefix=getenv("JR_R1_ABS_IMAGES")){lv_refr_now(nullptr);char path[256];
+                snprintf(path,sizeof(path),"%s-%s.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);}
+            navigateBack();assert(activePage_==UiPage::Tune&&tuneRole_==2);
+            // Preparing another programming boot invalidates eligibility, even if it later fails.
+            armRequested_=false;designSafety_=OutputSafetyStatus::Cut;
+            drawEscProgrammingPage();controlEscProgramming(11,activate);
+            assert(!brakeAbs_.enabled&&!brakeAbs_.forwardBrakeVerified);
+            escProgrammer_=EscDriveProgrammer{};elrsRequestPending_=false;
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("ABS UI: verified matched ESC mode, reversible-mode block, CUT edits, persistence, model isolation, navigation and bounds; both orientations PASS");return true;
+    }
     if(getenv("JR_R1_ESC_PROGRAMMER_AUDIT_ONLY")){
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;bindingCount_=0;
         const auto savedEscCutHandler=safetyCutHandler_;safetyCutHandler_=auditConfigurationCut;

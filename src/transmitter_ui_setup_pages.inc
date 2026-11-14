@@ -13,7 +13,20 @@ void TransmitterUi::drawSetupDetailsContent()
     auto title=[&](const char *text){auto l=makeLabel(lv_scr_act(),text,12,48,UiText::Heading,cWhite);lv_obj_set_width(l,kScreenWidth-24);lv_label_set_long_mode(l,LV_LABEL_LONG_CLIP);};
     auto note=[&](const char *text,int y,uint32_t ink=cDim){auto l=makeLabel(lv_scr_act(),text,12,y,UiText::Caption,ink);boundedLabel(l,kScreenWidth-24);return l;};
     auto action=[&](int x,int y,int w,const char *text,PageControlHandler handler,uint8_t id){return makePageActionButton(x,y,w,30,text,UiText::Secondary,cPanel2,cCyan,cLine,handler,id);};
-    if(activePage_==UiPage::ChannelRoles){
+    if(activePage_==UiPage::BrakeAbs){
+        title("ABS braking");
+        const char *names[]={"ABS", "Activation", "Brake release", "Pulse frequency", "Delay", "ESC mode"};
+        for(uint8_t row=0;row<6;++row){const uint8_t i=row?row-1:5;char value[40];
+            if(i==0)snprintf(value,sizeof(value),"%s",brakeAbs_.enabled?"On":"Off");
+            else if(i==1||i==2)snprintf(value,sizeof(value),"%u%%",i==1?brakeAbs_.activationPercent:brakeAbs_.releasePercent);
+            else if(i==3)snprintf(value,sizeof(value),"%u Hz",brakeAbs_.frequencyHz);
+            else if(i==4)snprintf(value,sizeof(value),"%u ms",brakeAbs_.delayMs);
+            else snprintf(value,sizeof(value),"%s",brakeAbs_.forwardBrakeVerified?"Forward / Brake":"Read ESC first");
+            const int y=row?(portraitUi?132:106)+(row-1)*(portraitUi?48:32):(portraitUi?80:76);
+            drawSettingsRow(names[i],value,y,portraitUi?44:row?30:26,&TransmitterUi::controlBrakeAbs,i,i>0&&i<5);
+        }
+        note(!brakeAbsStorageValid_?"Save failed. Keep CUT; adjust a setting to retry.":!brakeAbs_.forwardBrakeVerified?"Set ESC to Forward/Brake, then verify by Read ESC.":"50% duty. Changes require CUT.",bottom-(portraitUi?26:14),cAmber);
+    }else if(activePage_==UiPage::ChannelRoles){
         title("Channel roles");
         for(uint8_t i=0;i<2;++i){char value[12];snprintf(value,sizeof(value),"CH%u",i?channelRoleSettings_.throttleChannel:channelRoleSettings_.steeringChannel);
             drawSettingsRow(i?"Throttle":"Steering",value,86+i*(portraitUi?66:42),portraitUi?62:40,&TransmitterUi::controlChannelRoles,i,true);}

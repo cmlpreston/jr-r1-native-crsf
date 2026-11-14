@@ -115,6 +115,7 @@ enum class UiPage : uint8_t {
     DriveBatterySetup,
     RfWarningSetup,
     RunReview,
+    BrakeAbs,
 };
 
 class TransmitterUi {
@@ -284,6 +285,8 @@ private:
     void saveTxBatterySettings();
     void loadRxBatterySettings();
     void saveRxBatterySettings();
+    void loadBrakeAbs();
+    bool saveBrakeAbs();
     void loadDriveModeSettings();
     void saveDriveModeSettings();
     void loadElrsSettings();
@@ -327,6 +330,7 @@ private:
     void controlBootPin(uint8_t item, PageControlEvent event);
     void controlDesign(uint8_t item, PageControlEvent event);
     void drawSetupDetailsContent();
+    void controlBrakeAbs(uint8_t item,PageControlEvent event);
     void controlResponseTab(uint8_t item,PageControlEvent event);
     bool responseCurveView_=true,elrsPhraseEditing_=false;
     using PageControlHandler = void (TransmitterUi::*)(uint8_t,
@@ -720,6 +724,8 @@ private:
     TxBatterySettings txBatterySettings_;
     RxBatterySettings rxBatterySettings_;
     DriveModeSettings driveModeSettings_;
+    BrakeAbsSettings brakeAbs_;
+    bool brakeAbsStorageValid_=true;
     bool standardBatteryVehicle_=false;
     bool ersUsePackCapacity_=false;
     void drawErsSensorContent();

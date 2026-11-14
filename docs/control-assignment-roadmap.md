@@ -223,9 +223,10 @@ testable signal path rather than accumulating channel-specific exceptions:
 4. [ ] Add assignable throttle hold. It must command the configured neutral,
    override drive demand, indicate HOLD prominently and require neutral before
    release can resume drive.
-5. [ ] Add optional ABS on the physical brake side only, with configurable
-   activation point, depth and frequency. CUT, hold, stale-input and failsafe
-   handling always take priority over ABS modulation.
+5. [x] Add optional ABS on the physical brake side with activation, release
+   depth, frequency and delay. First version requires verified Forward/Brake
+   ESC mode and defaults Off. CUT, stale-input and failsafe override modulation;
+   future hold must do so too. Receiver PWM/ESC bench validation is outstanding.
 6. [ ] Allow a physical dial or digital-trim binding to adjust the Walk-mode
    forward limit while preserving full configured brake authority.
 

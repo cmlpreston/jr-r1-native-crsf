@@ -6,6 +6,7 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  brake_abs_test \
   er6g_mode_pin_test \
   esc_drive_programmer_test \
   er6g_mode_rf_test \
@@ -126,7 +127,7 @@ run: all
 
 $(BUILD)/control_engine_test: control_engine_test.cpp $(ROOT)/src/control_engine.cpp \
     $(ROOT)/src/control_configuration.cpp $(ROOT)/src/proportional_input.cpp \
-    $(ROOT)/src/channel_response.cpp $(ROOT)/src/crsf_channel_output.cpp
+    $(ROOT)/src/channel_response.cpp $(ROOT)/src/crsf_channel_output.cpp $(ROOT)/src/output_safety.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
 
@@ -279,3 +280,7 @@ $(BUILD)/er6g_mode_rf_test: er6g_mode_rf_test.cpp $(ROOT)/receiver/er6g/reader/E
 $(BUILD)/er6g_mode_pin_test: er6g_mode_pin_test.cpp $(ROOT)/receiver/er6g/reader/Er6gEscRead.cpp
 	@mkdir -p $(@D)
 	$(CXX) -Ier6g_stubs -I$(ROOT)/receiver/er6g/listener $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/brake_abs_test: brake_abs_test.cpp $(ROOT)/include/brake_abs.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@

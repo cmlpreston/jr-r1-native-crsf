@@ -1,5 +1,17 @@
 # R-1 EVO change record
 
+## 14 November 2026 — ABS pulsed-braking candidate
+
+- Add per-model ABS under Tune / Brake, Off by default: activation, release
+  depth, frequency and delay; 50% strong / reduced pulse pattern.
+- Require a matched verified ESC Run mode read/write showing Forward/Brake.
+  Invalidate eligibility and disable ABS on a new programming session or run-mode
+  write. No automatic ESC mode changes; externally changed mode needs re-reading.
+- Run modulation in the control task after shaping, slew and limits, with CUT,
+  input/model validity and final stale-control arbitration remaining authoritative.
+- Add checksummed settings, per-model isolation, enabled header marker and
+  host/UI checks. Actual receiver PWM and ESC braking need bench validation.
+
 ## 14 November 2026 — live steering endpoints
 
 - Installed through guarded XIAO landscape upload; complete tests/UI audit passed

@@ -127,6 +127,159 @@ static void testLiveSteeringEndpoints() {
     }
 }
 
+static void testLiveSteeringSubtrimKeepsEndpointsAndThrottle() {
+    for (uint8_t steering : {uint8_t(1), uint8_t(3)}) {
+        for (bool reversed : {false, true}) {
+            for (uint16_t throttle : {uint16_t(2000), uint16_t(3000)}) {
+                auto c=configuration();c.steeringChannel=steering;
+                auto &p=c.channelProfiles[steering-1];p.reversed=reversed;
+                setChannelEndpointForOutput(p,false,60);
+                setChannelEndpointForOutput(p,true,80);
+                p.negativeExpoPercent=-20;p.positiveExpoPercent=35;
+                ControlEngine e;qualify(e,c,10);
+                auto i=input(1514);i.throttleAdc=throttle;
+                const uint16_t expectedThrottle=throttle==2000?CRSF_CHANNEL_MID:crsfValueFromPermille(1000);
+                for (int16_t offset : {int16_t(-200),int16_t(200),int16_t(0)}) {
+                    const auto before=c;c.channelParameters[steering-1].subtrimPermille=offset;++c.revision;
+                    assert(!controlConfigurationRequiresRearm(before,c));
+                    i.steeringAdc=2000;i.nowMs+=4;
+                    auto r=e.update(c,i);uint16_t sent[16];r.outputs.resolve(true,sent);
+                    assert(r.safety==OutputSafetyStatus::Armed);
+                    assert(sent[steering-1]==crsfValueFromPermille(offset));
+                    assert(sent[1]==expectedThrottle);
+                    // Changing centre at either limit must leave mechanical travel fixed.
+                    i.steeringAdc=reversed?3000:1000;i.nowMs+=4;r=e.update(c,i);
+                    assert(r.safety==OutputSafetyStatus::Armed);
+                    assert(r.outputs.requested(steering)==crsfValueFromPermille(-600));
+                    assert(r.outputs.requested(2)==expectedThrottle);
+                    i.steeringAdc=reversed?1000:3000;i.nowMs+=4;r=e.update(c,i);
+                    assert(r.safety==OutputSafetyStatus::Armed);
+                    assert(r.outputs.requested(steering)==crsfValueFromPermille(800));
+                    assert(r.outputs.requested(2)==expectedThrottle);
+                }
+                c.armRequested=false;++c.revision;i.nowMs+=4;
+                assert(e.update(c,i).safety==OutputSafetyStatus::Cut);
+                c.channelParameters[steering-1].subtrimPermille=100;++c.revision;i.nowMs+=4;
+                auto r=e.update(c,i);uint16_t sent[16];r.outputs.resolve(false,sent);
+                assert(r.safety==OutputSafetyStatus::Cut);
+                assert(sent[steering-1]==crsfValueFromPermille(100));
+                assert(sent[1]==CRSF_CHANNEL_MID); // Editing never re-enables a CUT model.
+            }
+        }
+    }
+}
+
+static void testLiveSteeringSubtrimDoesNotLeakThroughMixSources() {
+    for (uint8_t steering : {uint8_t(1),uint8_t(3)}) {
+        for (bool configuredSource : {false,true}) {
+            for (bool followTrim : {false,true}) {
+                for (bool reversed : {false,true}) {
+                    auto c=configuration();c.steeringChannel=steering;
+                    c.channelProfiles[steering-1].reversed=reversed;
+                    c.channelParameters[steering-1].trimPermille=100;
+                    auto &rule=c.mixing[1].rules[0];rule.enabled=1;rule.weight=20;
+                    rule.source=configuredSource?kMixConfiguredSource:kMixChannelSource+steering-1;
+                    rule.followTrim=followTrim;
+                    ControlEngine e;qualify(e,c,10);auto i=input(1514);i.steeringAdc=2600;
+                    for (uint16_t throttle : {uint16_t(2000),uint16_t(2500)}) {
+                        i.throttleAdc=throttle;i.nowMs+=4;
+                        const auto baseline=e.update(c,i);
+                        assert(baseline.safety==OutputSafetyStatus::Armed);
+                        // Keep this unsaturated, so an unintended contribution cannot hide at a clamp.
+                        assert(baseline.outputs.requested(2)>CRSF_CHANNEL_MID);
+                        assert(baseline.outputs.requested(2)<crsfValueFromPermille(900));
+                        for (int16_t offset : {int16_t(-200),int16_t(200)}) {
+                            c.channelParameters[steering-1].subtrimPermille=offset;++c.revision;i.nowMs+=4;
+                            const auto changed=e.update(c,i);
+                            assert(changed.safety==OutputSafetyStatus::Armed);
+                            assert(changed.outputs.requested(steering)!=baseline.outputs.requested(steering));
+                            for (uint8_t ch=1;ch<=16;++ch) {
+                                if(ch==steering)continue;
+                                assert(changed.outputs.requested(ch)==baseline.outputs.requested(ch));
+                                assert(changed.outputs.safe(ch)==baseline.outputs.safe(ch));
+                            }
+                        }
+                        c.channelParameters[steering-1].subtrimPermille=0;++c.revision;i.nowMs+=4;
+                        assert(e.update(c,i).safety==OutputSafetyStatus::Armed);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void testLiveSteeringSubtrimExemptionIsNarrow() {
+    const auto before=configuration();
+    auto changed=before;changed.channelParameters[0].subtrimPermille=100;
+    assert(!controlConfigurationRequiresRearm(before,changed));
+    const auto live=changed;
+    const auto requiresRearm=[&](const ControlConfigurationSnapshot &candidate) {
+        assert(controlConfigurationRequiresRearm(before,candidate));
+        auto c=before;ControlEngine e;qualify(e,c,10);c=candidate;++c.revision;
+        assert(e.update(c,input(1514)).safety!=OutputSafetyStatus::Armed);
+    };
+    for (int16_t invalid : {int16_t(-201),int16_t(201)}) {
+        changed=live;changed.channelParameters[0].subtrimPermille=invalid;requiresRearm(changed);
+        auto damaged=before;damaged.channelParameters[0].subtrimPermille=invalid;
+        changed=damaged;changed.channelParameters[0].subtrimPermille=0;
+        assert(controlConfigurationRequiresRearm(damaged,changed));
+    }
+    for (uint8_t ch : {uint8_t(2),uint8_t(4)}) {
+        changed=live;changed.channelParameters[ch-1].subtrimPermille=100;requiresRearm(changed);
+    }
+    changed=live;changed.channelProfiles[0].subtrimPercent=1;requiresRearm(changed);
+    changed=live;changed.channelProfiles[0].reversed=true;requiresRearm(changed);
+    changed=live;changed.channelProfiles[0].positiveExpoPercent=10;requiresRearm(changed);
+    changed=live;changed.steeringChannel=3;requiresRearm(changed);
+    changed=live;changed.throttleChannel=1;requiresRearm(changed);
+    changed=live;changed.steeringEnabled=false;requiresRearm(changed);
+    changed=live;changed.steeringInput.deadbandAdc+=1;requiresRearm(changed);
+    changed=live;changed.mixing[1].constantPercent=5;requiresRearm(changed);
+    // The same-role/enabled guard also applies when both snapshots are disabled.
+    auto disabled=before;disabled.steeringEnabled=false;changed=disabled;
+    changed.channelParameters[0].subtrimPermille=100;
+    assert(controlConfigurationRequiresRearm(disabled,changed));
+}
+
+static void testLiveSteeringSubtrimCannotBypassFaultsOrPhysicalCut() {
+    for (unsigned fault=0;fault<4;++fault) {
+        auto c=configuration();ControlEngine e;qualify(e,c,10);auto i=input(1514);
+        c.channelParameters[0].subtrimPermille=100;++c.revision;i.throttleAdc=3000;
+        if(fault==0)i.steeringAdc=4095;
+        if(fault==1)i.throttleAdc=4095;
+        if(fault==2)i.physicalInputsHealthy=false;
+        if(fault==3)c.modelStorageValid=false;
+        const auto r=e.update(c,i);
+        assert(r.safety==(fault==3?OutputSafetyStatus::ConfigurationFault:OutputSafetyStatus::InputFault));
+        uint16_t sent[16];r.outputs.resolve(false,sent);
+        assert(sent[1]==r.outputs.safe(2)&&sent[1]==CRSF_CHANNEL_MID);
+    }
+    auto c=configuration();ControlEngine e;qualify(e,c,10);auto i=input(1514);
+    c.channelParameters[0].subtrimPermille=100;++c.revision;i.throttleAdc=3000;
+    const auto live=e.update(c,i);assert(live.safety==OutputSafetyStatus::Armed);
+    const auto stale=arbitrateOutputSafety(live.safety,false);uint16_t sent[16];
+    live.outputs.resolve(stale.transmitRequested,sent);
+    assert(stale.status==OutputSafetyStatus::ControlStale&&!stale.transmitRequested);
+    assert(sent[0]==crsfValueFromPermille(100)&&sent[1]==CRSF_CHANNEL_MID);
+
+    ControlOutputMailbox mailbox;assert(mailbox.acceptConfiguration(c.revision,true));
+    const auto old=mailbox.commands();
+    assert(mailbox.publish(live.outputs,live.safety,100,old.resetSequence,c.revision));
+    mailbox.requestPhysicalCut();
+    c.channelParameters[0].subtrimPermille=-100;++c.revision;i.nowMs+=4;
+    const auto stillArmed=e.update(c,i);assert(stillArmed.safety==OutputSafetyStatus::Armed);
+    assert(!mailbox.publish(stillArmed.outputs,stillArmed.safety,104,old.resetSequence,c.revision));
+    const auto cut=mailbox.commands();
+    assert(!mailbox.acceptConfiguration(c.revision,true,cut.physicalCutSequence));
+    assert(mailbox.outputs().controlSafetyStatus==OutputSafetyStatus::Cut);
+    c.armRequested=false;++c.revision;i.resetSequence=cut.resetSequence;i.nowMs+=4;
+    assert(mailbox.acceptConfiguration(c.revision,false,cut.physicalCutSequence));
+    const auto safe=e.update(c,i);assert(safe.safety==OutputSafetyStatus::Cut);
+    assert(mailbox.publish(safe.outputs,safe.safety,108,i.resetSequence,c.revision));
+    mailbox.outputs().model.resolve(false,sent);
+    assert(sent[0]==crsfValueFromPermille(-100)&&sent[1]==CRSF_CHANNEL_MID);
+}
+
 static void testBrakeAbsSafety() {
     for(bool reversed:{false,true}) {
         auto c=configuration();c.brakeAbs.enabled=c.brakeAbs.forwardBrakeVerified=true;
@@ -247,6 +400,10 @@ int main() {
     testEscSelectionSurvivesCutAndVetoesEveryArmRequest();
     testAppliedSteeringEndpointReachesOutputAfterRearm();
     testLiveSteeringEndpoints();
+    testLiveSteeringSubtrimKeepsEndpointsAndThrottle();
+    testLiveSteeringSubtrimDoesNotLeakThroughMixSources();
+    testLiveSteeringSubtrimExemptionIsNarrow();
+    testLiveSteeringSubtrimCannotBypassFaultsOrPhysicalCut();
     testBrakeAbsSafety();
     testIndependentInputHeartbeat();
     testSafety(); testArmingVetoes(); testStructuralEditsAndLiveTrim(); testResetPublicationOrder(); testMixCompilation();

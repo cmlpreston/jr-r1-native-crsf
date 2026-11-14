@@ -1,5 +1,17 @@
 # R-1 EVO change record
 
+## 14 November 2026 — live steering centre and GPS widget fit
+
+- Keep steering parameter subtrim live, moving neutral with fixed endpoints.
+  Remove its CUT request and independent structural re-arm while retaining CUT
+  for throttle/auxiliary subtrim, other structural edits and actual faults.
+  Save the live adjustment only after CUT; remove the steering popup's CUT hint.
+- Fit saved satellite imagery to GPS widgets with a minimum cover scale and
+  bounded following near image edges. Keep the marker/trail aligned with the
+  fitted viewport and retain the full GPS page's zoom/pan behaviour.
+- Initial previous-build startup/CUT, steering and motor-output bench checks
+  passed by user report. This follow-up candidate is not yet flashed.
+
 ## 14 November 2026 — high-priority memory and responsiveness fixes
 
 - Publish safe outputs before logging; replace critical-task USB/formatting with

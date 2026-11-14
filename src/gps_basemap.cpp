@@ -13,6 +13,18 @@ struct MapPath { uint16_t offset, count; uint8_t kind; };
 // retaining image pixels or allocating during drawing.
 GpsMap::RasterMapSampler rasterSampler;
 
+GpsMap::RasterView fittedViewport(lv_obj_t *object,const GpsMapViewport &view,
+                                 int32_t lat,int32_t lon,double scale) {
+    GpsMap::RasterView target{lat,lon,scale,static_cast<uint16_t>(lv_obj_get_width(object)),
+        static_cast<uint16_t>(lv_obj_get_height(object))};
+    if(view.fillSavedRaster&&OfflineMap::pixels()){
+        const auto &map=OfflineMap::current();
+        if(map.valid)target=GpsMap::coverRasterViewport(
+            {map.south,map.north,map.west,map.east,map.width,map.height},target);
+    }
+    return target;
+}
+
 void drawMap(lv_event_t *event) {
     auto *object = lv_event_get_target(event);
     const auto &view = *static_cast<GpsMapViewport *>(lv_event_get_user_data(event));
@@ -120,8 +132,11 @@ lv_obj_t *createGpsBasemap(lv_obj_t *parent, int x, int y, int width, int height
 }
 void updateGpsBasemap(lv_obj_t *object, GpsMapViewport &view,
                       int32_t lat, int32_t lon, double scale) {
-    if (!object || (view.latitude==lat && view.longitude==lon && view.pixelsPerMetre==scale && view.mapRevision==OfflineMap::revision())) return;
-    view.latitude=lat;view.longitude=lon;view.pixelsPerMetre=scale;
+    if(!object)return;
+    const auto target=fittedViewport(object,view,lat,lon,scale);
+    if(view.latitude==target.latitude&&view.longitude==target.longitude&&
+       view.pixelsPerMetre==target.pixelsPerMetre&&view.mapRevision==OfflineMap::revision())return;
+    view.latitude=target.latitude;view.longitude=target.longitude;view.pixelsPerMetre=target.pixelsPerMetre;
     view.mapRevision=OfflineMap::revision();
     lv_obj_invalidate(object);
 }
@@ -129,10 +144,11 @@ void updateGpsBasemap(lv_obj_t *object, GpsMapViewport &view,
 void followGpsBasemap(lv_obj_t *object, GpsMapViewport &view,
                       int32_t lat, int32_t lon, double scale) {
     if(!object)return;
-    const bool recenter=!view.following || view.pixelsPerMetre!=scale ||
-        GpsMap::needsRecenter(view.latitude,view.longitude,lat,lon,scale,
+    const auto target=fittedViewport(object,view,lat,lon,scale);
+    const bool recenter=!view.following || view.pixelsPerMetre!=target.pixelsPerMetre ||
+        GpsMap::needsRecenter(view.latitude,view.longitude,target.latitude,target.longitude,target.pixelsPerMetre,
                               lv_obj_get_width(object),lv_obj_get_height(object));
-    updateGpsBasemap(object,view,recenter?lat:view.latitude,recenter?lon:view.longitude,scale);
+    updateGpsBasemap(object,view,recenter?target.latitude:view.latitude,recenter?target.longitude:view.longitude,target.pixelsPerMetre);
     view.following=true;
 }
 

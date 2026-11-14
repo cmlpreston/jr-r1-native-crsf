@@ -275,7 +275,7 @@ cancel the intended effect.
 | Response speed | Slows changes over the configured time in milliseconds. |
 | Direction | Reverses output direction. |
 | Trim | Operational offset: moves neutral and endpoints together, clipped to the output range. |
-| Subtrim | Setup centre adjustment: moves neutral while preserving the configured endpoints. Travel on each side is rescaled to meet the new centre. |
+| Subtrim | Centre adjustment: moves neutral while preserving the configured endpoints. Travel on each side is rescaled to meet the new centre. |
 | Response offset | Detailed response adjustment where offered. |
 
 Tune provides quick adjustments and **Channel setup** links to fuller settings.
@@ -292,7 +292,11 @@ endpoints and other structural response edits retain their CUT/re-arm behaviour.
 
 Subtrim is limited by the available travel: neutral cannot move beyond an endpoint.
 If either side has zero travel, its pinned neutral cannot be adjusted independently.
-Subtrim changes request CUT; ordinary trim remains a live adjustment.
+Steering subtrim can be adjusted live with its assigned control or applied from
+Tune. It keeps the configured endpoints fixed and does not interrupt driving.
+Return to CUT before powering off to save the adjustment to permanent storage.
+Changing it while already CUT never enables output. Throttle and auxiliary
+subtrim changes still request CUT; ordinary trim remains a live adjustment.
 
 ![Channel configuration](../assets/handset-captures/channel-setup.png)
 
@@ -503,6 +507,11 @@ A map can be viewed without GPS; a live position/trail requires valid position
 telemetry. The GPS page keeps its title bar, navigation and controls visible
 while idle; automatic fullscreen is disabled for this trial.
 Use Zoom -/+, Trail and Reset trail as needed. Attribution remains part of the map.
+Dashboard GPS widgets crop saved satellite imagery to fill their area, including
+when maximized. While the location is inside the saved map, following stops at
+the image edges so it does not expose blank margins. The position and trail keep
+their true geographic placement. The separate GPS page retains its zoom controls;
+an outside-coverage position still needs a map covering that location.
 
 ## 12. Wi-Fi and the web interface
 

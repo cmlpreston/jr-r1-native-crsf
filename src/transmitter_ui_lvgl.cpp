@@ -2663,7 +2663,10 @@ bool TransmitterUi::applyChannelParameterAction(uint16_t targetId, int16_t value
         : channelModel_.parameters[channel - 1].trimPermille;
     if (stored == value) return true;
     const bool neutralCrossed=stored!=0 && (value==0 || (stored<0)!=(value<0));
-    if (kind == ChannelParameterKind::Subtrim) requestConfigurationCut();
+    const bool liveSteeringSubtrim = channel == steeringChannel() &&
+        channel != throttleChannel() && steeringEnabled();
+    if (kind == ChannelParameterKind::Subtrim && !liveSteeringSubtrim)
+        requestConfigurationCut();
     stored = value;
     if(neutralCrossed && systemSettings_.buzzerEnabled){
         playBuzzer(100);
@@ -5586,7 +5589,9 @@ void TransmitterUi::updateChannelAdjustment(uint32_t now)
     char value[24];snprintf(value,sizeof(value),"%+.1f%%",channelParameterValue(channel,adjustmentKind_)/10.0);
     auto number=makeLabel(panel,value,width-80,6,UiText::Secondary,cCyan);
     lv_obj_set_width(number,68);lv_obj_set_style_text_align(number,LV_TEXT_ALIGN_RIGHT,0);
-    makeLabel(panel,adjustmentKind_==ChannelParameterKind::Subtrim?"Response before mixes; CUT requested":"Response before mixes",12,29,UiText::Caption,cDim);
+    const bool cutSubtrim = adjustmentKind_ == ChannelParameterKind::Subtrim &&
+        (!steering || channel == throttleChannel() || !steeringEnabled());
+    makeLabel(panel,cutSubtrim?"Response before mixes; CUT requested":"Response before mixes",12,29,UiText::Caption,cDim);
     makeLabel(panel,"-100%",12,46,UiText::Caption,cDim);
     auto right=makeLabel(panel,"+100%",width-60,46,UiText::Caption,cDim);
     lv_obj_set_width(right,48);lv_obj_set_style_text_align(right,LV_TEXT_ALIGN_RIGHT,0);

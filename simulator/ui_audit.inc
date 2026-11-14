@@ -25,6 +25,9 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_MAP_COVER_AUDIT_ONLY")){
+#include "ui_map_cover_audit.inc"
+    }
     if(getenv("JR_R1_PHYSICAL_CUT_AUDIT_ONLY")){
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
         const auto cutHandler=safetyCutHandler_;safetyCutHandler_=auditConfigurationCut;
@@ -411,6 +414,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     }
     if(getenv("JR_R1_FIRST_DRIVE_AUDIT_ONLY")){
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;bindingCount_=0;
+        const auto cutHandler=safetyCutHandler_;safetyCutHandler_=auditConfigurationCut;
         for(bool reversed:{false,true})for(auto kind:{ChannelParameterKind::Trim,ChannelParameterKind::Subtrim}){
             const auto channel=steeringChannel();channelModel_.responses[channel-1]=ChannelResponseProfile{};
             channelModel_.responses[channel-1].reversed=reversed;
@@ -425,13 +429,19 @@ bool TransmitterUi::runSimulatorUiAudit()
             PhysicalInputEvent press;press.input=PhysicalControlId::GripTrimA;press.event=InputEvent::NegativePress;press.timestampMs=millis();
             ResolvedBindingActionBuffer actions;resolver.processEvent(press,ContextDashboard,actions);
             assert(actions.size()==1 && actions[0].value<0);
-            armRequested_=true;assert(applyChannelParameterAction(actions[0].targetId,actions[0].value));
+            armRequested_=true;safetyResetRequested_=false;const auto cuts=auditCutRequests;
+            assert(applyChannelParameterAction(actions[0].targetId,actions[0].value));
             assert(channelParameterValue(channel,kind)==actions[0].value);
             const auto configuration=controlConfigurationSnapshot();const auto neutral=configuredChannelNeutral(configuration,channel);
             assert(reversed?neutral>0:neutral<0);
-            assert(armRequested_==(kind==ChannelParameterKind::Trim));
+            assert(armRequested_&&!safetyResetRequested_&&auditCutRequests==cuts);
+            // Adjustments in CUT update the model without enabling output.
+            armRequested_=false;
+            assert(applyChannelParameterAction(actions[0].targetId,actions[0].value+1));
+            assert(!armRequested_&&!safetyResetRequested_&&auditCutRequests==cuts);
             bindingCount_=0;
         }
+        safetyCutHandler_=cutHandler;
         armRequested_=false;
         for(unsigned orientation=0;orientation<2;++orientation){
             drawDesignPage(UiPage::BatteryMenu);controlDesign(246,activate);assert(activePage_==UiPage::DriveBatterySetup);
@@ -501,14 +511,16 @@ bool TransmitterUi::runSimulatorUiAudit()
     }
     if(getenv("JR_R1_ADJUSTMENT_OVERLAY_AUDIT_ONLY")){
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
+        const auto cutHandler=safetyCutHandler_;safetyCutHandler_=auditConfigurationCut;
         for(unsigned orientation=0;orientation<2;++orientation){
             for(uint8_t channel:{steeringChannel(),throttleChannel()}){
                 channelModel_.parameters[channel-1]=ChannelParameterValues{};
                 channelModel_.setResponse(channel,ChannelResponseProfile{});
-                drawDashboard();armRequested_=true;
+                drawDashboard();armRequested_=true;safetyResetRequested_=false;
+                const auto cuts=auditCutRequests;
                 const auto page=activePage_;const auto count=pageFocusCount_;
                 assert(applyChannelParameterAction(encodeChannelParameterTarget(channel,ChannelParameterKind::Trim),100));
-                assert(armRequested_ && activePage_==page && pageFocusCount_==count && adjustmentOverlay_);
+                assert(armRequested_ && !safetyResetRequested_ && auditCutRequests==cuts && activePage_==page && pageFocusCount_==count && adjustmentOverlay_);
                 lv_obj_update_layout(lv_scr_act());
                 auto overlay=adjustmentOverlay_;
                 assert(lv_obj_get_y(overlay)==(kScreenHeight-lv_obj_get_height(overlay))/2);
@@ -529,7 +541,11 @@ bool TransmitterUi::runSimulatorUiAudit()
                 updateChannelAdjustment(adjustmentChangedMs_+1200);assert(!adjustmentOverlay_ && !adjustmentChannel_);
                 assert(activePage_==page && armRequested_);
                 assert(applyChannelParameterAction(encodeChannelParameterTarget(channel,ChannelParameterKind::Subtrim),-200));
-                assert(!armRequested_ && adjustmentOverlay_);
+                const bool liveSubtrim=channel==steeringChannel();
+                assert(armRequested_==liveSubtrim && adjustmentOverlay_);
+                assert(safetyResetRequested_==!liveSubtrim && auditCutRequests==cuts+unsigned(!liveSubtrim));
+                const auto hint=lv_label_get_text(lv_obj_get_child(adjustmentOverlay_,2));
+                assert((strstr(hint,"CUT")!=nullptr)==!liveSubtrim);
                 detail=lv_obj_get_child(adjustmentOverlay_,lv_obj_get_child_cnt(adjustmentOverlay_)-1);
                 assert(strstr(lv_label_get_text(detail),"N -9.0%"));
                 assert(strstr(lv_label_get_text(detail),"-89.0%") && strstr(lv_label_get_text(detail),"+100.0%"));
@@ -546,24 +562,29 @@ bool TransmitterUi::runSimulatorUiAudit()
             assert(!adjustmentOverlay_ && !adjustmentChannel_);
             assert(requestDisplayRotation());applyDisplayRotation();
         }
-        Serial.println("Adjustment overlay: response clipping, neutral/endpoints, trim-live/subtrim-CUT, expiry, repeated steps, rebuilds, pass-through and lock guards in both orientations PASS");return true;
+        safetyCutHandler_=cutHandler;
+        Serial.println("Adjustment overlay: fixed endpoints, live steering subtrim, throttle subtrim CUT, expiry, repeated steps, rebuilds, pass-through and lock guards in both orientations PASS");return true;
     }
     if(getenv("JR_R1_LIVE_TUNE_MIX_AUDIT_ONLY")){
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;
         moduleLinkManaged_=false;bindingCount_=0;
+        const auto cutHandler=safetyCutHandler_;safetyCutHandler_=auditConfigurationCut;
         for(unsigned orientation=0;orientation<2;++orientation){
             for(uint8_t role:{0,1,3}){
                 tuneRole_=role;selectedChannel_=role==3?3:role==0?steeringChannel():throttleChannel();tuneBank_=1;
+                channelModel_.parameters[selectedChannel_-1]=ChannelParameterValues{};
                 assert(assignChannelParameterControl(selectedChannel_,ChannelParameterKind::Trim,PhysicalControlId::GripTrimA));
                 assert(assignChannelParameterControl(selectedChannel_,ChannelParameterKind::Subtrim,PhysicalControlId::GripTrimB));
                 drawDesignPage(UiPage::Tune);auto label=designValues_[5];
-                armRequested_=true;
+                armRequested_=true;safetyResetRequested_=false;const auto cuts=auditCutRequests;
                 assert(applyChannelParameterAction(encodeChannelParameterTarget(selectedChannel_,ChannelParameterKind::Trim),37));
-                assert(armRequested_ && designValues_[5]==label);
+                assert(armRequested_ && !safetyResetRequested_ && auditCutRequests==cuts && designValues_[5]==label);
                 assert(strcmp(lv_label_get_text(label),"+3.7%")==0 && lv_bar_get_value(designBars_[0])==37);
                 const int subtrim=-24-int(orientation);
                 assert(applyChannelParameterAction(encodeChannelParameterTarget(selectedChannel_,ChannelParameterKind::Subtrim),subtrim));
-                assert(!armRequested_ && strcmp(lv_label_get_text(designValues_[6]),orientation?"-2.5%":"-2.4%")==0);
+                const bool liveSubtrim=selectedChannel_==steeringChannel();
+                assert(armRequested_==liveSubtrim && safetyResetRequested_==!liveSubtrim && auditCutRequests==cuts+unsigned(!liveSubtrim));
+                assert(strcmp(lv_label_get_text(designValues_[6]),orientation?"-2.5%":"-2.4%")==0);
                 assert(lv_bar_get_value(designBars_[1])==subtrim);
                 BindingResolver resolver;assert(resolver.setBindings(bindings_,bindingCount_).ok());
                 PhysicalInputEvent press;press.input=PhysicalControlId::GripTrimA;press.event=InputEvent::PositivePress;press.timestampMs=millis();
@@ -577,6 +598,7 @@ bool TransmitterUi::runSimulatorUiAudit()
                     lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
                     snprintf(path,sizeof(path),"%s-%s-trim-%u.bmp",prefix,portraitUi?"portrait":"landscape",role);simulatorSaveScreenshot(path);
                 }
+                armRequested_=false; // The following preview checks are deliberately CUT.
                 bindingCount_=0;
             }
             channelModel_.parameters[2]=ChannelParameterValues{};
@@ -632,7 +654,8 @@ bool TransmitterUi::runSimulatorUiAudit()
             }
             assert(requestDisplayRotation());applyDisplayRotation();
         }
-        Serial.println("Live Tune/mix: assigned trim labels/bars, subtrim CUT, live inputs/curve, draft vs sent, explicit tests, stale inputs and idle redraws in both orientations PASS");return true;
+        safetyCutHandler_=cutHandler;
+        Serial.println("Live Tune/mix: assigned trim labels/bars, live steering subtrim, throttle/AUX subtrim CUT, live inputs/curve, draft vs sent, explicit tests, stale inputs and idle redraws in both orientations PASS");return true;
     }
     if(getenv("JR_R1_ERS_NATIVE_AUDIT_ONLY")) {
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;designSafety_=OutputSafetyStatus::Cut;moduleLinkManaged_=false;
@@ -722,6 +745,7 @@ bool TransmitterUi::runSimulatorUiAudit()
                 auto marker=page?designMarker_:widgetViews_[0].marker;
                 auto &view=page?designMapViewport_:widgetViews_[0].mapViewport;
                 const int width=lv_obj_get_width(map),height=lv_obj_get_height(map);
+                const int markerRadius=lv_obj_get_width(marker)/2;
                 CrsfTelemetryState t{};t.gpsValid=t.gpsSpeedValid=true;t.satellites=8;
                 auto render=[&](){
                     t.latitudeE7=gpsLat_[gpsCount_-1];t.longitudeE7=gpsLon_[gpsCount_-1];
@@ -734,6 +758,7 @@ bool TransmitterUi::runSimulatorUiAudit()
                 const int oldX=lv_obj_get_x(marker);
                 gpsCount_=2;gpsLat_[1]=gpsLat_[0];
                 gpsLon_[1]=centreLon+int32_t(5/(GpsMap::MetresPerE7*GpsMap::longitudeScale(centreLat)*scale));
+                ++gpsTrailRevision_;
                 auditRedrawnPixels=0;render();
                 assert(view.latitude==centreLat && view.longitude==centreLon && view.pixelsPerMetre==scale);
                 assert(lv_obj_get_x(marker)>oldX && auditRedrawnPixels>0);
@@ -742,8 +767,8 @@ bool TransmitterUi::runSimulatorUiAudit()
                     static_cast<unsigned long long>(auditRedrawnPixels),unsigned(width*height));
                 const auto *points=page?gpsPoints_:widgetViews_[0].points;
                 auto trail=page?designCurve_:widgetViews_[0].plot;
-                assert(points[1].x+lv_obj_get_x(trail)==lv_obj_get_x(marker)+(page?9:8));
-                assert(points[1].y+lv_obj_get_y(trail)==lv_obj_get_y(marker)+(page?9:8));
+                assert(points[1].x+lv_obj_get_x(trail)==lv_obj_get_x(marker)+markerRadius);
+                assert(points[1].y+lv_obj_get_y(trail)==lv_obj_get_y(marker)+markerRadius);
                 auditRedrawnPixels=0;
                 for(unsigned i=0;i<10;++i)render();
                 assert(auditRedrawnPixels==0); // No repeated map or trail invalidation.
@@ -752,14 +777,28 @@ bool TransmitterUi::runSimulatorUiAudit()
                     simulatorSaveScreenshot(path);
                 }
                 gpsLon_[1]=centreLon+int32_t((width*.31+2)/(GpsMap::MetresPerE7*GpsMap::longitudeScale(centreLat)*scale));
-                render();assert(view.longitude==gpsLon_[1] && view.latitude==gpsLat_[1]);
-                assert(abs(lv_obj_get_x(marker)-(width/2-(page?9:8)))<=1);
-                assert(points[1].x+lv_obj_get_x(trail)==lv_obj_get_x(marker)+(page?9:8));
-                assert(points[1].y+lv_obj_get_y(trail)==lv_obj_get_y(marker)+(page?9:8));
+                ++gpsTrailRevision_;
+                render();
+                const bool rasterClamp=view.fillSavedRaster&&OfflineMap::pixels();
+                if(rasterClamp){
+                    // A saved image may leave insufficient geography to centre
+                    // the fix while filling the widget. Keep the real marker
+                    // offset instead of exposing blank margins or moving it.
+                    assert(view.longitude>=centreLon&&view.longitude<=gpsLon_[1]);
+                    const auto actual=gpsViewportPoint(view,gpsLat_[1],gpsLon_[1],width,height);
+                    assert(lv_obj_get_x(marker)+markerRadius==actual.x&&lv_obj_get_y(marker)+markerRadius==actual.y);
+                }else{
+                    assert(view.longitude==gpsLon_[1]&&view.latitude==gpsLat_[1]);
+                    assert(abs(lv_obj_get_x(marker)-(width/2-markerRadius))<=1);
+                }
+                assert(points[1].x+lv_obj_get_x(trail)==lv_obj_get_x(marker)+markerRadius);
+                assert(points[1].y+lv_obj_get_y(trail)==lv_obj_get_y(marker)+markerRadius);
                 assert(view.pixelsPerMetre==scale); // The trail never auto-zooms the widget.
                 // Zoom centres on the current fix, then starts a new stationary region.
                 followGpsBasemap(map,view,gpsLat_[1],gpsLon_[1],scale*2);
-                assert(view.pixelsPerMetre==scale*2 && view.longitude==gpsLon_[1]);
+                assert(view.pixelsPerMetre==scale*2);
+                if(rasterClamp)assert(view.longitude>=centreLon&&view.longitude<=gpsLon_[1]);
+                else assert(view.longitude==gpsLon_[1]);
                 assert(!armRequested_);
             }
             assert(requestDisplayRotation());applyDisplayRotation();
@@ -2693,6 +2732,14 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     assert(!armRequested_ && safetyResetRequested_);
     channelModel_ = savedModel;
     assert(persistChannelModel());
+    const auto steering=steeringChannel();
+    const auto storedSteeringSubtrim=savedModel.parameters[steering-1].subtrimPermille;
+    const int16_t liveSteeringSubtrim=storedSteeringSubtrim==10?20:10;
+    armRequested_=true;safetyResetRequested_=false;const auto subtrimCuts=auditCutRequests;
+    assert(applyChannelParameterAction(encodeChannelParameterTarget(steering,ChannelParameterKind::Subtrim),liveSteeringSubtrim));
+    assert(armRequested_&&!safetyResetRequested_&&auditCutRequests==subtrimCuts);
+    assert(controlConfigurationSnapshot().channelParameters[steering-1].subtrimPermille==liveSteeringSubtrim);
+    assert(channelParameterSavePending_);
     auto profile = channelModel_.responses[4]; profile.positiveRatePercent = profile.positiveRatePercent == 90 ? 100 : 90;
     channelModel_.setResponse(5,profile);
     settingsSavePending_ = true; settingsSaveDueMs_ = 0;
@@ -2704,6 +2751,7 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     ChannelModelController stored;
     assert(ChannelSettingsRepository::load(activeModelSlot_,stored) == ChannelSettingsLoad::Loaded);
     assert(stored.responses[4].positiveRatePercent == savedModel.responses[4].positiveRatePercent);
+    assert(stored.parameters[steering-1].subtrimPermille==storedSteeringSubtrim);
     requestConfigurationCut();
     lv_tick_inc(40);
     update(THROTTLE_ADC_CENTER,STEERING_ADC_CENTER,0,0,CRSF_CHANNEL_MID,
@@ -2711,9 +2759,10 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     assert(!settingsSavePending_ && !channelParameterSavePending_);
     assert(ChannelSettingsRepository::load(activeModelSlot_,stored) == ChannelSettingsLoad::Loaded);
     assert(stored.responses[4].positiveRatePercent == profile.positiveRatePercent);
+    assert(stored.parameters[steering-1].subtrimPermille==liveSteeringSubtrim);
     channelModel_ = savedModel; assert(persistChannelModel()); safetyCutHandler_ = savedHandler;
     armRequested_ = false; safetyResetRequested_ = false;
-    Serial.println("UI edit safety: immediate CUT, live trim and deferred/coalesced persistence PASS");
+    Serial.println("UI edit safety: immediate CUT, live trim/steering subtrim and deferred/coalesced persistence PASS");
     Serial.println("UI responsiveness: unchanged draws, changed values and cached navigation PASS");
     return true;
 }

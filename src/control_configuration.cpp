@@ -103,9 +103,10 @@ bool controlConfigurationRequiresRearm(const ControlConfigurationSnapshot &befor
     candidate.armRequested = before.armRequested;
     for (size_t n = 0; n < CRSF_CHANNEL_COUNT; ++n)
         candidate.channelParameters[n].trimPermille = before.channelParameters[n].trimPermille;
-    // Mechanical steering travel is deliberately adjustable live. Mixer channel
-    // sources discard mechanical endpoints, so this cannot change throttle or
-    // another destination. All other profile/role/input edits still require CUT.
+    // Mechanical steering travel and centre are deliberately adjustable live.
+    // Logical mixer sources omit endpoints and parameter subtrim, so these
+    // adjustments cannot change throttle or another destination through a mix.
+    // Other profile/role/input edits still require CUT.
     const uint8_t steering = before.steeringChannel;
     if (validChannel(steering) && steering == after.steeringChannel &&
         steering != before.throttleChannel && steering != after.throttleChannel &&
@@ -118,6 +119,10 @@ bool controlConfigurationRequiresRearm(const ControlConfigurationSnapshot &befor
             p.negativeEndpointPercent = before.channelProfiles[steering - 1].negativeEndpointPercent;
             p.positiveEndpointPercent = before.channelProfiles[steering - 1].positiveEndpointPercent;
         }
+        auto &subtrim = candidate.channelParameters[steering - 1].subtrimPermille;
+        const auto oldSubtrim = before.channelParameters[steering - 1].subtrimPermille;
+        if (subtrim >= -200 && subtrim <= 200 && oldSubtrim >= -200 && oldSubtrim <= 200)
+            subtrim = oldSubtrim;
     }
     return !equivalentControlConfiguration(before, candidate);
 }

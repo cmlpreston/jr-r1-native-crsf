@@ -87,6 +87,40 @@ void trailKeys(){
     assert(!cache.unchanged(1,48,-378361917,1450852289,0.5,2,480,320));
     assert(!cache.unchanged(1,48,-378361917,1450852289,0.5,1,320,480));
 }
+void widgetCoverage(){
+    GpsMap::RasterMapSampler sampler;
+    for(unsigned trial=0;trial<1200;++trial){
+        const int32_t lat=randomBetween(-840000000,840000000);
+        const int32_t lon=randomBetween(-1700000000,1700000000);
+        const int latSpan=randomBetween(3,2500000),lonSpan=randomBetween(3,2500000);
+        const GpsMap::RasterSource source(lat-latSpan/2,lat+(latSpan+1)/2,
+            lon-lonSpan/2,lon+(lonSpan+1)/2,randomBetween(1,512),randomBetween(1,512));
+        const int widths[]={112,232,464,304,320,480},heights[]={88,96,188,276,480,320};
+        const double scales[]={0.001,0.15,0.5,1,2,8};
+        GpsMap::RasterView requested(source.south+randomBetween(0,latSpan),source.west+randomBetween(0,lonSpan),
+            scales[trial%6],widths[trial%6],heights[trial%6]);
+        if(trial%4==0){requested.latitude=source.south;requested.longitude=source.west;}
+        if(trial%4==1){requested.latitude=source.north;requested.longitude=source.east;}
+        const auto fitted=GpsMap::coverRasterViewport(source,requested);
+        assert(fitted.pixelsPerMetre>=requested.pixelsPerMetre);
+        assert(sampler.prepare(source,fitted,trial));
+        for(unsigned x=0;x<fitted.width;++x)assert(sampler.sourceX(x)>=0);
+        for(unsigned y=0;y<fitted.height;++y)assert(sampler.sourceY(y)>=0);
+        // The minimum cover zoom is stable across the saved area and unchanged
+        // fits are idempotent, avoiding a redraw for every moving GPS packet.
+        auto opposite=requested;opposite.latitude=source.north;opposite.longitude=source.west;
+        const auto other=GpsMap::coverRasterViewport(source,opposite);
+        assert(other.pixelsPerMetre==fitted.pixelsPerMetre);
+        const auto again=GpsMap::coverRasterViewport(source,fitted);
+        assert(again.latitude==fitted.latitude&&again.longitude==fitted.longitude&&
+               again.pixelsPerMetre==fitted.pixelsPerMetre);
+        // An out-of-coverage fix must not be moved onto saved geography.
+        auto outside=requested;outside.latitude=source.north+1;
+        const auto unchanged=GpsMap::coverRasterViewport(source,outside);
+        assert(unchanged.latitude==outside.latitude&&unchanged.longitude==outside.longitude&&
+               unchanged.pixelsPerMetre==outside.pixelsPerMetre);
+    }
+}
 // Optional host CPU benchmark of the actual sampler, separate from tests and
 // never presented as an ESP32/SPI timing measurement. Render checksum prevents
 // dead-code elimination; both paths must produce the identical full image.
@@ -132,7 +166,7 @@ void benchmark(){
 }
 }
 int main(){
-    equivalence();trailKeys();
+    equivalence();trailKeys();widgetCoverage();
     if(std::getenv("JR_R1_MAP_BENCHMARK"))benchmark();
-    puts("Raster maps: original-formula pixel equivalence, randomized clipping/pan/zoom, cache invalidation and trail keys PASS");
+    puts("Raster maps: original-formula pixel equivalence, clipping/pan/zoom, cache/trail keys and edge-to-edge widget imagery PASS");
 }

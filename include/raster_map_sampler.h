@@ -19,6 +19,30 @@ struct RasterView {
     uint16_t width=0,height=0;
 };
 
+// Cover a widget with real saved imagery, keeping aspect ratio and geography.
+// Keep the minimum zoom stable over the whole package; a latitude-dependent
+// minimum would pan/redraw on every small GPS movement. One E7 unit of inset
+// allows an integer-coordinate centre without sampling the exclusive far edge.
+inline RasterView coverRasterViewport(const RasterSource &source,RasterView view) {
+    const double latSpan=double(source.north)-source.south;
+    const double lonSpan=double(source.east)-source.west;
+    if(!source.width||!source.height||latSpan<=2||lonSpan<=2||!view.width||!view.height||
+       !std::isfinite(view.pixelsPerMetre)||view.pixelsPerMetre<=0||
+       view.latitude<source.south||view.latitude>source.north||
+       view.longitude<source.west||view.longitude>source.east)return view;
+    const double metresLon=MetresPerE7*std::min(longitudeScale(source.south),longitudeScale(source.north));
+    if(!std::isfinite(metresLon)||metresLon<=0)return view;
+    view.pixelsPerMetre=std::max(view.pixelsPerMetre,std::max(
+        view.width/((lonSpan-2)*metresLon),view.height/((latSpan-2)*MetresPerE7)));
+    const double halfLat=view.height/2.0/view.pixelsPerMetre/MetresPerE7;
+    const double minLat=std::ceil(source.south+halfLat),maxLat=std::floor(source.north-halfLat);
+    view.latitude=static_cast<int32_t>(std::max(minLat,std::min(maxLat,double(view.latitude))));
+    const double halfLon=view.width/2.0/view.pixelsPerMetre/(MetresPerE7*longitudeScale(view.latitude));
+    const double minLon=std::ceil(source.west+halfLon),maxLon=std::floor(source.east-halfLon);
+    view.longitude=static_cast<int32_t>(std::max(minLon,std::min(maxLon,double(view.longitude))));
+    return view;
+}
+
 // One bounded cache owned by the UI renderer, not a second image buffer. Source
 // X depends only on viewport geometry, so all scanlines and LVGL dirty strips
 // reuse these indices. Keep the original arithmetic/floor order to retain exact

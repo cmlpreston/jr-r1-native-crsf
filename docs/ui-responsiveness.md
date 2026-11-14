@@ -198,7 +198,7 @@ from 4,800 to 20 landscape/30 portrait; the approximately 4,800 FIFO loads remai
 This is synchronous transfer, not DMA. Host checks cover exact RGB565 byte order,
 odd counts, alignment, bounded scratch handling and guarded mode changes.
 
-### Hardware comparison still required
+### Hardware comparison procedure
 
 Use the authenticated web **Display comparison** panel. Changing the method or
 resetting its counters requires an unlocked, awake handset in acknowledged CUT,
@@ -212,7 +212,7 @@ with holds released and no firmware update or ESC programming interlock.
    identical sequence. Return to Standard and repeat as a consistency check.
 4. Compare like-for-like transfer totals. Check colours, partial/odd rectangles,
    wake/rotation and extended panel/control stability before considering a new
-   default. No hardware A/B result exists yet.
+   default. Initial full-redraw results are recorded below; broader tests remain.
 
 Pixel-transfer time excludes drawing and address-window commands; preemption can
 be included. Task maximum gaps and dropped-event counts are since boot and are
@@ -222,6 +222,50 @@ can raise API-call counts above the ideal full-frame figures.
 The same authenticated diagnostics use `GET /api/display-test`; guarded writes
 use `POST` with `action=mode&mode=standard|trial` or `action=reset` through the
 existing session/token mechanism. This avoids opening USB for routine comparison.
-Host tests, both simulator builds, focused checks and the full portrait audit
-passed. Guarded landscape checks/upload and real hardware qualification remain
+Host tests, both simulator builds, focused checks and full portrait/landscape
+audits passed. Guarded upload installed `fff44ca` on the approved XIAO landscape
+target, with device hash verification. Broader hardware qualification remains
 pending; no Trial transport speed improvement is claimed.
+
+### Initial hardware comparison — 14 November
+
+Source `fff44ca` was tested through the authenticated web panel, staying CUT with
+the module link off. Remote live-screen requests were intermittent, so the
+navigation experiment was discarded. Instead, each method selection invalidated
+the row cache and forced the same unchanged menu screen to redraw. Live viewing
+was disconnected before these six alternating samples. Every sample transferred
+exactly 153,600 pixels / 307,200 bytes in 20 pixel writes. Stats were read after
+the redraw; no serial connection was opened.
+
+| Method | Pixel-transfer times (ms) | Median (ms) | API calls per redraw | Longest writes (ms) |
+| --- | --- | ---: | ---: | --- |
+| Standard | 74.98, 72.97, 67.11 | 72.97 | 4,800 | 4.17, 4.24, 4.66 |
+| Trial | 73.15, 75.27, 74.30 | 74.30 | 20 | 4.88, 4.42, 4.77 |
+
+There is no clear transfer-time gain. These small samples include preemption,
+exclude drawing/address commands and do not measure touch latency. The user
+confirmed normal physical LCD colours/text without broken lines or flicker in
+Trial. Standard was restored, not promoted or changed persistently. A final
+Standard redraw measured 71.06 ms. Partial/odd rectangles, wake/rotation and long
+stability still need hardware qualification before considering a new default.
+
+New timing counters also exposed material gaps during web/live-screen activity.
+Before using the live mirror, since-boot maxima were control 5.97 ms, radio
+82.91 ms and physical inputs 25.61 ms. Standard/mirror activity raised control to
+85.36 ms and inputs to 96.26 ms; by the first Trial selection, radio was 83.55 ms
+and inputs 97.87 ms. No later maximum arose during the remaining warmed redraws.
+All final inputs were healthy and dropped input/diagnostic counters stayed zero.
+Those facts do not establish timely control: the sampler gap is close to its
+100 ms heartbeat limit, and scan gaps are not identical to checked sample age.
+The maxima are cumulative, so neither the cause nor a per-method attribution is
+established. Isolate mirror allocation, network activity, persistence and warmed
+rendering before qualifying live driving under this workload. Keep this as an
+unresolved measured concern, not a diagnosed SPI regression or a passed safety
+benchmark.
+
+After this light test: internal free 84.3 KiB, minimum 60.1 KiB, largest 72.0 KiB;
+PSRAM free 7,045.5 KiB, minimum 7,034.2 KiB. Minimum unused stacks were UI/web
+1,432 B, control 2,420 B, radio 2,928 B, physical inputs 2,052 B and diagnostics
+2,256 B. These are observations, not worst-case margin qualification. Evidence:
+`/tmp/r1-medium-display-comparison-2026-11-14.png` and ignored
+`tmp/medium-performance-2026-11-14/hardware-comparison.json`.

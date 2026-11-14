@@ -32,6 +32,14 @@ measurements and [UI responsiveness](docs/ui-responsiveness.md).
   controls and transfer/task-gap diagnostics; boot always restores Standard.
 - [ ] Compare Standard/Trial on the installed panel, including colour order,
   partial/odd writes, wake/rotation, stability and control/radio/input gaps.
+  Initial alternating full-redraw test completed: Standard median 72.97 ms,
+  Trial 74.30 ms, identical pixels and user-confirmed normal Trial appearance.
+  No clear gain; Standard restored. Broader qualification remains outstanding.
+- [ ] Investigate measured web/live-screen task gaps: control 85.36 ms, radio
+  83.55 ms and physical sampling 97.87 ms, close to the 100 ms input watchdog.
+  Similar stalls occurred under Standard before Trial. Isolate network/mirror
+  allocation/persistence from warmed rendering; healthy final inputs and zero
+  drops do not prove timely control. See the hardware comparison evidence.
 - [ ] Measure real editor touch-to-visible improvement; host/controller timing
   and rendered-pixel savings are not handset latency measurements.
 - [ ] Consider shared chrome across different pages after its ownership/theme/

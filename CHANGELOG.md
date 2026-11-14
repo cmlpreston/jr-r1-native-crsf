@@ -12,9 +12,12 @@
 - Add an opt-in Standard/Trial LCD transfer comparison using the same commands,
   pins, mode 3 and 80 MHz clock. Standard remains the default after every boot.
   Authenticated changes require CUT, an unlocked handset and released holds.
-- Host tests, both simulator builds, focused checks and the full portrait UI
-  audit passed. Guarded landscape checks/upload and hardware A/B validation are
-  pending; no Trial transport speed improvement is claimed yet.
+- Installed source `fff44ca` through the guarded approved XIAO landscape upload;
+  full host checks and landscape UI audit passed again, with device hash verified.
+  Both simulator builds, focused checks and full portrait audit also passed.
+  Initial hardware A/B shows no clear gain (Standard median72.97ms, Trial74.30ms
+  for identical full redraws); user confirms normal Trial LCD. Standard restored.
+  Record web/live-screen task gaps for investigation and broader qualification.
 
 ## 14 November 2026 — live expo and shared feedback panels
 

@@ -15,8 +15,10 @@ measurements.
 
 The subsequent medium-priority candidate implements ordinary-editor reuse and
 font subsetting, plus an opt-in LCD transport comparison. It has not yet been
-hardware-qualified. Host tests, both simulator builds, focused audits and the
-full portrait UI audit passed; the guarded landscape checks/upload are pending.
+hardware-qualified. Host tests, both simulator builds, focused audits and full
+portrait/landscape UI audits passed. Guarded upload installed `fff44ca` using
+the approved XIAO landscape environment, with device hash verification; record
+`/tmp/r1-flash-zdb5wpgs`, log `/tmp/r1-medium-flash-2026-11-14.log`.
 
 Ordinary value-editor +/-/Fine/Reset now retain the complete editor tree,
 including header, focus targets and screen epoch. Only changed text and curve
@@ -61,9 +63,12 @@ have bounded handling and may require more API calls.
 
 The authenticated web **Display comparison** panel exposes the trial and transfer/
 task-gap counters. Changes require acknowledged CUT, an unlocked/awake handset,
-released holds and no firmware update/programming interlock. Hardware A/B has
-not yet been performed, so no Trial speedup or long-run panel stability is claimed.
-See [UI responsiveness](ui-responsiveness.md) for the comparison procedure.
+released holds and no firmware update/programming interlock. Initial paired
+hardware full-redraw samples show no clear benefit: Standard median72.97ms,
+Trial74.30ms, identical pixels; physical appearance normal by user report.
+Standard was restored. Newly observed web/live-screen task gaps remain unresolved
+and broader panel/control qualification remains pending. See
+[UI responsiveness](ui-responsiveness.md) for the evidence and procedure.
 
 ## Implementation update — first and high-priority work
 

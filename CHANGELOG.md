@@ -2,6 +2,10 @@
 
 ## 14 November 2026 — ESC programming workflow
 
+- User validated the installed Program / power cycle / Read ESC / Drive /
+  power-cycle flow. Record the continuous long press needed to turn this ESC
+  fully off; earlier entry failures remain unexplained. No settings changed.
+
 - Installed on the R1 from `0066113`: approved XIAO landscape build, full tests
   and UI audit passed; guarded PlatformIO upload and device hash verified.
 

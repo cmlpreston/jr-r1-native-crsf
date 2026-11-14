@@ -630,8 +630,9 @@ the motor leads and remove the programming card before using the R1:
 
 1. Open **Setup → Model → ESC settings**. Select **Program** and wait for
    **“Cycle ESC power for programming; stay CUT.”**
-2. Switch the ESC off and confirm the receiver LED goes completely dark. Wait
-   five seconds, switch the ESC on **once**, and leave it on. If the ESC button
+2. Switch the ESC off with one continuous long press of its power button,
+   holding until the receiver LED goes completely dark. Wait five seconds,
+   switch the ESC on **once**, and leave it on. If the ESC button
    does not remove BEC power, disconnect the drive pack; after reconnecting it,
    press the ESC power button once if needed to enable its BEC. A second restart
    consumes the one-shot request and returns the receiver to normal Drive.

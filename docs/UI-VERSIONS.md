@@ -11,14 +11,16 @@
 
 ## V2 — native trial development
 
-Branch: `codex/r1-v2`. New native overview at 480×320, DM Sans / Manrope bitmap
+Branch: `codex/r1-v2`. Native widget dashboard at 480×320, DM Sans / Manrope bitmap
 fonts and sage/teal light palette. Model name in the top bar is informational.
 No gearing calculator.
 
-The Drive overview has real GPS speed/satellites, drive pack/minimum cell, RPM
-and known-mode RF margin/output power. GPS map, saved Widgets, run Review and
-Quick are direct routes. Trim/rate strip opens the existing guarded editors.
-Holding Drive retains the same output enable/CUT gesture and startup checks.
+Drive uses the saved per-model widget layout, with no separate Overview or fixed
+Normal/Walk row. Optional Controls, Trim / rates and RF margin widgets provide
+mode selection, guarded quick editors and known-mode RF margin/LQ/power.
+Controls reflects the same mode as the hardware switch and keeps the existing
+PIN-protected Walk exit. Holding Drive retains the output enable/CUT gesture
+and startup checks. Run review is accessible from Data → Sensors and Quick.
 
 Data retains Sensors / GPS / Channels / Inputs. Sensor graphs can be paused
 and inspected with the time cursor while live telemetry and statistics keep
@@ -35,7 +37,7 @@ Quick slot (select Models while editing); the top bar no longer opens them.
 
 V1 dashboard layouts, uploaded GPS map data and control settings retain their
 existing formats. Widgets shows the original per-model layout and its map
-widgets, including maximize; Overview returns to the V2 overview. The browser
+widgets, including maximize. The browser
 trial's illustrative control diagram is not yet a native control-map replacement.
 The established native assignment and live mix editors remain available.
 

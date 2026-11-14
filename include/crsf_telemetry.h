@@ -11,6 +11,8 @@ inline unsigned crsfPowerMilliwatts(unsigned code) {
 struct CrsfTelemetryState {
     // Last validated TX configuration response. Single-flight client retries
     // reads if an unsolicited response replaces this mailbox before UI polling.
+    uint32_t rxParameterSequence = 0;
+    uint8_t rxParameterType=0,rxParameterLength=0,rxParameterPayload[60]={};
     uint32_t txParameterSequence = 0;
     uint8_t txParameterType = 0, txParameterLength = 0;
     uint8_t txParameterPayload[60] = {};

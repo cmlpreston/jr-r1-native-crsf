@@ -15,7 +15,9 @@ struct ChannelRoleSettings {
 };
 
 struct ChannelParameterValues {
+    // Operational offset of the whole response, clipped to output limits.
     int16_t trimPermille = 0;
+    // Centre-only adjustment, rescaling each side to retain its endpoints.
     int16_t subtrimPermille = 0;
 };
 
@@ -47,6 +49,8 @@ struct ControlConfigurationSnapshot {
     uint8_t throttleChannel = 2;
     bool steeringEnabled = true;
     bool throttleEnabled = true;
+    bool escSelectorReserved = false;
+    bool escProgramming = false, escProgrammerSelected = false;
     bool modelStorageValid = true;
     bool armRequested = false;
     bool calibrationActive = false;
@@ -71,7 +75,7 @@ int16_t applyConfiguredDriveMode(
     int16_t configuredPermille, int16_t rawInputPermille);
 int16_t applyConfiguredChannelAdjustments(
     const ControlConfigurationSnapshot &configuration, uint8_t channel,
-    int16_t inputPermille);
+    int16_t inputPermille, int16_t switchedRatePermille = 1000);
 int16_t configuredChannelNeutral(
     const ControlConfigurationSnapshot &configuration, uint8_t channel);
 

@@ -164,10 +164,11 @@ not perform response calculations used by the live control path.
 2. **Two sub-trim stages**
 
    `ChannelResponseProfile::subtrimPercent` and
-   `ChannelParameterValues::subtrimPermille` are both applied. This can be
-   useful only if they have deliberately different names and semantics; at
-   present it is an accidental-looking double offset. Preserve behaviour until
-   a migration decision is made, then expose one canonical sub-trim to users.
+   `ChannelParameterValues::subtrimPermille` are both applied. They are
+   deliberately distinct as of 2026-11-05: the profile field is labelled
+   Response offset and remains additive. Channel subtrim moves centre while
+   preserving endpoints, explicitly requested by the user; ordinary trim
+   follows as the live additive offset. Stored fields have not been migrated.
 
 3. **Internal extended travel is lost at transport conversion**
 

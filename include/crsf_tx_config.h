@@ -3,10 +3,11 @@
 #include <cstdint>
 
 struct TxParameterRequest {
-    TxParameterRequest(uint8_t t=0x28, uint8_t i=0, uint8_t v=0) : type(t), id(i), value(v) {}
+    TxParameterRequest(uint8_t t=0x28, uint8_t i=0, uint8_t v=0, uint8_t a=0xee) : type(t), id(i), value(v), address(a) {}
     uint8_t type = 0x28;
     uint8_t id = 0;
     uint8_t value = 0; // read chunk or selection/command value
+    uint8_t address = 0xee; // TX module or receiver; never broadcast writes
 };
 size_t buildTxParameterFrame(const TxParameterRequest &, uint8_t *, size_t);
 
@@ -26,7 +27,8 @@ struct TxParameter {
 class CrsfTxConfig {
 public:
     static constexpr uint8_t kMaxParameters = 64;
-    void start(uint32_t now);
+    void start(uint32_t now, uint8_t address=0xee);
+    uint8_t address() const { return address_; }
     void stop();
     bool poll(uint32_t now, TxParameterRequest &request);
     void receive(uint8_t type, const uint8_t *payload, size_t length, uint32_t now);
@@ -41,6 +43,8 @@ public:
     uint8_t count() const { return count_; }
     uint32_t revision() const { return revision_; }
 private:
+    bool pollRequest(uint32_t now, TxParameterRequest &request);
+    uint8_t address_ = 0xee;
     enum class State { Off, Discover, Read, Ready, Write, Command, Failed };
     void fail(const char *message);
     void read(uint8_t id, uint32_t now);

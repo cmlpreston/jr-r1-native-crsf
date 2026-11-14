@@ -5,7 +5,7 @@ bool TransmitterUi::runSimulatorV2Audit()
 {
     const auto activate=PageControlEvent::Activate;
     bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
-    armRequested_=true;safetyResetRequested_=false;v2Overview_=true;
+    armRequested_=true;safetyResetRequested_=false;
     const auto layout=dashboardLayouts_[activeModelSlot_];
     auto shot=[&](const char *name){if(const char *prefix=getenv("JR_R1_V2_IMAGES")){
         lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s.bmp",prefix,name);simulatorSaveScreenshot(path);}};
@@ -17,15 +17,43 @@ bool TransmitterUi::runSimulatorV2Audit()
     t.vehicleCellsValid=true;t.vehicleCellsUpdatedMs=now;t.vehicleCellCount=4;t.vehiclePackMv=15800;t.vehicleMinimumCellMv=3900;
     t.linkValid=true;t.linkUpdatedMs=now;t.uplinkLinkQuality=99;t.uplinkRssiDbm=-70;t.rfMode=27;t.txPowerCode=7;
     designTelemetry_=t;drawDashboard();updateDesign(t,OutputSafetyStatus::Cut,99,true);lv_obj_update_layout(lv_scr_act());
+    // Drive is always the saved widget layout, with no fixed mode row.
+    assert(widgetViews_[0].panel);
+    assert(lv_obj_get_y(widgetViews_[0].panel)==48);
+    for(auto kind:{DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin}){
+        for(unsigned span=0;span<4;++span){
+            dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+            auto &w=dashboardLayouts_[activeModelSlot_].cells[0];w.kind=kind;w.width=span&1?2:1;w.height=span&2?2:1;
+            drawDashboard();updateDesign(t,OutputSafetyStatus::Cut,99,true);lv_obj_update_layout(lv_scr_act());
+            auto &v=widgetViews_[0];assert(v.panel);assert(lv_obj_get_y(v.panel)==48);
+            if(kind==DashboardWidgetKind::RfMargin){
+                assert(strcmp(lv_label_get_text(v.values[0]),"38")==0);
+                assert(strstr(lv_label_get_text(v.detail),"250 mW"));
+                t.linkUpdatedMs=millis()-3001;updateDashboardWidgets(t,99,true);
+                assert(strcmp(lv_label_get_text(v.values[0]),"--")==0);
+                t.linkUpdatedMs=millis();t.rfMode=255;updateDashboardWidgets(t,99,true);
+                assert(strcmp(lv_label_get_text(v.values[0]),"--")==0);
+                t.rfMode=27;
+            }else if(kind==DashboardWidgetKind::Trims){
+                assert(strstr(lv_label_get_text(v.values[0]),"ST trim"));
+                assert(strstr(lv_label_get_text(v.values[3]),"Brake"));
+                for(unsigned n=0;n<4;++n){const auto r=lv_obj_get_parent(v.values[n]);
+                    assert(lv_obj_get_y(r)>=48&&lv_obj_get_y(r)+lv_obj_get_height(r)<=designFooterY);}
+                tap(40);assert(activePage_==UiPage::ValueEditor&&editorField_==5);
+                controlDesign(34,activate);assert(activePage_==UiPage::Dashboard);
+            }else{
+                for(unsigned mode=0;mode<2;++mode)assert(v.switches[mode]);
+            }
+            if(span==3)shot(kind==DashboardWidgetKind::Controls?"controls":kind==DashboardWidgetKind::Trims?"trims":"rf-margin");
+        }
+    }
+    dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+    const DashboardWidgetKind demoKinds[]={DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin,DashboardWidgetKind::Sensor};
+    for(unsigned n=0;n<4;++n)dashboardLayouts_[activeModelSlot_].cells[n].kind=demoKinds[n];
+    drawDashboard();updateDashboardWidgets(t,99,true);shot("new-widgets");
+    dashboardLayouts_[activeModelSlot_]=layout;drawDashboard();shot("drive");
     if(!portraitUi){
-        assert(v2Values_[0]&&strcmp(lv_label_get_text(v2Values_[0]),"64.0")==0);
-        assert(strcmp(lv_label_get_text(v2Values_[2]),"32000")==0);
-        assert(strstr(lv_label_get_text(v2Details_[3]),"250 mW RF"));
-        for(uint8_t i=0;i<pageFocusCount_;++i){const auto &target=pageFocusTargets_[i];assert(!(target.handler==&TransmitterUi::controlDesign&&target.argument==4));
-            assert(target.activate.y+target.activate.height<=kScreenHeight);}
-        shot("drive");tap(1);assert(!v2Overview_);assert(widgetViews_[0].panel);controlV2(1,activate);assert(v2Overview_);
-        tap(10);assert(activePage_==UiPage::SensorDetail&&sensorSelected_==0);
-        controlV2(30,activate);assert(activePage_==UiPage::WidgetSelect);
+        sensorSelected_=0;drawDesignPage(UiPage::SensorDetail);tap(30);assert(activePage_==UiPage::WidgetSelect);
         sensorSelected_=6;drawDesignPage(UiPage::SensorDetail);tap(30);assert(activePage_==UiPage::DriveBatterySetup);
         sensorSelected_=2;nextSensorSampleMs_=millis()+100000;
         for(unsigned i=0;i<30;++i){sensorHistory_[2][i]=7000+i*200;sensorHistoryValid_[2][i]=true;}
@@ -45,13 +73,13 @@ bool TransmitterUi::runSimulatorV2Audit()
     memcpy(v2QuickSlots_,slots,8);saveV2Quick();v2QuickEditing_=false;
     drawDesignPage(UiPage::QuickNavigation);controlKeypadMenu(5,activate);assert(activePage_==UiPage::Gps);
     selectedChannel_=steeringChannel();openV2Shortcut(7);assert(activePage_==UiPage::MixingOverview);
-    controlV2(2,activate);assert(activePage_==UiPage::RunReview);shot("review");
+    drawDesignPage(UiPage::Telemetry);tap(2);assert(activePage_==UiPage::RunReview);shot("review");
     controlV2(50,activate);assert(v2ReviewConfirm_);controlV2(51,activate);assert(!v2ReviewConfirm_);
     assert(armRequested_&&!safetyResetRequested_);
     assert(memcmp(&layout,&dashboardLayouts_[activeModelSlot_],sizeof(layout))==0);
-    armRequested_=false;designTelemetry_=CrsfTelemetryState{};v2GraphPaused_=false;v2Overview_=false;
+    armRequested_=false;designTelemetry_=CrsfTelemetryState{};v2GraphPaused_=false;
     nextSensorSampleMs_=0;memset(sensorHistoryValid_,0,sizeof(sensorHistoryValid_));
     drawDashboard();
-    Serial.println("V2 native: real overview, untouched V1 widgets, GPS route, sensor shortcuts, graph freeze/cursor, per-model Quick persistence, run review and arm/CUT invariants PASS");
+    Serial.println("V2 native: widget-only Drive, Controls/trim/RF widgets, Data run review, untouched saved layouts, GPS route, sensor shortcuts, graph freeze/cursor, per-model Quick persistence, run review and arm/CUT invariants PASS");
     return true;
 }

@@ -22,6 +22,7 @@
 #include "control_output_mailbox.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
+#include "esc_rf_policy.h"
 #include "crsf_telemetry.h"
 #include "mcp23017_input.h"
 #ifdef JR_R1_XIAO_PCB
@@ -301,6 +302,9 @@ void sendManagementRequest(const ElrsManagementRequest &request)
     const size_t length = buildElrsManagementFrame(request, frame, sizeof(frame));
     if (length == 0) return;
     if(!transmitCrsfFrame(frame, length))return;
+    if(request.action==ElrsManagementAction::EscProgrammer){
+        Serial.printf("ESC RF TX: probe=%u op=%u seq=%u\n",request.escReturnProbe,unsigned(request.esc.op),request.esc.sequence);return;
+    }
     if (request.action == ElrsManagementAction::TxParameter) return;
     if(request.action==ElrsManagementAction::ErsSensor){
         Serial.printf("ERS TX: type=%u id=%u command=%u bytes=%u\n",request.ers.type,request.ers.id,request.ers.command,unsigned(length));return;
@@ -637,7 +641,10 @@ void crsfTask(void *)
                     management.target = uidFollowupTarget;
                     uidFollowupPending = false;
                 }
-                sendManagementRequest(management);
+                if(management.action!=ElrsManagementAction::EscProgrammer ||
+                   escRfRequestAllowed(stale,safetyDecision))
+                    sendManagementRequest(management);
+                else Serial.printf("ESC RF BLOCKED: stale=%u safety=%s\n",stale,safetyStatusName(safetyDecision.status));
                 if (management.action == ElrsManagementAction::SetBindPhrase) {
                     // ExpressLRS schedules a reboot 200 ms after changing its
                     // UID. Give the endpoint ample time, then verify the UID.
@@ -854,6 +861,15 @@ bool consumeScreenshotCommand()
             }
             if (strcmp(usbCommand, "WIFISTATUS") == 0) printWifiSetupStatus();
             if (strcmp(usbCommand, "INPUTMON") == 0) printInputMonitorSnapshot();
+            if(strcmp(usbCommand,"ESCPROGSTATUS")==0){
+                const auto &e=transmitterUi.escProgrammerStatus();
+                const auto o=readChannelOutputs();const auto r=readCrsfRuntime();const auto t=readTelemetrySnapshot();
+                Serial.printf("ESC RF STATUS: state=%u selected=%u interlock=%u flags=%u pending=%u safety=%s CH5=%u CH12=%u ageUs=%lu rxSeq=%lu rxType=%02x rxLength=%u status=%s\n",
+                    unsigned(e.state()),e.selected(),e.blocksArm(),e.flags(),readControlCommands().configurationPending,safetyStatusName(r.outputSafetyStatus),o.model.safe(5),o.model.safe(EscWire::SelectorChannel),
+                    static_cast<unsigned long>(micros()-o.updatedUs),static_cast<unsigned long>(t.rxParameterSequence),t.rxParameterType,t.rxParameterLength,e.status());
+                EscWire::Message m;if(EscWire::parse(t.rxParameterType,t.rxParameterPayload,t.rxParameterLength,true,m))
+                    Serial.printf("ESC RF RX: op=%u seq=%u status=%u flags=%u\n",unsigned(m.op),m.sequence,unsigned(m.status),m.flags);
+            }
             if (strcmp(usbCommand, "TELEMETRY") == 0) {printCellTelemetrySnapshot();printGpsTelemetrySnapshot();}
             if (strcmp(usbCommand, "GPSSTATUS") == 0) printGpsTelemetrySnapshot();
             if(strcmp(usbCommand,"ERSSTATUS")==0){

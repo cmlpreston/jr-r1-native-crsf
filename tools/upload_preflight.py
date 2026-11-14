@@ -41,7 +41,56 @@ env.Append(CPPDEFINES=[
 
 
 targets = set(COMMAND_LINE_TARGETS)
-if "upload" in targets:
+er4_upload = "upload" in targets and env.subst("$PIOENV") in ("er4-esc-rf-bench-wifi", "er4-esc-direct-read-wifi")
+if er4_upload:
+    # User authorized a separate ER4 programmer on 2026-11-05. This exact
+    # project/profile has its own artifact and live-device checks; no unsafe
+    # override and no relaxation of the XIAO/display checks below.
+    import pathlib, runpy
+    root = pathlib.Path(project_dir).resolve().parents[2]
+    if os.environ.get("JR_R1_ALLOW_UNSAFE_UPLOAD") == "1":
+        fail("The ER4 upload never accepts the unsafe override")
+    fetched = git(str(root), "fetch", "--quiet", "origin", "main")
+    if fetched.returncode != 0:
+        fail("Could not refresh origin/main for ER4 upload")
+    if git(str(root), "merge-base", "--is-ancestor", "origin/main", "HEAD").returncode != 0:
+        fail("Current R1 branch does not contain origin/main")
+    try:
+        runpy.run_path(str(root / "tools/er4_upload_preflight.py"))["validate"](
+            root, project_dir, env.subst("$BOARD"), os.environ["JR_R1_ER4_ARTIFACT_DIR"],
+            direct_read=env.subst("$PIOENV") == "er4-esc-direct-read-wifi")
+    except (OSError, ValueError, KeyError) as error:
+        fail(str(error))
+    env.Replace(LDSCRIPT_PATH=str(pathlib.Path(os.environ["JR_R1_ER4_ARTIFACT_DIR"]) / "elrs.flash.1m.ld"))
+    print("ER4 UPLOAD PREFLIGHT: PASSED; ESP8285 / CH12 / writes OFF; interface=" +
+          ("direct read-only" if env.subst("$PIOENV") == "er4-esc-direct-read-wifi" else "OFF"))
+
+er6g_upload = "upload" in targets and env.subst("$PIOENV") in ("er6g-stock-teamrace-wifi", "er6g-esc-listen-wifi", "er6g-esc-read-wifi", "er6g-esc-startup-wifi", "er6g-esc-mode-wifi", "er6g-esc-mode-startup-wifi", "er6g-esc-single-wifi", "er6g-esc-restore-wifi", "er6g-esc-restore-startup-wifi", "er6g-esc-write-wifi", "er6g-esc-write-startup-wifi")
+if er6g_upload:
+    # Prepared receiver-only candidate. Invoke only after an explicit identified
+    # ER6G upload request and physical wiring isolation; no XIAO guard relaxation.
+    import pathlib, runpy
+    root=pathlib.Path(project_dir).resolve().parents[2]
+    if os.environ.get("JR_R1_ALLOW_UNSAFE_UPLOAD") == "1":fail("ER6G never accepts unsafe override")
+    fetched=git(str(root),"fetch","--quiet","origin","main")
+    if fetched.returncode!=0 or git(str(root),"merge-base","--is-ancestor","origin/main","HEAD").returncode!=0:fail("Refresh origin/main and review branch ancestry before ER6G upload")
+    try:
+        if env.subst("$PIOENV") in ("er6g-esc-write-wifi","er6g-esc-write-startup-wifi"):
+            runpy.run_path(str(root/"tools/er6g_write_upload_preflight.py"))["validate"](root,project_dir,env.subst("$BOARD"),os.environ["JR_R1_ER6G_ARTIFACT_DIR"],startup=env.subst("$PIOENV")=="er6g-esc-write-startup-wifi")
+        elif env.subst("$PIOENV") in ("er6g-esc-restore-wifi","er6g-esc-restore-startup-wifi"):
+            runpy.run_path(str(root/"tools/er6g_restore_upload_preflight.py"))["validate"](root,project_dir,env.subst("$BOARD"),os.environ["JR_R1_ER6G_ARTIFACT_DIR"],startup=env.subst("$PIOENV")=="er6g-esc-restore-startup-wifi")
+        elif env.subst("$PIOENV")=="er6g-esc-single-wifi":
+            runpy.run_path(str(root/"tools/er6g_single_upload_preflight.py"))["validate"](root,project_dir,env.subst("$BOARD"),os.environ["JR_R1_ER6G_ARTIFACT_DIR"])
+        elif env.subst("$PIOENV") in ("er6g-esc-mode-wifi","er6g-esc-mode-startup-wifi"):
+            runpy.run_path(str(root/"tools/er6g_mode_upload_preflight.py"))["validate"](root,project_dir,env.subst("$BOARD"),os.environ["JR_R1_ER6G_ARTIFACT_DIR"],startup=env.subst("$PIOENV")=="er6g-esc-mode-startup-wifi")
+        elif env.subst("$PIOENV")=="er6g-esc-startup-wifi":
+            runpy.run_path(str(root/"tools/er6g_startup_upload_preflight.py"))["validate"](root,project_dir,env.subst("$BOARD"),os.environ["JR_R1_ER6G_ARTIFACT_DIR"])
+        else:
+            runpy.run_path(str(root/"tools/er6g_upload_preflight.py"))["validate"](root,project_dir,env.subst("$BOARD"),os.environ["JR_R1_ER6G_ARTIFACT_DIR"],listen_only=env.subst("$PIOENV")=="er6g-esc-listen-wifi",read_only=env.subst("$PIOENV")=="er6g-esc-read-wifi")
+    except (OSError,ValueError,KeyError) as error:fail(str(error))
+    print("ER6G PREFLIGHT: PASSED; ESP32 / ISM2G4 / GPIO map and recovery verified")
+
+if "upload" in targets and not er4_upload and not er6g_upload:
     pio_environment = env.subst("$PIOENV")
     board = env.subst("$BOARD")
 

@@ -3,7 +3,7 @@
 
 // Persisted UI-only data. Each model has a two-column, two-row dashboard.
 // Fields are bytes (no ABI padding); version is encoded in the NVS key.
-enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, AllChannels, BatteryCells, Course, Count };
+enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, AllChannels, BatteryCells, Course, Controls, Trims, RfMargin, Count };
 // Course ID 9 is retired but reserved so existing layout IDs remain stable.
 inline bool dashboardWidgetKindAvailable(DashboardWidgetKind kind) {
     return kind<DashboardWidgetKind::Count && kind!=DashboardWidgetKind::Course;

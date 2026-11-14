@@ -20,6 +20,7 @@
 #include "crsf_telemetry.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
+#include "esc_drive_programmer.h"
 #include "output_safety.h"
 #include "physical_input.h"
 #include "proportional_input.h"
@@ -185,7 +186,7 @@ public:
     uint8_t throttleChannel() const { return channelRoleSettings_.throttleChannel; }
     bool steeringEnabled() const { return channelRoleSettings_.steeringEnabled; }
     bool throttleEnabled() const { return channelRoleSettings_.throttleEnabled; }
-    bool armRequested() const { return (!moduleLinkManaged_ || moduleLink_.enabled()) && !hardwareRecovery_ && !rfBenchMode_ && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_; }
+    bool armRequested() const { return (!moduleLinkManaged_ || moduleLink_.enabled()) && !hardwareRecovery_ && !rfBenchMode_ && !escProgrammer_.blocksArm() && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_; }
     void enterHardwareRecovery() { hardwareRecovery_ = true; armRequested_ = false; }
     // ON takes effect immediately; OFF requires reboot before local hardware resumes.
     bool setHeadlessTesting(bool enabled);
@@ -199,6 +200,7 @@ public:
 #ifdef JR_R1_SIMULATOR
     bool runSimulatorUiAudit();
     bool runSimulatorV2Audit();
+    bool runSimulatorSetupDetailsAudit();
     bool runSimulatorPerformanceAudit();
     bool selectSimulatorTxParameter(uint8_t id) {
         const auto p = txConfig_.parameter(id);
@@ -234,13 +236,18 @@ public:
     bool portalSetStandardBatteryVehicle(bool vehicle);
     const ErsSensorConfig &portalErs() const { return ersConfig_; }
     bool portalErsRequest(const ErsRequest &request);
+    const EscDriveProgrammer &escProgrammerStatus() const { return escProgrammer_; }
+    const CrsfTxConfig &portalRfConfig() const { return txConfig_; }
+    bool portalRfConfigActive() const { return activePage_==UiPage::ElrsTxConfig; }
+    bool portalRfConfigStart(uint8_t address);
+    bool portalRfConfigAction(uint8_t id, uint8_t value, bool command, uint32_t revision);
+
     const RaceTimer &portalTimer() const { return timers_[activeModelSlot_]; }
     bool portalSetTimerSettings(const TimerSettings &settings);
     bool portalTimerAction(unsigned action);
 private:
     bool designPage() const;
     void drawDesignPage(UiPage page);
-    void drawPortraitDetails(UiPage page);
     uint8_t portraitResponseBank_ = 0;
     void updateDesign(const CrsfTelemetryState &telemetry, OutputSafetyStatus safety,
                       uint16_t txVoltage, bool txValid);
@@ -319,10 +326,16 @@ private:
     };
     void controlBootPin(uint8_t item, PageControlEvent event);
     void controlDesign(uint8_t item, PageControlEvent event);
-    void controlPortraitBank(uint8_t item, PageControlEvent event);
+    void drawSetupDetailsContent();
+    void controlResponseTab(uint8_t item,PageControlEvent event);
+    bool responseCurveView_=true,elrsPhraseEditing_=false;
     using PageControlHandler = void (TransmitterUi::*)(uint8_t,
                                                      PageControlEvent);
-    void drawSettingsRow(const char *title,const char *value,int y,int height,
+    lv_obj_t *drawMenuRow(const char *title,const char *value,int y,int height,
+                         PageControlHandler handler,uint8_t action,bool chevron=true,
+                         int trailing=22,const char *subtitle=nullptr,
+                         lv_obj_t **subtitleLabel=nullptr);
+    lv_obj_t *drawSettingsRow(const char *title,const char *value,int y,int height,
                          PageControlHandler handler,uint8_t action,bool numeric);
     void addPageActionTarget(int16_t x, int16_t y, int16_t width,
                              int16_t height, PageControlHandler handler,
@@ -371,6 +384,9 @@ private:
     void controlModels(uint8_t item, PageControlEvent event);
     void controlTxBattery(uint8_t row, PageControlEvent event);
     void controlRxBattery(uint8_t row, PageControlEvent event);
+    uint8_t vehicleBatteryTab_=0;
+    void drawVehicleBatteryContent();
+    void controlVehicleBatteryTab(uint8_t tab,PageControlEvent event);
     void controlDisplay(uint8_t row, PageControlEvent event);
     void controlColourScheme(uint8_t choice, PageControlEvent event);
     void controlBindingEditor(uint8_t field, PageControlEvent event);
@@ -427,18 +443,19 @@ private:
                            bool txVoltageValid);
     void drawChannelsPage();
     void drawChannelRolesPage();
-    void drawChannelRoleRow(int row);
     void drawChannelPlaceholder();
     void drawPage();
     void drawThrottleResponsePage();
-    void drawThrottleResponseRow(int row);
     void drawThrottleResponseGraph();
     void refreshThrottleResponseGraph(int16_t rawInputPermille);
     void drawChannelSpeedPage();
-    void drawChannelSpeedRow(int row);
     void drawControlAssignmentsPage();
+    void drawControlAssignmentsContent();
+    void openControlAssignment(size_t inputIndex);
     void drawBindingEditorPage();
+    void drawBindingEditorContent();
     void drawInputMonitorPage();
+    void drawInputMonitorContent();
     void refreshInputMonitorRows();
     void drawDriveModesPage();
     void drawWifiPage();
@@ -456,22 +473,21 @@ private:
     uint8_t wifiEdit_ = 0, wifiKeyMode_ = 0, wifiNetworkPage_ = 0;
     uint32_t wifiRevision_ = 0;
     void drawSetupPage();
-    void drawSetupRow(int row);
     void drawTxBatteryPage();
     void drawRxBatteryPage();
-    void drawRxBatteryRow(int row);
     void drawDisplayPage();
     void drawColourSchemePage();
+    void drawColourSchemeContent();
     void drawFirmwareInfoPage();
     void drawElrsBindingPage();
     void drawElrsTxConfigPage();
+    void drawElrsTxConfigContent();
     void controlElrsTxConfig(uint8_t item, PageControlEvent event);
     void handleElrsTxConfigTouch(int16_t x, int16_t y);
     void leaveElrsTxConfig();
     void drawEscProgrammingPage();
     void drawCalibrationPage();
     void drawCalibrationValues(uint16_t adc);
-    void drawSettingRow(int row);
     void refreshSettingRowValue(uint8_t row);
     void scheduleSettingsSave();
     void drawLiveIndicator(int16_t inputPermille);
@@ -481,19 +497,14 @@ private:
     void handleDashboardTouch(int16_t x, int16_t y);
     void handleTelemetryTouch(int16_t x, int16_t y);
     void handleChannelsTouch(int16_t x, int16_t y);
-    void handleChannelRolesTouch(int16_t x, int16_t y);
     void handleChannelConfigTouch(int16_t x, int16_t y);
-    void handleThrottleResponseTouch(int16_t x, int16_t y);
-    void handleChannelSpeedTouch(int16_t x, int16_t y);
     void handleControlAssignmentsTouch(int16_t x, int16_t y);
     void handleBindingEditorTouch(int16_t x, int16_t y);
     void handleInputMonitorTouch(int16_t x, int16_t y);
     void handleDriveModesTouch(int16_t x, int16_t y);
     void handleSetupTouch(int16_t x, int16_t y);
     void handleTxBatteryTouch(int16_t x, int16_t y);
-    void handleRxBatteryTouch(int16_t x, int16_t y);
     void handleDisplayTouch(int16_t x, int16_t y);
-    void handleElrsBindingTouch(int16_t x, int16_t y);
     void appendElrsKeyboardCharacter(char character);
     void queueElrsRequest(ElrsManagementAction action,
                           ElrsManagementTarget target);
@@ -638,16 +649,13 @@ private:
     lv_obj_t *designCurve_ = nullptr;
     lv_obj_t *designMarker_ = nullptr;
     // V2 presentation is isolated from persisted V1 dashboard layouts.
-    bool v2Overview_=true,v2QuickEditing_=false,v2GraphPaused_=false;
+    bool v2QuickEditing_=false,v2GraphPaused_=false;
     uint8_t v2QuickModel_=255,v2QuickSlots_[8]={1,3,6,7,8,5,9,10},v2GraphCursor_=29;
     bool v2ReviewConfirm_=false,v2SensorSetupReturn_=false;
     int32_t v2FrozenHistory_[30]={};
     bool v2FrozenValid_[30]={};
-    lv_obj_t *v2Values_[4]={},*v2Details_[4]={},*v2Adjustments_[4]={};
     lv_obj_t *v2GraphCursorLine_=nullptr;
     lv_point_t v2GraphCursorPoints_[2]={};
-    void drawV2Overview();
-    void updateV2Overview();
     void drawV2Quick();
     void loadV2Quick();
     void saveV2Quick();
@@ -749,7 +757,11 @@ private:
     uint32_t startupFaultMask_ = 0;
     UiPage throttleResponseReturnPage_ = UiPage::MainMenu;
     UiPage driveModesReturnPage_ = UiPage::Dashboard;
-    uint8_t escProgrammingTab_ = 0;
+    uint8_t escProgrammingTab_ = 0,escEditingParameter_=255,escDraftValue_=0;
+    bool escPairCommissioned_=false;
+    EscDriveProgrammer escProgrammer_;
+    uint32_t escUiRevision_=0,escRxSequence_=0;
+    void updateEscProgrammer(const CrsfTelemetryState &,OutputSafetyStatus);
     uint8_t channelsBank_ = 0;
     uint8_t selectedChannel_ = 2;
     uint8_t inputMonitorBank_ = 0;
@@ -886,8 +898,6 @@ private:
     lv_obj_t *channel2LiveBar_ = nullptr;
     lv_obj_t *channel2ValueLabel_ = nullptr;
     lv_obj_t *channel2SettingValueLabels_[4] = {};
-    lv_obj_t *channel2DirectionToggle_ = nullptr;
-    lv_obj_t *channel2DirectionToggleLabel_ = nullptr;
     static constexpr uint8_t kThrottleGraphPointCount = 33;
     lv_point_t throttleCurvePoints_[kThrottleGraphPointCount] = {};
     lv_point_t throttleLinearPoints_[2] = {};

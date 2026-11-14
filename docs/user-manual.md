@@ -274,14 +274,17 @@ cancel the intended effect.
 | Endpoint | Maximum negative/positive travel; steering shows physical left/right values. |
 | Response speed | Slows changes over the configured time in milliseconds. |
 | Direction | Reverses output direction. |
-| Trim | Small operational centre adjustment. |
-| Subtrim | Centre adjustment used during setup. |
+| Trim | Operational offset: moves neutral and endpoints together, clipped to the output range. |
+| Subtrim | Setup centre adjustment: moves neutral while preserving the configured endpoints. Travel on each side is rescaled to meet the new centre. |
 | Response offset | Detailed response adjustment where offered. |
 
 Tune provides quick adjustments and **Channel setup** links to fuller settings.
 Detailed response separates Right/Left, Forward/Brake or Positive/Negative. Trim
 control and Subtrim control entries can select the physical adjuster directly.
 After moving a centre or reversing a channel, recheck mechanical travel for binding.
+Subtrim is limited by the available travel: neutral cannot move beyond an endpoint.
+If either side has zero travel, its pinned neutral cannot be adjusted independently.
+Subtrim changes request CUT; ordinary trim remains a live adjustment.
 
 ![Channel configuration](../assets/handset-captures/channel-setup.png)
 
@@ -615,8 +618,39 @@ string parameter types that the current editor does not support are read-only.
 The receiver needs compatible settings to reconnect after RF changes. See the
 [RF configuration notes](elrs-tx-configuration.md) for protocol details.
 
-ESC settings currently include preview/prototype functionality. Do not treat a
-visible menu entry as evidence of working ESC programming for a particular ESC.
+### ESC programming (custom ER6G)
+
+The current bench-tested implementation uses custom ER6G r14/r8 firmware and
+the normal ESC lead on receiver output 5. It does not require an ER4 or CH12
+selection. Stock receiver firmware does not provide this interface. Program,
+Read ESC and Drive stay visible across the ESC tabs; unavailable actions are dim.
+
+Keep CUT active throughout configuration. For bench commissioning, disconnect
+the motor leads and remove the programming card before using the R1:
+
+1. Open **Setup → Model → ESC settings**. Select **Program** and wait for
+   **“Cycle ESC power for programming; stay CUT.”**
+2. Switch the ESC off and confirm the receiver LED goes completely dark. Wait
+   five seconds, switch the ESC on **once**, and leave it on. If the ESC button
+   does not remove BEC power, disconnect the drive pack; after reconnecting it,
+   press the ESC power button once if needed to enable its BEC. A second restart
+   consumes the one-shot request and returns the receiver to normal Drive.
+3. Wait for **“Programming ready; Read ESC,”** then select **Read ESC**. After all
+   15 settings arrive, choose a setting on Drive, Brake, Motor or Limits. Adjust
+   its draft and select **Apply one**. Success means an ESC acknowledgement and a
+   matching readback; the handset displays **“Setting saved; readback verified.”**
+4. Select the **Drive session button** above the bottom navigation bar, then
+   restart ESC/receiver power using the same off/five-second/on procedure. Wait
+   for **“Drive confirmed; outputs remain CUT.”** Returning to Drive never arms
+   the transmitter automatically.
+
+The paired startup stage is required for the measured ESC entry window. A
+single-application trial started too late. Writes are individual transactions
+with no automatic retries; loss of the link or an uncertain reply retains the
+CUT interlock. The drag-brake 0% → 5% → 0% bench test passed; the 5% value was
+also confirmed after a power cycle with the programming card. This does not
+claim validation of every setting or every ESC model. Earlier ER4 experiments
+are retained in the [commissioning history](esc-programmer-er4.md).
 
 ## 16. Firmware, simulator and service tools
 

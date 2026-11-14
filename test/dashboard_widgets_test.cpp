@@ -9,8 +9,15 @@ int main()
     assert(sanitizedDashboardWidget(0,course).kind==DashboardWidgetKind::Empty);
     const uint8_t retired[]={9,2,2,1,0,1};
     assert(dashboardWidgetFromV2(0,retired).kind==DashboardWidgetKind::Empty);
-    assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryCells,1)==DashboardWidgetKind::Empty);
-    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::BatteryCells);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryCells,1)==DashboardWidgetKind::Controls);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::RfMargin);
+    static_assert(int(DashboardWidgetKind::Controls)==10,"Append widget IDs without changing saved layouts");
+    for(auto kind:{DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin}){
+        DashboardWidget w;w.kind=kind;w.style=DashboardWidgetStyle::Graph;
+        assert(dashboardWidgetKindAvailable(kind));
+        assert(sanitizedDashboardWidget(0,w).kind==kind);
+        assert(sanitizedDashboardWidget(0,w).style==DashboardWidgetStyle::Numbers);
+    }
     uint8_t monitor[DashboardMonitorMaxEntries]={};
     assert(dashboardMonitorEntries(0xffff,2,monitor)==21);
     assert(monitor[16]==(0x80|3)&&monitor[17]==(0x80|9));

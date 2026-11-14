@@ -98,10 +98,17 @@ handset does not itself implement a vehicle stabilisation gyro.
   screensaver, PIN change/recovery, input calibration, saved Wi-Fi connection,
   automatic connection option, setup hotspot, hostname and software restart.
 
-Some source enums and prototype menus reserve future actions such as macros,
-logging or ESC programming. Their presence in code is not a claim that those
-features are complete. Per-receiver output mapping and failsafe configuration
-also remain distinct from transmitter channel setup.
+Some source enums and prototype menus reserve future actions such as macros
+and logging. Their presence in code is not a claim that those features are
+complete. Per-receiver output mapping and failsafe configuration also remain
+distinct from transmitter channel setup.
+
+**ESC programming** has a bench-tested custom ER6G path: the normal output-5
+ESC lead switches between Drive PWM and serial programming. The paired r14/r8
+receiver firmware supports all 15 reads and individual writes with acknowledgement
+and matching readback, while retaining CUT and replay guards. A drag-brake
+0% → 5% → 0% test passed; other settings and ESC models need their own validation.
+See the [ESC workflow](docs/user-manual.md#esc-programming-custom-er6g).
 
 ## The Drive dashboard: choose what matters for each model
 

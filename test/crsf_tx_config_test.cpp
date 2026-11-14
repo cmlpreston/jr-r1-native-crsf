@@ -97,5 +97,35 @@ int main() {
     rx(c,0x2b,huge,3);assert(strstr(c.status(),"too large"));
     // Timer arithmetic works over millis wrap.
     ready(c,0xfffffff0U);assert(c.ready());c.stop();assert(!c.poll(500,r));
+    // Receiver discovery uses EC, rejects TX replies, and preserves EC on all
+    // reads/writes/command queries. Numeric mapping fields share readback guards.
+    c.start(0,0xec);assert(c.poll(0,r)&&r.address==0xec);
+    assert(buildTxParameterFrame(r,wire,64)==6&&wire[3]==0xec);
+    rx(c,0x29,device(1),1);assert(c.count()==0);
+    auto rd=device(1);rd[1]=0xec;rx(c,0x29,rd,2);
+    assert(c.poll(3,r)&&r.address==0xec&&r.id==1);
+    Bytes numeric={0xea,0xec,1,0,0,0};str(numeric,"Output Ch");
+    numeric.insert(numeric.end(),{4,1,6,1});str(numeric,"");
+    rx(c,0x2b,numeric,4);assert(c.ready()&&c.parameter(1)->value==4);
+    assert(!c.apply(1,0,5)&&!c.apply(1,7,5));assert(c.apply(1,3,5));
+    assert(c.poll(5,r)&&r.address==0xec&&r.type==0x2d&&r.value==3);
+    assert(!c.poll(200,r));assert(c.poll(255,r)&&r.address==0xec&&r.type==0x2c);
+    auto wrong=numeric;wrong[1]=0xee;wrong[wrong.size()-5]=3;
+    rx(c,0x2b,wrong,256);assert(!c.ready());
+    numeric[numeric.size()-5]=3;rx(c,0x2b,numeric,257);assert(strstr(c.status(),"verified"));
+    assert(c.poll(357,r)&&r.address==0xec);rx(c,0x2b,numeric,358);assert(c.ready());
+    // A retained enum outside the firmware's advertised choices is readable,
+    // preserved verbatim, and cannot be written back as an unsupported value.
+    c.start(0,0xec);assert(c.poll(0,r));rx(c,0x29,rd,1);assert(c.poll(2,r));
+    auto retained=field(1,9,12);retained[1]=0xec;rx(c,0x2b,retained,3);
+    assert(c.ready()&&c.parameter(1)->value==12);
+    assert(!c.apply(1,12,4));assert(!c.apply(1,2,4)); // blank advertised choice
+    assert(!c.poll(100,r)); // Reading the unknown value sends no mutation.
+    assert(c.apply(1,1,101));assert(c.poll(101,r)&&r.type==0x2d&&r.value==1);
+    // An invalid destination cannot construct any frame or start discovery.
+    assert(!buildTxParameterFrame({0x2d,1,1,0},wire,64));
+    c.start(0,0);assert(!c.poll(0,r));
+    // Returning to a normal TX page resets the endpoint rather than retaining RX.
+    c.start(0);assert(c.poll(0,r)&&r.address==0xee);
     puts("CRSF TX configuration tests passed");
 }

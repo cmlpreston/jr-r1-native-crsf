@@ -1,6 +1,7 @@
 #include "control_configuration.h"
 
 #include <assert.h>
+#include <initializer_list>
 #include <stdio.h>
 
 namespace {
@@ -65,6 +66,91 @@ void testChannelAdjustmentsAndNeutralAreSnapshotOwned()
     assert(configuredChannelNeutral(configuration, 1) == -30);
     assert(applyConfiguredChannelAdjustments(configuration, 4, 1190) == 1000);
     assert(applyConfiguredChannelAdjustments(configuration, 0, 123) == 123);
+}
+
+void testSubtrimPreservesEndpointsAndTrimMovesThem()
+{
+    ControlConfigurationSnapshot configuration;
+    ChannelSlewRuntime slew;
+    auto output = [&](uint8_t channel, int16_t input, int16_t rate = 1000) {
+        return processConfiguredProportionalChannel(
+            configuration, channel, input, 0, slew, 0, false, rate);
+    };
+    configuration.channelParameters[0].subtrimPermille = 200;
+    assert(output(1, -1000).requestedPermille == -1000);
+    assert(output(1, -500).requestedPermille == -400);
+    assert(output(1, 0).requestedPermille == 200);
+    assert(output(1, 500).requestedPermille == 600);
+    assert(output(1, 1000).requestedPermille == 1000);
+    configuration.channelParameters[0].trimPermille = -100;
+    assert(output(1, -1000).requestedPermille == -1000);
+    assert(output(1, 0).requestedPermille == 100);
+    assert(output(1, 1000).requestedPermille == 900);
+    configuration.channelParameters[0].trimPermille = 0;
+    const auto limitedNeutral = output(1, 0, 100);
+    assert(limitedNeutral.requestedPermille == 100);
+    assert(limitedNeutral.safePermille == limitedNeutral.requestedPermille);
+    const auto disabledNeutral = output(1, 0, 0);
+    assert(disabledNeutral.requestedPermille == 0);
+    assert(disabledNeutral.safePermille == disabledNeutral.requestedPermille);
+    // Preserve endpoints with simultaneous trim and extended response travel,
+    // including an opposing trim that brings travel back inside output limits.
+    configuration.channelProfiles[0].positiveEndpointPercent = 120;
+    configuration.channelParameters[0].trimPermille = -200;
+    configuration.channelParameters[0].subtrimPermille = 0;
+    const auto untrimmedEnd = output(1, 1000).requestedPermille;
+    configuration.channelParameters[0].subtrimPermille = 100;
+    assert(output(1, 1000).requestedPermille == untrimmedEnd);
+
+    // Check actual full-stick outputs with asymmetric endpoints, expo, profile
+    // offset, reversal, switched rates, Walk and both sub-trim directions.
+    for (uint8_t channel : {uint8_t(1), uint8_t(2)}) {
+        auto &profile = configuration.channelProfiles[channel - 1];
+        auto &parameters = configuration.channelParameters[channel - 1];
+        profile.negativeEndpointPercent = 70;
+        profile.positiveEndpointPercent = 120;
+        profile.negativeRatePercent = 80;
+        profile.positiveExpoPercent = 40;
+        profile.subtrimPercent = 5;
+        parameters.trimPermille = 0;
+        for (bool reversed : {false, true}) {
+            profile.reversed = reversed;
+            for (auto mode : {DriveMode::Normal, DriveMode::Walk}) {
+                configuration.driveMode = mode;
+                for (int16_t rate : {int16_t(1000), int16_t(500)}) {
+                    parameters.subtrimPermille = 0;
+                    const auto low = output(channel, -1000, rate).requestedPermille;
+                    const auto high = output(channel, 1000, rate).requestedPermille;
+                    for (int16_t offset : {int16_t(-200), int16_t(200)}) {
+                        parameters.subtrimPermille = offset;
+                        assert(output(channel, -1000, rate).requestedPermille == low);
+                        assert(output(channel, 1000, rate).requestedPermille == high);
+                        const auto neutral = output(channel, 0, rate);
+                        assert(neutral.requestedPermille == 50 + offset);
+                        assert(neutral.safePermille == configuredChannelNeutral(configuration, channel));
+                        int previous = output(channel, -1000, rate).requestedPermille;
+                        for (int input = -990; input <= 1000; input += 10) {
+                            const auto value = output(channel, input, rate).requestedPermille;
+                            assert(reversed ? value <= previous : value >= previous);
+                            previous = value;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Zero travel cannot have a separately movable centre. No divide by zero,
+    // no movement of the pinned endpoint; ordinary trim still works.
+    configuration = ControlConfigurationSnapshot{};
+    configuration.channelProfiles[0].negativeRatePercent = 0;
+    configuration.channelParameters[0].subtrimPermille = 200;
+    assert(output(1, -1000).requestedPermille == 0);
+    assert(output(1, 0).requestedPermille == 0);
+    assert(output(1, 1000).requestedPermille == 1000);
+    assert(output(1, 0, 0).requestedPermille == 0);
+    configuration.channelParameters[0].trimPermille = 100;
+    assert(output(1, 0, 0).requestedPermille == 100);
+    assert(output(1, 0, 0).safePermille == 100);
 }
 
 void testSlewRuntimeIsIndependentPerChannelAndResettable()
@@ -151,6 +237,7 @@ int main()
     testRoleMaskRejectsInvalidChannels();
     testWalkModeLimitsOnlyPhysicalForwardAndPreservesProfileSubtrim();
     testChannelAdjustmentsAndNeutralAreSnapshotOwned();
+    testSubtrimPreservesEndpointsAndTrimMovesThem();
     testSlewRuntimeIsIndependentPerChannelAndResettable();
     testUnifiedProcessorAppliesResponseRoleModifierAdjustmentAndSlew();
     testProportionalMaskUsesUnifiedProcessorAndHonoursRoleReservation();

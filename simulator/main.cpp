@@ -36,6 +36,7 @@ void emulateManagementRequest(const ElrsManagementRequest &request,
     if (request.action == ElrsManagementAction::TxParameter) {
         emulateTxConfig(request.parameter, telemetry); return;
     }
+    if(request.action==ElrsManagementAction::EscProgrammer)return; // No invented hardware acknowledgement.
     uint8_t uid[kElrsUidLength] = {};
     if (request.action == ElrsManagementAction::SetBindPhrase)
         calculateElrsBindPhraseUid(request.phrase, uid);

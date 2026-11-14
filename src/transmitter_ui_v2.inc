@@ -5,65 +5,6 @@ const char *const v2ShortcutNames[]={"Empty","GPS speed","Motor RPM","Drive pack
 constexpr uint8_t v2ShortcutCount=sizeof(v2ShortcutNames)/sizeof(*v2ShortcutNames);
 }
 
-void TransmitterUi::drawV2Overview()
-{
-    makePageActionButton(10,48,98,29,driveModeSettings_.activeMode==DriveMode::Walk?"Walk":"Normal",UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,6);
-    makePageActionButton(114,48,80,29,"GPS map",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,61);
-    makePageActionButton(200,48,80,29,"Widgets",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlV2,1);
-    makePageActionButton(286,48,86,29,"Review",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlV2,2);
-    makePageActionButton(378,48,90,29,"Quick",UiText::Caption,cPanel2,cCyan,cLine,&TransmitterUi::controlV2,3);
-    const char *names[]={"SPEED","DRIVE PACK","MOTOR RPM","RF MARGIN"};
-    const char *units[]={"km/h","V","rpm","dB"};
-    for(uint8_t i=0;i<4;++i){
-        const int x=10+(i%2)*234,y=85+(i/2)*77;
-        auto panel=makePanel(x,y,226,71,cPanel,cLine);
-        makeLabel(panel,names[i],8,5,UiText::Caption,cDim);
-        v2Values_[i]=makeLabel(panel,"--",8,23,UiText::Heading,cWhite);
-        makeLabel(panel,units[i],175,29,UiText::Caption,cDim);
-        v2Details_[i]=makeLabel(panel,"No telemetry",8,52,UiText::Caption,cDim);
-        boundedLabel(v2Details_[i],210);
-        addPageActionTarget(x,y,226,71,&TransmitterUi::controlV2,10+i);
-    }
-    for(uint8_t i=0;i<4;++i){
-        auto b=makePageActionButton(10+i*117,239,109,32,"",UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlV2,40+i);
-        v2Adjustments_[i]=lv_obj_get_child(b,0);
-    }
-}
-
-void TransmitterUi::updateV2Overview()
-{
-    const auto &t=designTelemetry_;const uint32_t now=millis();
-    const uint8_t sources[]={0,6,2};
-    for(unsigned i=0;i<3;++i){
-        int32_t value=0;uint32_t stamp=0;const bool valid=sensorReading(t,sources[i],value,stamp);char text[24];
-        sensorText(sources[i],value,text,sizeof(text));
-        if(i==1)snprintf(text,sizeof(text),"%ld.%02ld",long(value/1000),long((value%1000)/10));
-        uiSetText(v2Values_[i],valid?text:"--");
-        uiSetTextColor(v2Values_[i],colour(valid?cWhite:cDim),0);
-    }
-    char maximum[24];sensorText(0,speedStatistics_.maximum(),maximum,sizeof(maximum));
-    if(t.gpsSatellitesValid)uiSetTextFmt(v2Details_[0],"Max %s | %u sats",speedStatistics_.available()?maximum:"--",t.satellites);
-    else uiSetTextFmt(v2Details_[0],"Max %s | -- sats",speedStatistics_.available()?maximum:"--");
-    if(t.vehicleCellsValid)uiSetTextFmt(v2Details_[1],"%u cells | lowest %u.%02u V",t.vehicleCellCount,t.vehicleMinimumCellMv/1000,(t.vehicleMinimumCellMv%1000)/10);
-    else uiSetText(v2Details_[1],"No cell / pack telemetry");
-    const auto rpm=sensorStatistics_[2].result(true,now);
-    if(rpm.valid)uiSetTextFmt(v2Details_[2],"Session max %ld",long(rpm.maximum));else uiSetText(v2Details_[2],"Session max --");
-    const int sensitivity=elrs24Sensitivity(t.rfMode,rfWarningSettings_.elrsMajor);
-    if(t.linkValid&&uint32_t(now-t.linkUpdatedMs)<=3000){
-        if(sensitivity)uiSetTextFmt(v2Values_[3],"%d",t.uplinkRssiDbm-sensitivity);else uiSetText(v2Values_[3],"--");
-        const unsigned power=crsfPowerMilliwatts(t.txPowerCode);
-        if(power)uiSetTextFmt(v2Details_[3],"LQ %u%% | %u mW RF",t.uplinkLinkQuality,power);
-        else uiSetTextFmt(v2Details_[3],"LQ %u%% | RF power --",t.uplinkLinkQuality);
-    }else{uiSetText(v2Values_[3],"--");uiSetText(v2Details_[3],"No fresh link telemetry");}
-    const int st=channelParameterValue(steeringChannel(),ChannelParameterKind::Trim);
-    const int th=channelParameterValue(throttleChannel(),ChannelParameterKind::Trim);
-    char text[32];
-    snprintf(text,sizeof(text),"ST trim %+.1f",st/10.0);uiSetText(v2Adjustments_[0],text);
-    uiSetTextFmt(v2Adjustments_[1],"ST rate %u%%",profileForChannel(steeringChannel()).positiveRatePercent);
-    snprintf(text,sizeof(text),"TH trim %+.1f",th/10.0);uiSetText(v2Adjustments_[2],text);
-    uiSetTextFmt(v2Adjustments_[3],"Brake %u%%",profileForChannel(throttleChannel()).negativeRatePercent);
-}
-
 void TransmitterUi::loadV2Quick()
 {
     if(v2QuickModel_==activeModelSlot_)return;
@@ -104,7 +45,7 @@ void TransmitterUi::openV2Shortcut(uint8_t id)
     else if(id==10){assignmentChannelContext_=0;drawControlAssignmentsPage();}
     else if(id==11){rfWarningReturnPage_=UiPage::QuickNavigation;drawDesignPage(UiPage::RfWarningSetup);}
     else if(id==12)drawModelSelectPage();
-    else if(id==13){v2Overview_=false;drawDashboard();}
+    else if(id==13)drawDashboard();
 }
 
 void TransmitterUi::drawV2RunReview()
@@ -148,7 +89,7 @@ void TransmitterUi::updateV2GraphCursor()
 void TransmitterUi::controlV2(uint8_t item,PageControlEvent event)
 {
     if(event!=PageControlEvent::Activate)return;
-    if(item==1){v2Overview_=!v2Overview_;drawDashboard();}
+    if(item==1)drawDashboard();
     else if(item==2){v2ReviewConfirm_=false;drawDesignPage(UiPage::RunReview);}
     else if(item==3){keypadReturnPage_=activePage_;drawDesignPage(UiPage::QuickNavigation);}
     else if(item==4){v2QuickEditing_=!v2QuickEditing_;drawDesignPage(UiPage::QuickNavigation);}

@@ -25,10 +25,195 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_TEMP_BENCH_AUDIT_ONLY")){
+#if JR_R1_TEMP_BENCH_STARTUP
+        assert(bootPinUnlocked_&&pinPurpose_==PinPurpose::None&&!armRequested_);
+        char savedPin[5];memcpy(savedPin,securityPin_,sizeof(savedPin));
+        moduleLinkManaged_=false;moduleLink_=ModuleLink{};
+        updateModulePower(true,100);assert(!moduleLinkEnabled());
+        updateModulePower(true,350);assert(moduleLinkEnabled()&&!moduleLink_.prompt()&&!armRequested());
+        moduleLink_.pause();updateModulePower(true,400);assert(!moduleLinkEnabled());
+        updateModulePower(false,450);updateModulePower(true,500);updateModulePower(true,750);
+        assert(moduleLinkEnabled()&&!armRequested());
+        hardwareRecovery_=true;updateModulePower(false,800);updateModulePower(true,900);updateModulePower(true,1150);
+        assert(!moduleLinkEnabled()&&!armRequested());hardwareRecovery_=false;
+        assert(memcmp(savedPin,securityPin_,sizeof(savedPin))==0);
+        for(unsigned o=0;o<2;++o){drawBootSplash();lv_obj_update_layout(lv_scr_act());auditTypography(lv_scr_act());lv_refr_now(nullptr);
+            simulatorSaveScreenshot(portraitUi?"/tmp/r1-temp-bench-portrait.bmp":"/tmp/r1-temp-bench-landscape.bmp");
+            assert(requestDisplayRotation());applyDisplayRotation();}
+        Serial.println("Temporary bench: PIN skipped without storage changes, auto CRSF after detection, manual pause, recovery and CUT guards PASS");return true;
+#else
+        assert(!bootPinUnlocked_&&pinPurpose_==PinPurpose::Boot&&!armRequested_);
+        Serial.println("Normal build: startup PIN remains required PASS");return true;
+#endif
+    }
+    if(getenv("JR_R1_ESC_PROGRAMMER_AUDIT_ONLY")){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;bindingCount_=0;
+        const auto savedEscCutHandler=safetyCutHandler_;safetyCutHandler_=auditConfigurationCut;
+        for(unsigned orientation=0;orientation<2;++orientation){
+            escProgrammer_=EscDriveProgrammer{};escProgrammingTab_=0;
+            armRequested_=false;designSafety_=OutputSafetyStatus::Cut;elrsRequestPending_=false;
+            drawEscProgrammingPage();
+            auto tap=[&](uint8_t id){
+                for(uint8_t n=0;n<pageFocusCount_;++n){const auto t=pageFocusTargets_[n];if(t.handler!=&TransmitterUi::controlEscProgramming||t.argument!=id)continue;
+                    const auto r=t.activate;assert(r.width>0);assert(dispatchPageControlTouch(r.x+r.width/2,r.y+r.height/2));return;}assert(false);
+            };
+            auto sessionControls=[&](){
+                unsigned found=0;const int footer=kScreenHeight-(portraitUi?60:40);
+                for(uint8_t n=0;n<pageFocusCount_;++n){const auto t=pageFocusTargets_[n];if(t.handler!=&TransmitterUi::controlEscProgramming)continue;
+                    if(t.argument>=11&&t.argument<=13){found|=1u<<(t.argument-11);assert(t.activate.y==footer-38&&t.activate.y+t.activate.height<=footer);}
+                    if((t.argument>=30&&t.argument<=32)||t.argument>=40)assert(t.activate.y+t.activate.height<=footer-44);
+                }
+                assert(found==7);
+            };
+            armRequested_=true;designSafety_=OutputSafetyStatus::Armed;
+            const auto unsafeCuts=auditCutRequests;tap(11);
+            assert(auditCutRequests==unsafeCuts+1&&!escProgrammer_.blocksArm()&&!armRequested_);
+            assert(strstr(escProgrammer_.status(),"CUT requested"));
+            designSafety_=OutputSafetyStatus::Cut;elrsRequestPending_=true;safetyResetRequested_=false;tap(11);
+            assert(!escProgrammer_.blocksArm()&&!safetyResetRequested_&&strstr(escProgrammer_.status(),"Radio request busy"));
+            elrsRequestPending_=false;
+            designSafety_=OutputSafetyStatus::Cut;tap(11);assert(escProgrammer_.blocksArm()&&!armRequested());
+            auto c=controlConfigurationSnapshot();assert(!c.escSelectorReserved&&c.escProgramming&&!c.escProgrammerSelected&&!c.armRequested);
+            assert(applyDriveModeAction(static_cast<uint16_t>(DriveModeSelection::CutArm),1));assert(!armRequested_);
+            EscWire::Message request;bool probe;const uint32_t base=millis();
+            auto receive=[&](uint32_t now,uint8_t flags){uint8_t f[21];request.status=EscWire::Status::Ok;request.flags=flags;assert(EscWire::build(request,true,f,sizeof(f)));escProgrammer_.receive(f[2],f+3,17,now);};
+            assert(escProgrammer_.poll(base,request,probe)&&request.op==EscWire::Op::Hello);
+            receive(base+1,EscWire::ModeSelect|EscWire::Drive);
+            assert(escProgrammer_.poll(base+1,request,probe)&&request.op==EscWire::Op::Prepare);
+            receive(base+2,EscWire::ModeSelect|EscWire::Drive|EscWire::Pending);
+            drawEscProgrammingPage();sessionControls();
+            if(const char *prefix=getenv("JR_R1_ESC_PROGRAMMER_IMAGES")){lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-pending.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);}
+            assert(escProgrammer_.poll(base+502,request,probe));receive(base+503,EscWire::ModeSelect|EscWire::Programming|EscWire::Interface);
+            assert(escProgrammer_.read(base+600));
+            for(unsigned n=0;n<15;++n){assert(escProgrammer_.poll(base+600+n*50,request,probe));request.value=0;receive(base+601+n*50,EscWire::ModeSelect|EscWire::Programming|EscWire::Interface);}
+            assert(escProgrammer_.known(14)&&!escProgrammer_.writable());
+            for(uint8_t tab=0;tab<5;++tab){escProgrammingTab_=tab;drawEscProgrammingPage();sessionControls();lv_obj_update_layout(lv_scr_act());auditTypography(lv_scr_act());
+                for(uint8_t n=0;n<pageFocusCount_;++n){assert(pageFocusTargets_[n].handler!=&TransmitterUi::controlEscProgramming||pageFocusTargets_[n].argument<40);const auto r=pageFocusTargets_[n].focus;assert(r.x>=0&&r.y>=0&&r.x+r.width<=kScreenWidth&&r.y+r.height<=kScreenHeight);}
+                if(const char *prefix=getenv("JR_R1_ESC_PROGRAMMER_IMAGES")){lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-%u.bmp",prefix,portraitUi?"portrait":"landscape",tab);simulatorSaveScreenshot(path);}
+            }
+            // Edit controls appear only after receiver capability + known data.
+            assert(escProgrammer_.poll(base+2000,request,probe));receive(base+2001,EscWire::ModeSelect|EscWire::Programming|EscWire::Interface|EscWire::Writes);
+            for(uint8_t tab=1;tab<5;++tab){escProgrammingTab_=tab;drawEscProgrammingPage();sessionControls();}
+            assert(escProgrammer_.writable());escProgrammingTab_=2;drawEscProgrammingPage();tap(48);
+            assert(escEditingParameter_==8&&escDraftValue_==0);
+            sessionControls();tap(12);tap(11);assert(escEditingParameter_==8&&escProgrammer_.ready());
+            lv_obj_update_layout(lv_scr_act());auditTypography(lv_scr_act());
+            if(const char *prefix=getenv("JR_R1_ESC_PROGRAMMER_IMAGES")){lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-editor.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);}
+            controlEscProgramming(30,PageControlEvent::Increase);assert(escDraftValue_==1);tap(31);
+            assert(escProgrammer_.state()==EscDriveProgrammer::State::Writing&&!escProgrammer_.known(8));
+            const uint32_t writeTime=millis();
+            assert(escProgrammer_.poll(writeTime,request,probe)&&request.op==EscWire::Op::Write&&request.parameter==8&&request.value==1);
+            receive(writeTime+1,EscWire::ModeSelect|EscWire::Programming|EscWire::Interface|EscWire::Writes);
+            assert(escProgrammer_.value(8)==1&&escProgrammer_.known(8));
+            escProgrammingTab_=0;drawEscProgrammingPage();tap(13);assert(escProgrammer_.blocksArm());
+            const uint32_t end=writeTime+10000;assert(escProgrammer_.poll(end,request,probe)&&!probe&&request.op==EscWire::Op::Close);
+            receive(end+1,EscWire::ModeSelect|EscWire::Programming);assert(escProgrammer_.blocksArm());
+            assert(escProgrammer_.poll(end+501,request,probe));receive(end+502,EscWire::ModeSelect|EscWire::Drive);
+            assert(!escProgrammer_.blocksArm()&&!armRequested());
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        safetyCutHandler_=savedEscCutHandler;
+        Serial.println("Single ER6G UI: persistent controls / numbered workflow / CUT guards / verified write / Drive recovery; both orientations PASS");return true;
+    }
+    if(getenv("JR_R1_SETUP_DETAILS_AUDIT_ONLY")){assert(runSimulatorSetupDetailsAudit());assert(requestDisplayRotation());applyDisplayRotation();return runSimulatorSetupDetailsAudit();}
     if(getenv("JR_R1_V2_AUDIT_ONLY"))return runSimulatorV2Audit();
-    // Legacy widget coverage uses the retained Widgets view. The complete run
-    // also executes the V2 overview audit below.
-    v2Overview_=false;
+    auto auditVehicleBatteries=[&](){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
+        armRequested_=true;safetyResetRequested_=false;
+        const auto rx=rxBatterySettings_;const auto drive=driveBatterySettings_;
+        auto tap=[&](PageControlHandler handler,uint8_t argument,PageControlEvent event=PageControlEvent::Activate){
+            for(uint8_t n=0;n<pageFocusCount_;++n){const auto t=pageFocusTargets_[n];if(t.handler!=handler||t.argument!=argument)continue;
+                const auto r=event==PageControlEvent::Increase?t.increase:event==PageControlEvent::Decrease?t.decrease:t.activate;
+                assert(r.width>0);assert(dispatchPageControlTouch(r.x+r.width/2,r.y+r.height/2));return;}assert(false);
+        };
+        for(bool pack:{false,true})for(unsigned tab=0;tab<2;++tab){
+            vehicleBatteryTab_=tab;drawDesignPage(pack?UiPage::DriveBatterySetup:UiPage::RxBatterySetup);
+            lv_obj_update_layout(lv_scr_act());assert(!detailContentCompacted_&&sectionNavigationVisible_);auditTypography(lv_scr_act());
+            for(unsigned i=0;i<pageFocusCount_;++i){const auto &t=pageFocusTargets_[i];for(const auto r:{t.focus,t.activate,t.decrease,t.increase})if(r.width){assert(r.x>=0&&r.y>=0&&r.x+r.width<=kScreenWidth&&r.y+r.height<=kScreenHeight);}}
+            if(const char *prefix=getenv("JR_R1_BATTERY_MENU_IMAGES")){lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",pack?"drive":"receiver",tab?"warnings":"battery");simulatorSaveScreenshot(path);}
+            tap(&TransmitterUi::controlVehicleBatteryTab,1-tab);assert(vehicleBatteryTab_==1-tab);
+            assert(armRequested_&&!safetyResetRequested_);
+        }
+        assert(rxBatterySettings_.chemistry==rx.chemistry&&rxBatterySettings_.lowAlarmDecivolts==rx.lowAlarmDecivolts);
+        assert(driveBatterySettings_.packMv==drive.packMv&&driveBatterySettings_.cellMv==drive.cellMv);
+        vehicleBatteryTab_=1;drawDesignPage(UiPage::RxBatterySetup);tap(&TransmitterUi::controlRxBattery,3);assert(rxBatterySettings_.alarmEnabled!=rx.alarmEnabled);
+        const auto voltage=rxBatterySettings_.lowAlarmDecivolts;tap(&TransmitterUi::controlRxBattery,2,PageControlEvent::Increase);assert(rxBatterySettings_.lowAlarmDecivolts==voltage+1);
+        loadRxBatterySettings();assert(rxBatterySettings_.lowAlarmDecivolts==voltage+1);navigateBack();assert(activePage_==UiPage::BatteryMenu);
+        vehicleBatteryTab_=1;drawDesignPage(UiPage::DriveBatterySetup);tap(&TransmitterUi::controlDriveBattery,4);assert(driveBatterySettings_.packEnabled!=drive.packEnabled);
+        tap(&TransmitterUi::controlDriveBattery,3,PageControlEvent::Decrease);assert(driveBatterySettings_.cellMv==drive.cellMv-50);
+        loadDriveBatterySettings();assert(driveBatterySettings_.cellMv==drive.cellMv-50);
+        v2SensorSetupReturn_=false;navigateBack();assert(activePage_==UiPage::BatteryMenu);
+        assert(armRequested_&&!safetyResetRequested_);
+        rxBatterySettings_=rx;saveRxBatterySettings();driveBatterySettings_=drive;saveDriveBatterySettings();
+        armRequested_=false;vehicleBatteryTab_=0;
+        Serial.println("Vehicle batteries: common tabs/rows in both supplies, real-touch changes, persistence, Back, bounds and unchanged arm state PASS");
+    };
+    if(getenv("JR_R1_BATTERY_MENU_AUDIT_ONLY")){
+        auditVehicleBatteries();assert(requestDisplayRotation());applyDisplayRotation();auditVehicleBatteries();
+        if(const char *prefix=getenv("JR_R1_STYLE_INVENTORY_IMAGES")){
+            // Inspect the actual remaining legacy renderers with an unlocked
+            // disposable simulator; ordinary --page startup still enforces PIN.
+            const UiPage pages[]={UiPage::FirmwareInfo,UiPage::ElrsBinding,UiPage::EscProgramming,UiPage::ChannelRoles,UiPage::Channel2,UiPage::ThrottleResponse,UiPage::ChannelSpeed};
+            for(unsigned orientation=0;orientation<2;++orientation){
+                for(auto page:pages){showSimulatorPage(page);lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+                    snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",uiPageName(page));simulatorSaveScreenshot(path);}
+                assert(requestDisplayRotation());applyDisplayRotation();
+            }
+        }
+        return true;
+    }
+    auto auditSharedMenus=[&](){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
+        armRequested_=false;assignmentChannelContext_=0;assignmentBank_=0;
+        const auto originalBindings=bindingCount_;
+        const auto oldDraft=bindingDraft_;const auto oldBindingInput=selectedBindingInput_;
+        const auto oldMonitorReturn=inputMonitorReturnPage_;
+        auto tap=[&](PageControlHandler handler,uint8_t action,PageControlEvent event=PageControlEvent::Activate){
+            for(uint8_t n=0;n<pageFocusCount_;++n){const auto target=pageFocusTargets_[n];
+                if(target.handler!=handler||target.argument!=action)continue;
+                const auto r=event==PageControlEvent::Increase?target.increase:event==PageControlEvent::Decrease?target.decrease:target.activate;
+                assert(r.width>0&&r.height>0);assert(dispatchPageControlTouch(r.x+r.width/2,r.y+r.height/2));return;
+            }assert(false);
+        };
+        auto check=[&](){lv_obj_update_layout(lv_scr_act());auditTypography(lv_scr_act());
+            assert(!detailContentCompacted_&&!armRequested_);
+            for(uint8_t n=0;n<pageFocusCount_;++n){const auto r=pageFocusTargets_[n].focus;
+                assert(r.x>=0&&r.y>=0&&r.x+r.width<=kScreenWidth&&r.y+r.height<=kScreenHeight);}
+        };
+        auto shot=[&](const char *name){if(const char *prefix=getenv("JR_R1_MENU_IMAGES")){
+            lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",name);simulatorSaveScreenshot(path);}};
+        drawControlAssignmentsPage();check();shot("control-map");
+        tap(&TransmitterUi::controlPageDot,1);assert(assignmentBank_==1);
+        assert(handlePageSwipe(100,150,250,152,300));assert(assignmentBank_==0);
+        tap(&TransmitterUi::controlAssignments,7);assert(activePage_==UiPage::InputMonitor);check();shot("inputs");
+        const auto timerIndex=static_cast<size_t>(PhysicalControlId::TimerButton);
+        const auto oldState=physicalInputStates_[timerIndex];
+        inputMonitorBank_=timerIndex/5;drawInputMonitorPage();lv_obj_update_layout(lv_scr_act());
+        physicalInputStates_[timerIndex].mapped=true;physicalInputStates_[timerIndex].faulted=false;physicalInputStates_[timerIndex].stablePrimary=true;
+        refreshInputMonitorRows();lv_obj_update_layout(lv_scr_act());assert(strstr(lv_label_get_text(inputMonitorStateLabels_[timerIndex%5]),"ON"));
+        physicalInputStates_[timerIndex]=oldState;
+        tap(&TransmitterUi::controlNavigation,0);assert(activePage_==UiPage::ControlAssignments);
+        assignmentBank_=timerIndex/5;drawControlAssignmentsPage();
+        tap(&TransmitterUi::controlAssignments,timerIndex%5);assert(activePage_==UiPage::BindingEditor);check();shot("assignment");
+        const auto draft=bindingDraft_;tap(&TransmitterUi::controlBindingEditor,0);
+        assert(bindingDraft_.enabled!=draft.enabled&&bindingCount_==originalBindings);
+        bindingDraft_.target=AssignmentTarget::CrsfChannel;bindingDraft_.minimum=-500;bindingDraft_.maximum=500;
+        drawBindingEditorPage();tap(&TransmitterUi::controlBindingEditor,10);assert(bindingEditorBank_==2);
+        tap(&TransmitterUi::controlBindingEditor,12,PageControlEvent::Increase);assert(bindingDraft_.minimum==-490);
+        check();shot("range");tap(&TransmitterUi::controlBindingEditor,5);
+        assert(activePage_==UiPage::ControlAssignments&&bindingCount_==originalBindings);
+        drawColourSchemePage();check();shot("colours");
+        tap(&TransmitterUi::controlNavigation,0);assert(activePage_==UiPage::DisplaySetup);
+        inputMonitorReturnPage_=UiPage::Telemetry;drawInputMonitorPage();
+        tap(&TransmitterUi::controlNavigation,0);assert(activePage_==UiPage::Telemetry);
+        bindingDraft_=oldDraft;selectedBindingInput_=oldBindingInput;inputMonitorReturnPage_=oldMonitorReturn;
+        drawMainMenu();assert(!armRequested_&&bindingCount_==originalBindings);
+        Serial.println("Shared menus: real row taps, dots/swipes, live inputs, draft-only range/toggle edits, Cancel/Back routes and bounds PASS");
+    };
+    if(getenv("JR_R1_MENU_AUDIT_ONLY")){auditSharedMenus();assert(requestDisplayRotation());applyDisplayRotation();auditSharedMenus();return true;}
+
+    // The complete run also exercises the new Drive widgets and V2 routes.
     if(getenv("JR_R1_SETUP_SCOPE_AUDIT_ONLY")){
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;moduleLinkManaged_=false;
         auto has=[&](uint8_t action){for(uint8_t n=0;n<pageFocusCount_;++n)if(pageFocusTargets_[n].handler==&TransmitterUi::controlDesign&&pageFocusTargets_[n].argument==action)return true;return false;};
@@ -194,6 +379,7 @@ bool TransmitterUi::runSimulatorUiAudit()
                 assert(armRequested_ && activePage_==page && pageFocusCount_==count && adjustmentOverlay_);
                 lv_obj_update_layout(lv_scr_act());
                 auto overlay=adjustmentOverlay_;
+                assert(lv_obj_get_y(overlay)==(kScreenHeight-lv_obj_get_height(overlay))/2);
                 assert(!lv_obj_has_flag(overlay,LV_OBJ_FLAG_CLICKABLE));
                 for(uint32_t n=0;n<lv_obj_get_child_cnt(overlay);++n)
                     assert(!lv_obj_has_flag(lv_obj_get_child(overlay,n),LV_OBJ_FLAG_CLICKABLE));
@@ -214,6 +400,11 @@ bool TransmitterUi::runSimulatorUiAudit()
                 assert(!armRequested_ && adjustmentOverlay_);
                 detail=lv_obj_get_child(adjustmentOverlay_,lv_obj_get_child_cnt(adjustmentOverlay_)-1);
                 assert(strstr(lv_label_get_text(detail),"N -9.0%"));
+                assert(strstr(lv_label_get_text(detail),"-89.0%") && strstr(lv_label_get_text(detail),"+100.0%"));
+                if(const char *prefix=getenv("JR_R1_ADJUSTMENT_OVERLAY_IMAGES")){
+                    lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
+                    snprintf(path,sizeof(path),"%s-%s-%s-subtrim.bmp",prefix,portraitUi?"portrait":"landscape",channel==steeringChannel()?"steering":"throttle");simulatorSaveScreenshot(path);
+                }
                 bootPinUnlocked_=false;updateChannelAdjustment(millis());assert(!adjustmentOverlay_ && !adjustmentChannel_);
                 assert(!applyChannelParameterAction(encodeChannelParameterTarget(channel,ChannelParameterKind::Trim),120));
                 bootPinUnlocked_=true;
@@ -805,6 +996,9 @@ bool TransmitterUi::runSimulatorUiAudit()
         auditSportGps();assert(requestDisplayRotation());applyDisplayRotation();auditSportGps();return true;
     }
     assert(runSimulatorV2Audit());
+    assert(runSimulatorSetupDetailsAudit());
+    auditVehicleBatteries();
+    auditSharedMenus();
     auditWifiShortcut();
     auditDriveHold();
     auditTxBattery();
@@ -922,8 +1116,10 @@ bool TransmitterUi::runSimulatorUiAudit()
     armGestureValid_=false;lastTouchDurationMs_=1000;controlDesign(0,activate);assert(armRequested_);armGestureValid_=true;
     lastTouchDurationMs_=1799;controlDesign(0,activate);assert(armRequested_);
     lastTouchDurationMs_=1800;controlDesign(0,activate);assert(!armRequested_);designTouchDispatch_=false;
-    // Drive mode tabs select directly, without the old chooser. Reselecting
+    // The optional Controls widget selects modes directly. Reselecting
     // the active mode preserves a live request; changing modes always CUTs.
+    dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+    dashboardLayouts_[activeModelSlot_].cells[0].kind=DashboardWidgetKind::Controls;
     drawDashboard();armRequested_=true;safetyResetRequested_=false;
     assert(touchAction(&TransmitterUi::controlDesign,183));
     assert(activePage_==UiPage::Dashboard&&driveMode()==DriveMode::Normal&&armRequested_&&!safetyResetRequested_);
@@ -1623,15 +1819,19 @@ bool TransmitterUi::runSimulatorUiAudit()
         drawMainMenu();dispatchPageControlTouch(250,60);assert(setupBank_==1);
         dispatchPageControlTouch(80,110);assert(activePage_==UiPage::DisplaySetup);
         dispatchPageControlTouch(40,22);assert(activePage_==UiPage::MainMenu);
+        auto tapDetail=[&](PageControlHandler handler,uint8_t id,PageControlEvent event=PageControlEvent::Activate){
+            for(uint8_t i=0;i<pageFocusCount_;++i){const auto t=pageFocusTargets_[i];if(t.handler!=handler||t.argument!=id)continue;
+                const auto r=event==PageControlEvent::Decrease?t.decrease:event==PageControlEvent::Increase?t.increase:t.activate;
+                assert(r.width>0&&dispatchPageControlTouch(r.x+r.width/2,r.y+r.height/2));return;}assert(false);};
         drawChannelRolesPage();auto oldRole=channelRoleSettings_.steeringChannel;
-        const auto detailY=[&](int y){return 44+(y-44)*(kScreenHeight-60-4-44)/(kScreenHeight-20-44);};
-        dispatchPageControlTouch(282,detailY(94));assert(channelRoleSettings_.steeringChannel!=oldRole);
-        dispatchPageControlTouch(231,detailY(94));assert(channelRoleSettings_.steeringChannel==oldRole);
-        drawThrottleResponsePage();dispatchPageControlTouch(282,detailY(434));assert(portraitResponseBank_==1);
-        dispatchPageControlTouch(33,detailY(434));assert(portraitResponseBank_==0);
-        drawElrsBindingPage();auto length=strlen(elrsBindPhrase_);
-        dispatchPageControlTouch(15,245);assert(strlen(elrsBindPhrase_)==length+1);
-        dispatchPageControlTouch(271,434);assert(strlen(elrsBindPhrase_)==length);
+        tapDetail(&TransmitterUi::controlChannelRoles,0,PageControlEvent::Increase);assert(channelRoleSettings_.steeringChannel!=oldRole);
+        tapDetail(&TransmitterUi::controlChannelRoles,0,PageControlEvent::Decrease);assert(channelRoleSettings_.steeringChannel==oldRole);
+        drawThrottleResponsePage();tapDetail(&TransmitterUi::controlResponseTab,2);assert(portraitResponseBank_==1&&!responseCurveView_);
+        tapDetail(&TransmitterUi::controlResponseTab,1);assert(portraitResponseBank_==0&&!responseCurveView_);
+        drawElrsBindingPage();tapDetail(&TransmitterUi::controlElrsBinding,46);auto length=strlen(elrsBindPhrase_);
+        tapDetail(&TransmitterUi::controlElrsBinding,5);assert(strlen(elrsBindPhrase_)==length+1);
+        tapDetail(&TransmitterUi::controlElrsBinding,45);assert(strlen(elrsBindPhrase_)==length);
+
     }
     // Colour choices persist without altering control state. Light retains the
     // last dark palette for the existing assignable Night mode action.

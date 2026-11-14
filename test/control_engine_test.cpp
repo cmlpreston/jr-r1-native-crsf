@@ -151,7 +151,23 @@ static void testMixCompilation() {
     c = configuration(); c.steeringChannel = c.throttleChannel;
     assert(!compileConfiguredMixing(c).valid);
 }
+static void testEscSelectionSurvivesCutAndVetoesEveryArmRequest() {
+    auto c=configuration();c.escSelectorReserved=true;c.escProgramming=true;c.escProgrammerSelected=true;
+    ControlEngine engine;
+    auto i=input(0);i.throttleAdc=3000;
+    i.bindings.configure(12,crsfValueFromPermille(-500),crsfValueFromPermille(300));
+    c.channelParameters[11].trimPermille=-200;c.channelProfiles[11].reversed=true;
+    c.mixing[11].cutOverride=1;c.mixing[11].cutPercent=-50;
+    auto r=engine.update(c,i);assert(r.safety==OutputSafetyStatus::Cut);
+    uint16_t sent[16];r.outputs.resolve(false,sent);assert(sent[11]==crsfValueFromPermille(1000));
+    assert(sent[1]==r.outputs.safe(2));
+    c.escProgrammerSelected=false;++c.revision;i.nowMs=10000;
+    r=engine.update(c,i);assert(r.safety==OutputSafetyStatus::Cut);r.outputs.resolve(false,sent);assert(sent[11]==crsfValueFromPermille(-1000));
+    c.armRequested=false;c.escProgramming=false;++c.revision;r=engine.update(c,i);assert(r.safety==OutputSafetyStatus::Cut);
+    c.throttleChannel=12;++c.revision;assert(engine.update(c,i).safety==OutputSafetyStatus::ConfigurationFault);
+}
 int main() {
+    testEscSelectionSurvivesCutAndVetoesEveryArmRequest();
     testAppliedSteeringEndpointReachesOutputAfterRearm();
     testSafety(); testArmingVetoes(); testStructuralEditsAndLiveTrim(); testResetPublicationOrder(); testMixCompilation();
     puts("Control engine: input faults, dwell, edits, reset publication, compiled mixes and wrap PASS");

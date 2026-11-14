@@ -16,5 +16,14 @@ int main(){
     ModuleLink reboot;assert(!reboot.enabled()&&!reboot.enable());
     ModuleLink rollover;rollover.update(true,0xffffff80u);rollover.update(true,0x7au);
     assert(rollover.present()&&rollover.prompt()&&!rollover.enabled());
+    // Temporary auto-enable applies once per detected power session. A manual
+    // pause stays paused; removal still cuts and requires fresh detection.
+    ModuleLink bench;bench.update(true,100,true);assert(!bench.enabled());
+    bench.update(true,350,true);assert(bench.present()&&bench.enabled()&&!bench.prompt());
+    bench.pause();bench.update(true,500,true);assert(!bench.enabled()&&!bench.prompt());
+    bench.update(false,600,true);assert(!bench.present()&&!bench.enabled());
+    bench.update(true,700,true);bench.update(true,950,true);assert(bench.enabled());
+    ModuleLink recovery;recovery.update(true,100,false);recovery.update(true,350,false);
+    assert(!recovery.enabled()&&recovery.prompt());
     puts("Module link: boot default, detection debounce, approval, cancel, pause, power loss and rollover PASS");
 }

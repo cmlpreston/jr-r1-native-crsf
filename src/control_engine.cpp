@@ -1,4 +1,5 @@
 #include "control_engine.h"
+#include "esc_programmer_wire.h"
 
 void ControlEngine::reset(uint32_t nowMs)
 {
@@ -14,6 +15,8 @@ OutputSafetyStatus ControlEngine::qualify(const ControlConfigurationSnapshot &c,
 {
     OutputSafetyStatus veto = OutputSafetyStatus::Armed;
     if (!c.modelStorageValid || !mixPlan_.valid) veto = OutputSafetyStatus::ConfigurationFault;
+    else if (c.escSelectorReserved && (c.steeringChannel == EscWire::SelectorChannel || c.throttleChannel == EscWire::SelectorChannel)) veto = OutputSafetyStatus::ConfigurationFault;
+    else if (c.escProgramming || c.escProgrammerSelected) veto = OutputSafetyStatus::Cut;
     else if (c.calibrationActive) veto = OutputSafetyStatus::Calibration;
     else if (!inputsValid) veto = OutputSafetyStatus::InputFault;
     else if (!c.throttleEnabled) veto = OutputSafetyStatus::ChannelDisabled;
@@ -88,6 +91,11 @@ ControlCycleResult ControlEngine::update(const ControlConfigurationSnapshot &c,
     const bool live = result.safety == OutputSafetyStatus::Armed;
     if (!live) slew_.reset(in.nowMs);
     processConfiguredMixedOutputs(c, result.outputs, inputs, mix_, slew_, in.nowMs, live, &mixPlan_);
+    // Selector must survive CUT substitution and override bindings/mixes/trim.
+    if(c.escSelectorReserved) {
+        const uint16_t selector=crsfValueFromPermille(c.escProgramming && c.escProgrammerSelected ? 1000 : -1000);
+        result.outputs.configure(EscWire::SelectorChannel,selector,selector,true);
+    }
     result.neutralSinceMs = neutralSince_;
     return result;
 }

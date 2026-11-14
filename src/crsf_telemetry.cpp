@@ -101,6 +101,10 @@ void CrsfTelemetryParser::processFrame()
     const uint8_t payloadLength = frame_[1] - 2;
     const uint8_t *payload = &frame_[3];
 
+    if((frameType==0x29||frameType==0x2b)&&payloadLength>=2&&payload[0]==0xea&&payload[1]==0xec){
+        state_.rxParameterType=frameType;state_.rxParameterLength=payloadLength;
+        memcpy(state_.rxParameterPayload,payload,payloadLength);++state_.rxParameterSequence;
+    }
     if ((frameType == 0x29 || frameType == 0x2b) && payloadLength >= 2 &&
         payload[0] == kRadioTransmitterAddress && payload[1] == kCrsfTransmitterAddress) {
         state_.txParameterType = frameType;

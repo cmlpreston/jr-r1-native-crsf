@@ -402,6 +402,7 @@ static void routes() {
         server.send(ok?200:400,"text/plain",info.message);
     });
     #include "setup_portal_ers.inc"
+    #include "setup_portal_rf.inc"
     server.on("/api/timer",HTTP_GET,[]{
         if(!authorized())return;
         const auto &timer=handset->portalTimer();const auto &s=timer.settings;

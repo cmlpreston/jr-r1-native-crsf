@@ -60,6 +60,9 @@ void TransmitterUi::keypadPage(int direction)
 {
     int page=0,count=0;
     switch(activePage_){
+        case UiPage::ThrottleResponse:controlResponseTab(constrain((responseCurveView_?0:portraitResponseBank_+1)+direction,0,2),PageControlEvent::Activate);return;
+        case UiPage::EscProgramming:controlEscProgramming(constrain(int(escProgrammingTab_)+direction,0,4),PageControlEvent::Activate);return;
+        case UiPage::RxBatterySetup:case UiPage::DriveBatterySetup:controlVehicleBatteryTab(constrain(int(vehicleBatteryTab_)+direction,0,1),PageControlEvent::Activate);return;
         case UiPage::TimerControl:
             if(timerBank_==2)controlTimer(direction<0?20:21,PageControlEvent::Activate);
             else if(timerBank_==1)controlTimer(direction<0?13:14,PageControlEvent::Activate);
@@ -85,7 +88,8 @@ void TransmitterUi::keypadPage(int direction)
 
 void TransmitterUi::keypadTab(int direction)
 {
-    if(activePage_==UiPage::TimerControl){controlTimer(10+(timerBank_+direction+3)%3,PageControlEvent::Activate);}
+    if(activePage_==UiPage::ThrottleResponse||activePage_==UiPage::EscProgramming||activePage_==UiPage::RxBatterySetup||activePage_==UiPage::DriveBatterySetup)keypadPage(direction);
+    else if(activePage_==UiPage::TimerControl){controlTimer(10+(timerBank_+direction+3)%3,PageControlEvent::Activate);}
     else if(activePage_==UiPage::Tune){tuneRole_=constrain(int(tuneRole_)+direction,tuneRole_<3?0:3,tuneRole_<3?2:4);drawDesignPage(UiPage::Tune);}
     else if(activePage_==UiPage::MainMenu)controlDesign(direction<0?140:141,PageControlEvent::Activate);
     else if(activePage_==UiPage::Telemetry||activePage_==UiPage::Gps||activePage_==UiPage::ChannelMonitor||
@@ -131,7 +135,8 @@ void TransmitterUi::keypadAction(PhysicalControlId key,bool held,bool repeat)
     else if(key==PhysicalControlId::KeyPlus||key==PhysicalControlId::KeyMinus){
         const int direction=key==PhysicalControlId::KeyPlus?1:-1;
         if(activePage_==UiPage::ValueEditor)controlDesign(direction<0?30:31,activate);
-        else if(navigationIsModal()||activePage_==UiPage::Channel2||activePage_==UiPage::ThrottleResponse||activePage_==UiPage::ChannelSpeed)
+        else if(navigationIsModal()||activePage_==UiPage::Channel2||activePage_==UiPage::ThrottleResponse||activePage_==UiPage::ChannelSpeed||
+                (pageFocusVisible_&&pageFocusIndex_<pageFocusCount_&&pageFocusTargets_[pageFocusIndex_].increase.width>0))
             adjustPageFocus(direction);
         else if(!repeat)keypadTab(direction);
     }

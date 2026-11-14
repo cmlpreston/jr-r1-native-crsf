@@ -61,6 +61,9 @@ bool equivalentControlConfiguration(const ControlConfigurationSnapshot &left,
         left.throttleChannel != right.throttleChannel ||
         left.steeringEnabled != right.steeringEnabled ||
         left.throttleEnabled != right.throttleEnabled ||
+        left.escSelectorReserved != right.escSelectorReserved ||
+        left.escProgramming != right.escProgramming ||
+        left.escProgrammerSelected != right.escProgrammerSelected ||
         left.modelStorageValid != right.modelStorageValid ||
         left.armRequested != right.armRequested ||
         left.calibrationActive != right.calibrationActive ||
@@ -129,17 +132,43 @@ int16_t applyConfiguredDriveMode(
 
 int16_t applyConfiguredChannelAdjustments(
     const ControlConfigurationSnapshot &configuration, uint8_t channel,
-    int16_t inputPermille)
+    int16_t inputPermille, int16_t switchedRatePermille)
 {
     if (!validChannel(channel)) return inputPermille;
     const ChannelParameterValues &values =
         configuration.channelParameters[channel - 1];
-    const int16_t shifted = static_cast<int16_t>(clampValue<int32_t>(
-        static_cast<int32_t>(inputPermille) + values.subtrimPermille,
-        -CHANNEL_RESPONSE_EXTENDED_LIMIT_PERMILLE,
-        CHANNEL_RESPONSE_EXTENDED_LIMIT_PERMILLE));
+    int32_t shifted = inputPermille;
+    if (values.subtrimPermille != 0) {
+        // Sub-trim re-centres the response between its existing endpoints.
+        // Use the same response, switched rate and drive limits as the caller.
+        const int32_t centre = applyConfiguredResponse(configuration, channel, 0);
+        auto endpoint = [&](int16_t raw) {
+            int16_t value = centre +
+                (int32_t(applyConfiguredResponse(configuration, channel, raw)) - centre) *
+                switchedRatePermille / 1000;
+            if (channel == configuration.throttleChannel)
+                value = applyConfiguredDriveMode(configuration, value, raw);
+            // Preserve internal extended travel too: clipping here would make
+            // an opposing ordinary trim unexpectedly reduce a saturated end.
+            return int32_t(value);
+        };
+        const int32_t a = endpoint(-1000), b = endpoint(1000);
+        const int32_t low = a < b ? a : b, high = a > b ? a : b;
+        const int32_t neutral = clampValue<int32_t>(centre, low, high);
+        const int32_t adjusted = clampValue<int32_t>(
+            neutral + values.subtrimPermille, low, high);
+        // A collapsed side pins neutral to an endpoint: there is no independent
+        // centre adjustment possible without moving that endpoint.
+        if (low < neutral && neutral < high) {
+            const int32_t input = clampValue<int32_t>(inputPermille, low, high);
+            if (input <= neutral)
+                shifted = low + (input - low) * (adjusted - low) / (neutral - low);
+            else
+                shifted = adjusted + (input - neutral) * (high - adjusted) / (high - neutral);
+        }
+    }
     return static_cast<int16_t>(clampValue<int32_t>(
-        static_cast<int32_t>(shifted) + values.trimPermille, -1000, 1000));
+        shifted + values.trimPermille, -1000, 1000));
 }
 
 int16_t configuredChannelNeutral(
@@ -215,8 +244,11 @@ ProcessedProportionalChannel processConfiguredProportionalChannel(
                                         safeInputPermille);
     }
     requested = applyConfiguredChannelAdjustments(configuration, channel,
-                                                  requested);
-    safe = applyConfiguredChannelAdjustments(configuration, channel, safe);
+                                                  requested, switchedRatePermille);
+    // Use the same active endpoint anchors for CUT. If a very low rate limits
+    // subtrim authority, CUT neutral must still match the live neutral.
+    safe = applyConfiguredChannelAdjustments(configuration, channel, safe,
+                                             switchedRatePermille);
     if (advanceSlew)
         requested = slew.apply(configuration, channel, requested, nowMs);
     ProcessedProportionalChannel result;

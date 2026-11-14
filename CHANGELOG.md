@@ -1,5 +1,115 @@
 # R-1 EVO change record
 
+## 14 November 2026 — ESC programming workflow
+
+- Keep Program, Read ESC and Drive in a fixed action bar on every ESC tab and
+  while editing. Keep Apply one and Cancel separate above that bar.
+- Show the numbered sequence: Program and wait for acknowledgement; ESC off
+  until the RX LED is dark, wait five seconds, on once; Read ESC before editing;
+  select Drive and restart before waiting for Drive confirmation.
+- Dim unavailable actions, retain their operation guards, and report why a
+  programming request cannot begin instead of silently retaining the idle text.
+- Bench-validate the paired custom ER6G r14/r8 path: all 15 reads, one drag-brake
+  write from 0% to 5%, acknowledgement and readback, independent card/persistence
+  confirmation, and restoration to 0% with acknowledgement and readback. The
+  user waived the final card check after restoration. BEC remained 6.0 V.
+- The receiver uses the normal output-5 ESC lead for PWM or half-duplex serial,
+  selected for the whole boot. The small startup stage remains read-only; live
+  writes require a verified programming session, RF/model/CUT gates and matching
+  readback. Failed or ambiguous writes are not retried automatically.
+
+
+## Installed on R1 — 5 November 2026: ER4 programmer build
+
+- Flash the tested CH12 programmer UI/session/interlocks on the approved XIAO
+  landscape profile. Startup checks passed; transmitter confirmed CUT.
+- ER4 remains RF-only; receiver handover/failsafe commissioning is pending.
+
+## Installed on ER4 — 5 November 2026: RF-only programmer bench image
+
+- Upload the dedicated ESP8285 ER4 image at 192.168.1.130 through guarded
+  PlatformIO Wi-Fi OTA, retaining binding and network settings.
+- Verify the rebooted identity, source/version, pin layout and executable
+  readback. ESC access and writes remain disabled; R1/ER6G unchanged.
+- Add receiver-specific artifact/live-device guards and retain the existing
+  XIAO transmitter upload restrictions. Preserve original S.Port recovery backup.
+
+## Bench prototype — 5 November 2026: dedicated ER4 ESC programmer
+
+- Reserve CH12 (low ER6G, high ER4) and preserve selection through CUT output
+  substitution. Add UI/control/serial-task arming and request guards.
+- Replace the ESC preview examples with all 15 measured Surpass settings,
+  read-only unknown states, per-setting drafts and explicit one-setting Apply.
+- Add a bounded nonce/sequence request/reply client, receiver transaction engine,
+  write replay protection, ACK plus readback verification, and ER6G identity
+  confirmation on return. Error/cancel/navigation restores selection low and CUT.
+- Add pinned ELRS ER4 integration and reproducible RF-only bench packaging.
+  Default receiver build touches no ESC GPIO and cannot write settings.
+- Keep radio modes, installed receivers and installed R1 firmware unchanged.
+  Electrical behaviour, RF handover and programming re-entry need bench tests.
+  See docs/esc-programmer-er4.md.
+
+## Ready for review — 5 November 2026: fixed-endpoint subtrim
+
+- On user confirmation, make channel subtrim adjust neutral while retaining
+  the configured endpoints, rescaling each side of the response. Ordinary trim
+  still shifts neutral and endpoints together with final output clipping.
+- Respect reversal, asymmetric response, switched rate, Walk and clipped travel;
+  constrain neutral to available travel. A collapsed side pins neutral.
+- Vertically centre the transient trim/subtrim overlay in both orientations.
+- Preserve stored values, live trim, subtrim CUT and shared control/preview math.
+  This changes the response of existing nonzero subtrim settings; recheck travel.
+
+## Ready for review — 5 November 2026: remaining setup pages
+
+- Move channel roles, throttle detail, response/ramp, firmware information,
+  ELRS binding, ESC preview and calibration onto the common page scaffold and
+  shared row/tab/button builders in both orientations.
+- Replace boxed settings/toggles and coordinate-based callbacks with semantic
+  row actions. Remove the separate legacy portrait detail renderer.
+- Give response curves a full-width live plot and separate settings tabs;
+  retain numeric edits, immediate CUT, parent routes and live input updates.
+- Retain binding link/blank-phrase guards, inert ESC read/write, calibration
+  acquisition/cancellation and all stored control settings.
+- Remove the V2 badge from the menu bar and reclaim model-name space in native
+  and browser trial headers.
+
+
+## Installed — 4 November 2026: shared menu presentation
+
+- Use one menu-row builder for navigation lists, settings, choices and read-only
+  input rows. It owns shared margins, typography, divider lines, value alignment,
+  truncation and touch/focus rectangles; existing Setup/Tune lists use it too.
+- Move Control map, assignment editor, Input monitor, Colour scheme and RF module
+  settings onto the current shared header/navigation scaffold. Replace Control
+  map's separate arrow/button footer with centred dots and swipe paging; retain
+  an Inputs shortcut and channel-context return path.
+- Preserve draft-only assignment edits, Apply/Cancel, input monitoring, RF
+  readback/confirmation and all existing CUT/PIN checks.
+
+Guarded Pi USB upload verified on `codex/r1-v2`, approved XIAO/Waveshare LCD F
+landscape profile. Local firmware, host/web tests and full UI/rotation/typography
+audit passed. Boot #632 passed K1/K2, touch, LCD and UI checks; INPUTMON confirmed
+CUT with no RF frames. Record `/tmp/r1-flash-4m3lbvul`; log `/tmp/r1-menu-flash.log`.
+
+## Installed — 4 November 2026: one configurable Drive dashboard
+
+- Remove the separate fixed Overview and the persistent Normal/Walk row; the
+  saved per-model widget layout now fills the space below the title bar.
+- Add optional Controls (Normal/Walk), Trim / rates (steering trim/rate,
+  throttle trim and brake rate), and RF margin (known-mode margin, LQ and RF
+  power) widgets. Existing layout IDs and saved/covered widgets are retained.
+- Controls use the existing mode state, CUT behavior and PIN-protected Walk exit;
+  trim/rate buttons open the existing guarded editors. RF margin opens radio
+  diagnostics and displays unavailable/stale readings explicitly.
+- Retain Run review's held maxima/minima and explicit reset; add a direct entry
+  on Data → Sensors alongside its existing configurable Quick shortcut.
+
+Guarded Pi USB upload verified on `codex/r1-v2`, approved XIAO/Waveshare LCD F
+landscape profile. Local build, host/web tests and full UI/rotation audit passed.
+Boot #631 passed peripheral/UI checks; INPUTMON confirmed CUT. Record:
+`/tmp/r1-flash-u96zzme0`; log `/tmp/r1-widget-dashboard-flash.log`.
+
 ## V2 native UI trial — 3 November 2026
 
 - Preserve V1 at `codex/r1-v1` / `r1-v1-2026-11-03`; develop V2 separately.

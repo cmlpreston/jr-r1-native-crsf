@@ -6,6 +6,19 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  er6g_mode_pin_test \
+  esc_drive_programmer_test \
+  er6g_mode_rf_test \
+  er6g_listener_test \
+  er6g_reader_test \
+  er6g_write_test \
+  er6g_boot_probe_test \
+  er6g_startup_stage_test \
+  er6g_single_startup_test \
+  er6g_startup_peer_test \
+  er4_bridge_integration_test \
+  er4_direct_read_test \
+  esc_programmer_test \
   graph_link_warning_test \
   first_drive_features_test \
   ers_sensor_config_test \
@@ -43,6 +56,52 @@ TESTS := \
 
 all: $(addprefix $(BUILD)/,$(TESTS))
 
+$(BUILD)/er4_bridge_integration_test: er4_bridge_integration_test.cpp $(wildcard er4_stubs/*) \
+    $(ROOT)/receiver/er4/Er4EscBridge.cpp $(ROOT)/receiver/er4/Er4EscBridge.h \
+    $(ROOT)/include/esc_programmer_server.h $(ROOT)/include/esc_programmer_wire.h
+	@mkdir -p $(@D)
+	$(CXX) -Ier4_stubs $(CPPFLAGS) $(CXXFLAGS) -Wno-unused-const-variable $< -o $@
+
+$(BUILD)/er4_direct_read_test: er4_direct_read_test.cpp $(wildcard er4_stubs/*) \
+    $(ROOT)/receiver/er4/Er4EscBridge.cpp $(ROOT)/receiver/er4/Er4EscBridge.h \
+    $(ROOT)/include/esc_programmer_server.h $(ROOT)/include/esc_programmer_wire.h
+	@mkdir -p $(@D)
+	$(CXX) -Ier4_stubs $(CPPFLAGS) $(CXXFLAGS) -Wno-unused-const-variable $< -o $@
+
+$(BUILD)/er6g_listener_test: er6g_listener_test.cpp $(wildcard er6g_stubs/* er6g_stubs/driver/*) \
+    $(ROOT)/receiver/er6g/listener/Er6gEscListen.cpp $(ROOT)/receiver/er6g/listener/Er6gEscListen.h
+	@mkdir -p $(@D)
+	$(CXX) -Ier6g_stubs $(CXXFLAGS) $< -o $@
+
+$(BUILD)/er6g_reader_test: er6g_reader_test.cpp $(wildcard er6g_stubs/* er6g_stubs/driver/* er6g_stubs/rom/* er6g_stubs/soc/*) \
+    $(ROOT)/receiver/er6g/reader/Er6gEscRead.cpp $(ROOT)/receiver/er6g/reader/Er6gEscRead.h er6g_stubs/startup_peer.cpp
+	@mkdir -p $(@D)
+	$(CXX) -Ier6g_stubs -I$(ROOT)/receiver/er6g/listener -I$(ROOT)/include $(CXXFLAGS) $< er6g_stubs/startup_peer.cpp -o $@
+
+$(BUILD)/er6g_boot_probe_test: er6g_boot_probe_test.cpp $(wildcard er6g_stubs/* er6g_stubs/driver/* er6g_stubs/rom/* er6g_stubs/soc/*) \
+    $(ROOT)/receiver/er6g/reader/Er6gEscRead.cpp $(ROOT)/receiver/er6g/reader/Er6gEscRead.h er6g_stubs/startup_peer.cpp
+	@mkdir -p $(@D)
+	$(CXX) -Ier6g_stubs -I$(ROOT)/receiver/er6g/listener -I$(ROOT)/include $(CXXFLAGS) $< er6g_stubs/startup_peer.cpp -o $@
+
+$(BUILD)/er6g_write_test: er6g_write_test.cpp $(wildcard er6g_stubs/* er6g_stubs/driver/* er6g_stubs/rom/* er6g_stubs/soc/*) $(ROOT)/receiver/er6g/reader/Er6gEscRead.cpp
+	@mkdir -p $(@D)
+	$(CXX) -Ier6g_stubs -I$(ROOT)/receiver/er6g/listener -I$(ROOT)/include $(CXXFLAGS) $< -o $@
+
+$(BUILD)/er6g_startup_stage_test: er6g_startup_stage_test.cpp $(wildcard er6g_startup_stubs/* er6g_startup_stubs/driver/* er6g_stubs/* er6g_stubs/driver/* er6g_stubs/rom/* er6g_stubs/soc/*) \
+    $(ROOT)/receiver/er6g/startup/src/main.cpp $(ROOT)/include/er6g_esc_startup.h
+	@mkdir -p $(@D)
+	$(CXX) -Ier6g_startup_stubs -Ier6g_stubs -I$(ROOT)/include $(CXXFLAGS) $< -o $@
+
+$(BUILD)/er6g_startup_peer_test: er6g_startup_peer_test.cpp $(wildcard er6g_startup_stubs/*) \
+    $(ROOT)/receiver/er6g/reader/Er6gEscStartupPeer.cpp $(ROOT)/receiver/er6g/reader/Er6gEscStartupPeer.h $(ROOT)/include/er6g_esc_startup.h
+	@mkdir -p $(@D)
+	$(CXX) -Ier6g_startup_stubs -I$(ROOT)/include $(CXXFLAGS) $< -o $@
+
+$(BUILD)/er6g_single_startup_test: er6g_single_startup_test.cpp $(wildcard er6g_stubs/* er6g_stubs/driver/* er6g_stubs/rom/* er6g_stubs/soc/* er6g_startup_stubs/*) \
+    $(ROOT)/receiver/er6g/reader/Er6gEscSingleStartup.cpp $(ROOT)/receiver/er6g/reader/Er6gEscRead.cpp $(ROOT)/receiver/er6g/reader/Er6gEscStartupPeer.h
+	@mkdir -p $(@D)
+	$(CXX) -Ier6g_stubs -Ier6g_startup_stubs -I$(ROOT)/receiver/er6g/listener -I$(ROOT)/include $(CXXFLAGS) $< -o $@
+
 $(BUILD)/module_link_test: module_link_test.cpp $(ROOT)/include/module_link.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
@@ -54,6 +113,12 @@ $(BUILD)/rf_bench_session_test: rf_bench_session_test.cpp $(ROOT)/include/rf_ben
 run: all
 	$(PYTHON) package_ota_test.py
 	$(PYTHON) upload_preflight_test.py
+	$(PYTHON) er4_upload_preflight_test.py
+	$(PYTHON) er6g_upload_preflight_test.py
+	$(PYTHON) er6g_mode_upload_preflight_test.py
+	$(PYTHON) er6g_single_upload_preflight_test.py
+	$(PYTHON) er6g_restore_upload_preflight_test.py
+	$(PYTHON) er6g_write_upload_preflight_test.py
 	$(PYTHON) flash_via_pi_test.py
 	$(PYTHON) input_monitor_test.py
 	@set -e; for test in *test.cjs; do node "$$test"; done
@@ -198,3 +263,19 @@ $(BUILD)/first_drive_features_test: first_drive_features_test.cpp $(ROOT)/includ
 $(BUILD)/graph_link_warning_test: graph_link_warning_test.cpp $(ROOT)/include/rf_link_warning.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/esc_programmer_test: esc_programmer_test.cpp $(ROOT)/include/esc_programmer.h $(ROOT)/include/esc_programmer_wire.h $(ROOT)/include/esc_programmer_server.h $(ROOT)/include/surpass_protocol.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/esc_drive_programmer_test: esc_drive_programmer_test.cpp $(ROOT)/include/esc_drive_programmer.h $(ROOT)/src/output_safety.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
+
+$(BUILD)/er6g_mode_rf_test: er6g_mode_rf_test.cpp $(ROOT)/receiver/er6g/reader/Er6gEscMode.cpp $(ROOT)/receiver/er6g/reader/Er6gEscMode.h
+	@mkdir -p $(@D)
+	$(CXX) -Ier4_stubs $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/er6g_mode_pin_test: er6g_mode_pin_test.cpp $(ROOT)/receiver/er6g/reader/Er6gEscRead.cpp
+	@mkdir -p $(@D)
+	$(CXX) -Ier6g_stubs -I$(ROOT)/receiver/er6g/listener $(CPPFLAGS) $(CXXFLAGS) $< -o $@

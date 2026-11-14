@@ -1,5 +1,6 @@
 #include "crsf_telemetry.h"
 #include "crsf_channel_output.h"
+#include "esc_programmer_wire.h"
 #include <cassert>
 #include <cstdio>
 #include <vector>
@@ -233,5 +234,13 @@ int main() {
     assert(parser.state().ersSequence==1 && parser.state().ersLength==10);
     assert(parser.state().txParameterSequence==txseq);
     feed(parser,0x7b,{0xec,0xc8,3,1,0,0});assert(parser.state().ersSequence==1);
+    EscWire::Message esc;esc.session=0x12345678;esc.sequence=7;esc.flags=EscWire::SelectorAvailable;
+    uint8_t escFrame[21];assert(EscWire::build(esc,true,escFrame,sizeof(escFrame))==21);
+    const auto rxseq=parser.state().rxParameterSequence;
+    for(auto b:escFrame)parser.feed(b);
+    assert(parser.state().rxParameterSequence==rxseq+1&&parser.state().rxParameterLength==17);
+    EscWire::Message decoded;assert(EscWire::parse(parser.state().rxParameterType,parser.state().rxParameterPayload,parser.state().rxParameterLength,true,decoded));
+    assert(decoded.session==esc.session&&decoded.sequence==7&&parser.state().txParameterSequence==txseq);
+    escFrame[20]^=1;for(auto b:escFrame)parser.feed(b);assert(parser.state().rxParameterSequence==rxseq+1);
     puts("CRSF telemetry transport, GPS, RPM, temperature, 1–12S cells, FAS voltage/current and freshness tests passed");
 }

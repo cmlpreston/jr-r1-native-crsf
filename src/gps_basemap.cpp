@@ -1,6 +1,7 @@
 #include "gps_basemap.h"
 #include "ui_typography.h"
 #include "offline_map.h"
+#include "raster_map_sampler.h"
 #include <algorithm>
 
 namespace {
@@ -8,6 +9,9 @@ struct MapVertex { int16_t east, north; };
 struct MapTriangle { uint16_t a, b, c; uint8_t kind; };
 struct MapPath { uint16_t offset, count; uint8_t kind; };
 #include "highfield_map_data.inc"
+// LVGL draw events are UI-loop owned. Reuse across dirty strips without
+// retaining image pixels or allocating during drawing.
+GpsMap::RasterMapSampler rasterSampler;
 
 void drawMap(lv_event_t *event) {
     auto *object = lv_event_get_target(event);
@@ -41,16 +45,13 @@ void drawMap(lv_event_t *event) {
         lv_img_dsc_t image{};image.header.cf=LV_IMG_CF_TRUE_COLOR;image.header.w=span;image.header.h=1;
         image.data_size=span*sizeof(lv_color_t);image.data=reinterpret_cast<const uint8_t*>(row);
         lv_draw_img_dsc_t draw;lv_draw_img_dsc_init(&draw);
-        const double metresLon=GpsMap::MetresPerE7*GpsMap::longitudeScale(view.latitude);
-        if(span<=480&&view.pixelsPerMetre>0)for(int y=clip.y1;y<=clip.y2;++y){
-            const double lat=view.latitude-(y-(bounds.y1+height/2.0))/view.pixelsPerMetre/GpsMap::MetresPerE7;
-            int sy=int(std::floor((map.north-lat)/(double(map.north)-map.south)*map.height));
-            for(int x=0;x<span;++x){
-                double lon=view.longitude+(clip.x1+x-(bounds.x1+width/2.0))/view.pixelsPerMetre/metresLon;
-                int sx=int(std::floor((lon-map.west)/(double(map.east)-map.west)*map.width));
-                row[x]=lv_color_hex(0xeeeae0);
-                if(sx>=0&&sx<map.width&&sy>=0&&sy<map.height)row[x].full=OfflineMap::pixels()[sy*map.width+sx];
-            }
+        const GpsMap::RasterSource source{map.south,map.north,map.west,map.east,map.width,map.height};
+        const GpsMap::RasterView rasterView{view.latitude,view.longitude,view.pixelsPerMetre,
+            static_cast<uint16_t>(width),static_cast<uint16_t>(height)};
+        if(span<=480&&rasterSampler.prepare(source,rasterView,view.mapRevision))for(int y=clip.y1;y<=clip.y2;++y){
+            static_assert(sizeof(lv_color_t)==sizeof(uint16_t),"Map samples require RGB565");
+            rasterSampler.sampleRow(y-bounds.y1,clip.x1-bounds.x1,span,OfflineMap::pixels(),
+                reinterpret_cast<uint16_t*>(row),lv_color_hex(0xeeeae0).full);
             lv_area_t area={clip.x1,static_cast<lv_coord_t>(y),clip.x2,static_cast<lv_coord_t>(y)};
             lv_draw_img(ctx,&draw,&area,&image);
         }

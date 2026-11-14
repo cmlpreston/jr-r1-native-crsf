@@ -1,5 +1,21 @@
 # R-1 EVO change record
 
+## 14 November 2026 — high-priority memory and responsiveness fixes
+
+- Publish safe outputs before logging; replace critical-task USB/formatting with
+  bounded events and a low-priority worker. Serialize machine USB replies.
+- Sample physical controls independently with serialized I²C, queued UI delivery,
+  immediate latched CUT, model/safety epochs and a hardware-health watchdog.
+- Move RF cache/history to PSRAM-first cold storage, retain limits and provide
+  internal fallback and explicit exhaustion handling. Static RAM 76.8% -> 62.2%;
+  new worker stacks/task overhead must be included in runtime measurements.
+- Guard unchanged graph geometry/styles and cache raster X/trail projections.
+  Pixel-equivalent host sampling benchmark improves ~8.6x, excluding LCD work.
+- Report allocator LVGL peak and worker stack margins; add race, backpressure,
+  input, I²C, allocation-failure and graph/map regression coverage.
+- Candidate not flashed. UI/model edit callbacks remain UI-owned; hardware timing
+  and safe bench qualification are pending.
+
 ## 14 November 2026 — ABS pulsed-braking candidate
 
 - Add per-model ABS under Tune / Brake, Off by default: activation, release

@@ -45,7 +45,8 @@ void CrsfTxConfig::start(uint32_t now, uint8_t address)
 {
     address_=address;
     if (address!=0xee && address!=0xec) { fail("Unsupported device address"); return; }
-    for (auto &p : parameters_) p = TxParameter{};
+    if(!parameters_.initialize()) {count_=0;fail("Insufficient memory for RF settings; retry refresh");return;}
+    for (auto &p : parameters_.get()->values) p = TxParameter{};
     count_=0; verifyId_=commandId_=0; used_=0; waiting_=heartbeat_=false;
     attempts_=0; due_=now; state_=State::Discover; device_[0]=0;
     status("Discovering ELRS device; outputs CUT");
@@ -53,11 +54,11 @@ void CrsfTxConfig::start(uint32_t now, uint8_t address)
 bool CrsfTxConfig::ready() const { return state_ == State::Ready && !waiting_; }
 bool CrsfTxConfig::confirming() const
 {
-    return state_==State::Command && commandId_ && parameters_[commandId_-1].value==3 && !waiting_;
+    return state_==State::Command && commandId_ && parameters_ && parameters_.get()->values[commandId_-1].value==3 && !waiting_;
 }
 const TxParameter *CrsfTxConfig::parameter(uint8_t id) const
 {
-    return id && id<=count_ && parameters_[id-1].valid ? &parameters_[id-1] : nullptr;
+    return parameters_ && id && id<=count_ && parameters_.get()->values[id-1].valid ? &parameters_.get()->values[id-1] : nullptr;
 }
 void CrsfTxConfig::read(uint8_t id, uint32_t now)
 {
@@ -93,7 +94,7 @@ bool CrsfTxConfig::pollRequest(uint32_t now, TxParameterRequest &r)
             r={0x2d,commandId_,commandAction_ ? commandAction_ : uint8_t(6)};
         }
         commandAction_=0; waiting_=true; ++attempts_;
-        const auto &p=parameters_[commandId_-1];
+        const auto &p=parameters_.get()->values[commandId_-1];
         due_=now+(p.timeout*10U < 200 ? 200 : p.timeout*10U); return true;
     }
     if (attempts_>=3) { fail(verifyId_ ? "Write not verified; refresh and check device" : "Device response timed out; refresh to retry"); return false; }
@@ -158,7 +159,7 @@ void CrsfTxConfig::receive(uint8_t type,const uint8_t *p,size_t n,uint32_t now)
     }
     TxParameter decoded;
     if (!decode(decoded)) { fail("Invalid device parameter; no changes sent"); return; }
-    parameters_[id_-1]=decoded; ++revision_;
+    parameters_.get()->values[id_-1]=decoded; ++revision_;
     if (cmd) {
         chunk_=0; used_=0;
         status(decoded.info[0] ? decoded.info : "Device command running");

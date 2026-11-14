@@ -444,7 +444,7 @@ static void routes() {
             p["free"]=pools[n].free;p["minimum"]=pools[n].minimum;p["largest"]=pools[n].largest;}
         auto l=d.createNestedObject("lvgl");l["ready"]=m.lvglReady;l["total"]=m.lvglTotal;l["used"]=m.lvglUsed;
         l["peak"]=m.lvglPeak;l["largest"]=m.lvglLargest;l["fragmentation"]=m.lvglFragmentation;
-        auto t=d.createNestedObject("stacks");t["ui"]=m.loopStack;t["control"]=m.controlStack;t["crsf"]=m.crsfStack;
+        auto t=d.createNestedObject("stacks");t["ui"]=m.loopStack;t["control"]=m.controlStack;t["crsf"]=m.crsfStack;t["input"]=m.inputStack;t["diagnostics"]=m.diagnosticStack;
         String body;serializeJson(d,body);server.send(200,"application/json",body);
     });
     server.on("/api/state",HTTP_GET,[]{

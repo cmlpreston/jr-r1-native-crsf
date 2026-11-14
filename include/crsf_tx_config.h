@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include "ui_cold_storage.h"
 
 struct TxParameterRequest {
     TxParameterRequest(uint8_t t=0x28, uint8_t i=0, uint8_t v=0, uint8_t a=0xee) : type(t), id(i), value(v), address(a) {}
@@ -27,6 +28,9 @@ struct TxParameter {
 class CrsfTxConfig {
 public:
     static constexpr uint8_t kMaxParameters = 64;
+    explicit CrsfTxConfig(UiColdAllocator::Allocate allocate=UiColdAllocator::allocate,
+                          UiColdAllocator::Release release=UiColdAllocator::release)
+        :parameters_(allocate,release){}
     void start(uint32_t now, uint8_t address=0xee);
     uint8_t address() const { return address_; }
     void stop();
@@ -51,7 +55,8 @@ private:
     bool decode(TxParameter &parameter);
     void status(const char *message);
     State state_ = State::Off;
-    TxParameter parameters_[kMaxParameters] = {};
+    struct ParameterCache { TxParameter values[kMaxParameters] = {}; };
+    UiColdStorage<ParameterCache> parameters_;
     uint8_t count_ = 0, id_ = 0, chunk_ = 0, remaining_ = 0, attempts_ = 0;
     uint8_t verifyId_ = 0, desired_ = 0, commandId_ = 0, commandAction_ = 0;
     bool waiting_ = false, heartbeat_ = false;

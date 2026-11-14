@@ -150,6 +150,17 @@ static void testBrakeAbsSafety() {
     assert(e.update(c,input(1514)).safety==OutputSafetyStatus::Cut); // edits require re-arm
 }
 
+static void testIndependentInputHeartbeat() {
+    auto c=configuration();ControlEngine e;qualify(e,c,10);auto i=input(1514);
+    i.physicalInputsHealthy=false;
+    auto r=e.update(c,i);assert(r.safety==OutputSafetyStatus::InputFault);
+    i.nowMs+=2000;assert(e.update(c,i).safety==OutputSafetyStatus::InputFault); // Cannot re-arm while sampler/chips remain unhealthy.
+    uint16_t sent[16];r.outputs.resolve(false,sent);assert(sent[1]==CRSF_CHANNEL_MID);
+    c.armRequested=false;++c.revision;i.physicalInputsHealthy=true;i.nowMs+=4;
+    assert(e.update(c,i).safety==OutputSafetyStatus::Cut);
+    c.armRequested=true;++c.revision;qualify(e,c,2000);
+}
+
 static void testArmingVetoes() {
     auto c = configuration(); ControlEngine e;
     auto i = input(0); i.startupComplete = false;
@@ -237,6 +248,7 @@ int main() {
     testAppliedSteeringEndpointReachesOutputAfterRearm();
     testLiveSteeringEndpoints();
     testBrakeAbsSafety();
+    testIndependentInputHeartbeat();
     testSafety(); testArmingVetoes(); testStructuralEditsAndLiveTrim(); testResetPublicationOrder(); testMixCompilation();
     puts("Control engine: input faults, dwell, edits, reset publication, compiled mixes and wrap PASS");
 }

@@ -16,6 +16,26 @@ inline void uiSetOpacity(lv_obj_t *obj, lv_opa_t opacity)
 {
     if(lv_obj_get_style_opa(obj,0)!=opacity)lv_obj_set_style_opa(obj,opacity,0);
 }
+inline void uiSetArcOpacity(lv_obj_t *obj, lv_opa_t opacity, lv_part_t part)
+{
+    if(lv_obj_get_style_arc_opa(obj,part)!=opacity)lv_obj_set_style_arc_opa(obj,opacity,part);
+}
+// LVGL 8.4 retains a pointer instead of copying line points, and its setter
+// invalidates unconditionally. Build candidates separately so comparing them
+// cannot accidentally compare an already-mutated backing array with itself.
+// storage must outlive the line (normally a page/widget member array).
+inline bool uiSetLinePoints(lv_obj_t *obj, lv_point_t *storage,
+                            const lv_point_t *points, uint16_t count)
+{
+    const auto *line=reinterpret_cast<const lv_line_t *>(obj);
+    if(line->point_array==storage && line->point_num==count &&
+       (!count || std::memcmp(storage,points,count*sizeof(*points))==0))return false;
+    // Include the old extent when a changed graph becomes smaller.
+    lv_obj_invalidate(obj);
+    if(count)std::memcpy(storage,points,count*sizeof(*points));
+    lv_line_set_points(obj,storage,count);
+    return true;
+}
 inline void uiSetText(lv_obj_t *obj, const char *text)
 {
     if (std::strcmp(lv_label_get_text(obj), text) != 0) lv_label_set_text(obj, text);

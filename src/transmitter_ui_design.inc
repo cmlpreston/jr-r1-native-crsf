@@ -77,13 +77,23 @@ lv_point_t gpsViewportPoint(const GpsMapViewport &view,int32_t lat,int32_t lon,i
 }
 void updateGpsTrail(lv_obj_t *line,lv_point_t *points,uint8_t &renderedCount,
                     const int32_t *lat,const int32_t *lon,uint8_t count,
-                    const GpsMapViewport &view,int width,int height,bool visible)
+                    const GpsMapViewport &view,int width,int height,bool visible,
+                    GpsMap::TrailProjectionCache &cache,uint32_t generation)
 {
     if(!visible || count<2){uiSetHidden(line,true);return;}
+    if(renderedCount==count&&cache.unchanged(generation,count,view.latitude,view.longitude,
+            view.pixelsPerMetre,view.mapRevision,width,height)){
+        uiSetHidden(line,false);return;
+    }
     lv_point_t projected[48];
     lv_coord_t left=10000,top=10000;
+    const double longitudeScale=GpsMap::longitudeScale(view.latitude);
     for(uint8_t i=0;i<count;++i){
-        projected[i]=gpsViewportPoint(view,lat[i],lon[i],width,height);
+        // Preserve the original operation order while sharing cosine across
+        // points. The source generation/viewport key avoids this loop entirely
+        // for unchanged trails, including paused/static map displays.
+        projected[i]={static_cast<lv_coord_t>(constrain(width/2+(double(lon[i])-view.longitude)*GpsMap::MetresPerE7*longitudeScale*view.pixelsPerMetre,-10000,10000)),
+            static_cast<lv_coord_t>(constrain(height/2-GpsMap::north(lat[i],view.latitude)*view.pixelsPerMetre,-10000,10000))};
         left=min(left,projected[i].x);top=min(top,projected[i].y);
     }
     bool changed=renderedCount!=count;
@@ -97,6 +107,7 @@ void updateGpsTrail(lv_obj_t *line,lv_point_t *points,uint8_t &renderedCount,
     lv_obj_set_pos(line,left,top);
     // LVGL invalidates the entire line bounds on every set_points call.
     if(changed){lv_line_set_points(line,points,count);renderedCount=count;}
+    cache.remember(generation,count,view.latitude,view.longitude,view.pixelsPerMetre,view.mapRevision,width,height);
     uiSetHidden(line,false);
 }
 }
@@ -122,12 +133,14 @@ bool TransmitterUi::designPage() const
 void TransmitterUi::resetSpeedStatistics()
 {
     speedStatistics_.reset(designTelemetry_.gpsSpeedUpdatedMs);
+    if(!telemetryHistory_)return;
     memset(sensorHistoryValid_[0], 0, sizeof(sensorHistoryValid_[0]));
     sensorStatistics_[0].reset(designTelemetry_.gpsSpeedUpdatedMs);
 }
 
 void TransmitterUi::resetSensorStatistics(uint8_t sensor){
     if(sensor>=DashboardSensorCount)return;
+    if(!telemetryHistory_){if(sensor==0)resetSpeedStatistics();return;}
     int32_t value=0;uint32_t stamp=0;sensorReading(designTelemetry_,sensor,value,stamp);
     sensorStatistics_[sensor].reset(stamp);memset(sensorHistoryValid_[sensor],0,sizeof(sensorHistoryValid_[sensor]));
     if(sensor==0)resetSpeedStatistics();
@@ -1082,7 +1095,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         else designBank_=constrain(designBank_+direction,0,3);
         drawDesignPage(activePage_);return;
     }
-    if(item>=82 && item<=85){if(item==82)gpsZoom_=max<int>(-3,gpsZoom_-1);if(item==83)gpsZoom_=min<int>(3,gpsZoom_+1);if(item==84)gpsTrailVisible_=!gpsTrailVisible_;if(item==85)gpsCount_=0;drawDesignPage(UiPage::Gps);return;}
+    if(item>=82 && item<=85){if(item==82)gpsZoom_=max<int>(-3,gpsZoom_-1);if(item==83)gpsZoom_=min<int>(3,gpsZoom_+1);if(item==84)gpsTrailVisible_=!gpsTrailVisible_;if(item==85){gpsCount_=0;++gpsTrailRevision_;}drawDesignPage(UiPage::Gps);return;}
     if(item==86){drawChannelRolesPage();return;}
     if(item>=90 && item<=93){selectedChannel_=designBank_*4+item-90+1;drawChannelPlaceholder();return;}
     if(item>=100 && item<=104){selectModelMemory(modelSelectBank_*5+item-100);drawModelSelectPage();return;}
@@ -1128,7 +1141,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
 {
     const uint32_t now=millis();
     // Histories only contain real decoded readings; storage is fixed and bounded.
-    if(static_cast<int32_t>(now-nextSensorSampleMs_)>=0){
+    if(telemetryHistory_&&static_cast<int32_t>(now-nextSensorSampleMs_)>=0){
         nextSensorSampleMs_=now+1000;
         for(int sensor=0;sensor<DashboardSensorCount;++sensor){
             for(int j=0;j<29;++j){sensorHistory_[sensor][j]=sensorHistory_[sensor][j+1];sensorHistoryValid_[sensor][j]=sensorHistoryValid_[sensor][j+1];}
@@ -1141,7 +1154,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
         gpsLastSampleMs_=t.gpsUpdatedMs;
         if(!gpsCount_ || gpsLat_[gpsCount_-1]!=t.latitudeE7 || gpsLon_[gpsCount_-1]!=t.longitudeE7){
             if(gpsCount_==48){for(int i=0;i<47;++i){gpsLat_[i]=gpsLat_[i+1];gpsLon_[i]=gpsLon_[i+1];}--gpsCount_;}
-            gpsLat_[gpsCount_]=t.latitudeE7;gpsLon_[gpsCount_]=t.longitudeE7;++gpsCount_;
+            gpsLat_[gpsCount_]=t.latitudeE7;gpsLon_[gpsCount_]=t.longitudeE7;++gpsCount_;++gpsTrailRevision_;
         }
     }
     const bool lowTx=txValid && tx<=txBatterySettings_.lowAlarmDecivolts;
@@ -1208,13 +1221,20 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     } else if(activePage_==UiPage::Telemetry){for(int i=0;i<6;++i){const uint8_t sensor=displaySensorSource(sensorBank_*6+i);if(sensor<DashboardSensorCount)reading(sensor,designValues_[i],designDetails_[i]);}}
     else if(activePage_==UiPage::SensorDetail){
         reading(sensorSelected_,designValues_[0],designDetails_[0]);
+        if(!telemetryHistory_){
+            uiSetText(designDetails_[2],"Statistics unavailable: memory");
+            uiSetHidden(designCurve_,true);uiSetHidden(designDetails_[1],false);
+            uiSetText(designDetails_[1],"History unavailable: memory");
+            if(v2GraphCursorLine_)uiSetHidden(v2GraphCursorLine_,true);
+            return;
+        }
         auto stats=sensorStatistics_[sensorSelected_].result(sensorSessionStats_[sensorSelected_],now);
         if(sensorSelected_==0&&sensorSessionStats_[0])stats={speedStatistics_.available(),speedStatistics_.maximum(),0,speedStatistics_.average()};
         if(stats.valid){char maximum[24],average[24];sensorText(sensorSelected_,stats.maximum,maximum,sizeof(maximum));sensorText(sensorSelected_,stats.average,average,sizeof(average));
             uiSetTextFmt(designDetails_[2],"Max %s / Avg %s %s",maximum,average,designSensorUnits[sensorSelected_]);}
         else uiSetTextFmt(designDetails_[2],"Max -- / Avg -- %s",designSensorUnits[sensorSelected_]);
-        const auto *history=v2GraphPaused_?v2FrozenHistory_:sensorHistory_[sensorSelected_];
-        const auto *valid=v2GraphPaused_?v2FrozenValid_:sensorHistoryValid_[sensorSelected_];
+        const auto *history=v2GraphPaused_?v2FrozenHistory_.data():sensorHistory_[sensorSelected_];
+        const auto *valid=v2GraphPaused_?v2FrozenValid_.data():sensorHistoryValid_[sensorSelected_];
         int32_t lo=INT32_MAX,hi=INT32_MIN;int count=0;
         // Draw only the most recent contiguous valid segment, never across gaps.
         int start=30;while(start>0 && valid[start-1])--start;
@@ -1225,10 +1245,11 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
         }else for(unsigned n=0;n<3;++n)uiSetText(designDetails_[3+n],"--");
         if(count>=2){
             const auto panel=lv_obj_get_parent(designCurve_);const int height=lv_obj_get_height(panel),width=lv_obj_get_width(panel);
-            for(int i=start;i<30;++i)designPoints_[i-start]={static_cast<lv_coord_t>(60+(i-start)*(width-70)/max(1,count-1)),static_cast<lv_coord_t>(height-9-(static_cast<int64_t>(history[i])-lo)*(height-16)/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
-            lv_line_set_points(designCurve_,designPoints_,count);lv_obj_clear_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);
+            lv_point_t points[30];
+            for(int i=start;i<30;++i)points[i-start]={static_cast<lv_coord_t>(60+(i-start)*(width-70)/max(1,count-1)),static_cast<lv_coord_t>(height-9-(static_cast<int64_t>(history[i])-lo)*(height-16)/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
+            uiSetLinePoints(designCurve_,designPoints_,points,count);uiSetHidden(designCurve_,false);
             uiSetHidden(designDetails_[1],true);
-        } else {lv_obj_add_flag(designCurve_,LV_OBJ_FLAG_HIDDEN);uiSetHidden(designDetails_[1],false);uiSetText(designDetails_[1],"Waiting for history");}
+        } else {uiSetHidden(designCurve_,true);uiSetHidden(designDetails_[1],false);uiSetText(designDetails_[1],"Waiting for history");}
         if(sensorSelected_==17)uiSetText(designDetails_[1],"Discover CU01, read, set mAh, then Apply.");
         updateV2GraphCursor();
     } else if(activePage_==UiPage::ChannelMonitor){
@@ -1248,7 +1269,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
         if(gpsCount_){
             const int width=lv_obj_get_width(mapObject),height=lv_obj_get_height(mapObject);
             followGpsBasemap(mapObject,designMapViewport_,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],pixelsPerMetre);
-            updateGpsTrail(designCurve_,gpsPoints_,gpsRenderedCount_,gpsLat_,gpsLon_,gpsCount_,designMapViewport_,width,height,gpsTrailVisible_);
+            updateGpsTrail(designCurve_,gpsPoints_,gpsRenderedCount_,gpsLat_,gpsLon_,gpsCount_,designMapViewport_,width,height,gpsTrailVisible_,gpsProjection_,gpsTrailRevision_);
             const auto marker=gpsViewportPoint(designMapViewport_,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],width,height);
             lv_obj_set_pos(designMarker_,marker.x-8,marker.y-8);uiSetHidden(designMarker_,false);
             uiSetBgColor(designMarker_,colour(gpsFixConfirmed(t,now)?0x00707d:gpsPositionAvailable(t,now)?0xb87800:0x53636c),0);
@@ -1557,7 +1578,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                     const int position=state.stableSecondary?1000:state.stablePrimary?-1000:0;
                     const char *status=!valid?"--":trim?(position>0?"+":position<0?"-":"0"):id==2?(high?"DOWN":"UP"):(high?"ON":"OFF");
                     uiSetTextFmt(view.values[j],vertical?"%s\n%s":"%s %s",name,status);
-                    if(view.bars[j]){lv_bar_set_value(view.bars[j],valid?position:0,LV_ANIM_OFF);lv_obj_set_style_opa(view.bars[j],valid?LV_OPA_COVER:LV_OPA_30,0);}
+                    if(view.bars[j]){lv_bar_set_value(view.bars[j],valid?position:0,LV_ANIM_OFF);uiSetOpacity(view.bars[j],valid?LV_OPA_COVER:LV_OPA_30);}
                 }else{
                     const int value=permilleFromCrsfValue(designRequested_[entry]);
                     if(view.switches[j] && dashboardBinaryChannel(entry,off,on)){
@@ -1569,7 +1590,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 }
                 if(view.switches[j]){
                     if(valid&&high)lv_obj_add_state(view.switches[j],LV_STATE_CHECKED);else lv_obj_clear_state(view.switches[j],LV_STATE_CHECKED);
-                    lv_obj_set_style_opa(view.switches[j],valid?LV_OPA_COVER:LV_OPA_30,0);
+                    uiSetOpacity(view.switches[j],valid?LV_OPA_COVER:LV_OPA_30);
                 }
             }
         } else if(w.kind==DashboardWidgetKind::Power || w.kind==DashboardWidgetKind::Channels){
@@ -1586,13 +1607,14 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 uiSetTextColor(view.values[j],colour(low?cRed:valid?cWhite:cDim),0);
                 int maximum=1000;
                 if(power){auto chem=j?rxBatterySettings_.chemistry:txBatterySettings_.chemistry;int cells=j?rxBatterySettings_.cellCount:txBatterySettings_.cellCount;maximum=cells*(chem==BatteryChemistry::NiMH?15:chem==BatteryChemistry::LiFe?37:42);}
-                if(w.style==DashboardWidgetStyle::Graph && sensorHistoryCount_>=2){
-                    auto *points=j?view.secondPoints:view.points;int ch=j?w.secondSource:w.source;
+                if(w.style==DashboardWidgetStyle::Graph && telemetryHistory_ && sensorHistoryCount_>=2){
+                    lv_obj_update_layout(view.panel);
+                    lv_point_t points[30];int ch=j?w.secondSource:w.source;
                     int width=lv_obj_get_width(view.panel),height=lv_obj_get_height(view.panel),count=min<int>(30,sensorHistoryCount_);
                     const int plotTop=w.width==1&&w.height==2&&w.secondSource<16?55:37;
                     const int plotHeight=max(1,height-plotTop-21);
                     for(int i=0;i<count;++i)points[i]={static_cast<lv_coord_t>(8+i*(width-16)/(count-1)),static_cast<lv_coord_t>(plotTop+plotHeight/2-permilleFromCrsfValue(channelHistory_[ch][30-count+i])*plotHeight/2000)};
-                    lv_line_set_points(j?view.secondPlot:view.plot,points,count);
+                    uiSetLinePoints(j?view.secondPlot:view.plot,j?view.secondPoints:view.points,points,count);
                 }
                 if(view.arcs[j]){lv_arc_set_range(view.arcs[j],power?0:-1000,maximum);lv_arc_set_value(view.arcs[j],valid?value:0);uiSetArcColor(view.arcs[j],colour(low?cRed:valid?cCyan:cDim),LV_PART_INDICATOR);}
                 if(view.bars[j]){lv_bar_set_range(view.bars[j],power?0:-1000,maximum);lv_bar_set_value(view.bars[j],valid?value:0,LV_ANIM_OFF);uiSetBgColor(view.bars[j],colour(low?cRed:cCyan),LV_PART_INDICATOR);}
@@ -1622,8 +1644,8 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 const int slot=i-first;
                 lv_obj_set_pos(view.values[i],8+(slot%columns)*columnWidth,24+(slot/columns)*rowHeight);
                 lv_obj_set_size(view.values[i],columnWidth,rowHeight);
-                lv_label_set_long_mode(view.values[i],LV_LABEL_LONG_CLIP);
-                lv_obj_set_style_text_font(view.values[i],UiText::font(UiText::Caption),0);
+                if(lv_label_get_long_mode(view.values[i])!=LV_LABEL_LONG_CLIP)lv_label_set_long_mode(view.values[i],LV_LABEL_LONG_CLIP);
+                uiSetTextFont(view.values[i],UiText::font(UiText::Caption),0);
             }
             if(!t.vehicleCellsValid)uiSetText(view.detail,t.vehicleCellsUpdatedMs?"Cell telemetry stale":"No cell telemetry");
             else if(w.source && w.source!=reported)uiSetTextFmt(view.detail,"Expected %uS; received %uS\nCheck pack / telemetry",w.source,reported);
@@ -1631,7 +1653,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             else uiSetTextFmt(view.detail,"%uS  %u.%03u V\nMin %u.%03u V",reported,t.vehiclePackMv/1000,t.vehiclePackMv%1000,t.vehicleMinimumCellMv/1000,t.vehicleMinimumCellMv%1000);
         } else if(w.kind==DashboardWidgetKind::Sensor){
             int32_t value=0;uint32_t stamp=0;bool valid=sensorReading(t,w.source,value,stamp);char text[24];sensorText(w.source,value,text,sizeof(text));
-            auto stats=sensorStatistics_[w.source].result(sensorSessionStats_[w.source],millis());
+            auto stats=telemetryHistory_?sensorStatistics_[w.source].result(sensorSessionStats_[w.source],millis()):SensorStatistics::Result{};
             if(w.source==0&&sensorSessionStats_[0])stats={speedStatistics_.available(),speedStatistics_.maximum(),0,speedStatistics_.average()};
             {
                 uiSetText(view.detail,designSensorUnits[w.source]);
@@ -1651,7 +1673,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                     const int maximum=max(1000,((peak+999)/1000)*1000);
                     lv_arc_set_range(view.arcs[0],0,1000);
                     lv_arc_set_value(view.arcs[0],available?int(int64_t(selected)*1000/maximum):0);
-                    lv_obj_set_style_arc_opa(view.arcs[0],available?LV_OPA_COVER:LV_OPA_TRANSP,LV_PART_INDICATOR);
+                    uiSetArcOpacity(view.arcs[0],available?LV_OPA_COVER:LV_OPA_TRANSP,LV_PART_INDICATOR);
                     uiSetTextFmt(view.marker,"0-%d",maximum/10);
                 }
                 // Keep the remaining values in Current / Maximum / Average order.
@@ -1662,13 +1684,16 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                     speedValueShortNames[secondary[1]],readings[secondary[1]]);
             }
             if(view.plot){
+                if(!telemetryHistory_){uiSetHidden(view.plot,true);continue;}
+                lv_obj_update_layout(view.panel);
                 int start=30;while(start>0 && sensorHistoryValid_[w.source][start-1])--start;
-                if(30-start<2){lv_obj_add_flag(view.plot,LV_OBJ_FLAG_HIDDEN);continue;}
+                if(30-start<2){uiSetHidden(view.plot,true);continue;}
                 int32_t lo=INT32_MAX,hi=INT32_MIN;for(int i=start;i<30;++i){lo=min(lo,sensorHistory_[w.source][i]);hi=max(hi,sensorHistory_[w.source][i]);}
                 int height=lv_obj_get_height(view.panel),width=lv_obj_get_width(view.panel);
                 const int plotBottom=height-(w.source==0?43:24), plotHeight=max(1,plotBottom-(w.source==0?38:23));
-                for(int i=start;i<30;++i)view.points[i-start]={static_cast<lv_coord_t>(width/2+(i-start)*(width/2-10)/(29-start)),static_cast<lv_coord_t>(plotBottom-(static_cast<int64_t>(sensorHistory_[w.source][i])-lo)*plotHeight/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
-                lv_line_set_points(view.plot,view.points,30-start);lv_obj_clear_flag(view.plot,LV_OBJ_FLAG_HIDDEN);
+                lv_point_t points[30];
+                for(int i=start;i<30;++i)points[i-start]={static_cast<lv_coord_t>(width/2+(i-start)*(width/2-10)/(29-start)),static_cast<lv_coord_t>(plotBottom-(static_cast<int64_t>(sensorHistory_[w.source][i])-lo)*plotHeight/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
+                uiSetLinePoints(view.plot,view.points,points,30-start);uiSetHidden(view.plot,false);
             }
         } else if(w.kind==DashboardWidgetKind::Controls){
             for(uint8_t mode=0;mode<2;++mode){
@@ -1701,7 +1726,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             if(!gpsCount_){previewGpsBasemap(view.basemap,view.mapViewport,true);continue;}
             const double scale=max(0.15,min(2.0,min(width-20,height-10)/40.0));
             followGpsBasemap(view.basemap,view.mapViewport,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],scale);
-            updateGpsTrail(view.plot,view.points,view.gpsRenderedCount,gpsLat_,gpsLon_,gpsCount_,view.mapViewport,width,height,true);
+            updateGpsTrail(view.plot,view.points,view.gpsRenderedCount,gpsLat_,gpsLon_,gpsCount_,view.mapViewport,width,height,true,view.gpsProjection,gpsTrailRevision_);
             const auto marker=gpsViewportPoint(view.mapViewport,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],width,height);
             lv_obj_set_pos(view.marker,marker.x-8,marker.y-8);
             uiSetHidden(view.marker,false);uiSetBgColor(view.marker,colour(fix?0x00707d:reported?0xb87800:0x53636c),0);

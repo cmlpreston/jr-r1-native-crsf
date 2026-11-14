@@ -25,6 +25,83 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_PHYSICAL_CUT_AUDIT_ONLY")){
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;
+        const auto cutHandler=safetyCutHandler_;safetyCutHandler_=auditConfigurationCut;
+        for(unsigned orientation=0;orientation<2;++orientation){
+            tuneRole_=0;drawDesignPage(UiPage::Tune);
+            armRequested_=false;safetyResetRequested_=false;designSafety_=OutputSafetyStatus::Cut;
+            touchWasDown_=true;armGestureValid_=true;
+            lastTouchDurationMs_=kDriveHoldFeedbackDelayMs+kDashboardArmHoldMs+100;
+            const auto remote=remoteArmHold_.begin(7,1000);
+            assert(remoteArmHold_.heartbeat(remote,7,1700));
+            const auto cuts=auditCutRequests;
+            requestPhysicalInputCut();
+            assert(!armRequested_&&safetyResetRequested_&&auditCutRequests==cuts+1);
+            assert(!armGestureValid_&&discardTouchUntilRelease_&&!remoteArmHold_.id());
+            assert(!remoteArmHold_.finish(remote,7,1800));
+            // An interrupted already-long local Drive gesture cannot enable output.
+            designTouchDispatch_=true;controlDesign(0,activate);designTouchDispatch_=false;
+            assert(!armRequested_&&!controlConfigurationSnapshot().armRequested);
+            // A previously armed output is also cut, even before a fresh status
+            // snapshot has reached the UI; repeated refresh never revives intent.
+            armRequested_=true;requestPhysicalInputCut();
+            CrsfTelemetryState t;t.linkValid=true;t.uplinkLinkQuality=100;t.linkUpdatedMs=millis();
+            update(triggerInput_.centre(),steeringInput_.centre(),0,0,CRSF_CHANNEL_MID,
+                OutputSafetyStatus::Armed,t,99,true,CrsfChannelOutputModel{},false);
+            assert(!armRequested_&&!controlConfigurationSnapshot().armRequested);
+            touchWasDown_=false;discardTouchUntilRelease_=false;armGestureValid_=false;
+            // A captured release behind a slow UI callback must not become a
+            // synthetic long/repeating press merely because wall time advanced.
+            tuneRole_=0;selectedChannel_=steeringChannel();openDesignEditor(1,UiPage::Tune);
+            assert(handleKeypadEvent(PhysicalControlId::KeyPlus,InputEvent::Pressed,1000));
+            const auto draft=editorDraft_;setPhysicalInputEventsPending(true);updateKeypad(4000);
+            assert(editorDraft_==draft);
+            assert(handleKeypadEvent(PhysicalControlId::KeyPlus,InputEvent::Released,1080));
+            setPhysicalInputEventsPending(false);updateKeypad(4001);assert(editorDraft_==draft);
+            assert(handleKeypadEvent(PhysicalControlId::KeyPlus,InputEvent::Pressed,5000));
+            const auto heldDraft=editorDraft_;requestPhysicalInputCut();updateKeypad(8000);
+            assert(editorDraft_==heldDraft); // Physical CUT also invalidates existing keypad holds.
+            controlDesign(34,activate);
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        safetyCutHandler_=cutHandler;
+        Serial.println("Physical CUT UI: immediate veto, local/remote hold invalidation and no stale-status auto-arm; both orientations PASS");
+        return true;
+    }
+    if(getenv("JR_R1_SIM_HISTORY_ALLOC_FAIL")){
+        assert(!telemetryHistory_);
+        bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;moduleLinkManaged_=false;armRequested_=false;
+        CrsfTelemetryState t;t.rpmValid=true;t.rpm=12345;t.rpmUpdatedMs=millis();
+        t.gpsValid=true;t.latitudeE7=GpsMap::OriginLat;t.longitudeE7=GpsMap::OriginLon;t.gpsUpdatedMs=millis();
+        for(unsigned orientation=0;orientation<2;++orientation){
+            sensorSelected_=2;drawDesignPage(UiPage::SensorDetail);
+            updateDesign(t,OutputSafetyStatus::Cut,99,true);
+            assert(!strcmp(lv_label_get_text(designDetails_[2]),"Statistics unavailable: memory"));
+            assert(lv_obj_has_flag(designCurve_,LV_OBJ_FLAG_HIDDEN));
+            controlV2(20,activate);assert(!v2GraphPaused_);
+            resetSensorStatistics(0);resetSensorStatistics(2);
+            dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
+            DashboardWidget sensor;sensor.kind=DashboardWidgetKind::Sensor;sensor.source=2;sensor.style=DashboardWidgetStyle::Graph;
+            placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,sensor);
+            DashboardWidget channel;channel.kind=DashboardWidgetKind::Channels;channel.source=0;channel.secondSource=1;channel.style=DashboardWidgetStyle::Graph;
+            placeDashboardWidget(dashboardLayouts_[activeModelSlot_],1,channel);
+            sensorHistoryCount_=30; // stress guards even with a nonzero retained count
+            drawDashboard();updateDashboardWidgets(t,99,true);
+            assert(!strcmp(lv_label_get_text(widgetViews_[0].values[0]),"12345"));
+            drawDesignPage(UiPage::RunReview);updateV2RunReview();
+            drawDesignPage(UiPage::Gps);updateDesign(t,OutputSafetyStatus::Cut,99,true);
+            drawDesignPage(UiPage::Tune);assert(!armRequested_&&!controlConfigurationSnapshot().armRequested);
+            latestRawAdc_=triggerInput_.centre();assert(selectModelMemory(activeModelSlot_?0:1));
+            assert(!armRequested_);
+            assert(requestDisplayRotation());applyDisplayRotation();
+        }
+        Serial.println("UI history exhaustion: live readings, graph/pause/reset guards, run review, GPS, model changes and no auto-arm; both orientations PASS");
+        return true;
+    }
+    if(getenv("JR_R1_GRAPH_REDRAW_AUDIT_ONLY")){
+#include "ui_graph_redraw_audit.inc"
+    }
     if(getenv("JR_R1_TEMP_BENCH_AUDIT_ONLY")){
 #if JR_R1_TEMP_BENCH_STARTUP
         assert(bootPinUnlocked_&&pinPurpose_==PinPurpose::None&&!armRequested_);

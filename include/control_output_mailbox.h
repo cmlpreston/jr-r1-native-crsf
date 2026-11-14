@@ -4,6 +4,8 @@
 
 struct ControlCommandSnapshot {
     uint32_t resetSequence = 0;
+    uint32_t physicalCutSequence = 0;
+    bool physicalCutPending = false;
     bool startupPreflightComplete = false;
     bool configurationPending = false;
 };
@@ -32,9 +34,20 @@ public:
     void requireConfiguration() {
         requestReset(); commands_.configurationPending = true;
     }
-    void acceptConfiguration(uint32_t revision) {
+    void requestPhysicalCut() {
+        requireConfiguration();++commands_.physicalCutSequence;
+        commands_.physicalCutPending = true;
+    }
+    bool acceptConfiguration(uint32_t revision, bool armRequested=false,
+                             uint32_t observedPhysicalCut=0) {
+        // A UI snapshot built before the independent sampler's CUT must never
+        // clear its veto. Only a fresh, explicitly disarmed UI revision may ack.
+        if(commands_.physicalCutPending &&
+           (armRequested || observedPhysicalCut!=commands_.physicalCutSequence))return false;
         configurationRevision_ = revision;
         commands_.configurationPending = false;
+        commands_.physicalCutPending = false;
+        return true;
     }
     bool publish(const CrsfChannelOutputModel &model, OutputSafetyStatus status,
                  uint32_t updatedUs, uint32_t acknowledgedReset, uint32_t revision = 0) {

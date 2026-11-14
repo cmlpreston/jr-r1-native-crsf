@@ -51,6 +51,7 @@ void TransmitterUi::openV2Shortcut(uint8_t id)
 void TransmitterUi::drawV2RunReview()
 {
     makeLabel(lv_scr_act(),"Run review",12,49,UiText::Heading,cWhite);
+    if(!telemetryHistory_)makeLabel(lv_scr_act(),"History unavailable: memory",12,72,UiText::Caption,cAmber);
     if(v2ReviewConfirm_){
         auto text=makeLabel(lv_scr_act(),"Reset all sensor statistics?\nSensor consumed mAh is not reset.\nTimer and GPS trail are retained.",12,100,UiText::Menu,cWhite);boundedLabel(text,kScreenWidth-24);
         makePageActionButton(12,210,kScreenWidth/2-18,40,"Keep records",UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlV2,51);
@@ -67,7 +68,7 @@ void TransmitterUi::updateV2RunReview()
 {
     if(v2ReviewConfirm_)return;
     const uint8_t source[]={0,2,6,7,16,4};const uint32_t now=millis();
-    for(unsigned i=0;i<6;++i){auto result=sensorStatistics_[source[i]].result(true,now);char text[24];
+    for(unsigned i=0;i<6;++i){auto result=telemetryHistory_?sensorStatistics_[source[i]].result(true,now):SensorStatistics::Result{};char text[24];
         int32_t value=(i==2||i==3||i==5)?result.minimum:result.maximum;
         if(i==0){result.valid=speedStatistics_.available();value=speedStatistics_.maximum();}
         sensorText(source[i],value,text,sizeof(text));uiSetText(designValues_[i],result.valid?text:"--");}
@@ -75,14 +76,15 @@ void TransmitterUi::updateV2RunReview()
 void TransmitterUi::updateV2GraphCursor()
 {
     if(!v2GraphCursorLine_)return;
+    if(!telemetryHistory_){uiSetHidden(v2GraphCursorLine_,true);return;}
     uiSetHidden(v2GraphCursorLine_,!v2GraphPaused_);
     if(!v2GraphPaused_){uiSetText(designDetails_[6],"30 s history");return;}
     int start=30;while(start>0&&v2FrozenValid_[start-1])--start;
     if(start==30){uiSetText(designDetails_[6],"No samples");uiSetHidden(v2GraphCursorLine_,true);return;}
     v2GraphCursor_=constrain(v2GraphCursor_,start,29);
     const int height=lv_obj_get_height(lv_obj_get_parent(designCurve_));const auto point=designPoints_[v2GraphCursor_-start];
-    v2GraphCursorPoints_[0]={point.x,0};v2GraphCursorPoints_[1]={point.x,lv_coord_t(height-1)};
-    lv_line_set_points(v2GraphCursorLine_,v2GraphCursorPoints_,2);
+    const lv_point_t points[]={{point.x,0},{point.x,lv_coord_t(height-1)}};
+    uiSetLinePoints(v2GraphCursorLine_,v2GraphCursorPoints_,points,2);
     char text[24];sensorText(sensorSelected_,v2FrozenHistory_[v2GraphCursor_],text,sizeof(text));
     uiSetTextFmt(designDetails_[6],"-%us: %s %s",29-v2GraphCursor_,text,designSensorUnits[sensorSelected_]);
 }
@@ -96,7 +98,8 @@ void TransmitterUi::controlV2(uint8_t item,PageControlEvent event)
     else if(item>=10&&item<=13){if(item==13)drawRadioDiagnostics();else{const uint8_t sources[]={0,6,2};sensorSelected_=sources[item-10];drawDesignPage(UiPage::SensorDetail);}}
     else if(item>=20&&item<=22){
         if(activePage_!=UiPage::SensorDetail)return;
-        if(item==20){v2GraphPaused_=!v2GraphPaused_;if(v2GraphPaused_){memcpy(v2FrozenHistory_,sensorHistory_[sensorSelected_],sizeof(v2FrozenHistory_));memcpy(v2FrozenValid_,sensorHistoryValid_[sensorSelected_],sizeof(v2FrozenValid_));v2GraphCursor_=29;}}
+        if(!telemetryHistory_)return;
+        if(item==20){v2GraphPaused_=!v2GraphPaused_;if(v2GraphPaused_){memcpy(v2FrozenHistory_.data(),sensorHistory_[sensorSelected_],v2FrozenHistory_.bytes());memcpy(v2FrozenValid_.data(),sensorHistoryValid_[sensorSelected_],v2FrozenValid_.bytes());v2GraphCursor_=29;}}
         else if(v2GraphPaused_)v2GraphCursor_=constrain(int(v2GraphCursor_)+(item==21?-1:1),0,29);
         drawDesignPage(UiPage::SensorDetail);
     }else if(item==30){

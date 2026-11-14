@@ -24,7 +24,29 @@ static void ready(CrsfTxConfig &c,uint32_t now=0) {
     for(uint8_t id=1;id<=3;++id) {assert(c.poll(now+id*30,r)&&r.id==id);rx(c,0x2b,field(id,id==3 ? 13:9),now+id*30+1);}
     assert(c.ready());
 }
+static bool allowCache=false;
+static unsigned cacheAllocations=0,cacheReleases=0;
+static void *allocateCache(size_t bytes){++cacheAllocations;return allowCache?std::malloc(bytes):nullptr;}
+static void releaseCache(void *p){++cacheReleases;std::free(p);}
+static void cacheLifetimeAndFailure(){
+    {
+        CrsfTxConfig c(allocateCache,releaseCache);TxParameterRequest r;
+        assert(cacheAllocations==0); // no large global/constructor allocation
+        c.start(0);assert(!c.poll(0,r)&&!c.parameter(1)&&!c.apply(1,0,0));
+        assert(strstr(c.status(),"Insufficient memory"));
+        allowCache=true;ready(c);const auto *first=c.parameter(1);assert(first);
+        const auto allocations=cacheAllocations;
+        c.stop();assert(!c.poll(100,r));ready(c);
+        assert(c.parameter(1)==first&&cacheAllocations==allocations);
+        // Keep every advertised slot; relocation must not reduce device limits.
+        c.start(0);assert(c.poll(0,r));rx(c,0x29,device(64),1);
+        for(uint8_t id=1;id<=64;++id){assert(c.poll(id*30,r)&&r.id==id);rx(c,0x2b,field(id),id*30+1);}
+        assert(c.ready()&&c.count()==64&&c.parameter(64));
+    }
+    assert(cacheReleases==1);
+}
 int main() {
+    cacheLifetimeAndFailure();
     uint8_t wire[64];
     assert(buildTxParameterFrame({0x28},wire,64)==6);
     assert(wire[1]==4 && wire[3]==0xee && wire[4]==0xea);

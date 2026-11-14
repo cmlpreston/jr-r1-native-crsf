@@ -78,7 +78,7 @@ bool TransmitterUi::runSimulatorV2Audit()
     assert(armRequested_&&!safetyResetRequested_);
     assert(memcmp(&layout,&dashboardLayouts_[activeModelSlot_],sizeof(layout))==0);
     armRequested_=false;designTelemetry_=CrsfTelemetryState{};v2GraphPaused_=false;
-    nextSensorSampleMs_=0;memset(sensorHistoryValid_,0,sizeof(sensorHistoryValid_));
+    nextSensorSampleMs_=0;memset(sensorHistoryValid_.data(),0,sensorHistoryValid_.bytes());
     drawDashboard();
     Serial.println("V2 native: widget-only Drive, Controls/trim/RF widgets, Data run review, untouched saved layouts, GPS route, sensor shortcuts, graph freeze/cursor, per-model Quick persistence, run review and arm/CUT invariants PASS");
     return true;

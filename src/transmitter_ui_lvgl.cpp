@@ -6,6 +6,7 @@
 #include "offline_map.h"
 #include "ui_pixel_cache.h"
 #include "waveshare_touch_orientation.h"
+#include "input_bus_guard.h"
 
 #include <Preferences.h>
 #include "boot_diagnostics.h"
@@ -778,8 +779,24 @@ void TransmitterUi::setDisplayCacheEnabled(bool enabled)
 #include "../simulator/ui_setup_details_audit.inc"
 #endif
 
+bool TransmitterUi::initializeTelemetryHistory()
+{
+#ifdef JR_R1_SIMULATOR
+    const bool available=!getenv("JR_R1_SIM_HISTORY_ALLOC_FAIL")&&telemetryHistory_.initialize();
+#else
+    const bool available=telemetryHistory_.initialize();
+#endif
+    if(!available){Serial.println("UI MEMORY: histories unavailable; live readings retained");return false;}
+    auto *history=telemetryHistory_.get();
+    v2FrozenHistory_.attach(history->frozen);v2FrozenValid_.attach(history->frozenValid);
+    channelHistory_.attach(history->channels);sensorHistory_.attach(history->sensors);
+    sensorHistoryValid_.attach(history->valid);sensorStatistics_.attach(history->statistics);
+    return true;
+}
+
 bool TransmitterUi::begin()
 {
+    initializeTelemetryHistory();
     Preferences benchPreferences;
     if (benchPreferences.begin("r1-bench", true)) {
         headlessTesting_ = benchPreferences.getBool("headless", false);
@@ -897,9 +914,9 @@ bool TransmitterUi::begin()
     delay(800);
 
     for (const uint8_t address : {uint8_t(0x14), uint8_t(0x5d)}) {
-        Wire.beginTransmission(address);
-        Serial.printf("DISPLAY TEST: I2C 0x%02X %s\n", address,
-                      Wire.endTransmission() == 0 ? "ACK" : "no response");
+        bool ready=false;
+        {InputBus::Guard bus;if(bus){Wire.beginTransmission(address);ready=Wire.endTransmission()==0;}}
+        Serial.printf("DISPLAY TEST: I2C 0x%02X %s\n", address,ready?"ACK":"no response");
     }
 #endif
 
@@ -1305,10 +1322,10 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     timers_[activeModelSlot_].pause(millis());saveTimerSettings();
     timerOnRemainder_=0;timerConfirmation_=0;timerBank_=timerLapPage_=0;
     resetSpeedStatistics();
-    gpsCount_ = sensorHistoryCount_ = 0;
+    gpsCount_ = sensorHistoryCount_ = 0;++gpsTrailRevision_;
     for(auto &statistics:sensorStatistics_)statistics=SensorStatistics{};
     gpsLastSampleMs_ = designTelemetry_.gpsUpdatedMs;
-    memset(sensorHistoryValid_, 0, sizeof(sensorHistoryValid_));
+    if(telemetryHistory_)memset(sensorHistoryValid_.data(), 0, sensorHistoryValid_.bytes());
     activeModelSlot_ = slot;
     timerLastSavedOn_=timers_[slot].settings.onSeconds;
     timers_[slot].tick(millis());
@@ -1461,6 +1478,16 @@ void TransmitterUi::requestConfigurationCut()
     remoteArmHold_.cancel();
     // Hardware veto is immediate, before any page construction or NVS work.
     if (safetyCutHandler_) safetyCutHandler_();
+}
+
+void TransmitterUi::requestPhysicalInputCut()
+{
+    requestConfigurationCut();
+    for(auto &press:keypadPresses_)press=KeypadPress{};
+    armGestureValid_ = false;
+    if(touchWasDown_)discardTouchUntilRelease_ = true;
+    touchWasDown_ = false;
+    touchReleaseSinceMs_ = lastTouchDurationMs_ = 0;
 }
 
 void TransmitterUi::loadChannelRoleSettings()
@@ -4405,7 +4432,7 @@ void TransmitterUi::refreshThrottleResponseGraph(int16_t rawInputPermille)
         static_cast<int32_t>(output + kExtendedTravelPermille) * graphHeight /
         (2 * kExtendedTravelPermille);
     lv_obj_set_pos(throttleGraphMarker_, x - 5, y - 5);
-    lv_label_set_text_fmt(throttleGraphLiveLabel_, "IN %+d%%  OUT %+d%%",
+    uiSetTextFmt(throttleGraphLiveLabel_, "IN %+d%%  OUT %+d%%",
                           rawInputPermille / 10, output / 10);
 }
 
@@ -4720,6 +4747,7 @@ uint16_t TransmitterUi::readTouchRegister(uint8_t command)
     return 0;
 #else
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_BTT_TFT35_SPI
+    InputBus::Guard bus;if(!bus)return 0;
     Wire.beginTransmission(NS2009_I2C_ADDRESS);
     Wire.write(command);
     if (Wire.endTransmission() != 0) return 0;
@@ -4739,6 +4767,7 @@ bool TransmitterUi::readGt911Register(uint16_t reg, uint8_t *data, size_t length
     return false;
 #else
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+    InputBus::Guard bus;if(!bus)return false;
     Wire.beginTransmission(GT911_I2C_ADDRESS);
     Wire.write(static_cast<uint8_t>(reg >> 8));
     Wire.write(static_cast<uint8_t>(reg));
@@ -4764,6 +4793,7 @@ bool TransmitterUi::writeGt911Register(uint16_t reg, uint8_t value)
     return false;
 #else
 #if DISPLAY_PROFILE == DISPLAY_PROFILE_WAVESHARE_RPI_35F
+    InputBus::Guard bus;if(!bus)return false;
     Wire.beginTransmission(GT911_I2C_ADDRESS);
     Wire.write(static_cast<uint8_t>(reg >> 8));
     Wire.write(static_cast<uint8_t>(reg));
@@ -4815,8 +4845,8 @@ bool TransmitterUi::initialiseTouchController()
     return ready;
 #else
     pinMode(TOUCH_IRQ_PIN, INPUT_PULLUP);
-    Wire.beginTransmission(NS2009_I2C_ADDRESS);
-    const bool ready = Wire.endTransmission() == 0;
+    bool ready=false;
+    {InputBus::Guard bus;if(bus){Wire.beginTransmission(NS2009_I2C_ADDRESS);ready=Wire.endTransmission()==0;}}
     Serial.printf("TOUCH: NS2009 address=0x%02X %s\n", NS2009_I2C_ADDRESS,
                   ready ? "ready" : "not found");
     return ready;
@@ -5814,7 +5844,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     speedStatistics_.update(telemetry.groundSpeedDeciKmh, telemetry.gpsSpeedUpdatedMs, millis(),
                             gpsSpeedAvailable(telemetry,millis()));
     designTelemetry_ = telemetry; designSafety_ = safetyStatus;
-    for(uint8_t sensor=0;sensor<DashboardSensorCount;++sensor){
+    for(uint8_t sensor=0;telemetryHistory_&&sensor<DashboardSensorCount;++sensor){
         int32_t value=0;uint32_t stamp=0;const bool valid=sensorReading(telemetry,sensor,value,stamp);
         sensorStatistics_[sensor].update(value,stamp,millis(),valid);
     }

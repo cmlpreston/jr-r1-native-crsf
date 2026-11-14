@@ -20,6 +20,9 @@
 #include "control_configuration.h"
 #include "control_engine.h"
 #include "control_output_mailbox.h"
+#include "bounded_event_queue.h"
+#include "input_bus_guard.h"
+#include "input_pipeline_policy.h"
 #include "crsf_channel_output.h"
 #include "crsf_management.h"
 #include "esc_rf_policy.h"
@@ -42,6 +45,7 @@ HardwareSerial rangerSerial(0);
 // Defaults off before either task starts. No channel OR management frame may
 // revive the Ranger's handset watchdog without a physical confirmation.
 std::atomic<bool> moduleLinkEnabled{false};
+std::atomic<uint32_t> inputBindingEpoch{0},inputSafetyEpoch{0},inputLastSampleMs{0};
 
 constexpr uart_port_t RANGER_UART = UART_NUM_0;
 constexpr uint32_t CONTROL_TASK_PERIOD_MS = 4;
@@ -91,9 +95,6 @@ Mcp23017Input inputExpander(MCP23017_I2C_ADDRESS);
 PhysicalInputRuntime physicalInputs;
 PhysicalInputEventBuffer physicalInputEvents;
 portMUX_TYPE bindingResolverMux = portMUX_INITIALIZER_UNLOCKED;
-uint32_t nextExpanderPollMs = 0;
-uint32_t nextExpanderProbeMs = 0;
-uint16_t expanderPorts = 0xffff;
 bool inputExpanderReady = false;
 CrsfRuntimeSnapshot crsfRuntimeOwned;
 CrsfRuntimeSnapshot sharedCrsfRuntime;
@@ -175,6 +176,8 @@ const char *safetyStatusName(OutputSafetyStatus status)
     return "UNKNOWN";
 }
 
+#include "main_diagnostics.inc"
+
 uint64_t readDirectGpioLevels()
 {
     uint64_t levels = 0;
@@ -206,12 +209,15 @@ void configureDirectGpioInputs()
     }
 }
 
+extern std::atomic<uint32_t> inputBindingEpoch;
+
 BindingLoadResult installUiBindings()
 {
     ControlBinding bindings[kPhysicalControlCount];
     const size_t count = transmitterUi.copyBindings(bindings, kPhysicalControlCount);
     portENTER_CRITICAL(&bindingResolverMux);
     const BindingLoadResult result = bindingResolver.setBindings(bindings, count);
+    inputBindingEpoch.fetch_add(1);
     portEXIT_CRITICAL(&bindingResolverMux);
     return result;
 }
@@ -303,16 +309,13 @@ void sendManagementRequest(const ElrsManagementRequest &request)
     if (length == 0) return;
     if(!transmitCrsfFrame(frame, length))return;
     if(request.action==ElrsManagementAction::EscProgrammer){
-        Serial.printf("ESC RF TX: probe=%u op=%u seq=%u\n",request.escReturnProbe,unsigned(request.esc.op),request.esc.sequence);return;
+        recordDiagnostic(DiagnosticKind::EscTx,request.escReturnProbe,unsigned(request.esc.op),request.esc.sequence);return;
     }
     if (request.action == ElrsManagementAction::TxParameter) return;
     if(request.action==ElrsManagementAction::ErsSensor){
-        Serial.printf("ERS TX: type=%u id=%u command=%u bytes=%u\n",request.ers.type,request.ers.id,request.ers.command,unsigned(length));return;
+        recordDiagnostic(DiagnosticKind::ErsTx,request.ers.type,request.ers.id,request.ers.command,unsigned(length));return;
     }
-    Serial.printf("ELRS MGMT: sent %s to %s (%u-byte phrase)\n",
-        request.action == ElrsManagementAction::ReadUid ? "UID request" : "bindphrase",
-        request.target == ElrsManagementTarget::Transmitter ? "TX module" : "receiver",
-        request.phraseLength);
+    recordDiagnostic(DiagnosticKind::ManagementTx,unsigned(request.action),unsigned(request.target),request.phraseLength);
 }
 
 void readReturnedTelemetry()
@@ -395,8 +398,16 @@ void requestUiConfigurationCut()
     rfBenchSession.cut();
     portEXIT_CRITICAL(&rfBenchMux);
     portENTER_CRITICAL(&channelOutputMux);
+    inputSafetyEpoch.fetch_add(1);
     controlOutputMailbox.requireConfiguration();
     portEXIT_CRITICAL(&channelOutputMux);
+}
+
+void requestPhysicalControlCut()
+{
+    inputSafetyEpoch.fetch_add(1);
+    portENTER_CRITICAL(&rfBenchMux);rfBenchSession.cut();portEXIT_CRITICAL(&rfBenchMux);
+    portENTER_CRITICAL(&channelOutputMux);controlOutputMailbox.requestPhysicalCut();portEXIT_CRITICAL(&channelOutputMux);
 }
 
 ControlCommandSnapshot readControlCommands()
@@ -439,27 +450,30 @@ ControlStateSnapshot readControlState()
     return snapshot;
 }
 
-void publishControlConfiguration(ControlConfigurationSnapshot configuration)
+void publishControlConfiguration(ControlConfigurationSnapshot configuration,uint32_t observedPhysicalCut)
 {
     configuration.revision = nextControlConfigurationRevision++;
     portENTER_CRITICAL(&controlConfigurationMux);
     sharedControlConfiguration = configuration;
     portEXIT_CRITICAL(&controlConfigurationMux);
     portENTER_CRITICAL(&channelOutputMux);
-    controlOutputMailbox.acceptConfiguration(configuration.revision);
+    const bool accepted=controlOutputMailbox.acceptConfiguration(configuration.revision,
+        configuration.armRequested,observedPhysicalCut);
     portEXIT_CRITICAL(&channelOutputMux);
+    if(!accepted)return;
     lastPublishedControlConfiguration = configuration;
     controlConfigurationPublished = true;
 }
 
 void publishUiControlConfigurationIfChanged()
 {
+    const uint32_t physicalCut=readControlCommands().physicalCutSequence;
     const ControlConfigurationSnapshot candidate =
         transmitterUi.controlConfigurationSnapshot();
     if (!controlConfigurationPublished || readControlCommands().configurationPending ||
         !equivalentControlConfiguration(candidate,
                                         lastPublishedControlConfiguration))
-        publishControlConfiguration(candidate);
+        publishControlConfiguration(candidate,physicalCut);
 }
 
 ControlConfigurationSnapshot readControlConfiguration()
@@ -499,12 +513,15 @@ MixInputSnapshot readMixInputs(uint32_t now)
     return result;
 }
 
+#include "main_input_pipeline.inc"
+
 void controlTask(void *)
 {
     TickType_t nextWake = xTaskGetTickCount();
     uint32_t previousCycleUs = micros();
     uint32_t maximumTaskGapUs = 0;
     OutputSafetyStatus previousSafetyStatus = OutputSafetyStatus::ControlStale;
+    bool samplerFaultLatched=false;
     for (;;) {
         const uint32_t cycleUs = micros();
         const uint32_t taskGapUs = cycleUs - previousCycleUs;
@@ -515,6 +532,13 @@ void controlTask(void *)
         if (rfBenchEnabled()) configuration.armRequested = rfBenchArmRequested();
         ControlCycleInput input;
         input.nowMs = millis();
+        input.physicalInputsHealthy=physicalInputSampleFresh(input.nowMs,inputLastSampleMs.load());
+        // An enable attempt made while the sampler is unhealthy must also be
+        // cancelled, not retained as an automatic arm on later recovery.
+        if(commands.startupPreflightComplete&&!input.physicalInputsHealthy&&(!samplerFaultLatched||configuration.armRequested)){
+            immediatePhysicalCut();samplerFaultLatched=true;
+        }
+        if(input.physicalInputsHealthy&&!configuration.armRequested)samplerFaultLatched=false;
         input.resetSequence = commands.resetSequence;
         input.startupComplete = commands.startupPreflightComplete;
         input.throttleAdc = analogRead(THROTTLE_ADC_PIN);
@@ -541,19 +565,7 @@ void controlTask(void *)
             rfBenchSession.cut();
             portEXIT_CRITICAL(&rfBenchMux);
         }
-        if (safetyStatus != previousSafetyStatus) {
-            Serial.printf("SAFETY t=%lums %s -> %s arm_request=%s raw=%u filtered=%u centre=%u delta=%+d\n",
-                          static_cast<unsigned long>(millis()),
-                          safetyStatusName(previousSafetyStatus),
-                          safetyStatusName(safetyStatus),
-                          configuration.armRequested ? "yes" : "no",
-                          throttleInput.rawAdc, filteredAdc,
-                          configuration.throttleInput.calibration.centre,
-                          static_cast<int>(filteredAdc) -
-                              static_cast<int>(
-                                  configuration.throttleInput.calibration.centre));
-            previousSafetyStatus = safetyStatus;
-        }
+
 
         const bool outputsLive = safetyStatus == OutputSafetyStatus::Armed;
         const int16_t rawThrottle = throttleInput.normalisedPermille;
@@ -566,6 +578,13 @@ void controlTask(void *)
         const uint16_t transmittedSteering=outputsLive&&configuration.steeringEnabled?requestedSteering:safeNeutralSteering;
         const uint32_t controlUpdateUs = micros();
         publishChannelOutputs(outputs, safetyStatus, controlUpdateUs, input.resetSequence, configuration.revision);
+        // Publish the new safe model before even bounded diagnostic bookkeeping.
+        if(safetyStatus!=previousSafetyStatus){
+            recordDiagnostic(DiagnosticKind::Safety,unsigned(previousSafetyStatus),unsigned(safetyStatus),
+                configuration.armRequested,throttleInput.rawAdc,filteredAdc,
+                configuration.throttleInput.calibration.centre);
+            previousSafetyStatus=safetyStatus;
+        }
 
         ControlStateSnapshot snapshot;
         snapshot.rawAdc = throttleInput.rawAdc;
@@ -644,7 +663,7 @@ void crsfTask(void *)
                 if(management.action!=ElrsManagementAction::EscProgrammer ||
                    escRfRequestAllowed(stale,safetyDecision))
                     sendManagementRequest(management);
-                else Serial.printf("ESC RF BLOCKED: stale=%u safety=%s\n",stale,safetyStatusName(safetyDecision.status));
+                else recordDiagnostic(DiagnosticKind::EscBlocked,stale,unsigned(safetyDecision.status));
                 if (management.action == ElrsManagementAction::SetBindPhrase) {
                     // ExpressLRS schedules a reboot 200 ms after changing its
                     // UID. Give the endpoint ample time, then verify the UID.
@@ -703,9 +722,10 @@ void printInputMonitorSnapshot()
             static_cast<unsigned long>(i ? pcbControls.readErrors() : pcbKeypad.readErrors()));
     }
 #endif
+    const auto inputStates=currentPhysicalInputStates();
     for (size_t i = 0; i < kPhysicalControlCount; ++i) {
         const auto id = static_cast<PhysicalControlId>(i);
-        const auto &state = physicalInputs.state(id);
+        const auto &state = inputStates.state(id);
         const auto &descriptor = physicalControlDescriptor(i);
         Serial.printf("@INPUT_ROW\t%u\t%s\t%s\t%u\t%u\t%u\t%u\t%u\t%u\t%u\t%s\t%lu\n",
             static_cast<unsigned>(i), descriptor.name, r1InputEndpointLabel(id),
@@ -776,6 +796,8 @@ void printWifiSetupStatus()
 
 bool consumeScreenshotCommand()
 {
+    if(!Serial.available())return false;
+    DiagnosticConsoleGuard console;
     while (Serial.available() > 0) {
         const char character = static_cast<char>(Serial.read());
         if (character == '\r') continue;
@@ -808,7 +830,7 @@ bool consumeScreenshotCommand()
                 healthy = latestPcbInputs[0].available && latestPcbInputs[1].available;
 #endif
                 for (size_t i=0; i<kPhysicalControlCount; ++i)
-                    if (physicalInputs.state(static_cast<PhysicalControlId>(i)).faulted) healthy = false;
+                    if (currentPhysicalInputStates().state(static_cast<PhysicalControlId>(i)).faulted) healthy = false;
                 portENTER_CRITICAL(&rfBenchMux);
                 rfBenchSession.heartbeat(millis(), healthy);
                 portEXIT_CRITICAL(&rfBenchMux);
@@ -823,7 +845,7 @@ bool consumeScreenshotCommand()
                     !state.calibrating && !transmitterUi.calibrationActive() &&
                     !SetupPortal::active() &&
                     abs(int(state.adc) - int(transmitterUi.throttleCentreAdc())) <= ARM_NEUTRAL_ADC_WINDOW &&
-                    physicalInputs.startupUnsafeMask(STARTUP_IGNORE_HELD_INPUTS) == 0 && inputExpanderReady;
+                    currentStartupUnsafeMask() == 0 && inputExpanderReady;
                 requestControlReset(); // Every explicit arm requires a fresh neutral/link dwell.
                 portENTER_CRITICAL(&rfBenchMux);
                 const bool accepted = rfBenchSession.requestArm(millis(), ready);
@@ -861,6 +883,14 @@ bool consumeScreenshotCommand()
             }
             if (strcmp(usbCommand, "WIFISTATUS") == 0) printWifiSetupStatus();
             if (strcmp(usbCommand, "INPUTMON") == 0) printInputMonitorSnapshot();
+            if(strcmp(usbCommand,"INPUTSTATS")==0){
+                const auto sample=readInputSample();uint32_t dropped,logs;size_t queued;
+                portENTER_CRITICAL(&inputDispatchMux);dropped=inputDispatch.dropped();queued=inputDispatch.size();portEXIT_CRITICAL(&inputDispatchMux);
+                portENTER_CRITICAL(&diagnosticMux);logs=diagnosticEvents.dropped();portEXIT_CRITICAL(&diagnosticMux);
+                Serial.printf("INPUTSTATS: fresh=%u ageMs=%lu maxGapUs=%lu queued=%u dropped=%lu diagnosticDrops=%lu\n",
+                    physicalInputSampleFresh(millis(),sample.sampledMs),(unsigned long)(millis()-sample.sampledMs),
+                    (unsigned long)sample.maximumGapUs,unsigned(queued),(unsigned long)dropped,(unsigned long)logs);
+            }
             if(strcmp(usbCommand,"ESCPROGSTATUS")==0){
                 const auto &e=transmitterUi.escProgrammerStatus();
                 const auto o=readChannelOutputs();const auto r=readCrsfRuntime();const auto t=readTelemetrySnapshot();
@@ -918,6 +948,10 @@ void setup()
     gpio_pullup_dis(CRSF_SIGNAL_PIN);
 
     Serial.begin(115200);
+    InputBus::begin(); // Before any MCP/touch access or input task starts.
+    DiagnosticConsoleGuard::mutex(); // Initialise the static console mutex before its worker.
+    if(xTaskCreatePinnedToCore(diagnosticTask,"diagnostics",4096,nullptr,1,&diagnosticTaskHandle,0)!=pdPASS)
+        Serial.println("DIAGNOSTICS: worker unavailable; events may be dropped");
     delay(CRSF_STARTUP_BUS_QUIET_MS);
 #if JR_R1_INPUT_BENCH
     benchBegin();return;
@@ -1052,7 +1086,12 @@ void setup()
     bootDiagnosticsStage("control-starting");
     xTaskCreatePinnedToCore(controlTask, "control-input", 6144, nullptr, 5,
                             &controlTaskHandle, 1);
+    inputUiContext.store(transmitterUi.activeControlContext());
+    if(xTaskCreatePinnedToCore(inputTask,"physical-input",4096,nullptr,4,&inputTaskHandle,1)!=pdPASS){
+        requestUiConfigurationCut();Serial.println("INPUT: sampler unavailable; startup remains inhibited");
+    }
     MemoryDiagnostics::configure(crsfTaskHandle,controlTaskHandle,true);
+    MemoryDiagnostics::configureWorkers(inputTaskHandle,diagnosticTaskHandle);
     if (!rfBenchEnabled()) SetupPortal::begin(&transmitterUi);
     nextLogMs = millis();
 }
@@ -1067,6 +1106,7 @@ void loop()
         // Force the whole channel model safe immediately; the CRSF task must
         // never retain live outputs while the UI task streams a screenshot.
         requestControlReset();
+        DiagnosticConsoleGuard console;
         transmitterUi.captureScreenshot(Serial);
         nextLogMs = millis() + USB_LOG_PERIOD_MS;
         return;
@@ -1079,119 +1119,23 @@ void loop()
     uint16_t txVoltageDecivolts = 0;
     bool txVoltageValid = false;
     const uint32_t nowMs = millis();
+    const auto physical=readInputSample();
+    inputExpanderReady=physical.available&&physicalInputSampleFresh(nowMs,physical.sampledMs);
 #ifdef JR_R1_XIAO_PCB
-    inputExpanderReady = pcbKeypad.online() && pcbControls.online();
-    if (!inputExpanderReady &&
-        static_cast<int32_t>(nowMs - nextExpanderProbeMs) >= 0) {
-        nextExpanderProbeMs = nowMs + 1000;
-        if (!pcbKeypad.online()) pcbKeypad.begin();
-        if (!pcbControls.online()) pcbControls.begin();
-        inputExpanderReady = pcbKeypad.online() && pcbControls.online();
-    }
-#else
-    if (!inputExpanderReady &&
-        static_cast<int32_t>(nowMs - nextExpanderProbeMs) >= 0) {
-        nextExpanderProbeMs = nowMs + 1000;
-        inputExpanderReady = inputExpander.begin();
-        if (inputExpanderReady)
-            Serial.printf("MCP23017: reconnected at 0x%02X\n",
-                          MCP23017_I2C_ADDRESS);
-    }
+    latestPcbInputs[0]=physical.chips[0];latestPcbInputs[1]=physical.chips[1];
 #endif
-    if (static_cast<int32_t>(nowMs - nextExpanderPollMs) >= 0) {
-        nextExpanderPollMs = nowMs + MCP23017_POLL_PERIOD_MS;
-#ifdef JR_R1_XIAO_PCB
-        McpInputSnapshot snapshots[] = {{0x20, 0xffff, false}, {0x21, 0xffff, false}};
-        snapshots[0].available = pcbKeypad.online() && pcbKeypad.read(snapshots[0].levels);
-        snapshots[1].available = pcbControls.online() && pcbControls.read(snapshots[1].levels);
-        latestPcbInputs[0] = snapshots[0];
-        latestPcbInputs[1] = snapshots[1];
-        inputExpanderReady = snapshots[0].available && snapshots[1].available;
-        if (!startupPreflightComplete && static_cast<int32_t>(nowMs - nextInputDiagnosticMs) >= 0) {
-            printPcbInputs();
-            nextInputDiagnosticMs = nowMs + 1000;
-        }
-        physicalInputEvents.clear();
-        physicalInputs.update(snapshots, 2, readDirectGpioLevels(), nowMs,
-                              physicalInputEvents);
-#else
-        uint16_t ports = 0xffff; // fail-safe released state for active-low inputs
-        if (inputExpanderReady && !inputExpander.read(ports)) {
-            inputExpanderReady = false;
-            nextExpanderProbeMs = nowMs + 1000;
-            Serial.printf("MCP23017: read failed at 0x%02X; inputs disabled\n",
-                          MCP23017_I2C_ADDRESS);
-        }
-        expanderPorts = ports;
-        physicalInputEvents.clear();
-        physicalInputs.update(ports, readDirectGpioLevels(), nowMs,
-                              physicalInputEvents, inputExpanderReady);
-#endif
-        publishMixInputs();
-        physicalInputs.setProportionalValue(PhysicalControlId::ThrottleTrigger,
-                                            control.rawPermille, nowMs);
-        physicalInputs.setProportionalValue(PhysicalControlId::SteeringWheel,
-                                            control.steeringRawPermille, nowMs);
-        transmitterUi.setPhysicalInputStates(physicalInputs.states());
-        if (!startupPreflightComplete) {
-            if (startupInputSettledAtMs == 0)
-                startupInputSettledAtMs = nowMs;
-            if (nowMs - startupInputSettledAtMs >= STARTUP_INPUT_SETTLE_MS) {
-                const uint32_t mask = physicalInputs.startupUnsafeMask(STARTUP_IGNORE_HELD_INPUTS);
-                if (mask != startupWarningMask) {
-                    startupWarningMask = mask;
-                    Serial.printf("STARTUP CHECK: unsafe mask=0x%08lX\n",
-                                  static_cast<unsigned long>(mask));
-                }
-                transmitterUi.setStartupPreflight(false, mask);
-                if (mask == 0 && inputExpanderReady) {
-                    startupPreflightComplete = true;
-                    transmitterUi.setStartupPreflight(true, 0);
-                    completeStartupPreflight();
-                    Serial.println(STARTUP_IGNORE_HELD_INPUTS ?
-                        "STARTUP CHECK: BENCH held-switch/trim check bypassed; faults and normal arming checks retained" :
-                        "STARTUP CHECK: controls safe; arm available");
-                }
+    if(physical.ready&&physicalInputSampleFresh(nowMs,physical.sampledMs)&&!startupPreflightComplete){
+        if(!startupInputSettledAtMs)startupInputSettledAtMs=physical.sampledMs;
+        if(nowMs-startupInputSettledAtMs>=STARTUP_INPUT_SETTLE_MS){
+            startupWarningMask=physical.unsafeMask;
+            transmitterUi.setStartupPreflight(false,startupWarningMask);
+            if(!startupWarningMask&&physical.available){
+                startupPreflightComplete=true;transmitterUi.setStartupPreflight(true,0);completeStartupPreflight();
             }
-        }
-        if (physicalInputEvents.size() != 0) {
-            PhysicalInputEventBuffer bindingEvents;
-            for(size_t i=0;i<physicalInputEvents.size();++i){
-                const auto &e=physicalInputEvents[i];
-                if(!transmitterUi.handleKeypadEvent(e.input,e.event,e.timestampMs))
-                    bindingEvents.push(e.input,e.event,e.timestampMs,e.value);
-            }
-            ResolvedBindingActionBuffer actions;
-            portENTER_CRITICAL(&bindingResolverMux);
-            bindingResolver.processEvents(bindingEvents,
-                static_cast<uint8_t>(ContextAlways | transmitterUi.activeControlContext() |
-                    (control.armed ? ContextArmed : ContextCut)), actions);
-            portEXIT_CRITICAL(&bindingResolverMux);
-            for (size_t index = 0; index < actions.size(); ++index) {
-                const ResolvedBindingAction &action = actions[index];
-                if (action.target == AssignmentTarget::ModelParameter)
-                    transmitterUi.applyChannelParameterAction(action.targetId,
-                                                            action.value);
-                else if (action.target == AssignmentTarget::TransmitterFunction)
-                    transmitterUi.applyTransmitterFunctionAction(action.targetId,
-                                                               action.value);
-                else if (action.target == AssignmentTarget::DriveMode)
-                    transmitterUi.applyDriveModeAction(action.targetId,
-                                                    action.value);
-            }
-            for (size_t index = 0; index < physicalInputEvents.size(); ++index) {
-                const PhysicalInputEvent &inputEvent = physicalInputEvents[index];
-                Serial.printf("INPUT: %s event=%s value=%d source=%s\n",
-                              physicalControlDescriptor(
-                                  static_cast<size_t>(inputEvent.input)).name,
-                              inputEventName(inputEvent.event), inputEvent.value,
-                              r1InputEndpointLabel(inputEvent.input));
-            }
-            if (physicalInputEvents.overflowed())
-                Serial.println("INPUT: event buffer overflow");
         }
     }
-    transmitterUi.setPhysicalInputStates(physicalInputs.states());
+    transmitterUi.setPhysicalInputStates(physical.states);
+    dispatchQueuedInputs(nowMs);
     if (transmitterUi.txVoltageSenseEnabled()) {
         if (static_cast<int32_t>(nowMs - nextTxBatterySampleMs) >= 0) {
             nextTxBatterySampleMs = nowMs + 20;
@@ -1227,6 +1171,7 @@ void loop()
                       channelOutputs.model,
                       crsfRuntime.outputSafetyStatus ==
                           OutputSafetyStatus::Armed);
+    inputUiContext.store(transmitterUi.activeControlContext());
     moduleLinkEnabled.store(transmitterUi.moduleLinkEnabled());
     telemetryParser.setStandardBatteryVehicle(transmitterUi.portalStandardBatteryVehicle());
     ElrsManagementRequest management;
@@ -1235,17 +1180,7 @@ void loop()
         if (!queueManagementRequest(management))
             Serial.println("ELRS MGMT: queue busy; request discarded");
     }
-    if (transmitterUi.consumeBindingsChanged()) {
-        // CUT the complete output model before replacing resolver state. The
-        // new mapping cannot reach the RF task until the neutral interlock is
-        // satisfied again.
-        requestControlReset();
-        const BindingLoadResult result = installUiBindings();
-        Serial.printf("BINDINGS: TFT profile reload %s (%u assignments)\n",
-                      result.ok() ? "ready" :
-                          (result.reason == nullptr ? "FAILED" : result.reason),
-                      static_cast<unsigned>(bindingResolver.bindingCount()));
-    }
+    synchronizeUiBindings();
     if (transmitterUi.consumeChannelRolesChanged()) {
         // Disable all live outputs before the next atomic model snapshot moves
         // throttle to its newly selected channel.
@@ -1295,7 +1230,7 @@ void loop()
                       static_cast<unsigned long>(crsfRuntime.maximumTransmitWaitUs),
                       static_cast<unsigned long>(crsfRuntime.transmitTimeouts),
                       uiConfiguration.driveMode == DriveMode::Walk ? "WALK" : "NORMAL",
-                      physicalInputs.state(PhysicalControlId::TimerButton).stablePrimary
+                      physical.states.state(PhysicalControlId::TimerButton).stablePrimary
                           ? "ON" : "off",
                       inputExpanderReady ? "ok" : "OFFLINE",
                       telemetry.linkValid ? "yes" : "no",

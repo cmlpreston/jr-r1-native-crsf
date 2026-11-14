@@ -6,6 +6,12 @@ CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
 
 TESTS := \
+  main_input_pipeline_integration_test \
+  input_pipeline_test \
+  critical_diagnostics_test \
+  input_bus_guard_test \
+  ui_cold_storage_test \
+  raster_map_sampler_test \
   brake_abs_test \
   er6g_mode_pin_test \
   esc_drive_programmer_test \
@@ -112,6 +118,7 @@ $(BUILD)/rf_bench_session_test: rf_bench_session_test.cpp $(ROOT)/include/rf_ben
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 run: all
+	$(PYTHON) critical_task_boundary_test.py
 	$(PYTHON) package_ota_test.py
 	$(PYTHON) upload_preflight_test.py
 	$(PYTHON) er4_upload_preflight_test.py
@@ -187,9 +194,18 @@ $(BUILD)/pcb_io_test: pcb_io_test.cpp $(ROOT)/src/pcb_io.cpp \
 	@mkdir -p $(@D)
 	$(CXX) -Imocks $(CPPFLAGS) $(CXXFLAGS) -DJR_R1_XIAO_PCB=1 $(filter %.cpp,$^) -o $@
 
-$(BUILD)/crsf_tx_config_test: crsf_tx_config_test.cpp $(ROOT)/src/crsf_tx_config.cpp $(ROOT)/src/crsf_channel_output.cpp
+$(BUILD)/input_bus_guard_test: input_bus_guard_test.cpp $(ROOT)/src/mcp23017_input.cpp \
+    $(ROOT)/include/input_bus_guard.h $(ROOT)/include/mcp23017_input.h
+	@mkdir -p $(@D)
+	$(CXX) -Imocks $(CPPFLAGS) $(CXXFLAGS) -DJR_R1_INPUT_BUS_HOST_LOCK=1 -pthread $(filter %.cpp,$^) -o $@
+
+$(BUILD)/crsf_tx_config_test: crsf_tx_config_test.cpp $(ROOT)/src/crsf_tx_config.cpp $(ROOT)/src/crsf_channel_output.cpp $(ROOT)/include/crsf_tx_config.h $(ROOT)/include/ui_cold_storage.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
+
+$(BUILD)/ui_cold_storage_test: ui_cold_storage_test.cpp cold_storage_mocks/esp_heap_caps.h $(ROOT)/include/ui_cold_storage.h $(ROOT)/include/ui_telemetry_history.h $(ROOT)/include/sensor_statistics.h
+	@mkdir -p $(@D)
+	$(CXX) -Icold_storage_mocks $(CPPFLAGS) $(CXXFLAGS) -DARDUINO=1 $< -o $@
 
 $(BUILD)/crsf_tx_telemetry_test: crsf_tx_telemetry_test.cpp $(ROOT)/src/crsf_telemetry.cpp $(ROOT)/src/crsf_channel_output.cpp
 	@mkdir -p $(@D)
@@ -284,3 +300,21 @@ $(BUILD)/er6g_mode_pin_test: er6g_mode_pin_test.cpp $(ROOT)/receiver/er6g/reader
 $(BUILD)/brake_abs_test: brake_abs_test.cpp $(ROOT)/include/brake_abs.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/raster_map_sampler_test: raster_map_sampler_test.cpp $(ROOT)/include/raster_map_sampler.h $(ROOT)/include/gps_map_projection.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/main_input_pipeline_integration_test: main_input_pipeline_integration_test.cpp $(ROOT)/src/main_input_pipeline.inc \
+    $(ROOT)/src/physical_input.cpp $(ROOT)/src/physical_input_runtime.cpp $(ROOT)/src/binding_resolver.cpp \
+    $(ROOT)/src/crsf_channel_output.cpp $(ROOT)/src/control_assignment.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
+
+$(BUILD)/critical_diagnostics_test: critical_diagnostics_test.cpp $(ROOT)/include/bounded_event_queue.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/input_pipeline_test: input_pipeline_test.cpp $(ROOT)/src/physical_input.cpp $(ROOT)/src/physical_input_runtime.cpp $(ROOT)/src/crsf_channel_output.cpp $(ROOT)/src/control_assignment.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@

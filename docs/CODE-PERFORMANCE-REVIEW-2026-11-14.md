@@ -11,6 +11,83 @@ setup portal and current receiver programming paths. It is not a formal proof
 of every safety property. Estimates below are explicitly distinguished from
 measurements.
 
+## Implementation update — first and high-priority work
+
+The subsequent implementation addresses critical-task logging, independent
+physical sampling/CUT, RF/history memory placement, graph invalidation and map
+sampling. The review findings below describe the original `c792652` baseline.
+The changes have not been flashed; hardware qualification is still pending.
+
+| Build measurement | Before | Candidate |
+| --- | ---: | ---: |
+| Static internal RAM | 251,668 B (76.8%) | 203,932 B (62.2%) |
+| `TransmitterUi` | 70,400 B | 17,936 B |
+| `CrsfTxConfig` | 36,164 B | 848 B, plus lazy cold storage |
+| Application flash | 2,381,897 B | 2,386,905 B |
+
+Static RAM falls by **47,736 B**. This is not the net runtime heap gain: two new
+worker stacks consume 4,096 B each, plus FreeRTOS task overhead. The RF cache and
+history allocate in PSRAM first, with internal fallback; fallback reduces the
+headroom saving and allocation failure has explicit safe UI behaviour. Sensor,
+parameter and history limits are retained. The raster/projection caches add
+approximately 1.2 KiB rather than another framebuffer.
+
+Implementation details:
+
+- Critical control/RF producers now enqueue fixed-size events without allocation,
+  formatting, USB access or waits for queue space. New safe outputs publish
+  before diagnostic bookkeeping. A low-priority worker formats/writes logs and
+  reports dropped events. USB screenshot/machine replies serialize with that
+  worker to preserve their framing.
+- A dedicated input task owns expander sampling/debounce and direct CRSF binding
+  updates. Touch and MCP transactions share a static recursive priority-inheriting
+  I²C mutex. UI/model callbacks receive queued events. Queue overflow, missing
+  input chips or an expired 100 ms sampler heartbeat force CUT. The heartbeat
+  measures hardware health, not just task activity.
+- Physical CUT is latched across UI configuration publication. Only a new,
+  disarmed snapshot acknowledging its exact sequence releases the mailbox veto.
+  Sampled safety/model epochs reject old queued events and prevent an edge from
+  resolving against a newly installed model. Local/remote/keypad holds are
+  invalidated on physical CUT; pending captured releases cannot turn into
+  synthetic long/repeating presses while UI delivery is backlogged.
+- UI-owned trim and menu callbacks still wait for the UI owner to finish current
+  work. Independent sampling prevents missed edges and keeps direct channel
+  bindings/CUT responsive, but does not promise a fixed latency for every edit.
+  Bounded/asynchronous rendering and network work remain later improvements.
+- RF parameter storage is lazy and pointer-stable. UI history is one cold bundle.
+  Both use PSRAM first and internal fallback; history exhaustion preserves live
+  readings/controls and reports unavailable statistics/graphs instead of
+  dereferencing null. RF exhaustion reports a retryable discovery error.
+- Graph setters compare independently generated points and counts before
+  invalidation. Widget geometry resolves pending layout first, avoiding a second
+  settling redraw. Paused cursors and related styles/labels also avoid no-op
+  writes. The new fixtures require exactly zero rendered pixels over 20 unchanged
+  updates in both orientations, while changed/range/stale cases still redraw.
+- Raster maps cache source-X indices using the original double/floor formula;
+  scanlines then do integer lookups. Trail projection uses generation/viewport
+  keys and one cosine per changed projection. Pixel-equivalence tests include
+  2,500 randomized clipping/pan/zoom cases. Five host runs measured median sampling
+  time **9,196 → 1,073 µs** for 100 full frames (about 8.6×), identical output.
+  This excludes LVGL and SPI and is not a handset frame-rate claim.
+- Memory diagnostics now report LVGL's allocator `max_used` and the added worker
+  stack high-water marks. `INPUTSTATS` reports sampler freshness/maximum gap,
+  queued/dropped input events and dropped diagnostic events without changing
+  output state.
+
+Validation includes host tests, actual production-input-pipeline integration
+with mocked hardware/task seams, deliberate temporary mutation failures for
+three race/health regressions, concurrent I²C repeated-start tests, exhaustion
+fixtures, full UI regression, both simulator builds and the approved landscape
+hardware build. Target UI object sizes use Xtensa DWARF. A fresh performance
+fixture still reports zero pixels for unchanged dashboard updates; its ~316.66 ms
+SDL paint median remains vsync-limited and is not evidence of hardware latency.
+
+Local logs use `/tmp/r1-priority-*2026-11-14.log`; reproducible evidence is copied
+under ignored `tmp/priority-performance-2026-11-14/` after verification. Before
+normal driving, bench-check real scan gaps, task stack margins, disconnected/
+slow USB, shared I²C traffic, model changes and PWM/CUT behaviour on the handset.
+No clock, pin map, control/RF rate, receiver firmware or ESC settings changed.
+
 ## Main conclusions
 
 1. Remove blocking diagnostics from time-critical tasks before tuning speed.

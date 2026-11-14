@@ -11,10 +11,11 @@ struct Snapshot {
     Pool internal,psram,dma;
     bool lvglReady=false;
     uint32_t lvglTotal=0,lvglUsed=0,lvglPeak=0,lvglLargest=0,lvglFragmentation=0;
-    int32_t loopStack=-1,controlStack=-1,crsfStack=-1;
+    int32_t loopStack=-1,controlStack=-1,crsfStack=-1,inputStack=-1,diagnosticStack=-1;
 };
 // All functions run on the Arduino/UI task, the LVGL owner.
 void configure(TaskHandle_t crsf,TaskHandle_t control,bool lvglReady);
+void configureWorkers(TaskHandle_t input,TaskHandle_t diagnostics);
 void sample(bool force=false);
 const Snapshot &snapshot();
 void print(Print &output);

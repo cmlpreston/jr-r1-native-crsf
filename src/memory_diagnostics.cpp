@@ -6,6 +6,8 @@ namespace MemoryDiagnostics {
 static Snapshot current;
 static TaskHandle_t crsfTask=nullptr,controlTask=nullptr;
 static bool uiReady=false,hasSample=false;
+static TaskHandle_t inputTask=nullptr,diagnosticTask=nullptr;
+void configureWorkers(TaskHandle_t input,TaskHandle_t diagnostics){inputTask=input;diagnosticTask=diagnostics;}
 void configure(TaskHandle_t crsf,TaskHandle_t control,bool ready) {
     crsfTask=crsf;controlTask=control;uiReady=ready;
 }
@@ -24,12 +26,14 @@ void sample(bool force) {
     current.lvglReady=uiReady;
     if(uiReady){lv_mem_monitor_t m={};lv_mem_monitor(&m);
         current.lvglTotal=m.total_size;current.lvglUsed=m.total_size-m.free_size;
-        if(current.lvglUsed>current.lvglPeak)current.lvglPeak=current.lvglUsed;current.lvglLargest=m.free_biggest_size;current.lvglFragmentation=m.frag_pct;
+        current.lvglPeak=m.max_used;current.lvglLargest=m.free_biggest_size;current.lvglFragmentation=m.frag_pct;
     }
     // ESP-IDF's FreeRTOS reports these high-water marks in bytes, not words.
     current.loopStack=uxTaskGetStackHighWaterMark(nullptr);
     current.controlStack=controlTask?int32_t(uxTaskGetStackHighWaterMark(controlTask)):-1;
     current.crsfStack=crsfTask?int32_t(uxTaskGetStackHighWaterMark(crsfTask)):-1;
+    current.inputStack=inputTask?int32_t(uxTaskGetStackHighWaterMark(inputTask)):-1;
+    current.diagnosticStack=diagnosticTask?int32_t(uxTaskGetStackHighWaterMark(diagnosticTask)):-1;
 }
 const Snapshot &snapshot(){sample();return current;}
 void print(Print &out) {
@@ -44,8 +48,8 @@ void print(Print &out) {
         (unsigned long)current.lvglTotal,(unsigned long)current.lvglUsed,(unsigned long)current.lvglPeak,
         (unsigned long)current.lvglLargest,(unsigned long)current.lvglFragmentation);out.println(line);}
     else out.println("  LVGL: not initialized");
-    snprintf(line,sizeof(line),"  Stack minimum unused: UI=%ld control=%ld CRSF=%ld (-1 = not started)",
-        (long)current.loopStack,(long)current.controlStack,(long)current.crsfStack);out.println(line);
+    snprintf(line,sizeof(line),"  Stack minimum unused: UI=%ld control=%ld CRSF=%ld input=%ld diagnostics=%ld (-1 = not started)",
+        (long)current.loopStack,(long)current.controlStack,(long)current.crsfStack,(long)current.inputStack,(long)current.diagnosticStack);out.println(line);
 }
 }
 #endif

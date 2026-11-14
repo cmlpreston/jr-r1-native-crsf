@@ -17,6 +17,7 @@ struct ControlCycleInput {
     uint32_t nowMs = 0, resetSequence = 0;
     uint16_t throttleAdc = 0, steeringAdc = 0;
     bool startupComplete = false, linkValid = false;
+    bool physicalInputsHealthy = true;
     uint8_t linkQuality = 0;
     MixInputSnapshot digitalInputs;
     CrsfChannelOutputModel bindings;

@@ -16,8 +16,11 @@ before beginning later driving-control features.
 The [dated code review](docs/CODE-PERFORMANCE-REVIEW-2026-11-14.md) records measured
 memory/layout evidence and a proposed optimisation order. First address blocking
 critical-task logging, then graph/map redraws and UI-owned memory placement.
-Its recommendations are outstanding work, not implemented performance gains.
-Hardware timing and peak-memory qualification are still required.
+The first/high-priority implementation is recorded in that review: deferred
+critical-task logs, independent physical sampling/CUT, cold UI storage, guarded
+graphs and cached map sampling. UI-owned edit latency is still serialized.
+Hardware timing, stack margins and runtime heap qualification remain required;
+medium/lower-priority recommendations are still outstanding.
 
 ## Status reconciliation — 2026-09-19
 

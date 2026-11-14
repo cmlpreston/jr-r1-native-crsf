@@ -15,8 +15,8 @@ public:
     bool setInput(uint8_t pin, bool pullup);
     bool writeOutput(uint8_t pin, bool high);
     bool read(uint16_t &ports);
-    bool online() const { return online_; }
-    uint32_t readErrors() const { return readErrors_; }
+    bool online() const;
+    uint32_t readErrors() const;
 
 private:
     bool writeRegister(uint8_t reg, uint8_t value);

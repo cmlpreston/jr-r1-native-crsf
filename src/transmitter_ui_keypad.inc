@@ -30,6 +30,9 @@ bool TransmitterUi::handleKeypadEvent(PhysicalControlId key,InputEvent event,uin
 
 void TransmitterUi::updateKeypad(uint32_t now)
 {
+    // Captured releases may still be behind UI work. Never infer a hold/repeat
+    // from wall time until all earlier physical events have been delivered.
+    if(physicalEventsPending_)return;
     for(int i=0;i<8;++i){auto &p=keypadPresses_[i];
         if(!p.down||p.consumed||p.page!=activePage_)continue;
         const auto key=static_cast<PhysicalControlId>(int(PhysicalControlId::KeyMode)+i);

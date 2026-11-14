@@ -8,6 +8,7 @@
 #include "dashboard_widgets.h"
 #include "speed_statistics.h"
 #include "sensor_statistics.h"
+#include "ui_telemetry_history.h"
 #include "drive_battery.h"
 #include "rf_link_warning.h"
 #include "race_timer.h"
@@ -121,6 +122,9 @@ enum class UiPage : uint8_t {
 class TransmitterUi {
 public:
     bool begin();
+    // UI-task delivery of the independent physical sampler's latched CUT.
+    void requestPhysicalInputCut();
+    void setPhysicalInputEventsPending(bool pending){physicalEventsPending_=pending;}
     void updateModulePower(bool detected, uint32_t now);
     bool moduleLinkEnabled() const { return moduleLinkManaged_ && moduleLink_.enabled(); }
     bool moduleBatteryDetected() const { return moduleLinkManaged_ && moduleLink_.present(); }
@@ -247,6 +251,7 @@ public:
     bool portalSetTimerSettings(const TimerSettings &settings);
     bool portalTimerAction(unsigned action);
 private:
+    bool physicalEventsPending_=false;
     bool designPage() const;
     void drawDesignPage(UiPage page);
     uint8_t portraitResponseBank_ = 0;
@@ -590,6 +595,7 @@ private:
         lv_obj_t *detail = nullptr;
         lv_obj_t *satellites = nullptr;
         uint8_t gpsRenderedCount = 0;
+        GpsMap::TrailProjectionCache gpsProjection;
         lv_point_t points[48] = {};
         lv_point_t secondPoints[30] = {};
     };
@@ -656,8 +662,8 @@ private:
     bool v2QuickEditing_=false,v2GraphPaused_=false;
     uint8_t v2QuickModel_=255,v2QuickSlots_[8]={1,3,6,7,8,5,9,10},v2GraphCursor_=29;
     bool v2ReviewConfirm_=false,v2SensorSetupReturn_=false;
-    int32_t v2FrozenHistory_[30]={};
-    bool v2FrozenValid_[30]={};
+    UiColdArrayView<int32_t,30> v2FrozenHistory_;
+    UiColdArrayView<bool,30> v2FrozenValid_;
     lv_obj_t *v2GraphCursorLine_=nullptr;
     lv_point_t v2GraphCursorPoints_[2]={};
     void drawV2Quick();
@@ -670,12 +676,14 @@ private:
     void controlV2(uint8_t item,PageControlEvent event);
     GpsMapViewport designMapViewport_;
     lv_point_t designPoints_[33] = {};
-    uint16_t channelHistory_[16][30] = {};
-    int32_t sensorHistory_[DashboardSensorCount][30] = {};
-    bool sensorHistoryValid_[DashboardSensorCount][30] = {};
+    UiColdStorage<UiTelemetryHistory<DashboardSensorCount>> telemetryHistory_;
+    bool initializeTelemetryHistory();
+    UiColdArrayView<uint16_t[30],16> channelHistory_;
+    UiColdArrayView<int32_t[30],DashboardSensorCount> sensorHistory_;
+    UiColdArrayView<bool[30],DashboardSensorCount> sensorHistoryValid_;
     uint8_t sensorHistoryCount_ = 0;
     SpeedStatistics speedStatistics_;
-    SensorStatistics sensorStatistics_[DashboardSensorCount];
+    UiColdArrayView<SensorStatistics,DashboardSensorCount> sensorStatistics_;
     bool sensorSessionStats_[DashboardSensorCount]={};
     void resetSensorStatistics(uint8_t sensor);
     void loadDriveBatterySettings();
@@ -697,6 +705,7 @@ private:
     uint32_t nextSensorSampleMs_ = 0;
     int32_t gpsLat_[48] = {}, gpsLon_[48] = {};
     uint8_t gpsCount_ = 0;
+    uint32_t gpsTrailRevision_ = 1;
     uint32_t gpsLastSampleMs_ = 0;
     bool gpsTrailVisible_ = true;
     int8_t gpsZoom_ = 0; // power-of-two steps; negative steps zoom out
@@ -705,6 +714,7 @@ private:
     void updateGpsPresentation(uint32_t now);
     lv_point_t gpsPoints_[48] = {};
     uint8_t gpsRenderedCount_ = 0;
+    GpsMap::TrailProjectionCache gpsProjection_;
     uint8_t activeModelSlot_ = 0;
     bool modelAppearanceEditing_ = false;
     uint8_t modelImages_[kModelMemoryCount] = {};

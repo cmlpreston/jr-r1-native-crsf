@@ -102,8 +102,11 @@ flowchart TD
     SAFETY --> CRSF["CRSF packed channels at 250 Hz"]
 ```
 
-The control task runs independently of LVGL. The Arduino `loop()` polls and
-dispatches physical inputs, updates the UI and performs settings edits. The
+The control task runs independently of LVGL. A dedicated physical-input task polls/debounces the controls and updates direct
+channel bindings. The Arduino `loop()` delivers queued UI/model actions, updates
+the UI and performs settings edits. Shared touch/expander I²C transactions use
+a static recursive mutex. Physical CUT is independently latched across UI
+publication; the control task vetoes missing/stale sampler health. The
 CRSF link task transmits a snapshot of the complete channel model.
 
 ## Required target flow

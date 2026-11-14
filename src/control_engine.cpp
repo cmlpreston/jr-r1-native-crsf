@@ -87,7 +87,7 @@ ControlCycleResult ControlEngine::update(const ControlConfigurationSnapshot &c,
     if (result.throttle.valid) inputs.valid |= 2;
     result.outputs = in.bindings;
     const auto inspection = inspectConfiguredMixInputs(c, inputs, result.outputs, mixPlan_);
-    result.inputsValid = c.modelStorageValid && result.throttle.valid && inspection.inputsValid;
+    result.inputsValid = c.modelStorageValid && in.physicalInputsHealthy && result.throttle.valid && inspection.inputsValid;
     result.safety = qualify(c, in, result.throttle, result.inputsValid, inspection.throttleNeutral);
     const bool live = result.safety == OutputSafetyStatus::Armed;
     if (!live) {slew_.reset(in.nowMs);abs_.reset();}

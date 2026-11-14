@@ -16,7 +16,9 @@
 - Full host suite, approved XIAO landscape build, both simulator builds and full
   UI/rotation/typography audits pass. Focused widget checks also pass with cold
   storage failure, gaps, resets and unchanged-render guards. Synthetic previews
-  are recorded in the manual. This version is not yet installed.
+  are recorded in the manual. Installed source `dfd57c4` through the guarded
+  approved XIAO landscape workflow; device hash verification passed.
+  Real-sensor and handset bench validation remains pending.
 
 ## 14 November 2026 — editor reuse, smaller fonts and display comparison
 

@@ -270,7 +270,7 @@ per-model RAM histories for the current power session. Hardware validation remai
   sampled Wh/peak watts/Wh per km, bounded raw-input traces and no output or
   sensor-setting actions. Host/build/focused render checks pass (2026-11-15).
 - [ ] Bench-validate Power/energy CU01 units/reset/telemetry gaps and raw-input
-  history on the handset; candidate is not installed yet.
+  history on the handset; source `dfd57c4` installed 2026-11-15.
 - [x] Move receiver-integrated S.Port firmware, ER4/ER6G adapters, shared
   decoders, tests and upload workflow into the separate
   [ExpressLRS-SPort fork](https://github.com/cmlpreston/ExpressLRS-SPort).

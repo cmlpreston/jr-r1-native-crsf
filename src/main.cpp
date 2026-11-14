@@ -67,6 +67,7 @@ struct ControlStateSnapshot {
     bool inputValid = true;
     bool armed = false;
     uint32_t neutralSinceMs = 0;
+    uint32_t sampledMs = 0;
     uint32_t maximumTaskGapUs = 0;
 };
 
@@ -602,6 +603,7 @@ void controlTask(void *)
         snapshot.inputValid = inputValid;
         snapshot.armed = outputsLive;
         snapshot.neutralSinceMs = result.neutralSinceMs;
+        snapshot.sampledMs = input.nowMs;
         snapshot.maximumTaskGapUs = maximumTaskGapUs;
         publishControlState(snapshot);
 
@@ -1157,12 +1159,16 @@ void loop()
     const SharedChannelOutputState channelOutputs = readChannelOutputs();
     auto monitorInputs=readMixInputs(nowMs);
     monitorInputs.values[0]=control.steeringRawPermille;monitorInputs.values[1]=control.rawPermille;
-    if(control.inputValid)monitorInputs.valid|=3;
+    // Do not relabel cached calibrated values as a fresh input sample. The UI
+    // history can then leave gaps across stalls instead of inventing a trace.
+    const uint32_t controlSampleAgeMs=millis()-control.sampledMs;
+    monitorInputs.valid&=~uint64_t{3};
+    if(control.inputValid&&controlSampleAgeMs<=100)monitorInputs.valid|=3;
     CrsfChannelOutputModel monitorBindings;
     portENTER_CRITICAL(&bindingResolverMux);
     bindingResolver.applyChannelOutputs(monitorBindings,configuredRoleOwnedChannels(lastPublishedControlConfiguration));
     portEXIT_CRITICAL(&bindingResolverMux);
-    transmitterUi.setMixMonitorInputs(monitorInputs,monitorBindings);
+    transmitterUi.setMixMonitorInputs(monitorInputs,monitorBindings,control.sampledMs);
     transmitterUi.update(control.adc, control.steeringAdc, control.rawPermille,
                       control.outputPermille,
                       control.transmittedCrsf,

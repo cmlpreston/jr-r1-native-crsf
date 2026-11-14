@@ -47,6 +47,8 @@ TESTS := \
   gps_map_test \
   simulator_handset_test \
   speed_statistics_test \
+  power_energy_statistics_test \
+  control_history_test \
   dashboard_widgets_test \
   channel_response_test \
   control_configuration_test \
@@ -215,6 +217,14 @@ $(BUILD)/crsf_tx_telemetry_test: crsf_tx_telemetry_test.cpp $(ROOT)/src/crsf_tel
 	$(CXX) -Icrsf_mocks $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
 
 $(BUILD)/dashboard_widgets_test: dashboard_widgets_test.cpp $(ROOT)/include/dashboard_widgets.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/power_energy_statistics_test: power_energy_statistics_test.cpp $(ROOT)/include/power_energy_statistics.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/control_history_test: control_history_test.cpp $(ROOT)/include/control_history.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 

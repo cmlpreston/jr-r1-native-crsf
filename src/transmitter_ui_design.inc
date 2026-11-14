@@ -14,7 +14,7 @@ static_assert(sizeof(designSensorUnits)/sizeof(*designSensorUnits)==DashboardSen
 const char *const designFieldNames[] = {"Rate", "Expo", "Endpoint", "Response speed", "Direction", "Trim", "Subtrim", "Response offset"};
 const char *const designRoleNames[] = {"Steering", "Throttle", "Brake", "Channel", "Channel"};
 const char *dashboardKindName(DashboardWidgetKind kind) {
-    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / trail","Model image","All channels","Battery cells","Reserved","Controls","Trim / rates","RF margin","Drive pack"};
+    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / trail","Model image","All channels","Battery cells","Reserved","Controls","Trim / rates","RF margin","Drive pack","Power / energy","Control history"};
     static_assert(sizeof(names)/sizeof(*names)==static_cast<unsigned>(DashboardWidgetKind::Count),"Widget names must cover stable IDs");
     return names[static_cast<uint8_t>(kind)<static_cast<uint8_t>(DashboardWidgetKind::Count)?static_cast<uint8_t>(kind):0];
 }
@@ -125,7 +125,7 @@ void updateGpsTrail(lv_obj_t *line,lv_point_t *points,uint8_t &renderedCount,
 bool TransmitterUi::designPage() const
 {
     switch (activePage_) {
-        case UiPage::RfWarningSetup: case UiPage::DriveBatterySetup: case UiPage::ErsSensors: case UiPage::TimerControl: case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation:
+        case UiPage::RfWarningSetup: case UiPage::DriveBatterySetup: case UiPage::ErsSensors: case UiPage::TimerControl: case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation: case UiPage::WidgetMetricsReset:
         case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor: case UiPage::RunReview: case UiPage::BrakeAbs:
         case UiPage::Telemetry: case UiPage::Gps: case UiPage::ChannelMonitor:
         case UiPage::SensorDetail: case UiPage::MainMenu: case UiPage::Channels:
@@ -452,6 +452,14 @@ void TransmitterUi::drawDesignPage(UiPage page)
     const uint8_t nav=(sectionPage==UiPage::Dashboard||sectionPage==UiPage::ModeChooser)?0:(sectionPage==UiPage::Tune||sectionPage==UiPage::ValueEditor||sectionPage==UiPage::BrakeAbs)?1:dataSection?2:3;
     if(!navigationIsModal())drawSectionNavigation(nav);
     if(page==UiPage::QuickNavigation||page==UiPage::FieldResetConfirmation||page==UiPage::TimerControl){drawKeypadPage();}
+    else if(page==UiPage::WidgetMetricsReset){
+        label("Reset power / energy?",12,designPortrait?82:66,UiText::Heading);
+        auto help=label("Clear peak power, energy and efficiency\nfor this model session?\n\nCU01 readings and settings are unchanged.",12,designPortrait?138:108,UiText::Secondary,cDim);
+        lv_obj_set_width(help,kScreenWidth-24);
+        const int yy=designFooterY-(designPortrait?58:36);
+        button(12,yy,(kScreenWidth-36)/2,designPortrait?44:30,"Cancel",158);
+        button(24+(kScreenWidth-36)/2,yy,(kScreenWidth-36)/2,designPortrait?44:30,"Reset",159,true);
+    }
     else if(page==UiPage::RunReview){drawV2RunReview();}
     else if(page==UiPage::ControlAssignments){drawControlAssignmentsContent();}
     else if(page==UiPage::BindingEditor){drawBindingEditorContent();}
@@ -882,6 +890,12 @@ void TransmitterUi::drawDesignPage(UiPage page)
             auto help=label("CU01 voltage, current and used mAh.\nRemaining is a sensor estimate.",12,77+3*(designPortrait?51:30)+4,UiText::Caption,cDim);
             lv_obj_set_width(help,kScreenWidth-24);
         }
+        if(widgetDraft_.kind==DashboardWidgetKind::PowerEnergy||widgetDraft_.kind==DashboardWidgetKind::ControlHistory){
+            auto help=label(widgetDraft_.kind==DashboardWidgetKind::PowerEnergy?
+                "CU01 electrical input / local session.\nGaps are marked; Wh/km needs GPS travel.":
+                "Calibrated driver inputs / 10 seconds.\nBefore expo, trim and mixing; not outputs.",12,77+3*(designPortrait?51:30)+4,UiText::Caption,cDim);
+            lv_obj_set_width(help,kScreenWidth-24);
+        }
         label("Covered widgets are kept for later",12,designFooterY-(designPortrait?65:45),UiText::Caption,cDim);
         button(10,designFooterY-(designPortrait?44:23),90,designPortrait?40:23,"Cancel",125);button(kScreenWidth-110,designFooterY-(designPortrait?44:23),100,designPortrait?40:23,"Apply",126,true);
         }
@@ -897,6 +911,17 @@ void TransmitterUi::drawDesignPage(UiPage page)
 void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
 {
     playKeyClick();
+    if(item>=154&&item<=157){
+        const uint8_t cell=item-154;
+        if(activePage_!=UiPage::Dashboard||dashboardWidgetForView(cell).kind!=DashboardWidgetKind::PowerEnergy)return;
+        widgetMetricsReturnMaximized_=maximizedWidget_;
+        drawDesignPage(UiPage::WidgetMetricsReset);return;
+    }
+    if(item==158||item==159){
+        if(activePage_!=UiPage::WidgetMetricsReset)return;
+        if(item==159)resetWidgetPowerMetrics();
+        maximizedWidget_=widgetMetricsReturnMaximized_;drawDashboard();return;
+    }
     if(item==244){
         v2SensorSetupReturn_=false;
         ersSelected_=-1;ersListBank_=0;ersPageMessage_[0]=0;
@@ -1351,7 +1376,7 @@ void TransmitterUi::drawDashboardWidgets()
         const int width=cellW*w.width+gap*(w.width-1),height=maximizedWidget_>=0?designFooterY-top-6:cellH*w.height+gap*(w.height-1);
         view.panel=makePanel(x,y,width,height,cPanel,cLine);
         auto title=makeLabel(view.panel,dashboardKindName(w.kind),8,5,UiText::Caption,cDim);view.title=title;
-        if(maximizedWidget_>=0&&w.kind!=DashboardWidgetKind::DrivePack)lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
+        if(maximizedWidget_>=0&&w.kind!=DashboardWidgetKind::DrivePack&&w.kind!=DashboardWidgetKind::PowerEnergy&&w.kind!=DashboardWidgetKind::ControlHistory)lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
         const bool channelPreview=w.kind==DashboardWidgetKind::Channels ||
             (w.kind==DashboardWidgetKind::AllChannels&&w.source!=1);
         boundedLabel(title,width-(channelPreview?40:16));
@@ -1360,10 +1385,14 @@ void TransmitterUi::drawDashboardWidgets()
             if(dashboardOutputsLive_)lv_obj_add_flag(view.heldOutputIcon,LV_OBJ_FLAG_HIDDEN);
         }
         const bool speedWidget=w.kind==DashboardWidgetKind::Sensor && w.source==0;
-        const int actionHeight=w.kind==DashboardWidgetKind::Timer?height-(designPortrait?45:31):speedWidget?height-32:height;
+        const int actionHeight=w.kind==DashboardWidgetKind::Timer?height-(designPortrait?45:31):speedWidget?height-32:w.kind==DashboardWidgetKind::PowerEnergy?height-22:height;
         const bool interactive=w.kind==DashboardWidgetKind::Controls||w.kind==DashboardWidgetKind::Trims;
         if(!interactive)addPageActionTarget(x,y,width,actionHeight,&TransmitterUi::controlDesign,130+cell);
         if(speedWidget)addPageActionTarget(x,y+height-32,width-80,32,&TransmitterUi::controlDesign,130+cell);
+        if(w.kind==DashboardWidgetKind::PowerEnergy){
+            addPageActionTarget(x,y+height-22,width-64,22,&TransmitterUi::controlDesign,130+cell);
+            makePageActionButton(x+width-60,y+height-21,54,19,"Reset",UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,154+cell);
+        }
         if(w.kind==DashboardWidgetKind::Timer){
             view.values[0]=makeLabel(view.panel,"00:00",8,24,height>130?UiText::Reading:UiText::Menu);
             view.values[1]=makeLabel(view.panel,"",8,height>130?76:44,UiText::Caption,cDim);
@@ -1446,6 +1475,57 @@ void TransmitterUi::drawDashboardWidgets()
                     if(w.style==DashboardWidgetStyle::Bars){view.bars[j]=makeBar(view.panel,8,yy+(power&&height>130?48:19),width-16,5,power?0:-1000,power?160:1000);if(!power)lv_bar_set_mode(view.bars[j],LV_BAR_MODE_SYMMETRICAL);}
                 }
             }
+        } else if(w.kind==DashboardWidgetKind::PowerEnergy){
+            uiSetText(title,"Power / energy / CU01");
+            const int columns=width>=220?2:1,rows=4/columns;
+            const int cw=(width-16)/columns,rh=(height-46)/rows;
+            const char *captions[]={"Input power","Peak seen","Energy used","Est. Wh/km"};
+            const int ch=UiText::font(UiText::Caption)->line_height;
+            for(uint8_t n=0;n<4;++n){
+                const int xx=8+(n%columns)*cw,yy=23+(n/columns)*rh;
+                boundedLabel(makeLabel(view.panel,captions[n],xx,yy,UiText::Caption,cDim),cw-6);
+                view.values[n]=makeLabel(view.panel,"--",xx,yy+ch,UiText::Secondary,cWhite);
+                lv_obj_set_size(view.values[n],cw-6,max(ch,rh-ch));
+                lv_label_set_long_mode(view.values[n],LV_LABEL_LONG_CLIP);
+            }
+            view.detail=makeLabel(view.panel,"CU01 / since reset",8,height-17,UiText::Caption,cDim);
+            boundedLabel(view.detail,width-76);
+        } else if(w.kind==DashboardWidgetKind::ControlHistory){
+            uiSetText(title,"Control INPUTS");
+            const int legendWidth=(width-16)/2;
+            view.values[0]=makeLabel(view.panel,"ST --",8,21,UiText::Caption,cCyan);
+            view.values[1]=makeLabel(view.panel,"TH --",8+legendWidth,21,UiText::Caption,cAmber);
+            boundedLabel(view.values[0],legendWidth-4);boundedLabel(view.values[1],legendWidth-4);
+            const int plotTop=39,plotHeight=max(6,height-plotTop-29);
+            makeLabel(view.panel,"+100",5,plotTop-3,UiText::Caption,cDim);
+            makeLabel(view.panel,"0",5,plotTop+plotHeight/2-6,UiText::Caption,cDim);
+            makeLabel(view.panel,"-100",5,plotTop+plotHeight-9,UiText::Caption,cDim);
+            auto oldest=makeLabel(view.panel,"-10s",38,plotTop+plotHeight+1,UiText::Caption,cDim);
+            boundedLabel(oldest,38);
+            makeLabel(view.panel,"Now",width-30,plotTop+plotHeight+1,UiText::Caption,cDim);
+            if(widgetMetrics_){
+                view.plot=lv_chart_create(view.panel);position(view.plot,38,plotTop,width-46,plotHeight);
+                lv_obj_set_style_pad_all(view.plot,0,0);lv_obj_set_style_border_width(view.plot,0,0);
+                lv_obj_set_style_bg_opa(view.plot,LV_OPA_TRANSP,0);
+                lv_obj_set_style_line_color(view.plot,colour(cLine),LV_PART_MAIN);
+                lv_obj_set_style_line_width(view.plot,1,LV_PART_MAIN);
+                lv_obj_set_style_line_width(view.plot,2,LV_PART_ITEMS);
+                lv_obj_set_style_size(view.plot,0,LV_PART_INDICATOR);
+                lv_obj_clear_flag(view.plot,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
+                lv_chart_set_type(view.plot,LV_CHART_TYPE_LINE);
+                lv_chart_set_point_count(view.plot,ControlHistory::Capacity);
+                lv_chart_set_range(view.plot,LV_CHART_AXIS_PRIMARY_Y,-1000,1000);
+                lv_chart_set_div_line_count(view.plot,3,3);
+                for(uint8_t n=0;n<2;++n){
+                    auto &series=widgetMetrics_.get()->controlSeries[cell][n];
+                    auto values=widgetMetrics_.get()->controlValues[cell][n];
+                    for(unsigned p=0;p<ControlHistory::Capacity;++p)values[p]=LV_CHART_POINT_NONE;
+                    series=lv_chart_add_series(view.plot,colour(n?cAmber:cCyan),LV_CHART_AXIS_PRIMARY_Y);
+                    lv_chart_set_ext_y_array(view.plot,series,values);
+                }
+            }
+            view.detail=makeLabel(view.panel,widgetMetrics_?"INPUTS / CUT":"Metrics unavailable",8,height-15,UiText::Caption,cDim);
+            boundedLabel(view.detail,width-16);
         } else if(w.kind==DashboardWidgetKind::DrivePack){
             uiSetText(title,"Drive pack / CU01");
             const DrivePackWidgetGrid grid(width,height);
@@ -1657,6 +1737,27 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 if(view.arcs[j]){lv_arc_set_range(view.arcs[j],power?0:-1000,maximum);lv_arc_set_value(view.arcs[j],valid?value:0);uiSetArcColor(view.arcs[j],colour(low?cRed:valid?cCyan:cDim),LV_PART_INDICATOR);}
                 if(view.bars[j]){lv_bar_set_range(view.bars[j],power?0:-1000,maximum);lv_bar_set_value(view.bars[j],valid?value:0,LV_ANIM_OFF);uiSetBgColor(view.bars[j],colour(low?cRed:cCyan),LV_PART_INDICATOR);}
             }
+        } else if(w.kind==DashboardWidgetKind::PowerEnergy){
+            lv_obj_update_layout(view.panel);
+            const auto reading=widgetMetrics_?widgetMetrics_.get()->power.result(millis()):PowerEnergyStatistics::Result{};
+            char text[4][32];for(auto &line:text)snprintf(line,sizeof(line),"--");
+            if(reading.powerValid)snprintf(text[0],sizeof(text[0]),"%.1f W",reading.watts);
+            if(reading.peakValid)snprintf(text[1],sizeof(text[1]),"%.1f W",reading.peakWatts);
+            if(reading.energyValid)snprintf(text[2],sizeof(text[2]),"%s%.2f Wh",reading.energyComplete?"":"~",reading.wattHours);
+            if(reading.efficiencyValid)snprintf(text[3],sizeof(text[3]),"%s%.1f Wh/km",reading.efficiencyComplete?"":"~",reading.wattHoursPerKm);
+            for(uint8_t n=0;n<4;++n){
+                auto value=view.values[n];uiSetText(value,text[n]);
+                uiSetTextFont(value,drivePackReadingFont(text[n],lv_obj_get_width(value),lv_obj_get_height(value)),0);
+            }
+            const bool narrow=lv_obj_get_width(view.panel)<200;
+            const char *caption=!widgetMetrics_?(narrow?"Unavailable":"Metrics unavailable"):
+                !reading.energyValid?"CU01 / waiting":
+                !reading.energyComplete?(narrow?"Wh gaps":"CU01 / gaps"):
+                !reading.efficiencyValid?(narrow?"GPS/100m":"Wh/km needs GPS/100m"):
+                !reading.efficiencyComplete?(narrow?"Wh/km gaps":"Wh/km / gaps"):"Since reset";
+            uiSetText(view.detail,caption);
+        } else if(w.kind==DashboardWidgetKind::ControlHistory){
+            updateControlHistoryWidget(cell,millis());
         } else if(w.kind==DashboardWidgetKind::DrivePack){
             lv_obj_update_layout(view.panel);
             const auto reading=drivePackWidgetReading(t,millis());

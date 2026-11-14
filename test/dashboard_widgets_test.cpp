@@ -11,14 +11,33 @@ int main()
     const uint8_t retired[]={9,2,2,1,0,1};
     assert(dashboardWidgetFromV2(0,retired).kind==DashboardWidgetKind::Empty);
     assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryCells,1)==DashboardWidgetKind::Controls);
-    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::DrivePack);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::ControlHistory);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::DrivePack,1)==DashboardWidgetKind::PowerEnergy);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::PowerEnergy,1)==DashboardWidgetKind::ControlHistory);
     static_assert(int(DashboardWidgetKind::Controls)==10,"Append widget IDs without changing saved layouts");
     static_assert(int(DashboardWidgetKind::RfMargin)==12&&int(DashboardWidgetKind::DrivePack)==13,"Append CU01 widget without renumbering saved IDs");
-    for(auto kind:{DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin,DashboardWidgetKind::DrivePack}){
+    static_assert(int(DashboardWidgetKind::PowerEnergy)==14&&int(DashboardWidgetKind::ControlHistory)==15,"Append metrics widgets without changing saved layouts");
+    for(auto kind:{DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin,DashboardWidgetKind::DrivePack,DashboardWidgetKind::PowerEnergy}){
         DashboardWidget w;w.kind=kind;w.style=DashboardWidgetStyle::Graph;
         assert(dashboardWidgetKindAvailable(kind));
         assert(sanitizedDashboardWidget(0,w).kind==kind);
         assert(sanitizedDashboardWidget(0,w).style==DashboardWidgetStyle::Numbers);
+    }
+    for(int style=0;style<int(DashboardWidgetStyle::Count);++style){
+        DashboardWidget w;w.kind=DashboardWidgetKind::ControlHistory;w.style=DashboardWidgetStyle(style);
+        assert(sanitizedDashboardWidget(0,w).style==DashboardWidgetStyle::Graph);
+    }
+    // Every prior stored kind retains its meaning; the two new types fit the
+    // existing byte schema and every supported size without changing defaults.
+    for(auto kind:{DashboardWidgetKind::PowerEnergy,DashboardWidgetKind::ControlHistory}){
+        for(int width=1;width<=2;++width)for(int height=1;height<=2;++height){
+            DashboardWidget w;w.kind=kind;w.width=width;w.height=height;
+            const auto fixed=sanitizedDashboardWidget(0,w);
+            assert(fixed.kind==kind&&fixed.width==width&&fixed.height==height);
+            const uint8_t bytes[]={uint8_t(kind),uint8_t(fixed.style),uint8_t(width),uint8_t(height),0,1};
+            const auto decoded=dashboardWidgetFromV2(0,bytes);
+            assert(decoded.kind==kind&&decoded.style==fixed.style);
+        }
     }
     uint8_t monitor[DashboardMonitorMaxEntries]={};
     assert(dashboardMonitorEntries(0xffff,2,monitor)==21);

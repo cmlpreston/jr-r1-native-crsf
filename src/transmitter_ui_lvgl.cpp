@@ -719,6 +719,7 @@ const char *uiPageName(UiPage page)
         case UiPage::TimerControl:return "timer";
         case UiPage::QuickNavigation:return "quick-navigation";
         case UiPage::FieldResetConfirmation:return "reset-field";
+        case UiPage::WidgetMetricsReset:return "reset-widget-metrics";
         case UiPage::Tune: return "tune";
         case UiPage::ValueEditor: return "value-editor";
         case UiPage::Gps: return "gps";
@@ -818,6 +819,7 @@ bool TransmitterUi::resetDisplayTransferStats()
 #include "transmitter_ui_timer.inc"
 #include "transmitter_ui_ers.inc"
 #include "transmitter_ui_design.inc"
+#include "transmitter_ui_widget_metrics.inc"
 #include "transmitter_ui_v2.inc"
 #include "transmitter_ui_drive_battery.inc"
 #include "transmitter_ui_rf_warning.inc"
@@ -846,6 +848,7 @@ bool TransmitterUi::initializeTelemetryHistory()
 bool TransmitterUi::begin()
 {
     initializeTelemetryHistory();
+    initializeWidgetMetrics();
     Preferences benchPreferences;
     if (benchPreferences.begin("r1-bench", true)) {
         headlessTesting_ = benchPreferences.getBool("headless", false);
@@ -1371,6 +1374,11 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     timers_[activeModelSlot_].pause(millis());saveTimerSettings();
     timerOnRemainder_=0;timerConfirmation_=0;timerBank_=timerLapPage_=0;
     resetSpeedStatistics();
+    resetWidgetPowerMetrics();
+    if(widgetMetrics_){
+        auto &metrics=*widgetMetrics_.get();metrics.controls.reset();
+        metrics.controlSessionAfterMs=millis();metrics.controlSessionGuard=true;
+    }
     gpsCount_ = sensorHistoryCount_ = 0;++gpsTrailRevision_;
     for(auto &statistics:sensorStatistics_)statistics=SensorStatistics{};
     gpsLastSampleMs_ = designTelemetry_.gpsUpdatedMs;
@@ -3267,7 +3275,7 @@ bool TransmitterUi::navigationIsModal() const
     switch(activePage_) {
         case UiPage::BootSplash: case UiPage::BootPin: case UiPage::LogoSaver:
         case UiPage::StartupWarning: case UiPage::Calibration:
-        case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation:
+        case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation: case UiPage::WidgetMetricsReset:
         case UiPage::ValueEditor: case UiPage::WidgetEditor:
         case UiPage::ParameterControlPicker: case UiPage::MixingOverview:
         case UiPage::ChannelMixing: case UiPage::BindingEditor:
@@ -4013,6 +4021,7 @@ void TransmitterUi::navigateBack()
     if(activePage_==UiPage::ModuleLink){controlDesign(241,PageControlEvent::Activate);return;}
     if(activePage_==UiPage::QuickNavigation){drawDesignPage(keypadReturnPage_);return;}
     if(activePage_==UiPage::FieldResetConfirmation){drawDesignPage(UiPage::ValueEditor);return;}
+    if(activePage_==UiPage::WidgetMetricsReset){maximizedWidget_=widgetMetricsReturnMaximized_;drawDashboard();return;}
     if(activePage_==UiPage::WifiSetup){
         requestConfigurationCut();
         if(wifiEdit_==4 || wifiEdit_==6){wifiSetupPassword_[0]=0;wifiSetupPasswordError_=false;wifiEdit_=0;drawWifiPage();}
@@ -5910,6 +5919,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     if(gpsNote.stop)stopBuzzer();
     else if(gpsNote.durationMs)emitBuzzerNote(gpsNote.pitchHz,gpsNote.durationMs);
     latestSteeringRawAdc_ = steeringRawAdc;
+    updateWidgetMetrics(telemetry,safetyStatus,millis());
     updateSteeringEndpointSelection();
     // Dashboard controls preview requested positions even in CUT. Keep the
     // separately resolved values for Data > Channels (requested / sent).

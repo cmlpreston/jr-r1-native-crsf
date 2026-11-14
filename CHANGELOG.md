@@ -1,5 +1,23 @@
 # R-1 EVO change record
 
+## 15 November 2026 — power/energy and control-history widgets
+
+- Append optional Power / energy and Control history widget kinds, preserving
+  existing saved layouts and supporting every size and maximise behaviour.
+- Derive electrical watts, observed peak and sampled Wh from CU01 readings;
+  estimate Wh/km from matched fresh GPS-speed coverage after 100 m. Exclude
+  stale/invalid intervals, mark incomplete totals and confirm local resets.
+- Plot ten seconds of calibrated steering/throttle inputs with fixed percentage
+  axes, distinct colours and timestamp gaps. CUT retains valid input traces;
+  traces do not claim servo motion or distinguish braking from reverse.
+- Keep histories and chart arrays in UI-owned PSRAM-first storage. No per-tick
+  LVGL object creation, sensor commands or output-setting changes. Preserve real
+  control-sample timestamps rather than restamping cached samples at UI delivery.
+- Full host suite, approved XIAO landscape build, both simulator builds and full
+  UI/rotation/typography audits pass. Focused widget checks also pass with cold
+  storage failure, gaps, resets and unchanged-render guards. Synthetic previews
+  are recorded in the manual. This version is not yet installed.
+
 ## 14 November 2026 — editor reuse, smaller fonts and display comparison
 
 - Refresh ordinary value editors in place, retaining their header, controls,

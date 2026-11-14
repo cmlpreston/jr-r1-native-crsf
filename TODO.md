@@ -264,7 +264,13 @@ per-model RAM histories for the current power session. Hardware validation remai
 ## Telemetry and vehicle peripherals
 
 - [x] Decode CRSF GPS, source-zero temperature and RPM with freshness checks.
-- [ ] Extend battery telemetry beyond voltage to current and consumed capacity.
+- [x] Decode CU01 vehicle-pack voltage/current, consumed mAh and reported
+  estimated remaining percentage; provide the combined Drive pack widget.
+- [x] Implement optional Power/energy and Control history widgets: local
+  sampled Wh/peak watts/Wh per km, bounded raw-input traces and no output or
+  sensor-setting actions. Host/build/focused render checks pass (2026-11-15).
+- [ ] Bench-validate Power/energy CU01 units/reset/telemetry gaps and raw-input
+  history on the handset; candidate is not installed yet.
 - [x] Move receiver-integrated S.Port firmware, ER4/ER6G adapters, shared
   decoders, tests and upload workflow into the separate
   [ExpressLRS-SPort fork](https://github.com/cmlpreston/ExpressLRS-SPort).

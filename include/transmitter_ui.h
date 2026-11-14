@@ -7,6 +7,8 @@
 #include "channel_response.h"
 #include "dashboard_widgets.h"
 #include "speed_statistics.h"
+#include "power_energy_statistics.h"
+#include "control_history.h"
 #include "sensor_statistics.h"
 #include "ui_telemetry_history.h"
 #include "drive_battery.h"
@@ -117,6 +119,7 @@ enum class UiPage : uint8_t {
     RfWarningSetup,
     RunReview,
     BrakeAbs,
+    WidgetMetricsReset,
 };
 
 class TransmitterUi {
@@ -232,6 +235,8 @@ public:
 #endif
     void setPhysicalInputStates(const PhysicalInputStateStore &states);
     void setMixMonitorInputs(const MixInputSnapshot &inputs, const CrsfChannelOutputModel &bindings);
+    void setMixMonitorInputs(const MixInputSnapshot &inputs, const CrsfChannelOutputModel &bindings,
+                             uint32_t sampledMs);
     bool handleKeypadEvent(PhysicalControlId key, InputEvent event, uint32_t now);
     void setStartupPreflight(bool complete, uint32_t unsafeMask);
     size_t copyBindings(ControlBinding *destination, size_t capacity) const;
@@ -605,6 +610,22 @@ private:
     bool dashboardBinaryChannel(uint8_t ch, int &off, int &on) const;
     DashboardWidgetView widgetViews_[4];
     uint8_t channelWidgetPages_[4] = {};
+    // Session metrics and externally backed chart series stay out of scarce
+    // internal RAM. Their addresses remain stable for the lifetime of LVGL.
+    struct WidgetMetricsStorage {
+        PowerEnergyStatistics power;
+        ControlHistory controls;
+        lv_coord_t controlValues[4][2][ControlHistory::Capacity] = {};
+        lv_chart_series_t *controlSeries[4][2] = {};
+        uint32_t controlSessionAfterMs = 0;
+        bool controlSessionGuard = false;
+    };
+    UiColdStorage<WidgetMetricsStorage> widgetMetrics_;
+    int8_t widgetMetricsReturnMaximized_ = -1;
+    bool initializeWidgetMetrics();
+    void updateWidgetMetrics(const CrsfTelemetryState &,OutputSafetyStatus,uint32_t now);
+    void resetWidgetPowerMetrics();
+    void updateControlHistoryWidget(uint8_t cell,uint32_t now);
     uint8_t tuneRole_ = 0; // steering, forward throttle, brake, selected AUX
     uint8_t tuneBank_ = 0, designBank_ = 0, setupBank_ = 0, sensorSelected_ = 0, sensorBank_ = 0;
     uint8_t setupPage_ = 0, channelInputPage_ = 0;

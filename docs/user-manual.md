@@ -213,10 +213,15 @@ mirror supports the same gesture. The expanded widget omits its own title and ex
 | TX / RX power | Local transmitter battery and receiver-supply telemetry. Numeric, bar or dial styles where offered. |
 | Channels | One selected channel, optionally a second. Select a suitable numeric, bar, dial, graph or switch style. |
 | All channels | Configured outputs, physical controls or both. Choose visible entries; horizontal/vertical bars or numbers, with binary indicators for suitable switch states. Tap to page through entries. |
-| Sensor | Speed, temperature, RPM, RX voltage, LQ, satellites, drive-pack total, lowest cell, FAS voltage or current. Styles depend on the sensor. |
+| Sensor | Speed, RPM, RX voltage, LQ, satellites and drive-pack readings. Styles depend on the sensor. |
 | Battery cells | Individual reported cells together, plus total, lowest cell and count. Auto or expected 1S–12S; page when needed. |
 | GPS map / trail | Saved map with north indicator, GPS position and trail. Tap for the larger GPS view; source credits are on Data / GPS. |
 | Drive pack / CU01 | Pack voltage, current, consumed mAh and estimated remaining percentage reported by the CU01. Stale or unavailable readings show `--`. |
+| Power / energy | CU01 electrical input power in watts, observed peak watts, accumulated Wh and estimated Wh/km when enough fresh GPS speed data is available. Reset clears these local measurements. |
+| Control history | Last ten seconds of calibrated steering and throttle inputs, sampled at 100 ms with fixed -100/0/+100% axes. ST and TH use different colours. |
+| Controls | Normal / Walk mode controls. |
+| Trim / rates | Steering trim/rate and throttle trim/brake rate, with shortcuts to adjustment. |
+| RF margin | Current margin above the selected RF mode's sensitivity, with LQ and reported RF output power. |
 | Model image | Active model name and painted vehicle image. Tap to reach model selection. |
 | Empty | Leave the position unused. |
 
@@ -226,6 +231,25 @@ Choose **Drive pack** in the widget type selector for the combined CU01 card.
 Its remaining percentage is the sensor's estimate; the R1 does not establish
 the pack's starting charge. A partly charged pack or an incorrect sensor capacity
 setting can make that percentage inaccurate. Used mAh is the sensor's counter.
+
+**Power / energy** derives watts from CU01 voltage and current; it does not
+measure mechanical motor output. Peak means the highest reported sample, so
+short spikes between reports may be missed. Wh is estimated between fresh samples;
+stale or invalid intervals are excluded and indicated as gaps. Wh/km is an estimate from
+matched power/GPS-speed coverage, unavailable until at least 100 m is covered.
+A `~` prefix marks totals that omit telemetry gaps.
+These measurements start with fresh data after power-up, model selection or
+confirmed Reset. Reset changes local statistics only. Used energy is meaningful
+with a partly charged pack; this widget does not estimate its starting charge.
+
+**Control history** shows input commands before expo, trim, channel reversal and
+mixing. Positive/negative throttle indicates trigger intent, not whether the
+ESC is braking or reversing. Inputs remain visible in CUT; missing, stale or
+invalid input intervals leave gaps. The graph does not prove that a servo or
+motor followed the command. Both new widgets support the normal dashboard sizes
+and hold-to-maximise gesture; a wide Control history card gives more graph space.
+
+![Power/energy and control-history widgets: simulator example with synthetic readings and inputs, not a physical LCD capture.](../assets/ui-captures/power-control/dashboard.png)
 
 ### Monitoring controls while CUT
 

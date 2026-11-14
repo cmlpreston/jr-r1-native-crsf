@@ -1,7 +1,11 @@
 // Versioned per-model mixer blob; never rewrite endpoint/calibration storage.
 void TransmitterUi::setMixMonitorInputs(const MixInputSnapshot &inputs,const CrsfChannelOutputModel &bindings)
 {
-    mixingLiveSamples_=inputs;mixingLiveBindings_=bindings;mixingLiveUpdatedMs_=millis();
+    setMixMonitorInputs(inputs,bindings,millis());
+}
+void TransmitterUi::setMixMonitorInputs(const MixInputSnapshot &inputs,const CrsfChannelOutputModel &bindings,uint32_t sampledMs)
+{
+    mixingLiveSamples_=inputs;mixingLiveBindings_=bindings;mixingLiveUpdatedMs_=sampledMs;
 }
 void TransmitterUi::loadMixing()
 {

@@ -10,6 +10,7 @@ struct GpsMapViewport {
     // Dashboard maps crop the saved raster to cover their panel. The full GPS
     // page keeps its independently selected zoom and unrestricted viewport.
     bool fillSavedRaster = false;
+    bool showAttribution = true;
 };
 // The viewport must live as long as the LVGL object (owned by TransmitterUi).
 lv_obj_t *createGpsBasemap(lv_obj_t *parent, int x, int y, int width, int height,

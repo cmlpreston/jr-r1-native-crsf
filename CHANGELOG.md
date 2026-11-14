@@ -1,5 +1,13 @@
 # R-1 EVO change record
 
+## 14 November 2026 — GPS widget credit strip
+
+- Remove the source-credit strip from dashboard GPS widgets, including maximized
+  widgets. Retain source metadata, credits on Data / GPS and missing-map warnings.
+  This presentation follow-up is not yet flashed.
+- A reported neutral beep at displayed -1% could not be reproduced; user then
+  confirmed the cue at 0%. Keep the existing zero/sign-cross detection unchanged.
+
 ## 14 November 2026 — live steering centre and GPS widget fit
 
 - Keep steering parameter subtrim live, moving neutral with fixed endpoints.
@@ -10,7 +18,8 @@
   bounded following near image edges. Keep the marker/trail aligned with the
   fitted viewport and retain the full GPS page's zoom/pan behaviour.
 - Initial previous-build startup/CUT, steering and motor-output bench checks
-  passed by user report. This follow-up candidate is not yet flashed.
+  passed by user report. Installed source `0053322` through the approved XIAO
+  landscape workflow; tests/UI checks and device hash verification passed.
 
 ## 14 November 2026 — high-priority memory and responsiveness fixes
 

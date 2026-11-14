@@ -1492,6 +1492,7 @@ void TransmitterUi::drawDashboardWidgets()
         } else if(w.kind==DashboardWidgetKind::Map){
             lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
             view.mapViewport.fillSavedRaster=true;
+            view.mapViewport.showAttribution=false;
             view.basemap=createGpsBasemap(view.panel,0,0,width-2,height-2,view.mapViewport);
             view.plot=lv_line_create(view.basemap);lv_obj_set_style_line_color(view.plot,colour(0x00707d),0);lv_obj_set_style_line_width(view.plot,2,0);
             view.marker=gpsPositionDot(view.basemap);

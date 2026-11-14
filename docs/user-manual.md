@@ -215,7 +215,7 @@ mirror supports the same gesture. The expanded widget omits its own title and ex
 | All channels | Configured outputs, physical controls or both. Choose visible entries; horizontal/vertical bars or numbers, with binary indicators for suitable switch states. Tap to page through entries. |
 | Sensor | Speed, temperature, RPM, RX voltage, LQ, satellites, drive-pack total, lowest cell, FAS voltage or current. Styles depend on the sensor. |
 | Battery cells | Individual reported cells together, plus total, lowest cell and count. Auto or expected 1S–12S; page when needed. |
-| GPS map / trail | Saved map with north indicator, attribution, GPS position and trail. Tap for the larger GPS view. |
+| GPS map / trail | Saved map with north indicator, GPS position and trail. Tap for the larger GPS view; source credits are on Data / GPS. |
 | Model image | Active model name and painted vehicle image. Tap to reach model selection. |
 | Empty | Leave the position unused. |
 
@@ -512,6 +512,7 @@ when maximized. While the location is inside the saved map, following stops at
 the image edges so it does not expose blank margins. The position and trail keep
 their true geographic placement. The separate GPS page retains its zoom controls;
 an outside-coverage position still needs a map covering that location.
+Dashboard widgets omit the source-credit strip; open Data / GPS for map credits.
 
 ## 12. Wi-Fi and the web interface
 

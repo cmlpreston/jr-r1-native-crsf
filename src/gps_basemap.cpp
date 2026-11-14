@@ -111,11 +111,16 @@ void drawMap(lv_event_t *event) {
         for (int x=0;x<width;x+=40) {lv_point_t a={static_cast<lv_coord_t>(bounds.x1+x),bounds.y1}, b={a.x,bounds.y2};lv_draw_line(ctx,&line,&a,&b);}
         for (int y=0;y<height;y+=40) {lv_point_t a={bounds.x1,static_cast<lv_coord_t>(bounds.y1+y)}, b={bounds.x2,a.y};lv_draw_line(ctx,&line,&a,&b);}
     }
-    const char *attribution=custom?OfflineMap::current().attribution:GpsMap::covers(view.latitude,view.longitude)?"(c) OpenStreetMap":"No offline map for this location";
-    lv_draw_label_dsc_t credit;lv_draw_label_dsc_init(&credit);credit.font=UiText::font(UiText::Caption);credit.color=lv_color_hex(0x405442);
-    lv_area_t creditArea={static_cast<lv_coord_t>(bounds.x1+5),static_cast<lv_coord_t>(bounds.y2-17),static_cast<lv_coord_t>(bounds.x2-5),bounds.y2};
-    fill.bg_color=lv_color_hex(0xeeeae0);fill.bg_opa=LV_OPA_90;lv_draw_rect(ctx,&fill,&creditArea);
-    lv_draw_label(ctx,&credit,&creditArea,attribution,nullptr);
+    const bool covered=custom||GpsMap::covers(view.latitude,view.longitude);
+    // Widgets omit the credit strip; Data > GPS retains the source attribution.
+    // Missing-map information is useful even when source credits are hidden.
+    if(view.showAttribution||!covered){
+        const char *attribution=custom?OfflineMap::current().attribution:covered?"(c) OpenStreetMap":"No offline map for this location";
+        lv_draw_label_dsc_t credit;lv_draw_label_dsc_init(&credit);credit.font=UiText::font(UiText::Caption);credit.color=lv_color_hex(0x405442);
+        lv_area_t creditArea={static_cast<lv_coord_t>(bounds.x1+5),static_cast<lv_coord_t>(bounds.y2-17),static_cast<lv_coord_t>(bounds.x2-5),bounds.y2};
+        fill.bg_color=lv_color_hex(0xeeeae0);fill.bg_opa=LV_OPA_90;lv_draw_rect(ctx,&fill,&creditArea);
+        lv_draw_label(ctx,&credit,&creditArea,attribution,nullptr);
+    }
     ctx->clip_area = previousClip;
 }
 }

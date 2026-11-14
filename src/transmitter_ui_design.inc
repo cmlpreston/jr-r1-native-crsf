@@ -1,5 +1,6 @@
 // Shared Drive / Tune / Data / Setup presentation. Included by the LVGL
 // translation unit so all screens use one colour, font and focus system.
+#include "drive_pack_widget.h"
 namespace {
 // Temporarily keep GPS controls/navigation visible, including after idle.
 constexpr bool kGpsAutoFullscreenEnabled = false;
@@ -13,7 +14,8 @@ static_assert(sizeof(designSensorUnits)/sizeof(*designSensorUnits)==DashboardSen
 const char *const designFieldNames[] = {"Rate", "Expo", "Endpoint", "Response speed", "Direction", "Trim", "Subtrim", "Response offset"};
 const char *const designRoleNames[] = {"Steering", "Throttle", "Brake", "Channel", "Channel"};
 const char *dashboardKindName(DashboardWidgetKind kind) {
-    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / trail","Model image","All channels","Battery cells","Reserved","Controls","Trim / rates","RF margin"};
+    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / trail","Model image","All channels","Battery cells","Reserved","Controls","Trim / rates","RF margin","Drive pack"};
+    static_assert(sizeof(names)/sizeof(*names)==static_cast<unsigned>(DashboardWidgetKind::Count),"Widget names must cover stable IDs");
     return names[static_cast<uint8_t>(kind)<static_cast<uint8_t>(DashboardWidgetKind::Count)?static_cast<uint8_t>(kind):0];
 }
 const char *dashboardStyleName(DashboardWidgetStyle style) {
@@ -22,6 +24,14 @@ const char *dashboardStyleName(DashboardWidgetStyle style) {
 }
 const bool &designPortrait = portraitUi;
 int designFooterY = kScreenHeight - (designPortrait ? 60 : 40);
+
+const lv_font_t *drivePackReadingFont(const char *text,int width,int height) {
+    for(auto style:{UiText::Reading,UiText::Heading,UiText::Menu,UiText::Secondary}) {
+        const auto font=UiText::font(style);
+        if(font->line_height<=height&&lv_txt_get_width(text,strlen(text),font,0,LV_TEXT_FLAG_NONE)<=width)return font;
+    }
+    return UiText::font(UiText::Caption);
+}
 
 lv_obj_t *gpsPositionDot(lv_obj_t *parent){
     auto dot=makeLabel(parent,"",0,0,UiText::Caption,cCyan);
@@ -215,7 +225,7 @@ void TransmitterUi::applyDesignValue(int value)
         case 4: p.reversed = value != 0; break;
     }
     channelModel_.setResponse(selectedChannel_, p);
-    scheduleSettingsSave();
+    scheduleSettingsSave(editorField_!=1);
 }
 
 void TransmitterUi::openDesignEditor(uint8_t field, UiPage returnPage)
@@ -223,6 +233,7 @@ void TransmitterUi::openDesignEditor(uint8_t field, UiPage returnPage)
     editorField_ = field;
     editorReturn_ = returnPage;
     editorDraft_ = designValue();
+    expoPreviewActive_ = false;
     editorFine_ = false;
     if (field == 2 && tuneRole_ == 0) {
         const auto &profile = profileForChannel(selectedChannel_);
@@ -238,6 +249,13 @@ void TransmitterUi::openDesignEditor(uint8_t field, UiPage returnPage)
         editorFine_ = true;
     }
     drawDesignPage(UiPage::ValueEditor);
+}
+
+bool TransmitterUi::liveExpoEditor() const
+{
+    return activePage_==UiPage::ValueEditor&&editorField_==1&&tuneRole_<=4&&
+        selectedChannel_>=1&&selectedChannel_<=CRSF_CHANNEL_COUNT&&
+        editorDraft_>=CHANNEL_RESPONSE_MIN_EXPO_PERCENT&&editorDraft_<=CHANNEL_RESPONSE_MAX_EXPO_PERCENT;
 }
 
 bool TransmitterUi::steeringEndpointEditor() const
@@ -646,7 +664,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         const bool pos=tuneRole_!=2&&tuneRole_!=4, neg=tuneRole_==0 || tuneRole_==2 || tuneRole_==4;
         switch(editorField_) {
             case 0: if(pos)draft.positiveRatePercent=editorDraft_;if(neg)draft.negativeRatePercent=editorDraft_;break;
-            case 1: if(pos)draft.positiveExpoPercent=editorDraft_;if(neg)draft.negativeExpoPercent=editorDraft_;break;
+            case 1: if(expoPreviewActive_){if(pos)draft.positiveExpoPercent=editorDraft_;if(neg)draft.negativeExpoPercent=editorDraft_;}break;
             case 2:
                 if(steeringEndpoints){setChannelEndpointForOutput(draft,false,steeringEndpointDrafts_[0]);setChannelEndpointForOutput(draft,true,steeringEndpointDrafts_[1]);}
                 else {if(pos)draft.positiveEndpointPercent=editorDraft_;if(neg)draft.negativeEndpointPercent=editorDraft_;}
@@ -666,7 +684,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         const int y=designPortrait ? 302 : 204, w=(kScreenWidth-44)/4;
         button(10,y,w,38,"-",30); editorStepButton_=button(18+w,y,w,38,editorFine_ ? "Fine" : "Coarse",32);
         button(26+w*2,y,w,38,"+",31); button(34+w*3,y,w,38,"Reset",33);
-        boundedLabel(label(editorField_==7?"Response offset is separate from channel trim / subtrim.":steeringEndpoints?"Live. Apply keeps; saved in CUT. Cancel restores.":"Changes take effect only after Apply",12,designPortrait ? 352 : 249,UiText::Caption,cDim),kScreenWidth-24);
+        boundedLabel(label(editorField_==7?"Response offset is separate from channel trim / subtrim.":steeringEndpoints||liveExpoEditor()?"Live. Apply keeps; saved in CUT. Cancel restores.":"Changes take effect only after Apply",12,designPortrait ? 352 : 249,UiText::Caption,cDim),kScreenWidth-24);
         button(10,designFooterY,kScreenWidth/2-15,36,"Cancel",34);
         button(kScreenWidth/2+5,designFooterY,kScreenWidth/2-15,36,"Apply",35,true);
     } else if (data) {
@@ -858,6 +876,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
             row(77+i*(designPortrait?51:30),names[i],values[i],120+i,designPortrait?47:28);
         }
         if(widgetDraft_.kind==DashboardWidgetKind::AllChannels)row(77+4*(designPortrait?51:30),"Visible inputs","Choose",169,designPortrait?47:28);
+        if(widgetDraft_.kind==DashboardWidgetKind::DrivePack){
+            auto help=label("CU01 voltage, current and used mAh.\nRemaining is a sensor estimate.",12,77+3*(designPortrait?51:30)+4,UiText::Caption,cDim);
+            lv_obj_set_width(help,kScreenWidth-24);
+        }
         label("Covered widgets are kept for later",12,designFooterY-(designPortrait?65:45),UiText::Caption,cDim);
         button(10,designFooterY-(designPortrait?44:23),90,designPortrait?40:23,"Cancel",125);button(kScreenWidth-110,designFooterY-(designPortrait?44:23),100,designPortrait?40:23,"Apply",126,true);
         }
@@ -1047,13 +1069,14 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     }
     if(item>=30 && item<=35){
         if(item==34){drawDesignPage(editorReturn_);return;}
-        if(item==35){applyDesignValue(editorDraft_);drawDesignPage(editorReturn_);return;}
+        if(item==35){if(!liveExpoEditor()||expoPreviewActive_)applyDesignValue(editorDraft_);drawDesignPage(editorReturn_);return;}
         if(item==32)editorFine_=!editorFine_;
         else if(item==33)editorDraft_=editorField_==0||editorField_==2?100:0;
         else {int step=editorField_==3?(editorFine_?10:50):editorField_==4?1:(editorFine_?1:5);int direction=item==30?-1:1;if(event==PageControlEvent::Decrease)direction=-1;editorDraft_+=direction*step;}
         int low=editorField_==1?-100:editorField_>=5?-20:editorField_==2?50:0;
         int high=editorField_==3?2000:editorField_==4?1:editorField_>=5?20:100;
         editorDraft_=constrain(editorDraft_,low,high);
+        if(liveExpoEditor()&&item!=32)expoPreviewActive_=true;
         if(steeringEndpointEditor()) {
             steeringEndpointDrafts_[steeringEndpointSide_]=editorDraft_;
             refreshSteeringEndpointEditor(item!=32);
@@ -1328,7 +1351,7 @@ void TransmitterUi::drawDashboardWidgets()
         const int width=cellW*w.width+gap*(w.width-1),height=maximizedWidget_>=0?designFooterY-top-6:cellH*w.height+gap*(w.height-1);
         view.panel=makePanel(x,y,width,height,cPanel,cLine);
         auto title=makeLabel(view.panel,dashboardKindName(w.kind),8,5,UiText::Caption,cDim);view.title=title;
-        if(maximizedWidget_>=0)lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
+        if(maximizedWidget_>=0&&w.kind!=DashboardWidgetKind::DrivePack)lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
         const bool channelPreview=w.kind==DashboardWidgetKind::Channels ||
             (w.kind==DashboardWidgetKind::AllChannels&&w.source!=1);
         boundedLabel(title,width-(channelPreview?40:16));
@@ -1422,6 +1445,19 @@ void TransmitterUi::drawDashboardWidgets()
                     view.values[j]=makeLabel(view.panel,"--",power&&height>130?8:width/2,power&&height>130?yy+18:yy,power&&height>130?UiText::Heading:UiText::Menu);
                     if(w.style==DashboardWidgetStyle::Bars){view.bars[j]=makeBar(view.panel,8,yy+(power&&height>130?48:19),width-16,5,power?0:-1000,power?160:1000);if(!power)lv_bar_set_mode(view.bars[j],LV_BAR_MODE_SYMMETRICAL);}
                 }
+            }
+        } else if(w.kind==DashboardWidgetKind::DrivePack){
+            uiSetText(title,"Drive pack / CU01");
+            const DrivePackWidgetGrid grid(width,height);
+            const char *captions[]={"Pack voltage","Current","Used capacity","Est. remaining"};
+            const int captionHeight=UiText::font(UiText::Caption)->line_height;
+            for(uint8_t n=0;n<4;++n){
+                const int xx=8+(n%grid.columns)*grid.columnWidth,yy=24+(n/grid.columns)*grid.rowHeight;
+                auto caption=makeLabel(view.panel,captions[n],xx,yy,UiText::Caption,cDim);
+                boundedLabel(caption,grid.columnWidth-6);
+                view.values[n]=makeLabel(view.panel,"--",xx,yy+captionHeight+2,UiText::Menu,n==3?cDim:cWhite);
+                lv_obj_set_size(view.values[n],grid.columnWidth-6,grid.rowHeight-captionHeight-2);
+                lv_label_set_long_mode(view.values[n],LV_LABEL_LONG_CLIP);
             }
         } else if(w.kind==DashboardWidgetKind::BatteryCells){
             for(uint8_t i=0;i<CrsfTelemetryState::MaxVehicleCells;++i){
@@ -1620,6 +1656,21 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 }
                 if(view.arcs[j]){lv_arc_set_range(view.arcs[j],power?0:-1000,maximum);lv_arc_set_value(view.arcs[j],valid?value:0);uiSetArcColor(view.arcs[j],colour(low?cRed:valid?cCyan:cDim),LV_PART_INDICATOR);}
                 if(view.bars[j]){lv_bar_set_range(view.bars[j],power?0:-1000,maximum);lv_bar_set_value(view.bars[j],valid?value:0,LV_ANIM_OFF);uiSetBgColor(view.bars[j],colour(low?cRed:cCyan),LV_PART_INDICATOR);}
+            }
+        } else if(w.kind==DashboardWidgetKind::DrivePack){
+            lv_obj_update_layout(view.panel);
+            const auto reading=drivePackWidgetReading(t,millis());
+            char text[4][32];
+            for(auto &line:text)snprintf(line,sizeof(line),"--");
+            if(reading.fresh){
+                snprintf(text[0],sizeof(text[0]),"%u.%u V",reading.voltageDeciV/10,reading.voltageDeciV%10);
+                snprintf(text[1],sizeof(text[1]),"%u.%u A",reading.currentDeciA/10,reading.currentDeciA%10);
+                snprintf(text[2],sizeof(text[2]),"%lu mAh",static_cast<unsigned long>(reading.usedMah));
+                if(reading.remainingValid)snprintf(text[3],sizeof(text[3]),"%u%%",reading.remainingPercent);
+            }
+            for(uint8_t n=0;n<4;++n){
+                auto value=view.values[n];uiSetText(value,text[n]);
+                uiSetTextFont(value,drivePackReadingFont(text[n],lv_obj_get_width(value),lv_obj_get_height(value)),0);
             }
         } else if(w.kind==DashboardWidgetKind::BatteryCells){
             lv_obj_update_layout(view.panel);

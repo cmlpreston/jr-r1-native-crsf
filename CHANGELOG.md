@@ -1,10 +1,23 @@
 # R-1 EVO change record
 
+## 14 November 2026 — live expo and shared feedback panels
+
+- Keep bounded expo adjustments live, including Tune draft preview, Apply,
+  Cancel/navigation restoration, keypad adjustment/reset and legacy expo rows.
+  Preserve saved asymmetric expo on entry; save committed changes after CUT.
+- Keep other structural edits and fault/CUT protections. Expo intentionally
+  propagates through shaped mixer sources; zero and endpoints are retained.
+- Harmonize trim/subtrim and hold-to-enable/CUT feedback using a shared centred
+  panel, preserving hold timing and touch/arming guards. Candidate not yet flashed.
+- Add a combined CU01 drive-pack widget for volts, amps, used mAh and estimated
+  sensor-reported remaining percentage, with unavailable/stale states.
+
 ## 14 November 2026 — GPS widget credit strip
 
 - Remove the source-credit strip from dashboard GPS widgets, including maximized
   widgets. Retain source metadata, credits on Data / GPS and missing-map warnings.
-  This presentation follow-up is not yet flashed.
+  Installed source `c6218d2` through the approved XIAO landscape workflow; full
+  tests/UI audit and device hash verification passed.
 - A reported neutral beep at displayed -1% could not be reproduced; user then
   confirmed the cue at 0%. Keep the existing zero/sign-cross detection unchanged.
 

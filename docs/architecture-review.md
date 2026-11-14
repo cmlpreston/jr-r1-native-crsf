@@ -17,7 +17,7 @@ Three safety gaps are addressed:
   one lock. An in-flight cycle cannot overwrite a newer CUT, publish while an
   edited configuration is pending, or publish an outdated configuration revision.
   CUT does not refresh the sample timestamp.
-- Response edits other than mechanical steering endpoints, plus non-steering sub-trim, role,
+- Response edits other than expo/mechanical steering endpoints, plus non-steering sub-trim, role,
   calibration, binding and mix edits require CUT and
   explicit neutral re-arm. The UI requests CUT before potentially blocking page
   construction or persistence. The engine independently detects structural edits
@@ -25,6 +25,8 @@ Three safety gaps are addressed:
   its existing behaviour. Mechanical steering endpoint adjustment is deliberately
   live from 14 November, as is bounded steering parameter subtrim. Logical mixer
   sources exclude those mechanical limits and subtrim, retaining throttle output.
+  Bounded per-side expo is also live, with intentional propagation through shaped
+  logical/configured mixer sources. Draft preview never mutates saved settings.
 
 `ControlEngine` now owns input conditioning, slew/mix runtime and link/neutral
 qualification. Hardware and SDL provide samples and time to the same engine.

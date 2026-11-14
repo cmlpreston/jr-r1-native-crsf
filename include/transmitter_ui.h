@@ -498,7 +498,7 @@ private:
     void drawCalibrationPage();
     void drawCalibrationValues(uint16_t adc);
     void refreshSettingRowValue(uint8_t row);
-    void scheduleSettingsSave();
+    void scheduleSettingsSave(bool requireCut = true);
     void drawLiveIndicator(int16_t inputPermille);
     void handleTouch(int16_t x, int16_t y);
     void handleMainMenuTouch(int16_t x, int16_t y);
@@ -617,6 +617,8 @@ private:
     lv_obj_t *driveProgress_ = nullptr, *driveHint_ = nullptr, *driveIcon_ = nullptr;
     uint8_t editorField_ = 0;
     int editorDraft_ = 0;
+    bool expoPreviewActive_ = false;
+    bool liveExpoEditor() const;
     int steeringEndpointDrafts_[2] = {100, 100}; // Left, right; applied together.
     uint8_t steeringEndpointSide_ = 0;
     int8_t steeringEndpointInputSide_ = 0;

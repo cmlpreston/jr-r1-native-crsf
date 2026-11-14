@@ -229,7 +229,7 @@ static void testLiveSteeringSubtrimExemptionIsNarrow() {
     }
     changed=live;changed.channelProfiles[0].subtrimPercent=1;requiresRearm(changed);
     changed=live;changed.channelProfiles[0].reversed=true;requiresRearm(changed);
-    changed=live;changed.channelProfiles[0].positiveExpoPercent=10;requiresRearm(changed);
+    changed=live;changed.channelProfiles[0].positiveRatePercent=90;requiresRearm(changed);
     changed=live;changed.steeringChannel=3;requiresRearm(changed);
     changed=live;changed.throttleChannel=1;requiresRearm(changed);
     changed=live;changed.steeringEnabled=false;requiresRearm(changed);
@@ -278,6 +278,158 @@ static void testLiveSteeringSubtrimCannotBypassFaultsOrPhysicalCut() {
     assert(mailbox.publish(safe.outputs,safe.safety,108,i.resetSequence,c.revision));
     mailbox.outputs().model.resolve(false,sent);
     assert(sent[0]==crsfValueFromPermille(-100)&&sent[1]==CRSF_CHANNEL_MID);
+}
+
+static ControlCycleInput expoChannelInput(uint8_t ch,int16_t value,uint32_t now) {
+    auto i=input(now);
+    if(ch==1)i.steeringAdc=2000+value;
+    else if(ch==2)i.throttleAdc=2000+value;
+    else assert(i.bindings.configure(ch,crsfValueFromPermille(value),CRSF_CHANNEL_MID));
+    return i;
+}
+
+static void testLiveExpoEveryChannelAndBothSides() {
+    for(uint8_t ch=1;ch<=16;++ch)for(bool reversed:{false,true}) {
+        auto c=configuration();c.steeringInput.deadbandAdc=c.throttleInput.deadbandAdc=0;
+        c.proportionalOutputMask|=uint16_t(1U<<(ch-1));
+        auto &p=c.channelProfiles[ch-1];p.reversed=reversed;
+        p.negativeEndpointPercent=60;p.positiveEndpointPercent=80;
+        ControlEngine e;qualify(e,c,10);uint32_t now=1514;
+        for(int side:{-1,1}) {
+            auto &expo=side<0?p.negativeExpoPercent:p.positiveExpoPercent;
+            const auto inactive=side<0?p.positiveExpoPercent:p.negativeExpoPercent;
+            for(int8_t value:{int8_t(-100),int8_t(100),int8_t(0)}) {
+                const auto before=c;expo=value;++c.revision;
+                assert(!controlConfigurationRequiresRearm(before,c));
+                auto r=e.update(c,expoChannelInput(ch,side*500,now+=4));
+                assert(r.safety==OutputSafetyStatus::Armed);
+                // At half input, +/-100 expo gives 87.5%/12.5% before endpoint scaling.
+                const int magnitude=(side<0?600:800)*(value==-100?875:value==100?125:500)/1000;
+                const int expected=magnitude*side*(reversed?-1:1);
+                const int error=permilleFromCrsfValue(r.outputs.requested(ch))-expected;
+                assert(error>=-3&&error<=3); // CRSF round-trip quantisation on AUX base values.
+                r=e.update(c,expoChannelInput(ch,0,now+=4));
+                assert(r.safety==OutputSafetyStatus::Armed&&r.outputs.requested(ch)==CRSF_CHANNEL_MID);
+                for(int endpoint:{-1000,1000}) {
+                    r=e.update(c,expoChannelInput(ch,endpoint,now+=4));
+                    assert(r.safety==OutputSafetyStatus::Armed);
+                    const int fixed=(endpoint<0?-600:800)*(reversed?-1:1);
+                    assert(r.outputs.requested(ch)==crsfValueFromPermille(fixed));
+                }
+                assert((side<0?p.positiveExpoPercent:p.negativeExpoPercent)==inactive);
+            }
+        }
+        // Changing either side while CUT cannot request live output.
+        c.armRequested=false;++c.revision;
+        assert(e.update(c,expoChannelInput(ch,500,now+=4)).safety==OutputSafetyStatus::Cut);
+        p.positiveExpoPercent=75;p.negativeExpoPercent=-75;++c.revision;
+        const auto cut=e.update(c,expoChannelInput(ch,500,now+=4));uint16_t sent[16];
+        cut.outputs.resolve(false,sent);
+        assert(cut.safety==OutputSafetyStatus::Cut&&sent[ch-1]==CRSF_CHANNEL_MID&&sent[1]==CRSF_CHANNEL_MID);
+    }
+}
+
+static void testLiveExpoPropagatesThroughLogicalAndConfiguredMixes() {
+    for(unsigned sourceCase=0;sourceCase<5;++sourceCase)for(bool negative:{false,true}) {
+        auto c=configuration();c.steeringInput.deadbandAdc=c.throttleInput.deadbandAdc=0;
+        const uint8_t sourceChannel=sourceCase<2?1:sourceCase==2?3:2;
+        const uint8_t destination=sourceChannel==2?4:2;
+        auto &m=c.mixing[destination-1];m.includeBase=0;
+        auto &rule=m.rules[0];rule.enabled=1;rule.weight=40;
+        rule.source=sourceCase==1?kMixConfiguredSource:sourceCase==4?kMixConfiguredSource+1:
+            kMixChannelSource+sourceChannel-1;
+        const auto plan=compileConfiguredMixing(c);assert(plan.valid);
+        ControlEngine e;qualify(e,c,10);
+        auto i=expoChannelInput(sourceChannel,negative?-500:500,1514);
+        const auto baseline=e.update(c,i);assert(baseline.safety==OutputSafetyStatus::Armed);
+        const int before=permilleFromCrsfValue(baseline.outputs.requested(destination));
+        assert(negative?before<-190:before>190); // Confirm the rule is active and unsaturated.
+        auto &profile=c.channelProfiles[sourceChannel-1];
+        (negative?profile.negativeExpoPercent:profile.positiveExpoPercent)=100;++c.revision;i.nowMs+=4;
+        const auto changed=e.update(c,i);assert(changed.safety==OutputSafetyStatus::Armed);
+        const int after=permilleFromCrsfValue(changed.outputs.requested(destination));
+        assert(negative?(after<0&&after>before):(after>0&&after<before));
+        assert(after>=-52&&after<=52); // A half-input cubic source contributes approximately 5%.
+        // Expo changes source shaping, not the dependency order/required inputs.
+        const auto afterPlan=compileConfiguredMixing(c);
+        assert(afterPlan.valid&&afterPlan.count==plan.count&&afterPlan.requiredMask==plan.requiredMask);
+        for(unsigned n=0;n<plan.count;++n)assert(afterPlan.order[n]==plan.order[n]);
+    }
+    // A live expo revision must retain an in-progress switched-rate transition.
+    auto c=configuration();c.steeringInput.deadbandAdc=c.throttleInput.deadbandAdc=0;
+    auto &m=c.mixing[1];m.includeBase=0;m.rules[0].enabled=1;
+    m.rules[0].source=kMixConfiguredSource;m.rules[0].weight=100;
+    m.rateEnabled=1;m.lowNegative=m.lowPositive=50;m.highNegative=m.highPositive=100;m.transitionMs=1000;
+    ControlEngine e(ControlSafetyPolicy{80,0,0,50});auto i=input(100);
+    i.digitalInputs.valid=uint64_t(1)<<3;i.digitalInputs.values[3]=0;
+    assert(e.update(c,i).safety==OutputSafetyStatus::Armed);
+    i.nowMs=200;i.steeringAdc=2500;i.digitalInputs.values[3]=1000;
+    auto r=e.update(c,i);assert(r.safety==OutputSafetyStatus::Armed);
+    assert(r.outputs.requested(2)==crsfValueFromPermille(300));
+    c.channelProfiles[0].positiveExpoPercent=100;++c.revision;i.nowMs=300;r=e.update(c,i);
+    assert(r.safety==OutputSafetyStatus::Armed);
+    assert(r.outputs.requested(2)==crsfValueFromPermille(87)); // 12.5% source at the continuing 70% rate.
+}
+
+static void testLiveExpoExemptionRetainsBoundsAndStructuralVetoes() {
+    const auto before=configuration();
+    for(uint8_t ch=1;ch<=16;++ch)for(bool negative:{false,true}) {
+        auto changed=before;
+        auto &value=negative?changed.channelProfiles[ch-1].negativeExpoPercent:changed.channelProfiles[ch-1].positiveExpoPercent;
+        for(int8_t valid:{int8_t(-100),int8_t(100)}) {
+            value=valid;assert(!controlConfigurationRequiresRearm(before,changed));
+        }
+        for(int8_t invalid:{int8_t(-101),int8_t(101)}) {
+            value=invalid;assert(controlConfigurationRequiresRearm(before,changed));
+            auto repaired=changed;
+            (negative?repaired.channelProfiles[ch-1].negativeExpoPercent:repaired.channelProfiles[ch-1].positiveExpoPercent)=0;
+            assert(controlConfigurationRequiresRearm(changed,repaired));
+        }
+    }
+    auto live=before;live.channelProfiles[0].positiveExpoPercent=40;live.channelProfiles[1].negativeExpoPercent=-40;
+    const auto requiresRearm=[&](const ControlConfigurationSnapshot &candidate) {
+        assert(controlConfigurationRequiresRearm(before,candidate));
+        auto c=before;ControlEngine e;qualify(e,c,10);c=candidate;++c.revision;
+        assert(e.update(c,input(1514)).safety!=OutputSafetyStatus::Armed);
+    };
+    auto changed=live;changed.channelProfiles[1].positiveRatePercent=90;requiresRearm(changed);
+    changed=live;changed.channelProfiles[0].negativeRampMs=100;requiresRearm(changed);
+    changed=live;changed.channelProfiles[0].reversed=true;requiresRearm(changed);
+    changed=live;changed.channelProfiles[1].positiveEndpointPercent=80;requiresRearm(changed);
+    changed=live;changed.channelParameters[1].subtrimPermille=10;requiresRearm(changed);
+    changed=live;changed.steeringChannel=3;requiresRearm(changed);
+    changed=live;changed.steeringInput.deadbandAdc+=1;requiresRearm(changed);
+    changed=live;changed.mixing[1].constantPercent=5;requiresRearm(changed);
+}
+
+static void testLiveExpoRetainsFaultStaleAndPhysicalCutVetoes() {
+    for(unsigned fault=0;fault<7;++fault) {
+        auto c=configuration();ControlEngine e;qualify(e,c,10);auto i=input(1514);
+        c.channelProfiles[1].positiveExpoPercent=75;++c.revision;i.throttleAdc=2500;
+        OutputSafetyStatus expected=OutputSafetyStatus::InputFault;
+        if(fault==0)i.steeringAdc=4095;
+        if(fault==1)i.throttleAdc=4095;
+        if(fault==2)i.physicalInputsHealthy=false;
+        if(fault==3){c.modelStorageValid=false;expected=OutputSafetyStatus::ConfigurationFault;}
+        if(fault==4){c.calibrationActive=true;expected=OutputSafetyStatus::Calibration;}
+        if(fault==5){c.escProgramming=true;expected=OutputSafetyStatus::Cut;}
+        if(fault==6){c.throttleEnabled=false;expected=OutputSafetyStatus::ChannelDisabled;}
+        const auto r=e.update(c,i);assert(r.safety==expected);uint16_t sent[16];
+        r.outputs.resolve(false,sent);assert(sent[1]==CRSF_CHANNEL_MID);
+    }
+    auto c=configuration();ControlEngine e;qualify(e,c,10);auto i=input(1514);i.throttleAdc=2500;
+    c.channelProfiles[1].positiveExpoPercent=75;++c.revision;
+    const auto live=e.update(c,i);assert(live.safety==OutputSafetyStatus::Armed);
+    const auto stale=arbitrateOutputSafety(live.safety,false);uint16_t sent[16];
+    live.outputs.resolve(stale.transmitRequested,sent);
+    assert(stale.status==OutputSafetyStatus::ControlStale&&!stale.transmitRequested&&sent[1]==CRSF_CHANNEL_MID);
+    ControlOutputMailbox mailbox;assert(mailbox.acceptConfiguration(c.revision,true));
+    const auto old=mailbox.commands();assert(mailbox.publish(live.outputs,live.safety,100,old.resetSequence,c.revision));
+    mailbox.requestPhysicalCut();c.channelProfiles[1].positiveExpoPercent=-75;++c.revision;i.nowMs+=4;
+    const auto latest=e.update(c,i);assert(latest.safety==OutputSafetyStatus::Armed);
+    assert(!mailbox.publish(latest.outputs,latest.safety,104,old.resetSequence,c.revision));
+    const auto cut=mailbox.commands();assert(!mailbox.acceptConfiguration(c.revision,true,cut.physicalCutSequence));
+    assert(mailbox.outputs().controlSafetyStatus==OutputSafetyStatus::Cut);
 }
 
 static void testBrakeAbsSafety() {
@@ -404,8 +556,12 @@ int main() {
     testLiveSteeringSubtrimDoesNotLeakThroughMixSources();
     testLiveSteeringSubtrimExemptionIsNarrow();
     testLiveSteeringSubtrimCannotBypassFaultsOrPhysicalCut();
+    testLiveExpoEveryChannelAndBothSides();
+    testLiveExpoPropagatesThroughLogicalAndConfiguredMixes();
+    testLiveExpoExemptionRetainsBoundsAndStructuralVetoes();
+    testLiveExpoRetainsFaultStaleAndPhysicalCutVetoes();
     testBrakeAbsSafety();
     testIndependentInputHeartbeat();
     testSafety(); testArmingVetoes(); testStructuralEditsAndLiveTrim(); testResetPublicationOrder(); testMixCompilation();
-    puts("Control engine: input faults, dwell, edits, reset publication, compiled mixes and wrap PASS");
+    puts("Control engine: live expo/subtrim, input faults, dwell, edits, reset publication, compiled mixes and wrap PASS");
 }

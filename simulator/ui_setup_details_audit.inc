@@ -33,8 +33,11 @@ bool TransmitterUi::runSimulatorSetupDetailsAudit()
     drawThrottleResponsePage();shot("curve");assert(throttleGraphMarker_&&throttleGraphLiveLabel_);
     const auto point=throttleCurvePoints_[0];refreshThrottleResponseGraph(500);assert(strstr(lv_label_get_text(throttleGraphLiveLabel_),"IN"));assert(throttleCurvePoints_[0].x==point.x);
     tap(&TransmitterUi::controlResponseTab,1);shot("positive");const int expo=selectedResponseProfile().positiveExpoPercent;
-    armRequested_=true;safetyResetRequested_=false;tap(&TransmitterUi::controlThrottleResponse,3,PageControlEvent::Increase);
-    assert(selectedResponseProfile().positiveExpoPercent==min(100,expo+kResponseExpoStepPercent)&&!armRequested_&&safetyResetRequested_);
+    armRequested_=true;safetyResetRequested_=false;
+    const auto expoCutHandler=safetyCutHandler_;safetyCutHandler_=auditConfigurationCut;const auto expoCuts=auditCutRequests;
+    tap(&TransmitterUi::controlThrottleResponse,3,PageControlEvent::Increase);
+    assert(selectedResponseProfile().positiveExpoPercent==min(100,expo+kResponseExpoStepPercent)&&armRequested_&&!safetyResetRequested_&&auditCutRequests==expoCuts);
+    safetyCutHandler_=expoCutHandler;
     tap(&TransmitterUi::controlResponseTab,2);shot("negative");
     keypadPage(-1);assert(!responseCurveView_&&portraitResponseBank_==0);
     assert(handlePageSwipe(240,150,80,150,300));assert(!responseCurveView_&&portraitResponseBank_==1);

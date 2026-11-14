@@ -216,11 +216,16 @@ mirror supports the same gesture. The expanded widget omits its own title and ex
 | Sensor | Speed, temperature, RPM, RX voltage, LQ, satellites, drive-pack total, lowest cell, FAS voltage or current. Styles depend on the sensor. |
 | Battery cells | Individual reported cells together, plus total, lowest cell and count. Auto or expected 1S–12S; page when needed. |
 | GPS map / trail | Saved map with north indicator, GPS position and trail. Tap for the larger GPS view; source credits are on Data / GPS. |
+| Drive pack / CU01 | Pack voltage, current, consumed mAh and estimated remaining percentage reported by the CU01. Stale or unavailable readings show `--`. |
 | Model image | Active model name and painted vehicle image. Tap to reach model selection. |
 | Empty | Leave the position unused. |
 
 Speed supports a dial and current/max/average readings; it is not calculated from
 throttle position. Tap a sensor for detail/history or power for radio diagnostics.
+Choose **Drive pack** in the widget type selector for the combined CU01 card.
+Its remaining percentage is the sensor's estimate; the R1 does not establish
+the pack's starting charge. A partly charged pack or an incorrect sensor capacity
+setting can make that percentage inaccurate. Used mAh is the sensor's counter.
 
 ### Monitoring controls while CUT
 
@@ -270,7 +275,7 @@ cancel the intended effect.
 | Setting | Effect |
 | --- | --- |
 | Rate | Scales travel/sensitivity for the selected side. |
-| Expo | Shapes response around centre while retaining the selected travel limits. Inspect the curve rather than assuming another radio's sign convention. |
+| Expo | Live response shaping around centre while retaining zero and the selected travel limits. Inspect the curve rather than assuming another radio's sign convention. |
 | Endpoint | Maximum negative/positive travel; steering shows physical left/right values. |
 | Response speed | Slows changes over the configured time in milliseconds. |
 | Direction | Reverses output direction. |
@@ -281,6 +286,10 @@ cancel the intended effect.
 Tune provides quick adjustments and **Channel setup** links to fuller settings.
 Detailed response separates Right/Left, Forward/Brake or Positive/Negative. Trim
 control and Subtrim control entries can select the physical adjuster directly.
+In the Expo editor, **+ / −** and Reset take effect live. **Apply** retains the
+change; **Cancel** or leaving the editor restores the committed response. Opening
+the editor alone leaves an asymmetric saved response unchanged. Return to CUT
+before powering off to save. Expo also affects any mixes using that shaped source.
 After moving a centre or reversing a channel, recheck mechanical travel for binding.
 Steering endpoints can be adjusted live while output is enabled. Open the steering
 Endpoint editor, steer left or right (or tap the side), and use the handset
@@ -288,7 +297,7 @@ Endpoint editor, steer left or right (or tap the side), and use the handset
 keeps both values without forcing CUT; **Cancel** restores the prior travel.
 Return to **CUT after Apply** to save the values to permanent storage before
 powering off. Editing never enables outputs if they were already CUT. Throttle
-endpoints and other structural response edits retain their CUT/re-arm behaviour.
+endpoints and other structural response edits except expo retain CUT/re-arm.
 
 Subtrim is limited by the available travel: neutral cannot move beyond an endpoint.
 If either side has zero travel, its pinned neutral cannot be adjusted independently.

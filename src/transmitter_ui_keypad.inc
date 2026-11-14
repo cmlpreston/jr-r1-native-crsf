@@ -173,6 +173,7 @@ void TransmitterUi::controlKeypadMenu(uint8_t item,PageControlEvent event)
     if(activePage_==UiPage::FieldResetConfirmation){
         if(item==1){editorDraft_=(editorField_==0||editorField_==2)?100:0;
             if(editorField_==2&&tuneRole_==0)steeringEndpointDrafts_[steeringEndpointSide_]=editorDraft_;
+            if(editorField_==1)expoPreviewActive_=true;
         }
         drawDesignPage(UiPage::ValueEditor);return;
     }

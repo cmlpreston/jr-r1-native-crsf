@@ -101,8 +101,17 @@ bool controlConfigurationRequiresRearm(const ControlConfigurationSnapshot &befor
 {
     auto candidate = after;
     candidate.armRequested = before.armRequested;
-    for (size_t n = 0; n < CRSF_CHANNEL_COUNT; ++n)
+    for (size_t n = 0; n < CRSF_CHANNEL_COUNT; ++n) {
         candidate.channelParameters[n].trimPermille = before.channelParameters[n].trimPermille;
+        auto validExpo=[](int value){return value>=CHANNEL_RESPONSE_MIN_EXPO_PERCENT&&
+            value<=CHANNEL_RESPONSE_MAX_EXPO_PERCENT;};
+        auto &profile=candidate.channelProfiles[n];
+        const auto &previous=before.channelProfiles[n];
+        if(validExpo(profile.negativeExpoPercent)&&validExpo(previous.negativeExpoPercent))
+            profile.negativeExpoPercent=previous.negativeExpoPercent;
+        if(validExpo(profile.positiveExpoPercent)&&validExpo(previous.positiveExpoPercent))
+            profile.positiveExpoPercent=previous.positiveExpoPercent;
+    }
     // Mechanical steering travel and centre are deliberately adjustable live.
     // Logical mixer sources omit endpoints and parameter subtrim, so these
     // adjustments cannot change throttle or another destination through a mix.

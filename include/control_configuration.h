@@ -63,8 +63,8 @@ struct ControlConfigurationSnapshot {
 // Revision is publication metadata, not configuration identity.
 bool equivalentControlConfiguration(const ControlConfigurationSnapshot &left,
                                     const ControlConfigurationSnapshot &right);
-// Live trim, mechanical steering endpoints and steering parameter subtrim are
-// deliberate. Other structural response/input/role/mix edits require CUT.
+// Live trim/expo, mechanical steering endpoints and steering parameter subtrim
+// are deliberate. Other structural response/input/role/mix edits require CUT.
 bool controlConfigurationRequiresRearm(const ControlConfigurationSnapshot &before,
                                       const ControlConfigurationSnapshot &after);
 

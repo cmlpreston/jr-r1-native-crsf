@@ -1,4 +1,5 @@
 #include "dashboard_widgets.h"
+#include "drive_pack_widget.h"
 #include <cassert>
 #include <cstdio>
 #include <initializer_list>
@@ -10,9 +11,10 @@ int main()
     const uint8_t retired[]={9,2,2,1,0,1};
     assert(dashboardWidgetFromV2(0,retired).kind==DashboardWidgetKind::Empty);
     assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryCells,1)==DashboardWidgetKind::Controls);
-    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::RfMargin);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::DrivePack);
     static_assert(int(DashboardWidgetKind::Controls)==10,"Append widget IDs without changing saved layouts");
-    for(auto kind:{DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin}){
+    static_assert(int(DashboardWidgetKind::RfMargin)==12&&int(DashboardWidgetKind::DrivePack)==13,"Append CU01 widget without renumbering saved IDs");
+    for(auto kind:{DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin,DashboardWidgetKind::DrivePack}){
         DashboardWidget w;w.kind=kind;w.style=DashboardWidgetStyle::Graph;
         assert(dashboardWidgetKindAvailable(kind));
         assert(sanitizedDashboardWidget(0,w).kind==kind);
@@ -140,5 +142,39 @@ int main()
         for(uint8_t count=0;count<=12;++count){cells.source=count;assert(sanitizedDashboardWidget(0,cells).source==count);}
         cells.source=13;assert(sanitizedDashboardWidget(0,cells).source==0);
     }
+    // The combined CU01 card keeps the same layout bytes and every supported span.
+    for(uint8_t width:{1,2})for(uint8_t height:{1,2}){
+        DashboardWidget pack;pack.kind=DashboardWidgetKind::DrivePack;pack.width=width;pack.height=height;
+        const auto sanitized=sanitizedDashboardWidget(0,pack);
+        assert(sanitized.kind==pack.kind&&sanitized.width==width&&sanitized.height==height);
+    }
+    const auto unchangedDefault=defaultDashboardLayout();
+    assert(unchangedDefault.cells[0].kind==DashboardWidgetKind::Timer);
+    assert(unchangedDefault.cells[2].kind==DashboardWidgetKind::Power);
+    struct Cu01Sample {
+        bool ersBatteryValid=false,ersRemainingValid=false;
+        uint16_t ersVoltageDeciV=164,ersCurrentDeciA=123;
+        uint32_t ersCapacityMah=1234,ersBatteryUpdatedMs=100;
+        uint8_t ersRemainingPercent=75;
+        bool receiverVoltageValid=true,vehicleCellsValid=true;
+        uint16_t receiverVoltageDecivolts=62,vehiclePackMv=15400;
+    }t;
+    auto reading=drivePackWidgetReading(t,100);
+    assert(!reading.fresh&&!reading.remainingValid); // Other supplies never fill missing CU01 data.
+    t.ersBatteryValid=true;t.ersRemainingValid=true;
+    reading=drivePackWidgetReading(t,3100);
+    assert(reading.fresh&&reading.voltageDeciV==164&&reading.currentDeciA==123&&reading.usedMah==1234);
+    assert(reading.remainingValid&&reading.remainingPercent==75);
+    reading=drivePackWidgetReading(t,3101);assert(!reading.fresh&&!reading.remainingValid);
+    t.ersBatteryUpdatedMs=0xfffffff0U;
+    reading=drivePackWidgetReading(t,0x10);assert(reading.fresh&&reading.remainingValid);
+    assert(drivePackWidgetReading(t,t.ersBatteryUpdatedMs+3000).fresh);
+    assert(!drivePackWidgetReading(t,t.ersBatteryUpdatedMs+3001).fresh);
+    for(uint8_t percent:{0,100,101,255}){
+        t.ersRemainingPercent=percent;
+        assert(drivePackWidgetReading(t,0x10).remainingValid==(percent<=100));
+    }
+    t.ersRemainingValid=false;t.ersRemainingPercent=75;
+    assert(!drivePackWidgetReading(t,0x10).remainingValid);
     puts("dashboard_widgets_test: PASS");
 }

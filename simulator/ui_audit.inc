@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <vector>
+#include "control_engine.h"
 static uint64_t auditRedrawnPixels = 0;
 static unsigned auditCutRequests = 0;
 static void auditConfigurationCut() { ++auditCutRequests; }
@@ -25,6 +26,15 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_DRIVE_PACK_WIDGET_AUDIT_ONLY")){
+#include "ui_drive_pack_widget_audit.inc"
+    }
+    if(getenv("JR_R1_LIVE_EXPO_AUDIT_ONLY")){
+#include "ui_live_expo_audit.inc"
+    }
+    if(getenv("JR_R1_FEEDBACK_OVERLAY_AUDIT_ONLY")){
+#include "ui_feedback_overlay_audit.inc"
+    }
     if(getenv("JR_R1_MAP_COVER_AUDIT_ONLY")){
 #include "ui_map_cover_audit.inc"
     }
@@ -998,7 +1008,8 @@ bool TransmitterUi::runSimulatorUiAudit()
         updateDriveHoldFeedback(2000);assert(driveHoldOverlay_&&lv_bar_get_value(driveHoldBar_)==0);
         updateDriveHoldFeedback(2400);lv_obj_update_layout(lv_scr_act());
         assert(driveHoldOverlay_&&!lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN));
-        assert(lv_obj_get_width(driveHoldOverlay_)==kScreenWidth-20&&lv_bar_get_value(driveHoldBar_)==400);
+        assert(lv_obj_get_width(driveHoldOverlay_)==kScreenWidth-48&&lv_bar_get_value(driveHoldBar_)==400);
+        assert(lv_obj_get_height(driveHoldOverlay_)==112&&lv_obj_get_y(driveHoldOverlay_)==(kScreenHeight-112)/2);
         assert(strstr(lv_label_get_text(driveHoldLabel_),"Keep holding"));
         if(const char *prefix=getenv("JR_R1_DRIVE_HOLD_IMAGES")){
             lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
@@ -2412,7 +2423,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(lv_obj_get_x(widgetViews_[cell].panel)==10&&lv_obj_get_y(widgetViews_[cell].panel)==48);
         assert(lv_obj_get_width(widgetViews_[cell].panel)==kScreenWidth-20);
         assert(lv_obj_get_height(widgetViews_[cell].panel)==designFooterY-54);
-        assert(lv_obj_has_flag(widgetViews_[cell].title,LV_OBJ_FLAG_HIDDEN));
+        assert(lv_obj_has_flag(widgetViews_[cell].title,LV_OBJ_FLAG_HIDDEN)==(widget.kind!=DashboardWidgetKind::DrivePack));
         for(int other=0;other<4;++other)if(other!=cell)assert(!widgetViews_[other].panel);
         assert(!memcmp(&saved,&dashboardLayouts_[activeModelSlot_],sizeof(saved)));
         if(widget.kind==DashboardWidgetKind::AllChannels){
@@ -2717,12 +2728,22 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     const auto savedHandler = safetyCutHandler_;
     safetyCutHandler_ = auditConfigurationCut;
     selectedChannel_ = throttleChannel(); tuneRole_ = 1;
-    for (uint8_t field : {0,1,2,3,4,7}) {
+    for (uint8_t field : {0,2,3,4,7}) {
         editorField_ = field; armRequested_ = true; safetyResetRequested_ = false;
         const auto count = auditCutRequests;
         applyDesignValue(designValue());
         assert(!armRequested_ && safetyResetRequested_ && auditCutRequests == count+1);
     }
+    armRequested_=true;safetyResetRequested_=false;
+    openDesignEditor(1,UiPage::Tune);
+    const auto expoCuts=auditCutRequests;const auto expoOriginal=profileForChannel(selectedChannel_);
+    controlDesign(editorDraft_>=95?30:31,PageControlEvent::Activate);
+    const int appliedExpo=editorDraft_;
+    assert(controlConfigurationSnapshot().channelProfiles[selectedChannel_-1].positiveExpoPercent==appliedExpo);
+    assert(profileForChannel(selectedChannel_).positiveExpoPercent==expoOriginal.positiveExpoPercent);
+    controlDesign(35,PageControlEvent::Activate);
+    assert(armRequested_&&!safetyResetRequested_&&auditCutRequests==expoCuts);
+    assert(profileForChannel(selectedChannel_).positiveExpoPercent==appliedExpo);
     armRequested_ = true; safetyResetRequested_ = false;
     const auto oldTrim = channelModel_.parameters[selectedChannel_-1].trimPermille;
     assert(applyChannelParameterAction(encodeChannelParameterTarget(selectedChannel_,ChannelParameterKind::Trim),oldTrim == 10 ? 20 : 10));

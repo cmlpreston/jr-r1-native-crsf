@@ -556,6 +556,8 @@ lv_obj_t *makeBar(lv_obj_t *parent, int16_t x, int16_t y, int16_t width,
     return bar;
 }
 
+#include "transmitter_ui_feedback.inc"
+
 lv_obj_t *makeMarkerTrack(lv_obj_t *parent, int16_t x, int16_t y,
                           int16_t width, int16_t height,
                           uint32_t markerColour, lv_obj_t **markerOut)
@@ -1443,9 +1445,9 @@ void TransmitterUi::saveSettings()
     if (settingsSavePending_) settingsSaveDueMs_ = millis() + 1000;
 }
 
-void TransmitterUi::scheduleSettingsSave()
+void TransmitterUi::scheduleSettingsSave(bool requireCut)
 {
-    requestConfigurationCut();
+    if(requireCut)requestConfigurationCut();
     settingsSavePending_ = true;
     settingsSaveDueMs_ = millis() + kSettingsSaveDelayMs;
 }
@@ -2626,6 +2628,11 @@ ControlConfigurationSnapshot TransmitterUi::controlConfigurationSnapshot() const
         setChannelEndpointForOutput(profile, false, steeringEndpointDrafts_[0]);
         setChannelEndpointForOutput(profile, true, steeringEndpointDrafts_[1]);
     }
+    if(liveExpoEditor()&&expoPreviewActive_){
+        auto &profile=snapshot.channelProfiles[selectedChannel_-1];
+        if(tuneRole_!=2&&tuneRole_!=4)profile.positiveExpoPercent=editorDraft_;
+        if(tuneRole_==0||tuneRole_==2||tuneRole_==4)profile.negativeExpoPercent=editorDraft_;
+    }
     snapshot.armRequested = (!moduleLinkManaged_ || moduleLink_.enabled()) && !hardwareRecovery_ && !rfBenchMode_ && !escProgrammer_.blocksArm() && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_ && !SetupPortal::active() && !SetupPortal::firmwareUpdating();
     snapshot.calibrationActive = calibrationActive() ||
         activePage_ == UiPage::ElrsTxConfig;
@@ -3450,7 +3457,7 @@ bool TransmitterUi::adjustPageFocus(int8_t direction)
 {
     // In the endpoint editor the handset +/- keys always edit the selected
     // side, even when focus is on a side selector, Apply or Cancel.
-    if (steeringEndpointEditor()) {
+    if (steeringEndpointEditor() || liveExpoEditor()) {
         controlDesign(direction < 0 ? 30 : 31, PageControlEvent::Activate);
         return true;
     }
@@ -3841,7 +3848,7 @@ void TransmitterUi::controlThrottleResponse(uint8_t row,PageControlEvent event)
         const int value = profile.negativeExpoPercent + direction * kResponseExpoStepPercent;
         profile.negativeExpoPercent = constrain(value, -100, 100); changed = true;
     }
-    if (changed) { channelModel_.setResponse(selectedChannel_,profile); scheduleSettingsSave(); playKeyClick(); drawThrottleResponsePage(); }
+    if (changed) { channelModel_.setResponse(selectedChannel_,profile); scheduleSettingsSave(row!=3&&row!=6); playKeyClick(); drawThrottleResponsePage(); }
 }
 
 void TransmitterUi::controlChannelSpeed(uint8_t row,PageControlEvent event)
@@ -5580,45 +5587,39 @@ void TransmitterUi::updateChannelAdjustment(uint32_t now)
     if(adjustmentOverlay_)return;
     const uint8_t channel=adjustmentChannel_;
     const bool steering=channel==steeringChannel();
-    const int width=kScreenWidth-48,rail=width-36;
-    adjustmentOverlay_=makePanel(24,(kScreenHeight-112)/2,width,112,cPanel2,cCyan);
-    auto panel=adjustmentOverlay_;
     char title[48];snprintf(title,sizeof(title),"%s %s",steering?"Steering":"Throttle",
         adjustmentKind_==ChannelParameterKind::Trim?"trim":"subtrim");
-    makeLabel(panel,title,12,6,UiText::Secondary,cWhite);
     char value[24];snprintf(value,sizeof(value),"%+.1f%%",channelParameterValue(channel,adjustmentKind_)/10.0);
-    auto number=makeLabel(panel,value,width-80,6,UiText::Secondary,cCyan);
-    lv_obj_set_width(number,68);lv_obj_set_style_text_align(number,LV_TEXT_ALIGN_RIGHT,0);
     const bool cutSubtrim = adjustmentKind_ == ChannelParameterKind::Subtrim &&
         (!steering || channel == throttleChannel() || !steeringEnabled());
-    makeLabel(panel,cutSubtrim?"Response before mixes; CUT requested":"Response before mixes",12,29,UiText::Caption,cDim);
+    const auto feedback=LiveFeedback::create(title,value,
+        cutSubtrim?"Response before mixes; CUT requested":"Response before mixes");
+    adjustmentOverlay_=feedback.object;
+    auto panel=feedback.object;
+    const int width=feedback.width,rail=width-2*LiveFeedback::RailInset;
     makeLabel(panel,"-100%",12,46,UiText::Caption,cDim);
     auto right=makeLabel(panel,"+100%",width-60,46,UiText::Caption,cDim);
     lv_obj_set_width(right,48);lv_obj_set_style_text_align(right,LV_TEXT_ALIGN_RIGHT,0);
     auto rect=[&](int x,int y,int w,int h,uint32_t color){
         auto object=makePanel(0,0,w,h,color,color,0);lv_obj_set_parent(object,panel);lv_obj_set_pos(object,x,y);return object;
     };
-    rect(18,70,rail,2,cLine);rect(18+rail/2,63,1,16,cDim);
+    rect(LiveFeedback::RailInset,LiveFeedback::RailY,rail,2,cLine);
+    rect(LiveFeedback::RailInset+rail/2,63,1,16,cDim);
     // Use the same settled proportional response as the control pipeline.
     // This is a response diagram, independent of mixer rules and sent/CUT output.
     const auto configuration=controlConfigurationSnapshot();ChannelSlewRuntime slew;
     int values[3];
     for(unsigned n=0;n<3;++n)values[n]=processConfiguredProportionalChannel(
         configuration,channel,int(n)*1000-1000,0,slew,0,false).requestedPermille;
-    auto x=[&](int v){return 18+(constrain(v,-1000,1000)+1000)*rail/2000;};
+    auto x=[&](int v){return LiveFeedback::RailInset+(constrain(v,-1000,1000)+1000)*rail/2000;};
     const int left=min(x(values[0]),x(values[2])),rightX=max(x(values[0]),x(values[2]));
     rect(left,69,max(1,rightX-left),4,cCyan);
     rect(x(values[0])-1,65,2,12,cCyan);rect(x(values[2])-1,65,2,12,cCyan);
     rect(x(values[1])-2,62,4,18,cAmber);
     char detail[80];snprintf(detail,sizeof(detail),"%s %+.1f%%   N %+.1f%%   %s %+.1f%%",
         steering?"L":"B",values[0]/10.0,values[1]/10.0,steering?"R":"F",values[2]/10.0);
-    auto label=makeLabel(panel,detail,12,88,UiText::Caption,cWhite);
-    lv_obj_set_width(label,width-24);lv_label_set_long_mode(label,LV_LABEL_LONG_CLIP);
-    // The transient display never consumes touch or joins keyboard focus.
-    lv_obj_clear_flag(panel,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
-    for(uint32_t n=0;n<lv_obj_get_child_cnt(panel);++n)
-        lv_obj_clear_flag(lv_obj_get_child(panel,n),LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_move_foreground(panel);
+    LiveFeedback::detail(feedback,detail);
+    LiveFeedback::finish(feedback);
 }
 
 void TransmitterUi::updateDriveHoldFeedback(uint32_t now)
@@ -5634,15 +5635,12 @@ void TransmitterUi::updateDriveHoldFeedback(uint32_t now)
         return;
     }
     if(!driveHoldOverlay_){
-        const int y=kScreenHeight-(portraitUi?60:40)-60;
-        driveHoldOverlay_=makePanel(10,y,kScreenWidth-20,50,cPanel2,cLine);
-        lv_obj_clear_flag(driveHoldOverlay_,LV_OBJ_FLAG_CLICKABLE);
-        driveHoldLabel_=makeLabel(driveHoldOverlay_,"",10,6,UiText::Secondary,cWhite);
-        lv_obj_set_width(driveHoldLabel_,kScreenWidth-40);
-        lv_obj_set_style_text_align(driveHoldLabel_,LV_TEXT_ALIGN_CENTER,0);
-        driveHoldBar_=makeBar(driveHoldOverlay_,10,33,kScreenWidth-40,8,0,kDashboardArmHoldMs);
-        lv_obj_clear_flag(driveHoldLabel_,LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_clear_flag(driveHoldBar_,LV_OBJ_FLAG_CLICKABLE);
+        const auto feedback=LiveFeedback::create("Output control",nullptr,"");
+        driveHoldOverlay_=feedback.object;driveHoldLabel_=feedback.caption;
+        driveHoldBar_=makeBar(feedback.object,LiveFeedback::RailInset,LiveFeedback::RailY-4,
+            feedback.width-2*LiveFeedback::RailInset,8,0,kDashboardArmHoldMs);
+        LiveFeedback::detail(feedback,"Complete the hold, then release");
+        LiveFeedback::finish(feedback);
     }
     const uint32_t progressElapsed=elapsed-delay;
     const bool complete=progressElapsed>=kDashboardArmHoldMs;
@@ -5661,8 +5659,12 @@ void TransmitterUi::updateDriveHoldFeedback(uint32_t now)
     if(lv_bar_get_value(driveHoldBar_)!=progress)lv_bar_set_value(driveHoldBar_,progress,LV_ANIM_OFF);
     if(lv_obj_has_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN)){
         lv_obj_clear_flag(driveHoldOverlay_,LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(driveHoldOverlay_);
     }
+    // Active safety feedback stays above a newly shown trim panel. Avoid a
+    // no-op foreground move, which can invalidate unchanged overlay pixels.
+    auto parent=lv_obj_get_parent(driveHoldOverlay_);
+    if(lv_obj_get_child_id(driveHoldOverlay_)+1<lv_obj_get_child_cnt(parent))
+        lv_obj_move_foreground(driveHoldOverlay_);
 }
 
 void TransmitterUi::updateTouch()

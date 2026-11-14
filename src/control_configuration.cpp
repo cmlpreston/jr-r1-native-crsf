@@ -102,6 +102,22 @@ bool controlConfigurationRequiresRearm(const ControlConfigurationSnapshot &befor
     candidate.armRequested = before.armRequested;
     for (size_t n = 0; n < CRSF_CHANNEL_COUNT; ++n)
         candidate.channelParameters[n].trimPermille = before.channelParameters[n].trimPermille;
+    // Mechanical steering travel is deliberately adjustable live. Mixer channel
+    // sources discard mechanical endpoints, so this cannot change throttle or
+    // another destination. All other profile/role/input edits still require CUT.
+    const uint8_t steering = before.steeringChannel;
+    if (validChannel(steering) && steering == after.steeringChannel &&
+        steering != before.throttleChannel && steering != after.throttleChannel &&
+        before.steeringEnabled && after.steeringEnabled) {
+        auto &p = candidate.channelProfiles[steering - 1];
+        if (p.negativeEndpointPercent >= CHANNEL_RESPONSE_MIN_ENDPOINT_PERCENT &&
+            p.negativeEndpointPercent <= CHANNEL_RESPONSE_MAX_ENDPOINT_PERCENT &&
+            p.positiveEndpointPercent >= CHANNEL_RESPONSE_MIN_ENDPOINT_PERCENT &&
+            p.positiveEndpointPercent <= CHANNEL_RESPONSE_MAX_ENDPOINT_PERCENT) {
+            p.negativeEndpointPercent = before.channelProfiles[steering - 1].negativeEndpointPercent;
+            p.positiveEndpointPercent = before.channelProfiles[steering - 1].positiveEndpointPercent;
+        }
+    }
     return !equivalentControlConfiguration(before, candidate);
 }
 

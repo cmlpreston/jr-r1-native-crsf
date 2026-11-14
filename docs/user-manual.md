@@ -282,6 +282,14 @@ Tune provides quick adjustments and **Channel setup** links to fuller settings.
 Detailed response separates Right/Left, Forward/Brake or Positive/Negative. Trim
 control and Subtrim control entries can select the physical adjuster directly.
 After moving a centre or reversing a channel, recheck mechanical travel for binding.
+Steering endpoints can be adjusted live while output is enabled. Open the steering
+Endpoint editor, steer left or right (or tap the side), and use the handset
+**+ / −** keys to change that side immediately. Reversal is respected. **Apply**
+keeps both values without forcing CUT; **Cancel** restores the prior travel.
+Return to **CUT after Apply** to save the values to permanent storage before
+powering off. Editing never enables outputs if they were already CUT. Throttle
+endpoints and other structural response edits retain their CUT/re-arm behaviour.
+
 Subtrim is limited by the available travel: neutral cannot move beyond an endpoint.
 If either side has zero travel, its pinned neutral cannot be adjusted independently.
 Subtrim changes request CUT; ordinary trim remains a live adjustment.

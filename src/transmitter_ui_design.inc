@@ -183,7 +183,12 @@ void TransmitterUi::applyDesignValue(int value)
         setChannelEndpointForOutput(p, false, steeringEndpointDrafts_[0]);
         setChannelEndpointForOutput(p, true, steeringEndpointDrafts_[1]);
         channelModel_.setResponse(selectedChannel_, p);
-        scheduleSettingsSave();
+        if (selectedChannel_ == steeringChannel()) {
+            // Commit the live preview without re-arming or blocking on flash.
+            // Storage is deferred until the existing acknowledged-CUT save path.
+            settingsSavePending_ = true;
+            settingsSaveDueMs_ = millis() + kSettingsSaveDelayMs;
+        } else scheduleSettingsSave();
         return;
     }
     // Other steering edits remain symmetric; throttle and brake are independent.
@@ -224,7 +229,8 @@ void TransmitterUi::openDesignEditor(uint8_t field, UiPage returnPage)
 
 bool TransmitterUi::steeringEndpointEditor() const
 {
-    return activePage_ == UiPage::ValueEditor && editorField_ == 2 && tuneRole_ == 0;
+    return activePage_ == UiPage::ValueEditor && editorField_ == 2 && tuneRole_ == 0 &&
+           selectedChannel_ == steeringChannel();
 }
 
 void TransmitterUi::selectSteeringEndpoint(uint8_t side)
@@ -645,7 +651,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         const int y=designPortrait ? 302 : 204, w=(kScreenWidth-44)/4;
         button(10,y,w,38,"-",30); editorStepButton_=button(18+w,y,w,38,editorFine_ ? "Fine" : "Coarse",32);
         button(26+w*2,y,w,38,"+",31); button(34+w*3,y,w,38,"Reset",33);
-        boundedLabel(label(editorField_==7?"Response offset is separate from channel trim / subtrim.":steeringEndpoints?"Apply puts outputs in CUT; re-arm in Drive to test":"Changes take effect only after Apply",12,designPortrait ? 352 : 249,UiText::Caption,cDim),kScreenWidth-24);
+        boundedLabel(label(editorField_==7?"Response offset is separate from channel trim / subtrim.":steeringEndpoints?"Live. Apply keeps; saved in CUT. Cancel restores.":"Changes take effect only after Apply",12,designPortrait ? 352 : 249,UiText::Caption,cDim),kScreenWidth-24);
         button(10,designFooterY,kScreenWidth/2-15,36,"Cancel",34);
         button(kScreenWidth/2+5,designFooterY,kScreenWidth/2-15,36,"Apply",35,true);
     } else if (data) {

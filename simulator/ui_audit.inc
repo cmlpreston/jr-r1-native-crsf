@@ -1401,7 +1401,8 @@ bool TransmitterUi::runSimulatorUiAudit()
         // Exercise the actual touch dispatch, not just the draft setter.
         assert(dispatchPageControlTouch(20,designPortrait?312:214));
         assert(editorDraft_==80);
-        assert(channelEndpointForOutput(steering,false)==81); // still a draft
+        assert(channelEndpointForOutput(steering,false)==81); // storage model is still a draft
+        assert(channelEndpointForOutput(controlConfigurationSnapshot().channelProfiles[selectedChannel_-1],false)==80); // RF preview is live
         latestSteeringRawAdc_=reversed?steeringInput_.calibration().minimum:steeringInput_.calibration().maximum;
         updateSteeringEndpointSelection();assert(steeringEndpointSide_==1 && editorDraft_==93);
         adjustPageFocus(1);assert(editorDraft_==94 && steeringEndpointDrafts_[0]==80);
@@ -1417,8 +1418,10 @@ bool TransmitterUi::runSimulatorUiAudit()
         latestSteeringRawAdc_=reversed?steeringInput_.calibration().minimum:steeringInput_.calibration().maximum;
         updateSteeringEndpointSelection();assert(steeringEndpointSide_==1 && editorDraft_==94);
         latestSteeringRawAdc_=65535;updateSteeringEndpointSelection();assert(steeringEndpointSide_==1);
+        armRequested_=true;safetyResetRequested_=false;const auto endpointCuts=auditCutRequests;
         assert(dispatchPageControlTouch(kScreenWidth-30,designFooterY+10)); // Apply
-        assert(activePage_==UiPage::Tune && !armRequested_);
+        assert(activePage_==UiPage::Tune && armRequested_ && !safetyResetRequested_ && auditCutRequests==endpointCuts);
+        armRequested_=false;
         assert(channelEndpointForOutput(steering,false)==80 && channelEndpointForOutput(steering,true)==94);
         saveSettings();loadSettings();
         assert(channelEndpointForOutput(steering,false)==80 && channelEndpointForOutput(steering,true)==94);
@@ -1437,6 +1440,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         openDesignEditor(2,UiPage::Tune);controlDesign(150,activate);controlDesign(33,activate);
         assert(steeringEndpointDrafts_[0]==100 && steeringEndpointDrafts_[1]==94);
         controlDesign(34,activate);assert(channelEndpointForOutput(steering,false)==80);
+        assert(channelEndpointForOutput(controlConfigurationSnapshot().channelProfiles[selectedChannel_-1],false)==80);
         openDesignEditor(2,UiPage::Tune);controlDesign(150,activate);
         for(int i=0;i<70;++i)adjustPageFocus(-1);
         assert(editorDraft_==50 && steeringEndpointDrafts_[1]==94);
@@ -1446,7 +1450,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(channelEndpointForOutput(steering,false)==80 && channelEndpointForOutput(steering,true)==94);
     }
     steering=steeringOriginal;saveSettings();
-    Serial.println("Steering endpoints: reversed sides, real touch Apply, CRSF output, persistence, cancel and partial redraw PASS");
+    Serial.println("Steering endpoints: live preview, armed Apply, reversed sides, CRSF output, persistence, cancel and partial redraw PASS");
     // Throttle and brake retain their existing independent endpoint edits.
     tuneRole_=1;selectedChannel_=channelRoleSettings_.throttleChannel;
     openDesignEditor(2,UiPage::Tune);editorDraft_=75;controlDesign(35,activate);

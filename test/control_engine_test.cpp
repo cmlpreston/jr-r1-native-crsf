@@ -84,6 +84,49 @@ static void testAppliedSteeringEndpointReachesOutputAfterRearm() {
     }
 }
 
+static void testLiveSteeringEndpoints() {
+    for (bool reversed : {false, true}) {
+        auto c=configuration();c.channelProfiles[0].reversed=reversed;
+        ControlEngine e;qualify(e,c,10);
+        auto turn=input(1514);turn.steeringAdc=reversed?3000:1000;
+        auto before=c;
+        setChannelEndpointForOutput(c.channelProfiles[0],false,60);++c.revision;
+        assert(!controlConfigurationRequiresRearm(before,c));
+        auto r=e.update(c,turn);
+        assert(r.safety==OutputSafetyStatus::Armed);
+        uint16_t sent[16];r.outputs.resolve(true,sent);
+        assert(sent[0]==crsfValueFromPermille(-600)&&sent[1]==CRSF_CHANNEL_MID);
+        // Cancellation restores travel live; CUT never becomes enabled by edits.
+        c.channelProfiles[0]=before.channelProfiles[0];++c.revision;turn.nowMs+=4;
+        r=e.update(c,turn);assert(r.safety==OutputSafetyStatus::Armed);
+        assert(r.outputs.requested(1)==crsfValueFromPermille(-1000));
+        c.armRequested=false;++c.revision;turn.nowMs+=4;
+        r=e.update(c,turn);assert(r.safety==OutputSafetyStatus::Cut);
+        setChannelEndpointForOutput(c.channelProfiles[0],false,70);++c.revision;turn.nowMs+=4;
+        r=e.update(c,turn);r.outputs.resolve(false,sent);
+        assert(r.safety==OutputSafetyStatus::Cut&&sent[0]==CRSF_CHANNEL_MID&&sent[1]==CRSF_CHANNEL_MID);
+        before=c;c.channelProfiles[1].positiveEndpointPercent=70;
+        assert(controlConfigurationRequiresRearm(before,c));
+        c=before;c.channelProfiles[0].reversed=!reversed;
+        assert(controlConfigurationRequiresRearm(before,c));
+        c=before;c.channelProfiles[0].positiveEndpointPercent=101;
+        assert(controlConfigurationRequiresRearm(before,c));
+    }
+    // Logical channel and configured-role mix sources ignore mechanical travel.
+    for (uint8_t source : {uint8_t(kMixChannelSource),uint8_t(kMixConfiguredSource)}) {
+        auto c=configuration();c.mixing[1].rules[0].enabled=1;
+        c.mixing[1].rules[0].source=source;c.mixing[1].rules[0].weight=20;
+        ControlEngine e;qualify(e,c,10);auto i=input(1514);i.steeringAdc=3000;
+        auto a=e.update(c,i);const auto throttle=a.outputs.requested(2);
+        c.channelProfiles[0].positiveEndpointPercent=55;++c.revision;i.nowMs+=4;
+        auto b=e.update(c,i);
+        assert(b.safety==OutputSafetyStatus::Armed&&b.outputs.requested(2)==throttle);
+        assert(b.outputs.requested(1)==crsfValueFromPermille(550));
+        i.steeringAdc=4095;i.nowMs+=4;
+        assert(e.update(c,i).safety==OutputSafetyStatus::InputFault);
+    }
+}
+
 static void testArmingVetoes() {
     auto c = configuration(); ControlEngine e;
     auto i = input(0); i.startupComplete = false;
@@ -169,6 +212,7 @@ static void testEscSelectionSurvivesCutAndVetoesEveryArmRequest() {
 int main() {
     testEscSelectionSurvivesCutAndVetoesEveryArmRequest();
     testAppliedSteeringEndpointReachesOutputAfterRearm();
+    testLiveSteeringEndpoints();
     testSafety(); testArmingVetoes(); testStructuralEditsAndLiveTrim(); testResetPublicationOrder(); testMixCompilation();
     puts("Control engine: input faults, dwell, edits, reset publication, compiled mixes and wrap PASS");
 }

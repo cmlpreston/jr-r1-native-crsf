@@ -2553,6 +2553,11 @@ ControlConfigurationSnapshot TransmitterUi::controlConfigurationSnapshot() const
     snapshot.throttleChannel = channelRoleSettings_.throttleChannel;
     snapshot.steeringEnabled = channelRoleSettings_.steeringEnabled;
     snapshot.throttleEnabled = channelRoleSettings_.throttleEnabled;
+    if (steeringEndpointEditor()) {
+        auto &profile = snapshot.channelProfiles[selectedChannel_ - 1];
+        setChannelEndpointForOutput(profile, false, steeringEndpointDrafts_[0]);
+        setChannelEndpointForOutput(profile, true, steeringEndpointDrafts_[1]);
+    }
     snapshot.armRequested = (!moduleLinkManaged_ || moduleLink_.enabled()) && !hardwareRecovery_ && !rfBenchMode_ && !escProgrammer_.blocksArm() && bootPinUnlocked_ && pinPurpose_ == PinPurpose::None && armRequested_ && !SetupPortal::active() && !SetupPortal::firmwareUpdating();
     snapshot.calibrationActive = calibrationActive() ||
         activePage_ == UiPage::ElrsTxConfig;

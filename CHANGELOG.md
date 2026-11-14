@@ -1,5 +1,20 @@
 # R-1 EVO change record
 
+## 14 November 2026 — live steering endpoints
+
+- Installed through guarded XIAO landscape upload; complete tests/UI audit passed
+  and uploaded firmware hash verified. Physical servo validation remains.
+
+- Preview steering endpoint drafts through the shared control snapshot, so wheel
+  position and keypad +/- adjust actual travel immediately while enabled.
+- Keep Apply live, restore previous travel on Cancel, and save after CUT.
+- Exempt only valid mechanical steering endpoint changes from structural re-arm;
+  retain throttle, direction, input, mixing, ESC and fault interlocks.
+- Add production-engine checks for reversed travel, CUT, input faults and
+  unchanged throttle through logical-channel/configured-steering mixes.
+- The reported red lock disappeared after Ranger power-off. Its exact fault
+  reason was not captured and is not claimed diagnosed or fixed.
+
 ## 14 November 2026 — ESC programming workflow
 
 - User validated the installed Program / power cycle / Read ESC / Drive /

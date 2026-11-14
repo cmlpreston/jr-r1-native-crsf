@@ -8,9 +8,11 @@
 - Keep other structural edits and fault/CUT protections. Expo intentionally
   propagates through shaped mixer sources; zero and endpoints are retained.
 - Harmonize trim/subtrim and hold-to-enable/CUT feedback using a shared centred
-  panel, preserving hold timing and touch/arming guards. Candidate not yet flashed.
+  panel, preserving hold timing and touch/arming guards.
 - Add a combined CU01 drive-pack widget for volts, amps, used mAh and estimated
   sensor-reported remaining percentage, with unavailable/stale states.
+- Installed source `488d94b` through the approved XIAO landscape workflow;
+  complete tests/UI checks and device hash verification passed.
 
 ## 14 November 2026 — GPS widget credit strip
 

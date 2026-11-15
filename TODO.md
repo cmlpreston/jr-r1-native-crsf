@@ -307,8 +307,13 @@ per-model RAM histories for the current power session. Hardware validation remai
 - [x] Verify blue mode after v1.9:198 GPS and186 valid UTC packets in20 seconds,
   five to six satellites; all coordinates/course zero and encoded altitude1000.
   UTC is present in both modes; five CRC candidate failures were recorded.
-- [ ] Flash the R1 UTC build and verify fresh time through the ER6G/RF path.
-  User requested upload on15 November after direct GPS v1.9 verification.
+- [x] Flash the R1 UTC build and verify time reaches the physical header through
+  the ER6G/RF path. Guarded upload43db14f succeeded and the user observed time.
+- [ ] Install/verify the follow-up Sydney/Melbourne local-time header, ordered
+  TX voltage / LQ / time / Wi-Fi. Current-rule DST/date rollover and UI tests
+  cover the candidate; underlying UTC telemetry remains unchanged.
+- [ ] Add a handset-wide timezone selector. Sydney/Melbourne is the requested
+  current default, including daylight saving; it is not model-specific.
 - [ ] Investigate ER6G Wi-Fi-to-UART GPS firmware updating. This needs new raw
   exclusive-UART/YMODEM support and verified GPS bootloader entry; installed
   r14/r8 has no sensor flasher. Its existing `/update` endpoint updates the

@@ -181,9 +181,11 @@ Evidence files:
 - `/tmp/r1-gps-uart-after-v19-2026-11-15.json`
 - `/tmp/r1-gps-uart-blue-after-v19-2026-11-15.json`
 
-At this GPS verification record point, the R1 UTC decoder/title-bar feature in
-`8818e6a` is ready for upload and the R1 remains on `4fa0968`. End-to-end RF
-time delivery and the physical title-bar display need checking after that upload.
+The R1 UTC feature in `8818e6a` was subsequently installed as source `43db14f`;
+the user observed the clock on the physical screen through the receiver chain.
+A follow-up display-only Sydney/Melbourne timezone/header-order correction is
+prepared but still awaiting upload at this record point. Underlying GPS UTC
+telemetry and `GPSTIME` remain unchanged.
 
 ## Sources and scope
 

@@ -232,9 +232,13 @@ Send `GPSTIME` over R1 USB for a coordinate-free `@GPSTIME` line reporting
 counts, age and last accepted UTC. `GPSSTATUS` and `TELEMETRY` include this line
 too. CRC-valid malformed time frames are counted and rejected without updating
 the last good time; CRC failures remain in the general CRC error count.
-At this GPS verification record point, the feature in `8818e6a` is ready for
-upload and the R1 remains on `4fa0968`. End-to-end RF UTC delivery and the
-physical title bar still need checking after that upload.
+The UTC feature in `8818e6a` was subsequently installed as source `43db14f`;
+the user observed the clock on the physical R1 after reconnecting the receiver
+chain. A follow-up correction is prepared to show Sydney/Melbourne local HH:MM
+in the order TX voltage / LQ / time / Wi-Fi. The default uses current daylight
+saving rules (+10 winter, +11 summer); a handset timezone selector remains TODO.
+UTC in telemetry/`GPSTIME` stays unchanged. Follow-up upload is still pending at
+this record point.
 
 For version identification, the official Lua uses a whole-settings read
 (command 12); its reply includes firmware-version tag 18 as a little-endian

@@ -1,5 +1,17 @@
 # R-1 EVO change record
 
+## 15 November 2026 — Sydney/Melbourne clock and header order
+
+- Show local `HH:MM` in the order TX voltage, LQ, time, Wi-Fi. Keep the clock
+  on the same line and move the LQ tap/hold targets with its label.
+- Default the display to Sydney/Melbourne: UTC+10 in winter and UTC+11 during
+  daylight saving, using the current first-Sunday October/April rule. GPS
+  telemetry and `GPSTIME` diagnostics retain UTC; handset timezone selection
+  remains a TODO. No RTC, global timezone or stored model setting is changed.
+- The preceding UTC build43db14f was uploaded successfully through guarded Pi
+  USB PlatformIO; the user observed time on the physical screen via the receiver.
+  This local-time/layout correction is awaiting its own guarded upload.
+
 ## 15 November 2026 — GPS v1.9 hardware update verified
 
 - Installed the user-selected RadioMaster v1.9 image over GPS IN after replacing

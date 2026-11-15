@@ -18,13 +18,23 @@ auto timeObjectEvent=[](lv_event_t *event){
 lv_obj_add_event_cb(lv_scr_act(),timeObjectEvent,LV_EVENT_ALL,&timeChurn);
 auto timeFit=[&]{
     lv_obj_update_layout(lv_scr_act());
-    lv_area_t clock,voltage,link;lv_obj_get_coords(headerGpsTimeLabel,&clock);
+    lv_area_t clock,voltage,link,wifi;lv_obj_get_coords(headerGpsTimeLabel,&clock);
     lv_obj_get_coords(headerTxVoltageLabel,&voltage);lv_obj_get_coords(designLink_,&link);
+    lv_obj_get_coords(wifiStatusIcon,&wifi);
     assert(clock.x1>=0&&clock.y1>=0&&clock.x2<kScreenWidth&&clock.y2<44);
     const auto *font=lv_obj_get_style_text_font(headerGpsTimeLabel,0);
     assert(lv_txt_get_width(lv_label_get_text(headerGpsTimeLabel),strlen(lv_label_get_text(headerGpsTimeLabel)),font,0,LV_TEXT_FLAG_NONE)<=lv_obj_get_width(headerGpsTimeLabel));
-    assert(clock.y1>voltage.y2);
-    assert(clock.x2<link.x1);
+    assert(voltage.x2<link.x1&&link.x2<clock.x1&&clock.x2<wifi.x1);
+    assert(clock.y1==voltage.y1&&clock.y1==link.y1);
+    const auto textFits=[](lv_obj_t *label){
+        const auto *f=lv_obj_get_style_text_font(label,0);const auto *text=lv_label_get_text(label);
+        return lv_txt_get_width(text,strlen(text),f,0,LV_TEXT_FLAG_NONE)<=lv_obj_get_width(label);
+    };
+    assert(textFits(headerTxVoltageLabel)&&textFits(designLink_));
+    for(const auto *text:{"100 LQ","Link wait","Link off","LQ stale","TX LOW","RX LOW","Setup"})
+        assert(lv_txt_get_width(text,strlen(text),font,0,LV_TEXT_FLAG_NONE)<=lv_obj_get_width(designLink_));
+    for(const auto *text:{"16.8V","--V"})
+        assert(lv_txt_get_width(text,strlen(text),font,0,LV_TEXT_FLAG_NONE)<=lv_obj_get_width(headerTxVoltageLabel));
     for(uint32_t n=0;n<lv_obj_get_child_cnt(lv_scr_act());++n){
         auto object=lv_obj_get_child(lv_scr_act(),n);
         if(object==headerGpsTimeLabel||!lv_obj_check_type(object,&lv_label_class)||lv_obj_has_flag(object,LV_OBJ_FLAG_HIDDEN))continue;
@@ -49,10 +59,11 @@ for(unsigned orientation=0;orientation<2;++orientation){
             auto *clock=headerGpsTimeLabel;const auto focusCount=pageFocusCount_;
             CrsfTelemetryState telemetry;telemetry.gpsTimeValid=true;
             telemetry.gpsUtcYear=2026;telemetry.gpsUtcMonth=11;telemetry.gpsUtcDay=15;
-            telemetry.gpsUtcHour=23;telemetry.gpsUtcMinute=59;telemetry.gpsTimeUpdatedMs=millis();
+            telemetry.gpsUtcHour=12;telemetry.gpsUtcMinute=59;telemetry.gpsTimeUpdatedMs=millis();
             // UTC appears without position, satellites, or a link-status report.
             designTelemetry_=telemetry;updateDesign(telemetry,OutputSafetyStatus::Cut,123,true);
-            assert(!lv_obj_has_flag(clock,LV_OBJ_FLAG_HIDDEN)&&!strcmp(lv_label_get_text(clock),"23:59Z"));
+            assert(!lv_obj_has_flag(clock,LV_OBJ_FLAG_HIDDEN)&&!strcmp(lv_label_get_text(clock),"23:59"));
+            assert(telemetry.gpsUtcHour==12&&telemetry.gpsUtcDay==15);
             assert(pageFocusCount_==focusCount&&clock==headerGpsTimeLabel);timeFit();
             if(theme==0&&abs)timeShot("utc-abs");
             lv_refr_now(nullptr);timeChurn.created=0;auditRedrawnPixels=0;
@@ -61,9 +72,12 @@ for(unsigned orientation=0;orientation<2;++orientation){
             lv_mem_monitor_t after;lv_mem_monitor(&after);
             assert(timeChurn.created==0&&auditRedrawnPixels==0);
             assert(before.used_cnt==after.used_cnt&&before.free_size==after.free_size);
-            telemetry.gpsUtcHour=0;telemetry.gpsUtcMinute=0;telemetry.gpsTimeUpdatedMs=millis();
+            telemetry.gpsUtcHour=13;telemetry.gpsUtcMinute=0;telemetry.gpsTimeUpdatedMs=millis();
             updateDesign(telemetry,OutputSafetyStatus::Cut,123,true);
-            assert(clock==headerGpsTimeLabel&&!strcmp(lv_label_get_text(clock),"00:00Z"));
+            assert(clock==headerGpsTimeLabel&&!strcmp(lv_label_get_text(clock),"00:00"));
+            telemetry.gpsUtcMonth=7;updateDesign(telemetry,OutputSafetyStatus::Cut,123,true);
+            assert(!strcmp(lv_label_get_text(clock),"23:00"));
+            telemetry.gpsUtcMonth=11;
             telemetry.gpsTimeUpdatedMs=millis()-3001;updateDesign(telemetry,OutputSafetyStatus::Cut,123,true);
             assert(clock==headerGpsTimeLabel&&lv_obj_has_flag(clock,LV_OBJ_FLAG_HIDDEN));
             telemetry.gpsTimeUpdatedMs=millis();updateDesign(telemetry,OutputSafetyStatus::Cut,123,true);
@@ -73,6 +87,19 @@ for(unsigned orientation=0;orientation<2;++orientation){
             // Legacy detail headers clear the clock pointer before deleting it.
             drawWifiPage();assert(!headerGpsTimeLabel);updateHeaderGpsTime(telemetry,millis());
             drawDashboard();assert(headerGpsTimeLabel&&!lv_obj_has_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN));
+            if(theme==0&&!abs){
+                moduleLinkManaged_=true;drawDashboard();
+                const auto oldDuration=lastTouchDurationMs_;
+                const auto oldStartX=touchStartX_,oldStartY=touchStartY_;
+                touchStartX_=kScreenWidth-58;touchStartY_=18;lastTouchDurationMs_=900;
+                handleTouch(touchStartX_,touchStartY_);assert(activePage_==UiPage::Dashboard);
+                touchStartX_=kScreenWidth-110;
+                handleTouch(touchStartX_,touchStartY_);assert(activePage_==UiPage::ModuleLink);
+                drawDashboard();lastTouchDurationMs_=100;
+                handleTouch(kScreenWidth-110,18);assert(activePage_==UiPage::RadioDiagnostics);
+                moduleLinkManaged_=false;lastTouchDurationMs_=oldDuration;
+                touchStartX_=oldStartX;touchStartY_=oldStartY;drawDashboard();
+            }
             assert(!armRequested_&&!safetyResetRequested_&&auditCutRequests==timeCuts);
         }
     }
@@ -82,5 +109,5 @@ lv_obj_remove_event_cb_with_user_data(lv_scr_act(),timeObjectEvent,&timeChurn);
 timeDisplay->driver->monitor_cb=timePriorMonitor;safetyCutHandler_=timeCutHandler;
 memcpy(modelNames_[activeModelSlot_],timeOriginalName,sizeof(timeOriginalName));
 brakeAbs_.enabled=timeOriginalAbs;uiNightMode=timeOriginalNight;uiDarkColourScheme=timeOriginalScheme;
-Serial.println("GPS UTC header: fresh/absent/stale, midnight, both orientations/palettes, ABS/title bounds, stable objects and output guards PASS");
+Serial.println("GPS local-time header: Sydney/Melbourne summer/winter, fresh/absent/stale, midnight, voltage/LQ/time/Wi-Fi order, both orientations/palettes, stable objects and output guards PASS");
 return true;

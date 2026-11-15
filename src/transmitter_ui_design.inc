@@ -445,14 +445,14 @@ void TransmitterUi::drawDesignPage(UiPage page)
         }
     }
     auto modelLabel=label(modelNames_[activeModelSlot_],modelX,10,UiText::Secondary,0xe7edef);
-    boundedLabel(modelLabel,kScreenWidth-modelX-176);
+    boundedLabel(modelLabel,kScreenWidth-modelX-192);
     lv_obj_set_height(modelLabel,UiText::font(UiText::Secondary)->line_height);
-    makeHeaderTxVoltage(kScreenWidth-168,12);
-    makeHeaderGpsTime(kScreenWidth-168,26);
-    if(brakeAbs_.enabled)label("ABS",kScreenWidth-84,26,UiText::Caption,cAmber);
-    designLink_=label("LQ --",kScreenWidth-104,12,UiText::Caption,cDim);boundedLabel(designLink_,60);
+    makeHeaderTxVoltage(kScreenWidth-184,12);
+    makeHeaderGpsTime(kScreenWidth-76,12);
+    if(brakeAbs_.enabled)label("ABS",kScreenWidth-116,26,UiText::Caption,cAmber);
+    designLink_=label("LQ --",kScreenWidth-136,12,UiText::Caption,cDim);boundedLabel(designLink_,52);
     makeWifiStatusIcon(kScreenWidth-33,11);
-    if(!navigationIsModal())addPageActionTarget(kScreenWidth-110,0,72,38,&TransmitterUi::controlDesign,63);
+    if(!navigationIsModal())addPageActionTarget(kScreenWidth-kHeaderLinkTargetRight,0,kHeaderLinkTargetWidth,38,&TransmitterUi::controlDesign,63);
     const bool data = page == UiPage::Telemetry || page == UiPage::Gps || page == UiPage::ChannelMonitor || page == UiPage::SensorDetail;
     const UiPage sectionPage=page==UiPage::TimerControl?UiPage::Dashboard:page==UiPage::OutputStatus?statusReturnPage_:page;
     const bool dataSection=sectionPage==UiPage::Telemetry||sectionPage==UiPage::Gps||sectionPage==UiPage::ChannelMonitor||sectionPage==UiPage::SensorDetail||sectionPage==UiPage::RunReview||(sectionPage==UiPage::InputMonitor&&inputMonitorReturnPage_==UiPage::Telemetry);

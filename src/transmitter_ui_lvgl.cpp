@@ -8,6 +8,7 @@
 #include "waveshare_touch_orientation.h"
 #include "input_bus_guard.h"
 #include "lcd_pixel_transport.h"
+#include "gps_local_time.h"
 
 #include <Preferences.h>
 #include "boot_diagnostics.h"
@@ -461,6 +462,8 @@ lv_obj_t *wifiStatusIcon=nullptr;
 int wifiIconState=-1;
 lv_obj_t *headerTxVoltageLabel=nullptr;
 lv_obj_t *headerGpsTimeLabel=nullptr;
+constexpr int kHeaderLinkTargetRight=142;
+constexpr int kHeaderLinkTargetWidth=64;
 uint16_t headerTxVoltageDecivolts=0,headerTxLowDecivolts=0;
 bool headerTxVoltageValid=false;
 void updateHeaderTxVoltage(uint16_t decivolts,bool valid,uint16_t lowDecivolts)
@@ -474,23 +477,26 @@ void updateHeaderTxVoltage(uint16_t decivolts,bool valid,uint16_t lowDecivolts)
 void makeHeaderTxVoltage(int x,int y)
 {
     headerTxVoltageLabel=makeLabel(lv_scr_act(),"--V",x,y,UiText::Caption,cDim);
-    lv_obj_set_width(headerTxVoltageLabel,56);
+    lv_obj_set_width(headerTxVoltageLabel,40);
     lv_obj_set_style_text_align(headerTxVoltageLabel,LV_TEXT_ALIGN_RIGHT,0);
     updateHeaderTxVoltage(headerTxVoltageDecivolts,headerTxVoltageValid,headerTxLowDecivolts);
 }
 void updateHeaderGpsTime(const CrsfTelemetryState &telemetry,uint32_t now)
 {
     if(!headerGpsTimeLabel)return;
-    const bool available=gpsTimeAvailable(telemetry,now);
+    const auto local=GpsLocalTime::sydneyMelbourne(telemetry.gpsUtcYear,
+        telemetry.gpsUtcMonth,telemetry.gpsUtcDay,telemetry.gpsUtcHour,
+        telemetry.gpsUtcMinute,telemetry.gpsUtcSecond);
+    const bool available=gpsTimeAvailable(telemetry,now)&&local.valid;
     if(available){
-        uiSetTextFmt(headerGpsTimeLabel,"%02u:%02uZ",telemetry.gpsUtcHour,telemetry.gpsUtcMinute);
+        uiSetTextFmt(headerGpsTimeLabel,"%02u:%02u",local.hour,local.minute);
         if(lv_obj_has_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN))lv_obj_clear_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN);
     }else if(!lv_obj_has_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN))lv_obj_add_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN);
 }
 void makeHeaderGpsTime(int x,int y)
 {
     headerGpsTimeLabel=makeLabel(lv_scr_act(),"",x,y,UiText::Caption,0xe7edef);
-    lv_obj_set_size(headerGpsTimeLabel,56,UiText::font(UiText::Caption)->line_height);
+    lv_obj_set_size(headerGpsTimeLabel,36,UiText::font(UiText::Caption)->line_height);
     lv_obj_set_style_text_align(headerGpsTimeLabel,LV_TEXT_ALIGN_RIGHT,0);
     lv_obj_add_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN);
 }
@@ -5596,8 +5602,8 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
         gpsFullScreen_=false;lastInteractionMs_=millis();armGestureValid_=false;drawDesignPage(UiPage::Gps);return;
     }
     if(!navigationIsModal() && designLink_ && moduleLinkManaged_ && lastTouchDurationMs_>=800 &&
-       touchStartX_>=kScreenWidth-110 && touchStartX_<kScreenWidth-44 && touchStartY_<44 &&
-       x>=kScreenWidth-110 && x<kScreenWidth-44 && y<44){
+       touchStartX_>=kScreenWidth-kHeaderLinkTargetRight && touchStartX_<kScreenWidth-kHeaderLinkTargetRight+kHeaderLinkTargetWidth && touchStartY_<44 &&
+       x>=kScreenWidth-kHeaderLinkTargetRight && x<kScreenWidth-kHeaderLinkTargetRight+kHeaderLinkTargetWidth && y<44){
         moduleLinkReturnPage_=activePage_;drawDesignPage(UiPage::ModuleLink);return;
     }
     if(sectionNavigationVisible_ && y>=kScreenHeight-(portraitUi?60:40) && y<kScreenHeight-(portraitUi?20:0)){

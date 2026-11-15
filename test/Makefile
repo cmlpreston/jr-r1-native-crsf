@@ -31,6 +31,7 @@ TESTS := \
   first_drive_features_test \
   ers_sensor_config_test \
   gps_acquisition_chime_test \
+  gps_local_time_test \
   gps_widget_view_test \
   race_timer_test \
   firmware_package_test \
@@ -294,6 +295,10 @@ $(BUILD)/race_timer_test: race_timer_test.cpp $(ROOT)/include/race_timer.h
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/gps_acquisition_chime_test: gps_acquisition_chime_test.cpp $(ROOT)/include/gps_acquisition_chime.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/gps_local_time_test: gps_local_time_test.cpp $(ROOT)/include/gps_local_time.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 

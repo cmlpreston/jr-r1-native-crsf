@@ -483,10 +483,11 @@ void makeHeaderTxVoltage(int x,int y)
     lv_obj_set_style_text_align(headerTxVoltageLabel,LV_TEXT_ALIGN_RIGHT,0);
     updateHeaderTxVoltage(headerTxVoltageDecivolts,headerTxVoltageValid,headerTxLowDecivolts);
 }
-void updateHeaderGpsTime(const CrsfTelemetryState &telemetry,uint32_t now)
+void updateHeaderGpsTime(const CrsfTelemetryState &telemetry,uint32_t now,
+                         const GpsLocalTime::Settings &settings=GpsLocalTime::Settings{})
 {
     if(!headerGpsTimeLabel)return;
-    const auto local=GpsLocalTime::sydneyMelbourne(telemetry.gpsUtcYear,
+    const auto local=GpsLocalTime::convert(settings,telemetry.gpsUtcYear,
         telemetry.gpsUtcMonth,telemetry.gpsUtcDay,telemetry.gpsUtcHour,
         telemetry.gpsUtcMinute,telemetry.gpsUtcSecond);
     const bool available=gpsTimeAvailable(telemetry,now)&&local.valid;
@@ -765,6 +766,7 @@ const char *uiPageName(UiPage page)
         case UiPage::QuickNavigation:return "quick-navigation";
         case UiPage::FieldResetConfirmation:return "reset-field";
         case UiPage::WidgetMetricsReset:return "reset-widget-metrics";
+        case UiPage::ClockSetup:return "clock-timezone";
         case UiPage::Tune: return "tune";
         case UiPage::ValueEditor: return "value-editor";
         case UiPage::Gps: return "gps";
@@ -1759,6 +1761,9 @@ void TransmitterUi::loadSystemSettings()
     systemSettings_.displayBrightnessPercent = preferences.getUChar("brightness", 100);
     systemSettings_.nightMode = preferences.getBool("night", false);
     systemSettings_.darkColourScheme = preferences.getUChar("dark_scheme", 0);
+    systemSettings_.timeZone.zone = static_cast<GpsLocalTime::Zone>(preferences.getUChar("tz_zone", 0));
+    systemSettings_.timeZone.customOffsetMinutes = int16_t(preferences.getChar("tz_q15", 40)) * 15;
+    systemSettings_.timeZone = GpsLocalTime::sanitize(systemSettings_.timeZone);
     if (systemSettings_.darkColourScheme >= darkColourSchemeCount) systemSettings_.darkColourScheme = 0;
     uiNightMode = systemSettings_.nightMode;
     uiDarkColourScheme = systemSettings_.darkColourScheme;
@@ -1781,6 +1786,7 @@ void TransmitterUi::loadSystemSettings()
 
 void TransmitterUi::saveSystemSettings()
 {
+    systemSettings_.timeZone = GpsLocalTime::sanitize(systemSettings_.timeZone);
     Preferences preferences;
     preferences.begin("jr-r1-system", false);
     preferences.putBool("buzz_en", systemSettings_.buzzerEnabled);
@@ -1792,6 +1798,8 @@ void TransmitterUi::saveSystemSettings()
     preferences.putUChar("brightness", systemSettings_.displayBrightnessPercent);
     preferences.putBool("night", systemSettings_.nightMode);
     preferences.putUChar("dark_scheme", systemSettings_.darkColourScheme);
+    preferences.putUChar("tz_zone", static_cast<uint8_t>(systemSettings_.timeZone.zone));
+    preferences.putChar("tz_q15", static_cast<int8_t>(systemSettings_.timeZone.customOffsetMinutes / 15));
     preferences.end();
 }
 
@@ -3688,6 +3696,22 @@ void TransmitterUi::controlDisplay(uint8_t row, PageControlEvent event)
     handleDisplayTouch(x, 78 + (row % 4) * 50);
 }
 
+void TransmitterUi::controlClock(uint8_t row, PageControlEvent event)
+{
+    if(activePage_!=UiPage::ClockSetup)return;
+    auto settings=GpsLocalTime::sanitize(systemSettings_.timeZone);
+    const int direction=event==PageControlEvent::Decrease?-1:1;
+    if(row==0){
+        const int count=static_cast<int>(GpsLocalTime::Zone::Count);
+        settings.zone=static_cast<GpsLocalTime::Zone>((static_cast<int>(settings.zone)+direction+count)%count);
+    }else if(row==1&&settings.zone==GpsLocalTime::Zone::Custom){
+        settings.customOffsetMinutes=constrain(int(settings.customOffsetMinutes)+direction*15,-720,840);
+    }else return;
+    if(settings.zone==systemSettings_.timeZone.zone&&settings.customOffsetMinutes==systemSettings_.timeZone.customOffsetMinutes)return;
+    systemSettings_.timeZone=settings;
+    saveSystemSettings();playKeyClick();drawDesignPage(UiPage::ClockSetup);
+}
+
 void TransmitterUi::controlModels(uint8_t item, PageControlEvent)
 {
     if (item < 5) {
@@ -4083,6 +4107,7 @@ void TransmitterUi::navigateBack()
     }
     if(activePage_==UiPage::Calibration){cancelCalibration();return;}
     if (designPage()) {
+        if(activePage_==UiPage::ClockSetup){setupBank_=1;setupPage_=1;drawMainMenu();return;}
         if(activePage_==UiPage::BrakeAbs){tuneRole_=2;tuneBank_=1;drawDesignPage(UiPage::Tune);return;}
         if(activePage_==UiPage::ChannelRoles){if(assignmentChannelContext_)drawChannelPlaceholder();else drawChannelsPage();return;}
         if(activePage_==UiPage::Channel2){drawChannelsPage();return;}

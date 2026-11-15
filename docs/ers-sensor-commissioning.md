@@ -221,11 +221,19 @@ https://cdn.shopify.com/s/files/1/0701/8066/7584/files/ERS-GPS-1.3_6cc91247-3d22
 
 ### GPS date/time diagnostics
 
-Development firmware now decodes CRSF `0x03` date/time independently of position,
-speed and satellite count. Valid dates and times show as `HH:MMZ` beneath TX
-voltage in shared title bars; `Z` means UTC. The reading hides after three
-seconds without a valid update. No handset clock, timezone or sensor setting is
-changed. Received UTC does not uniquely identify a sensor firmware version.
+R1 decodes CRSF `0x03` date/time independently of position, speed and satellite
+count. The header shows local `HH:MM` between LQ and Wi-Fi, using the handset's
+timezone. The reading hides after three seconds without a valid update. GPS
+UTC and sensor settings are unchanged; no RTC or process timezone is set.
+Received UTC does not uniquely identify a sensor firmware version.
+
+Configure the display at **Setup → Handset → second page → Clock / timezone**.
+Sydney/Melbourne is the default. Presets also include Brisbane, Adelaide,
+Darwin, Perth and UTC; Custom supports fixed15-minute offsets from UTC−12 to
+UTC+14. Sydney/Melbourne and Adelaide apply current daylight-saving rules;
+custom offsets require manual seasonal adjustment. This choice is saved for
+the whole handset, across model changes and restarts. The page previews local
+and UTC time only while current GPS time is available.
 
 Send `GPSTIME` over R1 USB for a coordinate-free `@GPSTIME` line reporting
 `no-packets`, `no-valid-time`, `utc-available` or `stale`, plus received/rejected
@@ -234,13 +242,10 @@ too. CRC-valid malformed time frames are counted and rejected without updating
 the last good time; CRC failures remain in the general CRC error count.
 The UTC feature in `8818e6a` was subsequently installed as source `43db14f`;
 the user observed the clock on the physical R1 after reconnecting the receiver
-chain. A follow-up correction is prepared to show Sydney/Melbourne local HH:MM
-in the order TX voltage / LQ / time / Wi-Fi. The default uses current daylight
-saving rules (+10 winter, +11 summer); a handset timezone selector remains TODO.
-UTC in telemetry/`GPSTIME` stays unchanged. This follow-up was installed as
-source `2b4f7e2` through the approved guarded upload; physical confirmation of
-the corrected layout/local time was subsequently provided by the user:
-"Correct order and local time".
+chain. The local-time/header correction was installed as source `2b4f7e2`, and
+the user confirmed "Correct order and local time". The configurable handset
+page above is implemented/tested and awaiting its requested guarded upload at
+this record point. UTC in telemetry/`GPSTIME` stays unchanged.
 
 For version identification, the official Lua uses a whole-settings read
 (command 12); its reply includes firmware-version tag 18 as a little-endian

@@ -126,7 +126,7 @@ bool TransmitterUi::designPage() const
 {
     switch (activePage_) {
         case UiPage::RfWarningSetup: case UiPage::DriveBatterySetup: case UiPage::ErsSensors: case UiPage::TimerControl: case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation: case UiPage::WidgetMetricsReset:
-        case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor: case UiPage::RunReview: case UiPage::BrakeAbs:
+        case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor: case UiPage::RunReview: case UiPage::BrakeAbs: case UiPage::ClockSetup:
         case UiPage::Telemetry: case UiPage::Gps: case UiPage::ChannelMonitor:
         case UiPage::SensorDetail: case UiPage::MainMenu: case UiPage::Channels:
         case UiPage::ChannelRoles: case UiPage::Channel2: case UiPage::ThrottleResponse: case UiPage::ChannelSpeed:
@@ -519,6 +519,26 @@ void TransmitterUi::drawDesignPage(UiPage page)
             drawSettingsRow(names[i],value,80+i*step,step-2,&TransmitterUi::controlTxBattery,i,i==1||i==2);
         }
         boundedLabel(label("Voltage sensing reads the TX battery feed.",20,designPortrait?378:252,UiText::Caption,cDim),kScreenWidth-40);
+    } else if(page==UiPage::ClockSetup) {
+        label("Clock / timezone",12,48,UiText::Heading);
+        const auto &settings=systemSettings_.timeZone;
+        const bool custom=settings.zone==GpsLocalTime::Zone::Custom;
+        const int rowHeight=designPortrait?66:44,first=82,second=first+rowHeight+6;
+        drawSettingsRow("Timezone",GpsLocalTime::zoneName(settings.zone),first,rowHeight,&TransmitterUi::controlClock,0,true);
+        if(custom){
+            char value[24];const int minutes=settings.customOffsetMinutes;
+            snprintf(value,sizeof(value),"UTC%c%02d:%02d",minutes<0?'-':'+',abs(minutes)/60,abs(minutes)%60);
+            drawSettingsRow("UTC offset",value,second,rowHeight,&TransmitterUi::controlClock,1,true);
+        }else drawMenuRow("Daylight saving",GpsLocalTime::observesDaylightSaving(settings.zone)?"Automatic":"Not used",second,rowHeight,nullptr,0,false);
+        char help[96];
+        if(custom)snprintf(help,sizeof(help),"Fixed offset; adjust manually for daylight saving.");
+        else snprintf(help,sizeof(help),"%s: %s",GpsLocalTime::zoneName(settings.zone),GpsLocalTime::observesDaylightSaving(settings.zone)?"daylight saving is automatic.":"fixed UTC offset.");
+        auto explanation=label(help,20,second+rowHeight+10,UiText::Caption,cDim);
+        lv_obj_set_width(explanation,kScreenWidth-40);lv_label_set_long_mode(explanation,LV_LABEL_LONG_WRAP);
+        designValues_[0]=label("Waiting for GPS time",20,designPortrait?300:214,UiText::Menu,cDim);
+        boundedLabel(designValues_[0],kScreenWidth-40);
+        designDetails_[0]=label("Clock appears when GPS time is fresh.",20,designPortrait?336:239,UiText::Caption,cDim);
+        boundedLabel(designDetails_[0],kScreenWidth-40);
     } else if(page==UiPage::DisplaySetup) {
         label("Display",12,48,UiText::Heading);
         const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now","Orientation"};
@@ -810,10 +830,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
         }else{
             const char *tabs[]={"Model","Handset"};const uint8_t actions[]={140,141};
             drawPageTabs(tabs,actions,2,setupBank_?1:0,&TransmitterUi::controlDesign);
-            const char *names[2][8]={{"Channels","Control map","Dashboard","Drive modes","Vehicle batteries","RF warnings","ESC settings","ERS sensors"},{"Display","Sounds / alerts","RF module","TX battery","Network / web","System","",""}};
-            const uint8_t ids[2][8]={{41,42,49,43,143,254,46,244},{142,47,44,145,205,206,0,0}};
+            const char *names[2][8]={{"Channels","Control map","Dashboard","Drive modes","Vehicle batteries","RF warnings","ESC settings","ERS sensors"},{"Display","Sounds / alerts","RF module","TX battery","Network / web","System","Clock / timezone",""}};
+            const uint8_t ids[2][8]={{41,42,49,43,143,254,46,244},{142,47,44,145,205,206,255,0}};
             const char *values[2][8]={{"CH1-16","","",driveModeSettings_.activeMode==DriveMode::Walk?"Walk":"Normal","","Model","ER6G",""},{"","","Shared","","","","",""}};
-            const uint8_t section=setupBank_?1:0,total=section?6:8;
+            const uint8_t section=setupBank_?1:0,total=section?7:8;
             for(int i=0;i<4;++i){int n=setupPage_*4+i;if(n>=total)break;menuRow(85+i*(designPortrait?67:38),names[section][n],values[section][n],ids[section][n]);}
             drawPageControls(setupPage_,2);
         }
@@ -941,6 +961,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
 void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
 {
     playKeyClick();
+    if(item==255){setupBank_=1;setupPage_=1;drawDesignPage(UiPage::ClockSetup);return;}
     if(item>=154&&item<=157){
         const uint8_t cell=item-154;
         if(activePage_!=UiPage::Dashboard||!dashboardMetricsResettable(dashboardWidgetForView(cell).kind))return;
@@ -1251,7 +1272,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     const bool lowTx=txValid && tx<=txBatterySettings_.lowAlarmDecivolts;
     const bool lowRx=t.receiverVoltageValid && rxBatterySettings_.alarmEnabled && t.receiverVoltageDecivolts<=rxBatterySettings_.lowAlarmDecivolts;
     updateHeaderTxVoltage(tx,txValid,txBatterySettings_.lowAlarmDecivolts);
-    updateHeaderGpsTime(t,now);
+    updateHeaderGpsTime(t,now,systemSettings_.timeZone);
     {
         uint32_t col=safety==OutputSafetyStatus::Armed?cGreen:cAmber;
         const char *reason="Outputs inhibited. Hold Drive to enable when ready.";
@@ -1299,7 +1320,19 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             else uiSetTextFmt(detailLabel,"%lus",static_cast<unsigned long>((now-stamp)/1000));
         }
     };
-    if(activePage_==UiPage::TimerControl){
+    if(activePage_==UiPage::ClockSetup){
+        const auto local=GpsLocalTime::convert(systemSettings_.timeZone,t.gpsUtcYear,t.gpsUtcMonth,t.gpsUtcDay,t.gpsUtcHour,t.gpsUtcMinute,t.gpsUtcSecond);
+        const bool available=gpsTimeAvailable(t,now)&&local.valid;
+        if(available){
+            uiSetTextFmt(designValues_[0],"Local %02u:%02u  /  UTC %02u:%02u",local.hour,local.minute,t.gpsUtcHour,t.gpsUtcMinute);
+            const int minutes=local.offsetMinutes;
+            uiSetTextFmt(designDetails_[0],"UTC%c%02d:%02d%s",minutes<0?'-':'+',abs(minutes)/60,abs(minutes)%60,local.daylightSaving?" (daylight saving)":"");
+        }else{
+            uiSetText(designValues_[0],t.gpsUtcYear?"GPS time is stale":"Waiting for GPS time");
+            uiSetText(designDetails_[0],"Clock appears when GPS time is fresh.");
+        }
+        uiSetTextColor(designValues_[0],colour(available?cWhite:cDim),0);
+    }else if(activePage_==UiPage::TimerControl){
         auto &timer=timers_[activeModelSlot_];char text[32];formatTimer(text,sizeof(text),timer.display(),true);
         if(designValues_[0])uiSetText(designValues_[0],text);
         if(timerSummary_){char last[24],best[24],average[24];formatTimer(last,sizeof(last),timer.lastLap(),true);formatTimer(best,sizeof(best),timer.bestLap(),true);formatTimer(average,sizeof(average),timer.averageLap(),true);

@@ -12,6 +12,7 @@
 #include "battery_load_balance.h"
 #include "control_history.h"
 #include "gps_widget_view.h"
+#include "gps_local_time.h"
 #include "sensor_statistics.h"
 #include "ui_telemetry_history.h"
 #include "drive_battery.h"
@@ -41,6 +42,7 @@ struct SystemSettings {
     uint8_t displayBrightnessPercent = 100;
     bool nightMode = false;
     uint8_t darkColourScheme = 0; // Retained when switching to Light.
+    GpsLocalTime::Settings timeZone;
 };
 
 enum class BatteryChemistry : uint8_t {
@@ -123,6 +125,7 @@ enum class UiPage : uint8_t {
     RunReview,
     BrakeAbs,
     WidgetMetricsReset,
+    ClockSetup,
 };
 
 class TransmitterUi {
@@ -414,6 +417,7 @@ private:
     void drawVehicleBatteryContent();
     void controlVehicleBatteryTab(uint8_t tab,PageControlEvent event);
     void controlDisplay(uint8_t row, PageControlEvent event);
+    void controlClock(uint8_t row, PageControlEvent event);
     void controlColourScheme(uint8_t choice, PageControlEvent event);
     void controlBindingEditor(uint8_t field, PageControlEvent event);
     void controlChannels(uint8_t item, PageControlEvent event);

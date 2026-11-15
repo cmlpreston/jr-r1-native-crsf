@@ -44,6 +44,9 @@ bool TransmitterUi::runSimulatorUiAudit()
     if(getenv("JR_R1_GPS_TIME_HEADER_AUDIT_ONLY")){
 #include "ui_gps_time_header_audit.inc"
     }
+    if(getenv("JR_R1_TIMEZONE_SETTINGS_AUDIT_ONLY")){
+#include "ui_timezone_settings_audit.inc"
+    }
     if(getenv("JR_R1_DASHBOARD_SPACE_AUDIT_ONLY")){
 #include "ui_dashboard_space_audit.inc"
     }

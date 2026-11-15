@@ -1,5 +1,18 @@
 # R-1 EVO change record
 
+## 15 November 2026 — handset timezone settings
+
+- Add Setup → Handset → second page → Clock / timezone, using the shared menu
+  rows and keypad/touch controls. Remember the choice across restarts and models.
+- Offer Sydney/Melbourne (default), Brisbane, Adelaide, Darwin, Perth, UTC and
+  a custom offset in15-minute steps from UTC−12 to UTC+14. Sydney/Melbourne and
+  Adelaide use current daylight-saving rules; custom offsets are fixed.
+- Show a local/UTC preview and applied offset when GPS time is current. Keep
+  GPS UTC, diagnostics, model settings, RF and output safety unchanged.
+- Calendar/offset tests and36,524 independent reference comparisons pass, as do
+  focused persistence/navigation/preview/output checks in both orientations,
+  existing header/widget regressions and the approved hardware build.
+
 ## 15 November 2026 — taller Drive dashboard widgets
 
 - Compact the Drive dashboard title bar from44 to32 pixels and start widgets
@@ -10,6 +23,8 @@
 - Approved hardware build and focused checks pass:324 widget size/anchor cases,
   36 maximizations, both orientations, map growth, header/widget touch routing,
   header palettes/long names and unchanged output/layout guards.
+- Installed source08164b7 after the complete guarded build/test/UI audit run;
+  upload succeeded with image hash verified. Existing saved layouts are retained.
 
 ## 15 November 2026 — Sydney/Melbourne clock and header order
 

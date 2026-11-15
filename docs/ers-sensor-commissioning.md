@@ -198,20 +198,24 @@ Stationary decoded fields cannot prove whether coordinates/course are newly
 updated or held, and the capture did not inspect raw field sentinels, altitude
 or GPS time. The current field-driven map/speed widget would retain the map for
 both observed feeds. Its speed-only/all-FF fixtures remain synthetic tests;
-moving or direct-UART capture is needed to resolve field freshness and mode rate.
-The widget was subsequently installed in R1 source 4fa0968. Raw placeholder
-handling still needs a check on the actual sensor: inspection of downloadable
-GPS-labelled v1.8 and ERS-series v1.9 binaries shows that Speed mode selects a
-separate record with zero coordinates/course and altitude 1000 (CRSF encodes
-0 m), while speed and satellite count continue. It still sends all 15 bytes.
-Our availability flags can accept these placeholders, so the earlier capture
-does not prove useful position is delivered in blue mode. See
-[binary inspection evidence](ers-gps-firmware-analysis-2026-11-15.md). The user's
-installed GPS version is unknown; neither downloaded image was flashed.
+moving capture is still needed to resolve field freshness. The widget was
+subsequently installed in R1 source 4fa0968. Later direct-UART captures resolved
+the raw placeholder question: with a fix and four satellites, blue mode sent
+197 full GPS packets in 20.004844 seconds (9.847615 Hz), with zero coordinates
+and course and encoded altitude 1000 (CRSF encodes 0 m) in every frame. Red mode
+sent 197 in 20.007650 seconds (9.846234 Hz), with nonzero coordinates and
+non-placeholder altitude throughout. Both samples were stationary and had zero
+CRC failures; neither contained `0x03` time frames. The old sensor version was
+not established. These are direct serial packet rates, not fresh GNSS solution
+rates. Coordinates/raw payloads were not retained. Our availability flags can
+accept the blue placeholders, so automatic map/speed presentation still needs
+that separate correction. See
+[binary inspection and hardware evidence](ers-gps-firmware-analysis-2026-11-15.md).
 
 The manufacturer's manual documents blue 10 Hz ground speed. Independent owners
 also report firmware-dependent discovery behaviour; this is a plausible lead for
-our absent GPS, not a diagnosed cause. No GPS update has been performed.
+our absent GPS, not a diagnosed cause. A subsequent update is recorded below;
+receiver-side discovery has not yet been retested with it.
 Manufacturer manual:
 https://cdn.shopify.com/s/files/1/0701/8066/7584/files/ERS-GPS-1.3_6cc91247-3d22-44be-ae09-e0db5077a1f1.pdf?v=1770618392
 
@@ -228,12 +232,63 @@ Send `GPSTIME` over R1 USB for a coordinate-free `@GPSTIME` line reporting
 counts, age and last accepted UTC. `GPSSTATUS` and `TELEMETRY` include this line
 too. CRC-valid malformed time frames are counted and rejected without updating
 the last good time; CRC failures remain in the general CRC error count.
-The earlier 4fa0968 hardware sample did not record this frame type.
+At this GPS verification record point, the feature in `8818e6a` is ready for
+upload and the R1 remains on `4fa0968`. End-to-end RF UTC delivery and the
+physical title bar still need checking after that upload.
 
 For version identification, the official Lua uses a whole-settings read
 (command 12); its reply includes firmware-version tag 18 as a little-endian
 word, formatted as major/minor decimal digits (19 means v1.9). Tag 18 is not a
 standalone request in that script. R1 currently discards this version field and
-requires discovery before requesting settings. Normal-mode direct UART is the
-next diagnostic path for the missing GPS. The updater page sends bootloader
+requires discovery before requesting settings. The updater page sends bootloader
 entry probes automatically and is not a passive version reader.
+
+### GPS v1.9 update and verification — 15 November
+
+The user authorized installing the unmodified RadioMaster CDN
+`ERS_Sensors_V1.9.bin` (79,980 bytes, SHA-256
+`532482edc3afea7c3362d1ed9dd7f068196604ef630c8ae610d69235aa55f54f`).
+The current product page separately labels a GPS image v1.8; the selected
+package is not asserted to be universally the latest or recommended image.
+After unsuccessful silent probes, replacing the serial jumper wires and
+powering up holding BOOT on IN produced pure bootloader `C` requests at
+460800 baud. The guarded transfer received ACKs for all 79 data blocks and
+termination. This was transfer verification, not device flash hash readback.
+
+For this particular adapter pigtail, the working normal OUT serial wiring is
+red GPS TX to USB RXD and black GPS RX from USB TXD. IN reverses those two
+serial functions for updating. The working power wiring is white GND / green
++5 V, with the adapter's serial-level switch at 3.3 V and its separate 5 V pin
+supplying the GPS. Do not generalize these colours to other cables or infer
+functions from conventional servo-wire colours. The prior cable photo/manual
+discrepancy is retained in the handoff.
+
+Returned to OUT and powered normally, a read-only heartbeat followed by a
+whole-settings read returned `Gps Sensor`, ID 0 (default/unassigned), GPS mode
+2 (Global), and firmware tag 18 = 19 (v1.9), with zero CRC errors. No PING/ID
+assignment or setting write was sent. Standard R1 discovery must still be
+checked after reconnecting the receiver chain; this direct query does not
+prove the prior missing-sensor problem is solved.
+
+A subsequent passive 20.003629-second OUT capture received 199 GPS `0x02`
+frames (9.948195 Hz) and 189 valid UTC `0x03` frames (9.448286 Hz). Seven
+satellites and non-placeholder position were reported throughout. UTC advanced
+from `2026-11-15T11:32:06.900Z` to `2026-11-15T11:32:26.700Z`; no UTC payloads
+were rejected. Two CRC failures and 23 discarded bytes were recorded, so the
+stream was not error-free. These are observed packet rates, not an independent
+GNSS solution-frequency measurement. No coordinates/raw GPS payloads were saved.
+
+Evidence: `/tmp/r1-gps-v19-upload-2026-11-15.log`,
+`/tmp/r1-gps-uart-version-after-v19-2026-11-15.json`, and
+`/tmp/r1-gps-uart-after-v19-2026-11-15.json`.
+
+The user then selected blue mode without changing OUT wiring or power. A
+20.007928-second passive sample received198 GPS packets (9.896077 Hz) and186
+valid UTC packets (9.296315 Hz), with five to six satellites. Every GPS frame
+had zero latitude/longitude/course and encoded altitude1000. UTC advanced from
+`2026-11-15T11:38:31.000Z` to `2026-11-15T11:38:50.900Z`, with no rejected time
+payloads. Five CRC candidate failures, one invalid length and42 discarded bytes
+were recorded. Report: `/tmp/r1-gps-uart-blue-after-v19-2026-11-15.json`.
+Thus v1.9 sends valid UTC in both modes, while blue still supplies placeholder
+position despite nonzero satellite count. No serial bytes/settings writes were
+sent during either passive sample.

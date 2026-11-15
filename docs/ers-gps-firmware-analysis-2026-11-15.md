@@ -1,7 +1,8 @@
 # ERS-GPS binary inspection — 15 November 2026
 
-Read-only analysis; neither GPS image was uploaded. This documents disassembly,
-not a claim about the version currently installed on the user's sensor.
+The binary analysis below was read-only. A later, user-authorized update on the
+same day installed the unmodified v1.9 image; a normal-mode settings query then
+reported v1.9. Hardware follow-up evidence is recorded separately below.
 
 ## Images and reproducibility
 
@@ -28,7 +29,8 @@ The exact MCU model has not been established.
 Filename labels do not establish which file is the latest compatible image.
 The v1.8 image contains strings `GPS01` and `v1.3`; the latter is copied into
 shared identification data, so it must not be treated as the package version.
-The installed sensor's firmware version remains unknown.
+The pre-update installed version was not established. After the update described
+below, a settings reply explicitly reported version 19 (v1.9).
 
 ## Main result: both modes send full GPS frames, with different useful fields
 
@@ -73,14 +75,15 @@ for Speed. No GNSS rate/configuration command is sent in that mode setter.
 
 With speed zero and six satellites, the Speed record would serialize as:
 `00 00 00 00 00 00 00 00 00 00 00 00 03 E8 06`.
-This is a prediction from the inspected code, not a capture from the user's unit.
+This exact six-satellite example is a prediction from the inspected code. Later
+direct captures from the user's unit confirmed the same placeholder pattern
+with four satellites, as recorded below.
 Consequently, a decoder that accepts coordinate 0,0 plus nonzero satellites can
 report position availability even though Speed mode is providing no useful
 position. The previous stationary 15-byte/availability-flag samples do not
-prove equivalent red/blue content. A passive check for both coordinates being
-zero and encoded altitude 1000 would discriminate this behaviour without
-printing private coordinates. Do not universally reject 0,0 as impossible: it
-is a real geographic location and the sensor firmware version is unknown.
+prove equivalent red/blue content. The later passive zero/nonzero checks did
+discriminate the modes without retaining private coordinates. Do not universally
+reject 0,0 as impossible: it is a real geographic location.
 
 ## Fix and speed gating
 
@@ -118,8 +121,69 @@ a CRSF type 0x03, 9-byte time payload through 0x080064F8 and queues it alongside
 GPS telemetry. This path is outside the GPS mode selection, so both modes can
 send date/time with that image. It does not populate record B coordinates.
 The inspected v1.8 GPS path parses VTG/GGA and has no corresponding RMC/time path.
-This matches version-dependent date/time capabilities reported externally,
-but does not prove the user's current sensor is running either image.
+This matches version-dependent date/time capabilities reported externally.
+The later settings query and UTC capture establish the installed v1.9 result
+independently of the static analysis.
+
+## Hardware follow-up — direct capture and v1.9 update
+
+Before updating, normal telemetry was captured from the GPS OUT socket at
+420000 baud. The user selected blue Speed mode with a fix: 197 full GPS `0x02`
+frames in 20.004844 seconds (9.847615 Hz), four satellites throughout, and zero
+latitude/longitude/course with encoded altitude 1000 in every frame. In red
+Global mode, 197 frames in 20.007650 seconds (9.846234 Hz) had four satellites,
+nonzero latitude/longitude and non-placeholder altitude throughout. Both
+stationary samples had zero CRC failures and no `0x03` time frames. These
+coordinate-free measurements confirm the predicted field distinction on the
+actual sensor. They do not establish its old firmware version or independent
+GNSS solution rate.
+
+The first updater probes received no UART bytes. After the user replaced the
+serial jumper wires and powered up holding BOOT with the lead in IN, the
+guarded updater received pure `C` requests at 460800 baud. It transferred the
+exact 79,980-byte v1.9 image identified above, with all 79 data blocks
+acknowledged, followed by acknowledged transfer termination. This verifies
+the guarded CRC/ACK transfer, not a device flash hash readback. No firmware
+bytes were modified. The successful attempt needed no additional raw `0x33`
+menu command; the previous failures do not establish a firmware defect.
+
+With the lead returned to OUT and normal power restored, a read-only heartbeat
+and whole-settings query at 420000 baud returned `Gps Sensor`, ID 0 (the
+default/unassigned ID), Global mode value 2, and version tag 18 = little-endian
+19, or v1.9. That query had zero CRC errors. No PING/ID assignment or setting
+write was sent. R1 discovery/configuration through the receiver remains a
+separate check.
+
+The subsequent passive 20.003629-second capture received 199 GPS frames
+(9.948195 Hz) and 189 valid UTC `0x03` frames (9.448286 Hz). It reported seven
+satellites throughout and non-placeholder position, with UTC advancing from
+`2026-11-15T11:32:06.900Z` to `2026-11-15T11:32:26.700Z`. No UTC payloads were
+rejected. There were two CRC failures and 23 discarded bytes; this was not an
+error-free stream. These are observed serial packet rates, not proof of fresh
+GNSS solutions at those rates. Coordinates and raw GPS payloads were not saved.
+
+Post-update blue mode was then captured with the same OUT wiring and power:
+198 GPS frames and186 valid UTC frames in20.007928 seconds (9.896077 and
+9.296315 Hz). Five to six satellites were reported, yet every position/course
+field was zero and encoded altitude was1000. UTC advanced from
+`2026-11-15T11:38:31.000Z` to `2026-11-15T11:38:50.900Z`, with no rejected time
+payloads. Five CRC candidate failures, one invalid length and42 discarded bytes
+were recorded. This confirms the separate speed record and mode-independent
+time path on the updated unit; satellite count alone is not a mode discriminator.
+
+Evidence files:
+
+- `/tmp/r1-gps-uart-out-blue-fix-2026-11-15.json`
+- `/tmp/r1-gps-uart-out-red-fix-2026-11-15.json`
+- `/tmp/r1-gps-v19-new-wires-probe-2026-11-15.log`
+- `/tmp/r1-gps-v19-upload-2026-11-15.log`
+- `/tmp/r1-gps-uart-version-after-v19-2026-11-15.json`
+- `/tmp/r1-gps-uart-after-v19-2026-11-15.json`
+- `/tmp/r1-gps-uart-blue-after-v19-2026-11-15.json`
+
+At this GPS verification record point, the R1 UTC decoder/title-bar feature in
+`8818e6a` is ready for upload and the R1 remains on `4fa0968`. End-to-end RF
+time delivery and the physical title-bar display need checking after that upload.
 
 ## Sources and scope
 
@@ -130,6 +194,6 @@ but does not prove the user's current sensor is running either image.
 
 The mode/record/serializer findings above are our own static binary analysis.
 The v1.8 initializer, mode selection and serializer were independently reviewed.
-No sensor firmware was modified or uploaded. A raw, coordinate-free check of the
-actual unit's zero/nonzero fields remains necessary before changing R1 mode
-inference on the basis of these images.
+The hardware follow-up used the unmodified vendor v1.9 image. Correcting R1's
+automatic GPS presentation for the confirmed blue-mode placeholders remains
+separate implementation work.

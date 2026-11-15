@@ -1,5 +1,20 @@
 # R-1 EVO change record
 
+## 15 November 2026 — GPS v1.9 hardware update verified
+
+- Installed the user-selected RadioMaster v1.9 image over GPS IN after replacing
+  the serial jumper wires. The guarded transfer acknowledged all79 blocks and
+  the closing sequence; no device flash hash readback was performed.
+- A read-only query on OUT confirms firmware19 (v1.9). A20-second red/Global
+  sample receives valid UTC date/time at9.45 Hz and GPS position packets at
+  9.95 Hz, with seven satellites. Two CRC candidate failures were recorded.
+  These are direct UART packet rates, not measured RF or GNSS solution rates.
+- Blue-mode follow-up also receives valid UTC (9.30 Hz) and full GPS packets
+  (9.90 Hz), with5–6 satellites but zero position/course and encoded altitude1000.
+  Five CRC candidate failures were recorded. Satellite count alone cannot
+  distinguish useful mapping output from the speed-mode placeholders.
+- R1 UTC title-bar support below is ready; the user has requested its upload.
+
 ## 15 November 2026 — GPS UTC in the title bar
 
 - Decode CRSF GPS Time (`0x03`) independently of position or satellite count.

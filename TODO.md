@@ -299,10 +299,16 @@ per-model RAM histories for the current power session. Hardware validation remai
   fixed 20-second blue/red sample, while clean0x02 continued. This does not
   establish the installed firmware version. Heartbeat identification also
   received no reply; no settings or runtime ID were changed.
-- [ ] Complete the user-authorized GPS v1.9 update, then check reported version
-  and UTC over direct UART/RF. Guarded uploader and exact image are prepared;
-  double-flash update LED is present but no serial bootloader handshake yet.
-  No firmware file data has been sent. Verify the actual adapter connections.
+- [x] Complete the user-authorized GPS v1.9 update and direct UART verification.
+  Replaced jumper wires restored the IN bootloader handshake at460800. All79
+  blocks/79,980 bytes were acknowledged; OUT settings readback reports v1.9.
+  Red/Global sample received199 GPS and189 valid UTC packets in20 seconds,
+  seven satellites; two CRC candidate failures/23 discarded bytes recorded.
+- [x] Verify blue mode after v1.9:198 GPS and186 valid UTC packets in20 seconds,
+  five to six satellites; all coordinates/course zero and encoded altitude1000.
+  UTC is present in both modes; five CRC candidate failures were recorded.
+- [ ] Flash the R1 UTC build and verify fresh time through the ER6G/RF path.
+  User requested upload on15 November after direct GPS v1.9 verification.
 - [ ] Investigate ER6G Wi-Fi-to-UART GPS firmware updating. This needs new raw
   exclusive-UART/YMODEM support and verified GPS bootloader entry; installed
   r14/r8 has no sensor flasher. Its existing `/update` endpoint updates the

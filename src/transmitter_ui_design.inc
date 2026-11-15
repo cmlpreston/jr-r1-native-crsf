@@ -448,7 +448,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
     boundedLabel(modelLabel,kScreenWidth-modelX-176);
     lv_obj_set_height(modelLabel,UiText::font(UiText::Secondary)->line_height);
     makeHeaderTxVoltage(kScreenWidth-168,12);
-    if(brakeAbs_.enabled)label("ABS",kScreenWidth-144,26,UiText::Caption,cAmber);
+    makeHeaderGpsTime(kScreenWidth-168,26);
+    if(brakeAbs_.enabled)label("ABS",kScreenWidth-84,26,UiText::Caption,cAmber);
     designLink_=label("LQ --",kScreenWidth-104,12,UiText::Caption,cDim);boundedLabel(designLink_,60);
     makeWifiStatusIcon(kScreenWidth-33,11);
     if(!navigationIsModal())addPageActionTarget(kScreenWidth-110,0,72,38,&TransmitterUi::controlDesign,63);
@@ -1248,6 +1249,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     const bool lowTx=txValid && tx<=txBatterySettings_.lowAlarmDecivolts;
     const bool lowRx=t.receiverVoltageValid && rxBatterySettings_.alarmEnabled && t.receiverVoltageDecivolts<=rxBatterySettings_.lowAlarmDecivolts;
     updateHeaderTxVoltage(tx,txValid,txBatterySettings_.lowAlarmDecivolts);
+    updateHeaderGpsTime(t,now);
     {
         uint32_t col=safety==OutputSafetyStatus::Armed?cGreen:cAmber;
         const char *reason="Outputs inhibited. Hold Drive to enable when ready.";

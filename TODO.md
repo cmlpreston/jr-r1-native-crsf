@@ -293,7 +293,9 @@ per-model RAM histories for the current power session. Hardware validation remai
   zero/nonzero fields, then handle known placeholders without declaring all
   geographical 0,0 positions invalid. Synthetic FF-field fixtures remain distinct
   from this evidence. See docs/ers-gps-firmware-analysis-2026-11-15.md.
-- [ ] Decode GPS UTC/date CRSF 0x03 if confirmed on the actual sensor. The
+- [x] Decode GPS UTC/date CRSF 0x03, show fresh HH:MMZ in the title bar and add
+  passive GPSTIME diagnostics. Calendar/CRC/freshness and UI tests cover it.
+- [ ] Check actual GPS UTC/date emission over direct UART and the RF link. The
   inspected v1.9 image emits it in both modes; installed sensor version unknown.
 - [ ] Investigate ER6G Wi-Fi-to-UART GPS firmware updating. This needs new raw
   exclusive-UART/YMODEM support and verified GPS bootloader entry; installed

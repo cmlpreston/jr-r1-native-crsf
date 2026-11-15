@@ -738,6 +738,19 @@ void printInputMonitorSnapshot()
     Serial.printf("@INPUT_END\t%u\n", static_cast<unsigned>(kPhysicalControlCount));
 }
 
+// Read-only UTC diagnostics remain independent of position/fix availability.
+void printGpsTimeTelemetrySnapshot(const CrsfTelemetryState &t,uint32_t now)
+{
+    const char *status=!t.gpsTimeFrames?"no-packets":!t.gpsUtcYear?"no-valid-time":
+        gpsTimeAvailable(t,now)?"utc-available":"stale";
+    Serial.printf("@GPSTIME status=%s frames=%lu rejected=%lu age_ms=%ld utc=%04u-%02u-%02uT%02u:%02u:%02u.%03uZ\n",
+        status,static_cast<unsigned long>(t.gpsTimeFrames),
+        static_cast<unsigned long>(t.gpsTimeRejectedFrames),
+        t.gpsUtcYear?static_cast<long>(uint32_t(now-t.gpsTimeUpdatedMs)):-1L,
+        t.gpsUtcYear,t.gpsUtcMonth,t.gpsUtcDay,t.gpsUtcHour,t.gpsUtcMinute,
+        t.gpsUtcSecond,t.gpsUtcMillisecond);
+}
+
 // Read-only telemetry snapshot for RF bench verification over USB.
 void printGpsTelemetrySnapshot()
 {
@@ -756,6 +769,7 @@ void printGpsTelemetrySnapshot()
         t.satellites,t.gpsCourseValid,t.groundSpeedDeciKmh,gpsSpeedAvailable(t,now),
         t.gpsSpeedFrames?static_cast<long>(uint32_t(now-t.gpsSpeedUpdatedMs)):-1L,
         static_cast<unsigned long>(t.gpsSpeedFrames));
+    printGpsTimeTelemetrySnapshot(t,now);
 }
 
 void printCellTelemetrySnapshot()
@@ -904,6 +918,7 @@ bool consumeScreenshotCommand()
             }
             if (strcmp(usbCommand, "TELEMETRY") == 0) {printCellTelemetrySnapshot();printGpsTelemetrySnapshot();}
             if (strcmp(usbCommand, "GPSSTATUS") == 0) printGpsTelemetrySnapshot();
+            if (strcmp(usbCommand, "GPSTIME") == 0) printGpsTimeTelemetrySnapshot(readTelemetrySnapshot(),millis());
             if(strcmp(usbCommand,"ERSSTATUS")==0){
                 const auto t=readTelemetrySnapshot();
                 Serial.printf("ERS RX: configFrames=%lu accepted=%lu lastType=%02x header=%02x %02x %02x %02x %02x\n",

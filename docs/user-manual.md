@@ -96,7 +96,10 @@ separate operations.
 
 The title bar identifies the current model and link/network status, with measured
 TX pack voltage immediately left of LQ. Voltage is red at or below the configured
-TX warning threshold; `--V` means unavailable. Tap the model
+TX warning threshold; `--V` means unavailable. When GPS date/time telemetry is
+available, `HH:MMZ` appears beneath TX voltage. `Z` means UTC; it is not converted
+to local time. The time hides after three seconds without valid updates.
+Tap the model
 area to reach model selection. Tap the Wi-Fi icon for network status and setup. Hold
 the LQ/status area for the module-communication dialog.
 

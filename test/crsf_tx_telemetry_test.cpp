@@ -13,7 +13,72 @@ static void feed(CrsfTelemetryParser &p,uint8_t type,std::vector<uint8_t> payloa
     b.push_back(crc8DvbS2(b.data()+2,b.size()-2)^uint8_t(corrupt));
     for(auto value:b)p.feed(value);
 }
+static void testGpsUtc()
+{
+    auto time=[](unsigned year,unsigned month,unsigned day,unsigned hour,unsigned minute,
+                 unsigned second,unsigned millisecond){
+        return std::vector<uint8_t>{uint8_t(year>>8),uint8_t(year),uint8_t(month),uint8_t(day),
+            uint8_t(hour),uint8_t(minute),uint8_t(second),uint8_t(millisecond>>8),uint8_t(millisecond)};
+    };
+    CrsfTelemetryParser p;
+    assert(!gpsTimeAvailable(p.state(),0));
+    // Timestamp zero, midnight and zero milliseconds are real readings, with
+    // no dependency on position, satellite count or the RF statistics frame.
+    testNow=0;feed(p,0x03,time(2026,11,15,0,0,0,0));
+    assert(gpsTimeAvailable(p.state(),0) && !p.state().gpsValid && !p.state().linkValid);
+    assert(p.state().gpsUtcYear==2026 && p.state().gpsUtcMonth==11 && p.state().gpsUtcDay==15);
+    assert(p.state().gpsUtcHour==0 && p.state().gpsUtcMinute==0 && p.state().gpsUtcSecond==0);
+    assert(p.state().gpsUtcMillisecond==0 && p.state().gpsTimeUpdatedMs==0);
+    // Distinct high/low bytes verify network byte order for both 16-bit fields.
+    testNow=1000;const auto good=time(2024,2,29,23,58,57,789);feed(p,0x03,good);
+    assert(p.state().gpsUtcYear==2024 && p.state().gpsUtcMonth==2 && p.state().gpsUtcDay==29);
+    assert(p.state().gpsUtcHour==23 && p.state().gpsUtcMinute==58 && p.state().gpsUtcSecond==57);
+    assert(p.state().gpsUtcMillisecond==789 && p.state().gpsTimeFrames==2 && !p.state().gpsTimeRejectedFrames);
+    const auto lastGood=p.state();testNow=2000;
+    // Truncated and invalid calendar/range frames are counted but cannot
+    // replace or refresh the last good UTC value.
+    for(size_t n=0;n<9;++n){auto shortFrame=good;shortFrame.resize(n);feed(p,0x03,shortFrame);}
+    const std::vector<std::vector<uint8_t>> invalid={
+        time(1999,12,31,23,59,59,999),time(10000,1,1,0,0,0,0),
+        time(2026,0,1,0,0,0,0),time(2026,13,1,0,0,0,0),time(2026,1,0,0,0,0,0),
+        time(2026,4,31,0,0,0,0),time(2026,2,29,0,0,0,0),time(2100,2,29,0,0,0,0),
+        time(2026,1,1,24,0,0,0),time(2026,1,1,0,60,0,0),time(2026,1,1,0,0,60,0),
+        time(2026,1,1,0,0,0,1000),std::vector<uint8_t>(9,0xff),std::vector<uint8_t>(9,0)
+    };
+    for(const auto &packet:invalid)feed(p,0x03,packet);
+    assert(p.state().gpsTimeFrames==2+9+invalid.size());
+    assert(p.state().gpsTimeRejectedFrames==9+invalid.size());
+    assert(p.state().gpsTimeUpdatedMs==lastGood.gpsTimeUpdatedMs && gpsTimeAvailable(p.state(),testNow));
+    assert(p.state().gpsUtcYear==lastGood.gpsUtcYear && p.state().gpsUtcDay==lastGood.gpsUtcDay);
+    assert(p.state().gpsUtcSecond==lastGood.gpsUtcSecond && p.state().gpsUtcMillisecond==lastGood.gpsUtcMillisecond);
+    const auto frames=p.state().gpsTimeFrames,rejects=p.state().gpsTimeRejectedFrames;
+    feed(p,0x03,good,true);
+    assert(p.state().crcErrors==1 && p.state().gpsTimeFrames==frames && p.state().gpsTimeRejectedFrames==rejects);
+    auto oversized=good;oversized.resize(61,0xff);feed(p,0x03,oversized);
+    assert(p.state().gpsTimeFrames==frames && p.state().gpsTimeRejectedFrames==rejects);
+    // Future trailing fields, up to the supported frame size, are ignored.
+    auto extended=time(2000,2,29,1,2,3,999);extended.resize(60,0xff);feed(p,0x03,extended);
+    assert(p.state().gpsUtcYear==2000 && p.state().gpsUtcDay==29 && p.state().gpsUtcMillisecond==999);
+    feed(p,0x03,time(2400,2,29,1,2,3,0));assert(p.state().gpsUtcYear==2400);
+    feed(p,0x03,time(9999,12,31,23,59,59,999));assert(p.state().gpsUtcYear==9999);
+    // Ordinary telemetry neither supplies nor refreshes UTC; repeated invalid
+    // time packets also cannot postpone expiry.
+    testNow=5000;feed(p,0x14,{31,32,99,5,0,1,2,0,0,0});
+    feed(p,0x03,std::vector<uint8_t>(9,0));
+    assert(gpsTimeAvailable(p.state(),testNow));p.updateFreshness();assert(p.state().gpsTimeValid);
+    testNow=5001;assert(!gpsTimeAvailable(p.state(),testNow));p.updateFreshness();
+    assert(!p.state().gpsTimeValid && p.state().gpsUtcYear==9999 && p.state().linkValid);
+    // Recovery and 32-bit millis wrap retain the same three-second boundary.
+    testNow=UINT32_MAX-100;feed(p,0x03,good);assert(p.state().gpsTimeValid);
+    testNow=200;p.updateFreshness();assert(gpsTimeAvailable(p.state(),testNow));
+    testNow=2899;assert(gpsTimeAvailable(p.state(),testNow));
+    testNow=2900;assert(!gpsTimeAvailable(p.state(),testNow));p.updateFreshness();assert(!p.state().gpsTimeValid);
+    assert(p.state().gpsTimeFrames>p.state().gpsTimeRejectedFrames);
+    assert(!p.state().gpsWireFrames && !p.state().gpsDecodedFrames && !p.state().gpsSpeedFrames);
+    testNow=1234;
+}
 int main() {
+    testGpsUtc();
     CrsfTelemetryParser parser;
     feed(parser,0x2b,{0xea,0xee,1,0,0,9,'P',0},true);
     assert(parser.state().crcErrors==1 && parser.state().txParameterSequence==0);

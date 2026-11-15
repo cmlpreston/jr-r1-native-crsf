@@ -460,6 +460,7 @@ lv_obj_t *makeHeldOutputIcon(lv_obj_t *parent)
 lv_obj_t *wifiStatusIcon=nullptr;
 int wifiIconState=-1;
 lv_obj_t *headerTxVoltageLabel=nullptr;
+lv_obj_t *headerGpsTimeLabel=nullptr;
 uint16_t headerTxVoltageDecivolts=0,headerTxLowDecivolts=0;
 bool headerTxVoltageValid=false;
 void updateHeaderTxVoltage(uint16_t decivolts,bool valid,uint16_t lowDecivolts)
@@ -476,6 +477,22 @@ void makeHeaderTxVoltage(int x,int y)
     lv_obj_set_width(headerTxVoltageLabel,56);
     lv_obj_set_style_text_align(headerTxVoltageLabel,LV_TEXT_ALIGN_RIGHT,0);
     updateHeaderTxVoltage(headerTxVoltageDecivolts,headerTxVoltageValid,headerTxLowDecivolts);
+}
+void updateHeaderGpsTime(const CrsfTelemetryState &telemetry,uint32_t now)
+{
+    if(!headerGpsTimeLabel)return;
+    const bool available=gpsTimeAvailable(telemetry,now);
+    if(available){
+        uiSetTextFmt(headerGpsTimeLabel,"%02u:%02uZ",telemetry.gpsUtcHour,telemetry.gpsUtcMinute);
+        if(lv_obj_has_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN))lv_obj_clear_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN);
+    }else if(!lv_obj_has_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN))lv_obj_add_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN);
+}
+void makeHeaderGpsTime(int x,int y)
+{
+    headerGpsTimeLabel=makeLabel(lv_scr_act(),"",x,y,UiText::Caption,0xe7edef);
+    lv_obj_set_size(headerGpsTimeLabel,56,UiText::font(UiText::Caption)->line_height);
+    lv_obj_set_style_text_align(headerGpsTimeLabel,LV_TEXT_ALIGN_RIGHT,0);
+    lv_obj_add_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN);
 }
 void updateWifiStatusIcon() {
     if(!wifiStatusIcon)return;
@@ -495,6 +512,7 @@ void startScreen()
 {
     wifiStatusIcon=nullptr;
     headerTxVoltageLabel=nullptr;
+    headerGpsTimeLabel=nullptr;
     SetupPortal::screenChanged();
     const auto touchUs = uiMetrics.touchAcceptedUs;
     const bool touchPending = uiMetrics.touchPending;

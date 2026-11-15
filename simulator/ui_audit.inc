@@ -41,6 +41,9 @@ bool TransmitterUi::runSimulatorUiAudit()
     if(getenv("JR_R1_WIFI_LIFECYCLE_AUDIT_ONLY")){
 #include "ui_wifi_lifecycle_audit.inc"
     }
+    if(getenv("JR_R1_GPS_TIME_HEADER_AUDIT_ONLY")){
+#include "ui_gps_time_header_audit.inc"
+    }
     if(getenv("JR_R1_DISPLAY_TRANSFER_AUDIT_ONLY")){
 #include "ui_display_transfer_audit.inc"
     }

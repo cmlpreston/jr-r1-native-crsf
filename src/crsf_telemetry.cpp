@@ -20,6 +20,19 @@ constexpr uint32_t kBatteryFreshMs = 30000;
 constexpr uint32_t kVehicleCellsFreshMs = 20000;
 constexpr uint16_t kMaximumPlausibleReceiverDecivolts = 600; // 60 V
 
+bool validGpsUtc(uint16_t year,uint8_t month,uint8_t day,uint8_t hour,
+                 uint8_t minute,uint8_t second,uint16_t millisecond)
+{
+    // Use modern, four-digit GPS dates; reject unset/sentinel fields rather
+    // than inventing a clock from an uninitialised navigation solution.
+    if(year<2000 || year>9999 || month<1 || month>12 || hour>23 ||
+       minute>59 || second>59 || millisecond>999)return false;
+    constexpr uint8_t days[]={31,28,31,30,31,30,31,31,30,31,30,31};
+    const bool leap=year%4==0 && (year%100!=0 || year%400==0);
+    const unsigned maximum=days[month-1]+unsigned(month==2 && leap);
+    return day>=1 && day<=maximum;
+}
+
 int16_t decodeRssiDbm(uint8_t raw)
 {
     // Current ELRS stores the negative dBm value in the uint8_t CRSF field
@@ -117,6 +130,21 @@ void CrsfTelemetryParser::processFrame()
         ++state_.configWireFrames;state_.lastConfigType=frameType;
         memset(state_.lastConfigHeader,0,sizeof(state_.lastConfigHeader));
         memcpy(state_.lastConfigHeader,payload,payloadLength<5?payloadLength:5);
+    }
+    // TBS CRSF 0x03: big-endian year, month/day/hour/minute/second and
+    // big-endian milliseconds. Ignore future trailing extensions.
+    if(frameType==0x03){
+        ++state_.gpsTimeFrames;
+        if(payloadLength<9){++state_.gpsTimeRejectedFrames;return;}
+        const uint16_t year=(uint16_t(payload[0])<<8)|payload[1];
+        const uint16_t millisecond=(uint16_t(payload[7])<<8)|payload[8];
+        if(!validGpsUtc(year,payload[2],payload[3],payload[4],payload[5],payload[6],millisecond)){
+            ++state_.gpsTimeRejectedFrames;return;
+        }
+        state_.gpsUtcYear=year;state_.gpsUtcMonth=payload[2];state_.gpsUtcDay=payload[3];
+        state_.gpsUtcHour=payload[4];state_.gpsUtcMinute=payload[5];state_.gpsUtcSecond=payload[6];
+        state_.gpsUtcMillisecond=millisecond;state_.gpsTimeUpdatedMs=millis();state_.gpsTimeValid=true;
+        return;
     }
     // GPS uses the deployed ELRS/Betaflight 0.1 km/h scale. See the
     // protocol notes in docs/ui-firmware-port.md (TBS prose differs).
@@ -294,6 +322,7 @@ void CrsfTelemetryParser::updateFreshness()
     if (state_.fasVoltageValid && now - state_.fasVoltageUpdatedMs > 3000) state_.fasVoltageValid = false;
     if (state_.fasCurrentValid && now - state_.fasCurrentUpdatedMs > 3000) state_.fasCurrentValid = false;
     if (state_.vehicleCellsValid && now - state_.vehicleCellsUpdatedMs > kVehicleCellsFreshMs) state_.vehicleCellsValid = false;
+    if(state_.gpsTimeValid && now-state_.gpsTimeUpdatedMs>3000)state_.gpsTimeValid=false;
     if(state_.gpsCourseValid && now-state_.gpsDecodedUpdatedMs>3000)state_.gpsCourseValid=false;
     if(state_.gpsSpeedValid && now-state_.gpsSpeedUpdatedMs>3000)state_.gpsSpeedValid=false;
     if(state_.gpsSatellitesValid && now-state_.gpsSatellitesUpdatedMs>3000)state_.gpsSatellitesValid=false;

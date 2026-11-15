@@ -214,3 +214,26 @@ also report firmware-dependent discovery behaviour; this is a plausible lead for
 our absent GPS, not a diagnosed cause. No GPS update has been performed.
 Manufacturer manual:
 https://cdn.shopify.com/s/files/1/0701/8066/7584/files/ERS-GPS-1.3_6cc91247-3d22-44be-ae09-e0db5077a1f1.pdf?v=1770618392
+
+### GPS date/time diagnostics
+
+Development firmware now decodes CRSF `0x03` date/time independently of position,
+speed and satellite count. Valid dates and times show as `HH:MMZ` beneath TX
+voltage in shared title bars; `Z` means UTC. The reading hides after three
+seconds without a valid update. No handset clock, timezone or sensor setting is
+changed. Received UTC does not uniquely identify a sensor firmware version.
+
+Send `GPSTIME` over R1 USB for a coordinate-free `@GPSTIME` line reporting
+`no-packets`, `no-valid-time`, `utc-available` or `stale`, plus received/rejected
+counts, age and last accepted UTC. `GPSSTATUS` and `TELEMETRY` include this line
+too. CRC-valid malformed time frames are counted and rejected without updating
+the last good time; CRC failures remain in the general CRC error count.
+The earlier 4fa0968 hardware sample did not record this frame type.
+
+For version identification, the official Lua uses a whole-settings read
+(command 12); its reply includes firmware-version tag 18 as a little-endian
+word, formatted as major/minor decimal digits (19 means v1.9). Tag 18 is not a
+standalone request in that script. R1 currently discards this version field and
+requires discovery before requesting settings. Normal-mode direct UART is the
+next diagnostic path for the missing GPS. The updater page sends bootloader
+entry probes automatically and is not a passive version reader.

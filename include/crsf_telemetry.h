@@ -28,6 +28,11 @@ struct CrsfTelemetryState {
     // CRC-valid GPS packets, including rejected payloads; never reset on expiry.
     uint32_t gpsWireFrames=0, gpsDecodedFrames=0, gpsRejectedFrames=0, gpsWireUpdatedMs=0;
     uint8_t gpsLastPayloadLength=0;
+    // GPS UTC arrives independently in CRSF 0x03; no position/fix is required.
+    bool gpsTimeValid=false;
+    uint16_t gpsUtcYear=0, gpsUtcMillisecond=0;
+    uint8_t gpsUtcMonth=0, gpsUtcDay=0, gpsUtcHour=0, gpsUtcMinute=0, gpsUtcSecond=0;
+    uint32_t gpsTimeUpdatedMs=0, gpsTimeFrames=0, gpsTimeRejectedFrames=0;
     bool gpsSpeedValid=false, gpsSatellitesValid=false;
     uint32_t gpsSpeedUpdatedMs=0, gpsSatellitesUpdatedMs=0, gpsDecodedUpdatedMs=0, gpsSpeedFrames=0;
     bool gpsCourseValid = false;
@@ -69,6 +74,10 @@ struct CrsfTelemetryState {
     uint32_t transmitterUidUpdatedMs = 0;
     uint32_t receiverUidUpdatedMs = 0;
 };
+
+inline bool gpsTimeAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
+    return t.gpsTimeValid && uint32_t(nowMs-t.gpsTimeUpdatedMs)<=3000;
+}
 
 // Ground speed has its own validity and age, independent of map coordinates.
 inline bool gpsSpeedAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {

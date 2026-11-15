@@ -1,5 +1,18 @@
 # R-1 EVO change record
 
+## 15 November 2026 — GPS UTC in the title bar
+
+- Decode CRSF GPS Time (`0x03`) independently of position or satellite count.
+  Validate the date/time before accepting it; malformed frames cannot refresh
+  the previous good reading.
+- Show `HH:MMZ` beneath TX voltage in shared title bars. `Z` denotes UTC; hide
+  the reading after three seconds without valid updates. Keep LQ, Wi-Fi and
+  model-title space unchanged; move ABS beneath LQ.
+- Add passive `GPSTIME` USB diagnostics with received/rejected counts, last UTC
+  and age; include the same line in `GPSSTATUS` and `TELEMETRY` replies.
+- This receives time without setting the handset clock or identifying the
+  sensor firmware version. Hardware receipt remains to be checked.
+
 ## 15 November 2026 — current development build installed
 
 - Installed source 4fa0968 through the guarded Pi USB PlatformIO upload, approved

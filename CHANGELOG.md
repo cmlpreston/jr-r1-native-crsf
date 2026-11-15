@@ -1,5 +1,16 @@
 # R-1 EVO change record
 
+## 15 November 2026 — taller Drive dashboard widgets
+
+- Compact the Drive dashboard title bar from44 to32 pixels and start widgets
+  at36 instead of48. Full-height/maximized widgets gain12 pixels; each row in
+  a two-row landscape layout gains6. Maps and graphs use the expanded panels.
+- Put the dashboard ABS badge inline and fit its model artwork to the shorter
+  bar. Update LQ/Wi-Fi touch bounds and the minimize chevron with the layout.
+- Approved hardware build and focused checks pass:324 widget size/anchor cases,
+  36 maximizations, both orientations, map growth, header/widget touch routing,
+  header palettes/long names and unchanged output/layout guards.
+
 ## 15 November 2026 — Sydney/Melbourne clock and header order
 
 - Show local `HH:MM` in the order TX voltage, LQ, time, Wi-Fi. Keep the clock

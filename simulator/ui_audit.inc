@@ -44,6 +44,9 @@ bool TransmitterUi::runSimulatorUiAudit()
     if(getenv("JR_R1_GPS_TIME_HEADER_AUDIT_ONLY")){
 #include "ui_gps_time_header_audit.inc"
     }
+    if(getenv("JR_R1_DASHBOARD_SPACE_AUDIT_ONLY")){
+#include "ui_dashboard_space_audit.inc"
+    }
     if(getenv("JR_R1_DISPLAY_TRANSFER_AUDIT_ONLY")){
 #include "ui_display_transfer_audit.inc"
     }
@@ -2447,9 +2450,9 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(!armRequested_&&moduleLink_.enabled()==approved);
         lv_obj_update_layout(lv_scr_act());updateDashboardWidgets(designTelemetry_,designTxVoltage_,designTxValid_);
         lv_refr_now(nullptr);auditTypography(lv_scr_act());
-        assert(lv_obj_get_x(widgetViews_[cell].panel)==10&&lv_obj_get_y(widgetViews_[cell].panel)==48);
+        assert(lv_obj_get_x(widgetViews_[cell].panel)==10&&lv_obj_get_y(widgetViews_[cell].panel)==kDashboardWidgetTop);
         assert(lv_obj_get_width(widgetViews_[cell].panel)==kScreenWidth-20);
-        assert(lv_obj_get_height(widgetViews_[cell].panel)==designFooterY-54);
+        assert(lv_obj_get_height(widgetViews_[cell].panel)==designFooterY-kDashboardWidgetTop-6);
         assert(lv_obj_has_flag(widgetViews_[cell].title,LV_OBJ_FLAG_HIDDEN)==
             (widget.kind!=DashboardWidgetKind::DrivePack&&widget.kind!=DashboardWidgetKind::PowerEnergy&&widget.kind!=DashboardWidgetKind::ControlHistory&&!dashboardSessionWidget(widget.kind)&&widget.kind!=DashboardWidgetKind::SpeedRpm));
         for(int other=0;other<4;++other)if(other!=cell)assert(!widgetViews_[other].panel);

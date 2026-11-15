@@ -317,6 +317,10 @@ per-model RAM histories for the current power session. Hardware validation remai
   the receiver/GPS. Underlying UTC telemetry remains unchanged.
 - [ ] Add a handset-wide timezone selector. Sydney/Melbourne is the requested
   current default, including daylight saving; it is not model-specific.
+- [x] Reclaim the dashboard title bar's unused second-row space for widgets.
+  Compact header32/widget top36 adds12 pixels to full-height panels. Focused
+  size/maximize, maps, header/child touch routing and output/layout checks pass.
+- [ ] Confirm the taller dashboard/widgets on the physical R1 after upload.
 - [ ] Investigate ER6G Wi-Fi-to-UART GPS firmware updating. This needs new raw
   exclusive-UART/YMODEM support and verified GPS bootloader entry; installed
   r14/r8 has no sensor flasher. Its existing `/update` endpoint updates the

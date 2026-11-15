@@ -432,7 +432,9 @@ void TransmitterUi::drawDesignPage(UiPage page)
         drawGpsMapView(true);finishPageFocus();
         updateDesign(designTelemetry_,designSafety_,designTxVoltage_,designTxValid_);return;
     }
-    makePanel(0,0,kScreenWidth,44,cHeader,cHeader,0);
+    const bool compactHeader=page==UiPage::Dashboard;
+    const int headerHeight=compactHeader?kDashboardHeaderHeight:44;
+    makePanel(0,0,kScreenWidth,headerHeight,cHeader,cHeader,0);
     const bool rootPage=page==UiPage::Dashboard||page==UiPage::Tune||page==UiPage::Telemetry||page==UiPage::Gps||page==UiPage::ChannelMonitor||page==UiPage::MainMenu;
     if(!rootPage && (!navigationIsModal()||page==UiPage::ElrsBinding||page==UiPage::Calibration)){
         makePageActionButton(8,5,76,34,page==UiPage::Calibration?"Cancel":"Back",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlNavigation,0);
@@ -440,19 +442,19 @@ void TransmitterUi::drawDesignPage(UiPage page)
     const int modelX=rootPage?47:94;
     if(rootPage){
         if (const auto *art=modelImage(modelImages_[activeModelSlot_],modelColours_[activeModelSlot_],modelAccents_[activeModelSlot_],modelBases_[activeModelSlot_])) {
-            auto logo=lv_img_create(lv_scr_act());lv_img_set_src(logo,art);lv_img_set_zoom(logo,min(36*256/int(art->header.w),30*256/int(art->header.h)));
+            auto logo=lv_img_create(lv_scr_act());lv_img_set_src(logo,art);lv_img_set_zoom(logo,min(36*256/int(art->header.w),min(30,headerHeight-8)*256/int(art->header.h)));
             lv_img_set_pivot(logo,0,0);lv_obj_set_pos(logo,5,4);
         }
     }
     auto modelLabel=label(modelNames_[activeModelSlot_],modelX,10,UiText::Secondary,0xe7edef);
-    boundedLabel(modelLabel,kScreenWidth-modelX-192);
+    boundedLabel(modelLabel,kScreenWidth-modelX-192-(compactHeader&&brakeAbs_.enabled?28:0));
     lv_obj_set_height(modelLabel,UiText::font(UiText::Secondary)->line_height);
     makeHeaderTxVoltage(kScreenWidth-184,12);
     makeHeaderGpsTime(kScreenWidth-76,12);
-    if(brakeAbs_.enabled)label("ABS",kScreenWidth-116,26,UiText::Caption,cAmber);
+    if(brakeAbs_.enabled)label("ABS",kScreenWidth-(compactHeader?214:116),compactHeader?12:26,UiText::Caption,cAmber);
     designLink_=label("LQ --",kScreenWidth-136,12,UiText::Caption,cDim);boundedLabel(designLink_,52);
     makeWifiStatusIcon(kScreenWidth-33,11);
-    if(!navigationIsModal())addPageActionTarget(kScreenWidth-kHeaderLinkTargetRight,0,kHeaderLinkTargetWidth,38,&TransmitterUi::controlDesign,63);
+    if(!navigationIsModal())addPageActionTarget(kScreenWidth-kHeaderLinkTargetRight,0,kHeaderLinkTargetWidth,min(38,headerHeight),&TransmitterUi::controlDesign,63);
     const bool data = page == UiPage::Telemetry || page == UiPage::Gps || page == UiPage::ChannelMonitor || page == UiPage::SensorDetail;
     const UiPage sectionPage=page==UiPage::TimerControl?UiPage::Dashboard:page==UiPage::OutputStatus?statusReturnPage_:page;
     const bool dataSection=sectionPage==UiPage::Telemetry||sectionPage==UiPage::Gps||sectionPage==UiPage::ChannelMonitor||sectionPage==UiPage::SensorDetail||sectionPage==UiPage::RunReview||(sectionPage==UiPage::InputMonitor&&inputMonitorReturnPage_==UiPage::Telemetry);
@@ -483,7 +485,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         if(maximizedWidget_>=0){
             // Register before the widget's broad touch target, then raise the
             // overlay after drawing so taps reach the visible chevron.
-            minimize=button(kScreenWidth/2-20,50,40,22,LV_SYMBOL_DOWN,243);
+            minimize=button(kScreenWidth/2-20,kDashboardWidgetTop+2,40,22,LV_SYMBOL_DOWN,243);
             lv_obj_set_style_bg_opa(minimize,LV_OPA_80,0);
             lv_obj_set_style_border_width(minimize,0,0);
             lv_obj_set_style_radius(minimize,11,0);
@@ -1402,7 +1404,7 @@ void TransmitterUi::drawDashboardWidgets()
 {
     const auto &layout=dashboardLayouts_[activeModelSlot_];
     constexpr int gap=kPanelGap;
-    const int top=48;
+    const int top=kDashboardWidgetTop;
     const int cellW=(kScreenWidth-20-gap)/2, cellH=(designFooterY-top-gap-6)/2;
     const uint8_t visible=maximizedWidget_>=0?uint8_t(1<<maximizedWidget_):visibleDashboardWidgets(layout);
     uint8_t occupied=0;

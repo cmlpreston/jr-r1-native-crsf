@@ -18,10 +18,11 @@ auto timeObjectEvent=[](lv_event_t *event){
 lv_obj_add_event_cb(lv_scr_act(),timeObjectEvent,LV_EVENT_ALL,&timeChurn);
 auto timeFit=[&]{
     lv_obj_update_layout(lv_scr_act());
+    const int headerHeight=activePage_==UiPage::Dashboard?kDashboardHeaderHeight:44;
     lv_area_t clock,voltage,link,wifi;lv_obj_get_coords(headerGpsTimeLabel,&clock);
     lv_obj_get_coords(headerTxVoltageLabel,&voltage);lv_obj_get_coords(designLink_,&link);
     lv_obj_get_coords(wifiStatusIcon,&wifi);
-    assert(clock.x1>=0&&clock.y1>=0&&clock.x2<kScreenWidth&&clock.y2<44);
+    assert(clock.x1>=0&&clock.y1>=0&&clock.x2<kScreenWidth&&clock.y2<headerHeight);
     const auto *font=lv_obj_get_style_text_font(headerGpsTimeLabel,0);
     assert(lv_txt_get_width(lv_label_get_text(headerGpsTimeLabel),strlen(lv_label_get_text(headerGpsTimeLabel)),font,0,LV_TEXT_FLAG_NONE)<=lv_obj_get_width(headerGpsTimeLabel));
     assert(voltage.x2<link.x1&&link.x2<clock.x1&&clock.x2<wifi.x1);
@@ -39,8 +40,16 @@ auto timeFit=[&]{
         auto object=lv_obj_get_child(lv_scr_act(),n);
         if(object==headerGpsTimeLabel||!lv_obj_check_type(object,&lv_label_class)||lv_obj_has_flag(object,LV_OBJ_FLAG_HIDDEN))continue;
         lv_area_t area;lv_obj_get_coords(object,&area);
-        if(area.y1>=44)continue;
+        if(area.y1>=headerHeight)continue;
+        assert(area.y2<headerHeight);
         assert(clock.x2<area.x1||clock.x1>area.x2||clock.y2<area.y1||clock.y1>area.y2);
+        for(uint32_t m=n+1;m<lv_obj_get_child_cnt(lv_scr_act());++m){
+            auto other=lv_obj_get_child(lv_scr_act(),m);
+            if(!lv_obj_check_type(other,&lv_label_class)||lv_obj_has_flag(other,LV_OBJ_FLAG_HIDDEN))continue;
+            lv_area_t otherArea;lv_obj_get_coords(other,&otherArea);
+            if(otherArea.y1>=headerHeight)continue;
+            assert(area.x2<otherArea.x1||area.x1>otherArea.x2||area.y2<otherArea.y1||area.y1>otherArea.y2);
+        }
     }
     auditTypography(lv_scr_act());
 };

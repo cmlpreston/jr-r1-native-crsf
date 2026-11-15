@@ -61,6 +61,8 @@ constexpr uint16_t kCrsfMinimum = 172;
 constexpr uint16_t kCrsfMaximum = 1811;
 constexpr int16_t kExtendedTravelPermille = 1200;
 constexpr uint32_t kUiUpdateMs = 80;
+constexpr int kDashboardHeaderHeight = 32;
+constexpr int kDashboardWidgetTop = kDashboardHeaderHeight + 4;
 constexpr uint32_t kBootSplashDurationMs = 3000;
 constexpr uint32_t kLogoSaverMoveMs = 15000;
 constexpr uint8_t kLogoSaverBrightnessPercent = 25;
@@ -3500,7 +3502,7 @@ void TransmitterUi::finishPageFocus()
         pageStandardHeaderPending_=false;
     }
     if(wifiStatusIcon&&!navigationIsModal())
-        addPageActionTarget(kScreenWidth-40,0,40,44,&TransmitterUi::controlDesign,205);
+        addPageActionTarget(kScreenWidth-40,0,40,activePage_==UiPage::Dashboard?kDashboardHeaderHeight:44,&TransmitterUi::controlDesign,205);
     if (portraitUi && !(activePage_==UiPage::Gps && gpsFullScreen_)) {
         auto strip=makePanel(0,460,320,20,cHeader,cHeader,0);
         makeLabel(strip,"JR",8,3,UiText::Caption,cRed);
@@ -5591,19 +5593,20 @@ void TransmitterUi::handleTxBatteryTouch(int16_t x, int16_t y)
 
 void TransmitterUi::handleTouch(int16_t x, int16_t y)
 {
+    const int headerHeight=activePage_==UiPage::Dashboard?kDashboardHeaderHeight:44;
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None){
         if(activePage_==UiPage::BootPin)dispatchPageControlTouch(x,y);
         return;
     }
-    if(wifiStatusIcon&&!navigationIsModal()&&x>=kScreenWidth-40&&x<kScreenWidth&&y>=0&&y<44){
+    if(wifiStatusIcon&&!navigationIsModal()&&x>=kScreenWidth-40&&x<kScreenWidth&&y>=0&&y<headerHeight){
         controlDesign(205,PageControlEvent::Activate);return;
     }
     if(activePage_==UiPage::Gps&&gpsFullScreen_){
         gpsFullScreen_=false;lastInteractionMs_=millis();armGestureValid_=false;drawDesignPage(UiPage::Gps);return;
     }
     if(!navigationIsModal() && designLink_ && moduleLinkManaged_ && lastTouchDurationMs_>=800 &&
-       touchStartX_>=kScreenWidth-kHeaderLinkTargetRight && touchStartX_<kScreenWidth-kHeaderLinkTargetRight+kHeaderLinkTargetWidth && touchStartY_<44 &&
-       x>=kScreenWidth-kHeaderLinkTargetRight && x<kScreenWidth-kHeaderLinkTargetRight+kHeaderLinkTargetWidth && y<44){
+       touchStartX_>=kScreenWidth-kHeaderLinkTargetRight && touchStartX_<kScreenWidth-kHeaderLinkTargetRight+kHeaderLinkTargetWidth && touchStartY_<headerHeight &&
+       x>=kScreenWidth-kHeaderLinkTargetRight && x<kScreenWidth-kHeaderLinkTargetRight+kHeaderLinkTargetWidth && y<headerHeight){
         moduleLinkReturnPage_=activePage_;drawDesignPage(UiPage::ModuleLink);return;
     }
     if(sectionNavigationVisible_ && y>=kScreenHeight-(portraitUi?60:40) && y<kScreenHeight-(portraitUi?20:0)){

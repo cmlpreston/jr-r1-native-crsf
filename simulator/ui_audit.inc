@@ -38,6 +38,9 @@ bool TransmitterUi::runSimulatorUiAudit()
     if(getenv("JR_R1_SPEED_RPM_WIDGET_AUDIT_ONLY")){
 #include "ui_speed_rpm_widget_audit.inc"
     }
+    if(getenv("JR_R1_WIFI_LIFECYCLE_AUDIT_ONLY")){
+#include "ui_wifi_lifecycle_audit.inc"
+    }
     if(getenv("JR_R1_DISPLAY_TRANSFER_AUDIT_ONLY")){
 #include "ui_display_transfer_audit.inc"
     }
@@ -2111,6 +2114,8 @@ bool TransmitterUi::runSimulatorUiAudit()
     assert(runSimulatorPerformanceAudit());
     // Setup must suppress every arm request, including a previously true one.
     SetupPortal::begin(this);controlDesign(152,activate);
+    assert(activePage_==UiPage::WifiSetup && !SetupPortal::active());
+    controlWifi(1,activate); // Starting the setup hotspot is now explicit.
     assert(activePage_==UiPage::WifiSetup && SetupPortal::active());
     char initialSetupPassword[17];strcpy(initialSetupPassword,SetupPortal::state().apPassword);
     SetupPortal::stop();SetupPortal::start();
@@ -2127,6 +2132,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     strcpy(wifiSetupPassword_,"bench-test-1234");controlWifi(13,activate);
     assert(wifiEdit_==0 && strcmp(SetupPortal::state().apPassword,"bench-test-1234")==0);
     SetupPortal::forget();SetupPortal::stop();SetupPortal::begin(this);SetupPortal::start();
+    wifiSetupSessionOwned_=false; // This fixture represents a pre-existing session.
     assert(strcmp(SetupPortal::state().apPassword,"bench-test-1234")==0);
     assert(SetupPortal::changePassword(initialSetupPassword));SetupPortal::tick(true);
     armRequested_=true;assert(!controlConfigurationSnapshot().armRequested);

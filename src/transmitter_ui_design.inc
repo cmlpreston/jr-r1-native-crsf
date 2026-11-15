@@ -409,6 +409,10 @@ lv_obj_t *TransmitterUi::drawSettingsRow(const char *title,const char *value,int
 
 void TransmitterUi::drawDesignPage(UiPage page)
 {
+    if(page==UiPage::WifiSetup){drawWifiPage();return;}
+    const bool leavingWifi=activePage_==UiPage::WifiSetup||
+        (activePage_==UiPage::QuickNavigation&&keypadReturnPage_==UiPage::WifiSetup);
+    if(leavingWifi&&page!=UiPage::QuickNavigation)leaveWifiPage();
     if(page!=UiPage::SensorDetail || activePage_!=UiPage::SensorDetail)v2GraphPaused_=false;
     if(page!=UiPage::Dashboard)maximizedWidget_=-1;
     if(page==UiPage::Gps&&activePage_!=UiPage::Gps){gpsFullScreen_=false;lastInteractionMs_=millis();}
@@ -441,8 +445,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
         }
     }
     auto modelLabel=label(modelNames_[activeModelSlot_],modelX,10,UiText::Secondary,0xe7edef);
-    boundedLabel(modelLabel,kScreenWidth-modelX-(brakeAbs_.enabled?154:112));
-    if(brakeAbs_.enabled)label("ABS",kScreenWidth-146,12,UiText::Caption,cAmber);
+    boundedLabel(modelLabel,kScreenWidth-modelX-176);
+    lv_obj_set_height(modelLabel,UiText::font(UiText::Secondary)->line_height);
+    makeHeaderTxVoltage(kScreenWidth-168,12);
+    if(brakeAbs_.enabled)label("ABS",kScreenWidth-144,26,UiText::Caption,cAmber);
     designLink_=label("LQ --",kScreenWidth-104,12,UiText::Caption,cDim);boundedLabel(designLink_,60);
     makeWifiStatusIcon(kScreenWidth-33,11);
     if(!navigationIsModal())addPageActionTarget(kScreenWidth-110,0,72,38,&TransmitterUi::controlDesign,63);
@@ -1048,7 +1054,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
             if(activePage_==UiPage::ModeChooser||activePage_==UiPage::DriveModes){drawDesignPage(driveModesReturnPage_);return;}
             drawMainMenu();return;
         }
-        if(item==210||item==211||item==212){requestConfigurationCut();SetupPortal::start();wifiWebAccess_=item==211;wifiEdit_=item==212?5:0;snprintf(wifiSsid_,sizeof(wifiSsid_),"%s",SetupPortal::state().ssid);drawWifiPage();return;}
+        if(item==210||item==211||item==212){openWifiPage(item==211,item==212?5:0);return;}
     }
     if(item>=169&&item<=179){
         uint8_t entries[DashboardMonitorMaxEntries];const int total=dashboardMonitorEntries(0xffff,widgetDraft_.source,entries),pages=(total+4)/5;
@@ -1075,10 +1081,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         saveModelMemorySettings();drawModelSelectPage();return;
     }
     if(item==152){
-        wifiWebAccess_=false;
-        requestConfigurationCut();wifiEdit_=0;
-        snprintf(wifiSsid_,sizeof(wifiSsid_),"%s",SetupPortal::state().ssid);
-        wifiPassword_[0]=0;SetupPortal::start();drawWifiPage();return;
+        openWifiPage();return;
     }
     if(item==0&&designTouchDispatch_&&armGestureValid_&&lastTouchDurationMs_>=kDashboardArmHoldMs+(remoteTouchActive_?0:kDriveHoldFeedbackDelayMs)){
         // Manual output changes require the full hold in either direction.
@@ -1244,6 +1247,7 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     }
     const bool lowTx=txValid && tx<=txBatterySettings_.lowAlarmDecivolts;
     const bool lowRx=t.receiverVoltageValid && rxBatterySettings_.alarmEnabled && t.receiverVoltageDecivolts<=rxBatterySettings_.lowAlarmDecivolts;
+    updateHeaderTxVoltage(tx,txValid,txBatterySettings_.lowAlarmDecivolts);
     {
         uint32_t col=safety==OutputSafetyStatus::Armed?cGreen:cAmber;
         const char *reason="Outputs inhibited. Hold Drive to enable when ready.";

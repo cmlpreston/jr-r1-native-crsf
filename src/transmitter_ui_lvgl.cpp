@@ -459,6 +459,24 @@ lv_obj_t *makeHeldOutputIcon(lv_obj_t *parent)
 
 lv_obj_t *wifiStatusIcon=nullptr;
 int wifiIconState=-1;
+lv_obj_t *headerTxVoltageLabel=nullptr;
+uint16_t headerTxVoltageDecivolts=0,headerTxLowDecivolts=0;
+bool headerTxVoltageValid=false;
+void updateHeaderTxVoltage(uint16_t decivolts,bool valid,uint16_t lowDecivolts)
+{
+    headerTxVoltageDecivolts=decivolts;headerTxVoltageValid=valid;headerTxLowDecivolts=lowDecivolts;
+    if(!headerTxVoltageLabel)return;
+    if(valid)uiSetTextFmt(headerTxVoltageLabel,"%u.%uV",decivolts/10,decivolts%10);
+    else uiSetText(headerTxVoltageLabel,"--V");
+    uiSetTextColor(headerTxVoltageLabel,lv_color_hex(valid?(decivolts<=lowDecivolts?0xff746a:0xa4d6ae):0xa9bbc5),0);
+}
+void makeHeaderTxVoltage(int x,int y)
+{
+    headerTxVoltageLabel=makeLabel(lv_scr_act(),"--V",x,y,UiText::Caption,cDim);
+    lv_obj_set_width(headerTxVoltageLabel,56);
+    lv_obj_set_style_text_align(headerTxVoltageLabel,LV_TEXT_ALIGN_RIGHT,0);
+    updateHeaderTxVoltage(headerTxVoltageDecivolts,headerTxVoltageValid,headerTxLowDecivolts);
+}
 void updateWifiStatusIcon() {
     if(!wifiStatusIcon)return;
     const auto &s=SetupPortal::state();
@@ -476,6 +494,7 @@ void makeWifiStatusIcon(int x,int y) {
 void startScreen()
 {
     wifiStatusIcon=nullptr;
+    headerTxVoltageLabel=nullptr;
     SetupPortal::screenChanged();
     const auto touchUs = uiMetrics.touchAcceptedUs;
     const bool touchPending = uiMetrics.touchPending;
@@ -1652,6 +1671,8 @@ bool TransmitterUi::portalRfConfigStart(uint8_t address)
         hardwareRecovery_ || armRequested_ || escProgrammer_.blocksArm() ||
         (moduleLinkManaged_ && !moduleLink_.enabled()) || txConfig_.busyCommand() ||
         (address!=0xee && address!=0xec)) return false;
+    if(activePage_==UiPage::WifiSetup||
+       (activePage_==UiPage::QuickNavigation&&keypadReturnPage_==UiPage::WifiSetup))leaveWifiPage(true);
     requestConfigurationCut(); ersConfig_.cancel();
     txConfig_.start(millis(),address); txConfigFolder_=txConfigOffset_=txConfigSelected_=0;
     txConfigDraftDirty_=false; drawElrsTxConfigPage(); return true;
@@ -3412,10 +3433,7 @@ void TransmitterUi::drawSectionNavigation(uint8_t section)
 void TransmitterUi::controlSectionNavigation(uint8_t section, PageControlEvent event)
 {
     if(navigationIsModal())return;
-    if(activePage_==UiPage::WifiSetup){
-        requestConfigurationCut();
-        wifiSetupPassword_[0]=0;wifiPassword_[0]=0;wifiEdit_=0;wifiSetupPasswordError_=false;
-    }
+    if(activePage_==UiPage::WifiSetup)leaveWifiPage();
     controlDesign(section,event);
 }
 
@@ -4035,11 +4053,7 @@ void TransmitterUi::navigateBack()
     if(activePage_==UiPage::FieldResetConfirmation){drawDesignPage(UiPage::ValueEditor);return;}
     if(activePage_==UiPage::WidgetMetricsReset){maximizedWidget_=widgetMetricsReturnMaximized_;drawDashboard();return;}
     if(activePage_==UiPage::WifiSetup){
-        requestConfigurationCut();
-        if(wifiEdit_==4 || wifiEdit_==6){wifiSetupPassword_[0]=0;wifiSetupPasswordError_=false;wifiEdit_=0;drawWifiPage();}
-        else if(wifiEdit_){controlWifi(13,PageControlEvent::Activate);}
-        else{wifiPassword_[0]=0;wifiSetupPassword_[0]=0;drawDesignPage(UiPage::NetworkOptions);}
-        return;
+        backWifiPage();return;
     }
     if(activePage_==UiPage::Calibration){cancelCalibration();return;}
     if (designPage()) {
@@ -6023,10 +6037,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     }
     if (redrawElrsPage) drawElrsBindingPage();
     if(SetupPortal::active())armRequested_=false;
-    if(activePage_==UiPage::WifiSetup){
-        if(!SetupPortal::active()){requestConfigurationCut();drawMainMenu();}
-        else if(wifiRevision_!=SetupPortal::state().revision && wifiEdit_!=1 && wifiEdit_!=2 && wifiEdit_!=4 && wifiEdit_!=6)drawWifiPage();
-    }
+    updateWifiPage();
     updateWifiStatusIcon();
     updateTouch();
     updateDriveBatteryWarning(telemetry,millis());

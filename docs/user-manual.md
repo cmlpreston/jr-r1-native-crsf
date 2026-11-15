@@ -94,8 +94,10 @@ Where page dots are shown, tap a dot or swipe horizontally to change page. Tabs
 select a category within the current section. Paging and tab selection are
 separate operations.
 
-The title bar identifies the current model and link/network status. Tap the model
-area to reach model selection. Tap the Wi-Fi icon for Wi-Fi configuration. Hold
+The title bar identifies the current model and link/network status, with measured
+TX pack voltage immediately left of LQ. Voltage is red at or below the configured
+TX warning threshold; `--V` means unavailable. Tap the model
+area to reach model selection. Tap the Wi-Fi icon for network status and setup. Hold
 the LQ/status area for the module-communication dialog.
 
 ### Original programming keypad
@@ -147,8 +149,10 @@ are neutral required, Link wait, invalid inputs/configuration, startup recovery,
 a paused module link or an active setup session.
 
 If the message says **Setup session active: close it on the handset to arm**, use
-**Finish Wi-Fi setup** on Output status. Merely closing a browser tab may not end
-the handset's setup session. You do not need to erase Wi-Fi credentials.
+**Finish Wi-Fi setup** on Output status. Leaving the Wi-Fi page also closes a
+setup session started by that visit. An existing browser, recovery or firmware
+update session is preserved; merely closing a browser tab may not end it.
+You do not need to erase Wi-Fi credentials.
 
 Structural changes such as channel/mix edits, model changes and calibration can
 force CUT. Recheck the result and deliberately re-enable at neutral afterward.
@@ -314,9 +318,12 @@ only confirmed by its explicit settings reply; the widget does not discover or
 configure sensors. The dedicated Speed card stays a speed display, and Data / GPS
 remains the full map page.
 
-The real blue-mode field set still needs a passive hardware capture. The current
-speed-only examples verify decoding and UI behaviour using synthetic packets;
-they do not establish every field emitted by the physical ERS-GPS in blue mode.
+A stationary hardware comparison on 15 November received populated position,
+speed, course and satellite fields in both mapping and freshly confirmed blue
+modes, at about 4.7 delivered GPS packets per second. Both feeds therefore select
+the map. This does not establish whether coordinates are freshly updated or held,
+or the GPS module's internal solution rate. The speed-only examples below use
+synthetic packets; they do not represent the captured blue-mode feed.
 
 ![Automatic speed presentation: simulator-only synthetic packet example, not a verified blue-mode hardware capture.](../assets/ui-captures/gps-auto/speed.png)
 
@@ -621,7 +628,14 @@ Dashboard widgets omit the source-credit strip; open Data / GPS for map credits.
 ### Connect to home Wi-Fi
 
 Open **Setup → Handset → Network / web → Home Wi-Fi**, or tap the Wi-Fi icon.
-Select/enter the network and password and connect. Password characters are visible
+Viewing status or checking the IP address does not start a setup session or
+request CUT. Choose **Start setup**, or a network/configuration action, when you
+want to make changes; that starts setup and requests CUT. Leaving the Wi-Fi page
+ends the session started by that visit. A session already active for browser
+configuration, recovery or a firmware update stays active until finished safely.
+
+Select/enter the network and password and connect. Cancel discards an editor's
+unapplied draft. Password characters are visible
 in the current setup editor. Saved credentials and optional automatic connection
 are retained; with auto-connect On, attempts begin after boot without opening setup.
 The icon is a shortcut/status indication, not proof that every web request works.

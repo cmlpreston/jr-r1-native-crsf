@@ -485,6 +485,11 @@ private:
     void refreshInputMonitorRows();
     void drawDriveModesPage();
     void drawWifiPage();
+    void openWifiPage(bool webAccess=false,uint8_t editor=0);
+    bool ensureWifiSetupSession();
+    void leaveWifiPage(bool remote=false);
+    void backWifiPage();
+    void updateWifiPage();
     void updateWifiKeyPreview(int16_t x, int16_t y);
     lv_obj_t *wifiKeyPreview_ = nullptr;
     void controlWifi(uint8_t item, PageControlEvent event);
@@ -496,6 +501,8 @@ private:
     RemoteArmHold remoteArmHold_;
     uint32_t remoteArmPage_ = 0;
     bool wifiWebAccess_ = false;
+    bool wifiSetupSessionOwned_ = false;
+    bool wifiScanPending_ = false;
     uint8_t wifiEdit_ = 0, wifiKeyMode_ = 0, wifiNetworkPage_ = 0;
     uint32_t wifiRevision_ = 0;
     void drawSetupPage();

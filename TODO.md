@@ -263,19 +263,35 @@ per-model RAM histories for the current power session. Hardware validation remai
 
 ## Telemetry and vehicle peripherals
 
+- [ ] Complete ERS discovery diagnosis for GPS/CV01/CU01. On 15 November,
+  the user authorized disabling ER6G Team Race Position (was 1/Low on CH12);
+  receiver readback confirmed Disabled and the user power-cycled it. Discovery
+  then found RPM only. Single-ER6G r14/r8 still has a Team Race gate in
+  SerialCRSF::forwardMessage; latest-only reply storage may also lose simultaneous
+  replies. Neither explains the remaining absent sensors conclusively.
 - [x] Add optional Speed / motor RPM dual dials with independent freshness,
   explicit scales and stable saved widget IDs; no inferred RPM correction.
-- [ ] Read the RB01 Motor poles setting and validate RPM against shaft speed.
-  User confirms their listing says4poles (2026-11-15); R1 total-poles setting
-  should be4. The actual sensor value and historical ~50,000RPM remain unverified;
-  paired-dial candidate added 2026-11-15 is unflashed.
+- [x] Confirm the RB01 total motor-pole setting. User checked the listing and
+  applied 4 poles on 15 November; the sensor acknowledgement confirmed 4.
+- [ ] Validate RPM against shaft speed. The previous setting behind the historical
+  ~50,000 RPM reading was not verified, so no exact correction factor is established.
+  The paired-dial candidate added 15 November remains unflashed.
 - [x] Implement automatic map/speed presentation for existing GPS widget kind5,
   with acquisition/stale/unconfirmed status, grace, stable objects and safe tap
   transitions. Synthetic UI/decoder tests and target build pass (2026-11-15).
-- [ ] Validate the automatic GPS map/speed widget on real blue/red modes with
-  passive field/rate captures. Synthetic speed-only FF-field tests do not prove
-  which fields the ERS-GPS actually emits in blue mode. User not ready to test
-  on2026-11-15; candidate is unflashed. Preserve zero-as-unknown legacy feeds.
+- [x] Passively compare mapping and freshly confirmed blue GPS modes. Stationary
+  20-second samples on 15 November delivered 15-byte GPS packets at 4.667 and
+  4.641 Hz respectively, both with position/speed/course availability and six
+  satellites. No setting or RF-rate changes were made during these captures.
+- [ ] Validate coordinate freshness while moving and automatic GPS widget behaviour
+  on the handset. The current stationary samples cannot distinguish the modes
+  or prove fresh coordinates; RF delivery rate is not the GNSS solution rate.
+  Both observed feeds select the map. Candidate is unflashed; synthetic speed-only
+  FF-field fixtures remain distinct from this hardware evidence.
+- [ ] Investigate ER6G Wi-Fi-to-UART GPS firmware updating. This needs new raw
+  exclusive-UART/YMODEM support and verified GPS bootloader entry; installed
+  r14/r8 has no sensor flasher. Its existing `/update` endpoint updates the
+  receiver itself and must never receive a GPS image.
 - [x] Decode CRSF GPS, source-zero temperature and RPM with freshness checks.
 - [x] Decode CU01 vehicle-pack voltage/current, consumed mAh and reported
   estimated remaining percentage; provide the combined Drive pack widget.

@@ -7,12 +7,26 @@ is recorded below; it does not validate measurement accuracy.
 
 ## Current baseline and remaining checks
 
-The ER6G is now running official ExpressLRS 4.1.0 (a9d4a9cb), without our S.Port
-bridge. GPS telemetry returned after the stock upload. The exact failure cause
-is not isolated; do not use R1 ERS discovery/configuration during baseline testing.
-A working chain, real packet source IDs, engineering scales and physical accuracy
-still require one-at-a-time checks for CV01, CU01 and RB01. Decoder fixtures alone
-are not proof that this sensor set is commissioned.
+The current installed ER6G baseline is the r14 receiver / r8 startup-stage pair,
+built from stock ExpressLRS 4.1.0 with the main repository's ESC-programming
+overlays. The earlier S.Port trial and the 2 November stock-only baseline below
+are historical. Decoder fixtures alone are not proof that this sensor set is
+commissioned; engineering scales and physical accuracy still need real checks.
+
+On 15 November, live measurements worked while ERS discovery initially found
+nothing. The receiver's Team Race Position was 1/Low on CH12. With the user's
+approval it was changed to Disabled, read back, and followed by a receiver power
+cycle. Discovery then found RPM type 8 / ID 4; GPS/CV01/CU01 remained absent.
+The single-ER6G firmware bypasses Team Race for normal control but retains a gate
+in `SerialCRSF::forwardMessage`, so enabled Team Race can block sensor requests.
+Latest-only configuration-reply storage is another possible partial-discovery
+limitation. Neither proves the cause of every remaining missing sensor.
+
+The user checked the motor listing and applied **4 total poles** to RB01; its
+acknowledgement confirmed 4. The previous setting behind the historical roughly
+50,000 RPM reading was not verified, so an exact correction factor is unknown.
+Shaft-speed accuracy remains untested. No receiver firmware was uploaded for
+these configuration changes.
 
 Installed R1 changes hide dedicated FAS cards/new-widget choices without reusing
 persisted source IDs. Data → Sensors → Current / energy includes a saved,
@@ -41,7 +55,7 @@ and full 10 Hz delivery are not established by this measurement.
 ## Receiver connection
 
 Stock ExpressLRS already supports ERS. The custom S.Port-trial battery identities
-described below are historical; they are not present in the current stock baseline. ERS uses non-inverted CRSF UART,
+described below are historical. ERS uses non-inverted CRSF UART,
 420000 baud, separate TX and RX, not the inverted single-wire S.Port connection.
 Daisy-chain the four ERS modules on one UART. Sensor TX connects to receiver RX;
 sensor RX connects to receiver TX. Use the marked connector pinout, not wire colour.
@@ -52,14 +66,15 @@ with common ground. The CU01's high-voltage measurement input is distinct from i
 The ER6G primary UART is physical output 2 / GPIO1 (TX) and output 3 / GPIO3 (RX).
 In its receiver WebUI, select CRSF as the primary serial protocol and configure
 these outputs as serial TX/RX. They stop being PWM outputs. Keep output 5 / GPIO2
-as the single-wire secondary S.Port port if needed. **Do not change this mapping
-with servos attached.** It is not changed automatically by this firmware.
+for the installed single-ER6G ESC control/programming connection. The earlier
+S.Port trial used that pin differently. **Do not change this mapping with servos
+attached.** Sensor discovery does not change receiver pin assignments.
 
-A possible three-servo arrangement is output 1 (steering), output 4 (throttle),
+A historical three-servo arrangement was output 1 (steering), output 4 (throttle),
 output 6 (gyro; requires the optional header), leaving outputs 2/3 for ERS and 5
-for S.Port. Match PWM channel assignments to the vehicle before enabling output.
-An ERS-only arrangement can free the S.Port output for PWM after explicit
-receiver configuration. Do not attach two GPS sources, or two cell-source-0
+for S.Port. It is not the current ESC-programming arrangement: the user's ESC
+lead is on output 5. Match PWM channel assignments to the vehicle before enabling
+output. Do not attach two GPS sources, or two cell-source-0
 sensors, simultaneously: source arbitration between those buses is not implemented.
 
 ## Setup on the R1 touchscreen
@@ -81,7 +96,8 @@ select/plus/minus navigation are supported in landscape and portrait.
 1. Leave the R1 in CUT but enable its module link and establish an RF link.
 2. Under **RadioMaster ERS sensors**, select **Discover sensors**; allow eight seconds.
 3. Select each sensor and **Read sensor settings**.
-4. GPS: select Global mode (2) for position/maps, or Speed mode (1) for speed-only.
+4. GPS: select Global mode (2) for position/maps, or Speed mode (1) for the
+   manufacturer's speed-priority mode. Do not assume this omits position fields.
 5. RB01: enter the motor's total magnetic pole count, **not pole pairs**.
 6. CU01: enter actual battery capacity in mAh. Remaining percentage needs this setting.
 7. RPM/cell displays currently use source 0. Automatic multi-sensor ID reassignment
@@ -91,13 +107,14 @@ select/plus/minus navigation are supported in landscape and portrait.
 
 Sensor settings are stored by the sensor. The R1 exposes only these commissioning
 operations, not calibration, firmware update, reset, LED or sensor power commands.
-Discovery is bounded to eight sensors. Initial physical acknowledgement behaviour
-and settings persistence still need bench verification. Do not run another sensor
-configurator at the same time.
+Discovery is bounded to eight sensors. RB01's four-pole write acknowledgement is
+verified; the remaining sensors and settings persistence still need bench checks.
+Do not run another sensor configurator at the same time.
 
 ## Displays
 
-- GPS: existing map/trail, speed, satellites and GPS-course widgets.
+- GPS: existing map/trail, speed and satellite displays. The old GPS-course widget
+  is retired; the decoder still accepts reported course.
 - CV01: Battery cells widget, per-cell voltages, total and lowest cell; fixed-width
   zero-padded reports are accepted. The sensor supports up to 8S; R1 storage supports 12S.
 - RB01: RPM sensor display / Sensor widget, source 0.
@@ -105,7 +122,7 @@ configurator at the same time.
   The four readings are also selectable Sensor-widget sources, in every widget size.
   Standard CU01 scaling is 0.1 V, 0.1 A and integer mAh. Stale data displays `--`.
 
-The updated receiver tags the first external UART battery source as battery ID 2
+The historical S.Port-trial receiver tagged the first external UART battery source as battery ID 2
 while preserving the original readings and CRC. Receiver supply remains ID 0;
 S.Port FAS current remains ID 1. Additional external battery IDs are ignored until
 receiver reboot; one external current sensor is supported. The source convention is specific to this trial. With stock ExpressLRS,
@@ -148,8 +165,8 @@ missing/out-of-range coordinates cannot move or extend the stored map trail.
 Missing heading and satellite fields do not invalidate speed. A live position
 resumes map updates normally; stale speed still expires after three seconds.
 GPSSTATUS includes speed_packets, speed_available and speed_age_ms for rate checks.
-This is not a sensor-mode detector: hardware validation is still needed in blue
-and red modes. No sensor discovery, setting writes or RF-rate changes are used.
+This is not a sensor-mode detector. No sensor discovery, setting writes or
+RF-rate changes are needed for passive field/rate checks.
 Reference: https://github.com/EdgeTX/edgetx/blob/main/radio/src/telemetry/crossfire.cpp
 
 The dashboard GPS map/speed card now selects a useful presentation from these
@@ -166,10 +183,26 @@ as satellites in view, with no mode/fix flag; setting15 of the ERS config reply 
 the explicit mode confirmation. No automatic discovery/configuration was added.
 Reference: https://github.com/tbs-fpv/tbs-crsf-spec/blob/main/crsf.md#0x02-gps
 
-As of2026-11-15, the real blue-mode field set remains unverified. The RadioMaster
-manual documents blue10Hzground speed, but the speed-only/all-FF-field fixtures
-are synthetic decoder/UI tests, not a capture from this sensor. The user is not
-ready for a hardware check. A later passive blue/red comparison must verify field
-presence, satellite values and update rate without sensor discovery or writes.
+### Passive mapping / blue comparison — 15 November
+
+With a fix and CUT active, coordinate-free `GPSSTATUS` polling sampled each mode
+for about 20 seconds. Mapping delivered 89 packets over 19.0709 seconds
+(4.667 Hz); freshly user-confirmed blue delivered 92 over 19.8247 seconds
+(4.641 Hz). Both feeds had 15-byte GPS payloads, position/speed/course availability,
+six satellites, stationary speed zero and no rejected GPS packets. Maximum
+sampled ages were 237 ms and 630 ms respectively. No sensor writes or RF-rate
+changes were made during the captures.
+
+These are delivered RF packet rates, not GNSS solution or direct UART rates.
+Stationary decoded fields cannot prove whether coordinates/course are newly
+updated or held, and the capture did not inspect raw field sentinels, altitude
+or GPS time. The current field-driven map/speed widget would retain the map for
+both observed feeds. Its speed-only/all-FF fixtures remain synthetic tests;
+moving or direct-UART capture is needed to resolve field freshness and mode rate.
+The widget candidate remains unflashed; installed R1 source is dfd57c4.
+
+The manufacturer's manual documents blue 10 Hz ground speed. Independent owners
+also report firmware-dependent discovery behaviour; this is a plausible lead for
+our absent GPS, not a diagnosed cause. No GPS update has been performed.
 Manufacturer manual:
 https://cdn.shopify.com/s/files/1/0701/8066/7584/files/ERS-GPS-1.3_6cc91247-3d22-44be-ae09-e0db5077a1f1.pdf?v=1770618392

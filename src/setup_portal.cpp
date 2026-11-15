@@ -779,6 +779,10 @@ void tick(bool outputsSafe, bool allowConnect) {
     serviceRestart(outputsSafe);
     info.controlAllowed=outputsSafe;
     if(stopping){
+        // A password change invalidated the browser session. If closing setup
+        // in the same loop, the retained home server must still restart and
+        // create fresh login/CSRF secrets for the new credential.
+        if(passwordRestartPending)stopWeb();
         passwordRestartPending=false;WiFi.softAPdisconnect(true);
         info.active=info.hotspot=info.scanning=false;info.networkCount=0;stopping=scanPending=false;
         if(info.autoConnect&&info.ssid[0]){WiFi.mode(WIFI_STA);stationOn=true;}

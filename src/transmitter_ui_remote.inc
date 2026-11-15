@@ -155,11 +155,10 @@ bool TransmitterUi::portalRemoteInput(int x,int y,int action,uint32_t hold,uint3
     if(action==1){
         // Only leave the Wi-Fi landing page; don't discard an open editor.
         if(activePage_!=UiPage::WifiSetup||wifiEdit_)return false;
-        drawDashboard();
+        leaveWifiPage(true);drawDashboard();
     }else if(action==2){
         if(calibrationActive())return false;
-        if(!SetupPortal::active())SetupPortal::start();
-        wifiEdit_=0;drawWifiPage();
+        openWifiPage();
     }else if(action==0){
         remoteTouchRejected_=false;remoteTouchActive_=true;
         handleTouch(x,y);

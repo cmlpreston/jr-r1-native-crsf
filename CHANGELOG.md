@@ -1,5 +1,26 @@
 # R-1 EVO change record
 
+## 15 November 2026 — Wi-Fi status without a setup session
+
+- Opening Wi-Fi status to inspect the address no longer starts setup or requests
+  CUT. Add an explicit Start setup action; network/configuration actions still
+  enter setup and request CUT.
+- Leaving the page closes the session started by that visit. Preserve existing
+  browser, recovery and firmware-update sessions; Cancel discards editor drafts.
+- Retain arm inhibition for active setup/recovery/update paths and restart web
+  authentication correctly after a password change followed by immediate exit.
+- Host, approved XIAO build, both simulator builds, focused lifecycle checks and
+  full UI audits pass. Candidate remains unflashed; installed source is dfd57c4.
+
+## 15 November 2026 — transmitter voltage in the title bar
+
+- Show live measured TX pack voltage immediately left of LQ, using existing
+  low-voltage colours and `--V` when unavailable. Keep LQ and its touch target.
+- Bound model titles and move the ABS indicator below the voltage to retain
+  both indicators.
+- Update changed labels in place; no control/RF/sensor-setting changes.
+  Candidate is unflashed; validation is recorded in the handoff.
+
 ## 15 November 2026 — paired speed and motor RPM dials
 
 - Add an optional Speed / motor RPM dashboard widget, appending persisted kind19
@@ -38,9 +59,11 @@
   Preserve legacy zero-as-unknown position data with an unconfirmed amber map.
 - Keep the dedicated Speed card and full Data/GPS page behaviour. Reject delayed
   browser taps after actual presentation switches without rebuilding the screen.
-- This infers a useful display, not the sensor's physical mode. Blue10Hzspeed is
-  documented; its actual field set remains unverified. The user is not ready for
-  a passive hardware check. Host tests, approved XIAO landscape build, both
+- This infers a useful display, not the sensor's physical mode. A subsequent
+  stationary hardware comparison delivered populated 15-byte GPS packets in
+  mapping and freshly confirmed blue modes at about 4.7 Hz. Both select the map;
+  coordinate freshness and internal GNSS rate remain unverified. Host tests,
+  approved XIAO landscape build, both
   simulator builds/full UI audits and focused GPS/map/Speed checks pass. Six
   fixed-Speed before/after captures are byte-identical. Candidate is unflashed.
 

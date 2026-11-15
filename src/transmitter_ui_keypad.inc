@@ -183,7 +183,10 @@ void TransmitterUi::controlKeypadMenu(uint8_t item,PageControlEvent event)
         if(v2QuickEditing_){
             v2QuickSlots_[item]=(v2QuickSlots_[item]+1)%v2ShortcutCount;
             saveV2Quick();drawDesignPage(UiPage::QuickNavigation);
-        }else openV2Shortcut(v2QuickSlots_[item]);
+        }else{
+            if(keypadReturnPage_==UiPage::WifiSetup&&v2QuickSlots_[item]>0&&v2QuickSlots_[item]<v2ShortcutCount)leaveWifiPage();
+            openV2Shortcut(v2QuickSlots_[item]);
+        }
         return;
     }
 

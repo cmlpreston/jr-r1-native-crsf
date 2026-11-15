@@ -283,20 +283,26 @@ per-model RAM histories for the current power session. Hardware validation remai
   20-second samples on 15 November delivered 15-byte GPS packets at 4.667 and
   4.641 Hz respectively, both with position/speed/course availability and six
   satellites. No setting or RF-rate changes were made during these captures.
-- [ ] Validate coordinate freshness while moving and automatic GPS widget behaviour
-  on the handset. The current stationary samples cannot distinguish the modes
-  or prove fresh coordinates; RF delivery rate is not the GNSS solution rate.
-  Both observed feeds select the map in the current inference code (installed
-  source 4fa0968). Binary inspection of GPS-labelled v1.8 and ERS-series v1.9
-  shows Speed mode can send zero position/course placeholders in full-length
-  packets, which our FF-only field checks accept. Verify the actual unit's raw
-  zero/nonzero fields, then handle known placeholders without declaring all
-  geographical 0,0 positions invalid. Synthetic FF-field fixtures remain distinct
-  from this evidence. See docs/ers-gps-firmware-analysis-2026-11-15.md.
+- [x] Verify actual blue/red fields over direct UART. Fixed blue and red samples
+  each had 197 valid GPS packets in 20 seconds (about9.85 Hz), four satellites
+  and no CRC errors. Blue always had zero coordinates/course and encoded
+  altitude1000; red had nonzero coordinates and non-placeholder altitude.
+- [ ] Handle the verified blue position placeholders in the automatic GPS widget
+  without declaring all geographical 0,0 positions invalid. Current 4fa0968
+  inference can accept them as a fix and select Map. Fresh coordinate updates
+  while moving and handset behaviour still need validation; packet frequency is
+  distinct from GNSS solution rate. Synthetic FF-field fixtures remain distinct
+  from this hardware evidence. See docs/ers-gps-firmware-analysis-2026-11-15.md.
 - [x] Decode GPS UTC/date CRSF 0x03, show fresh HH:MMZ in the title bar and add
   passive GPSTIME diagnostics. Calendar/CRC/freshness and UI tests cover it.
-- [ ] Check actual GPS UTC/date emission over direct UART and the RF link. The
-  inspected v1.9 image emits it in both modes; installed sensor version unknown.
+- [x] Check pre-update GPS UTC/date emission directly: no0x03 frames in either
+  fixed 20-second blue/red sample, while clean0x02 continued. This does not
+  establish the installed firmware version. Heartbeat identification also
+  received no reply; no settings or runtime ID were changed.
+- [ ] Complete the user-authorized GPS v1.9 update, then check reported version
+  and UTC over direct UART/RF. Guarded uploader and exact image are prepared;
+  double-flash update LED is present but no serial bootloader handshake yet.
+  No firmware file data has been sent. Verify the actual adapter connections.
 - [ ] Investigate ER6G Wi-Fi-to-UART GPS firmware updating. This needs new raw
   exclusive-UART/YMODEM support and verified GPS bootloader entry; installed
   r14/r8 has no sensor flasher. Its existing `/update` endpoint updates the

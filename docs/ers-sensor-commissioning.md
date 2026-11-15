@@ -244,8 +244,9 @@ The UTC feature in `8818e6a` was subsequently installed as source `43db14f`;
 the user observed the clock on the physical R1 after reconnecting the receiver
 chain. The local-time/header correction was installed as source `2b4f7e2`, and
 the user confirmed "Correct order and local time". The configurable handset
-page above is implemented/tested and awaiting its requested guarded upload at
-this record point. UTC in telemetry/`GPSTIME` stays unchanged.
+page above was then installed as source `c405738` after the guarded full
+build/test/UI audit and verified Pi USB upload. Physical timezone selection/
+persistence remains a bench check. UTC in telemetry/`GPSTIME` stays unchanged.
 
 For version identification, the official Lua uses a whole-settings read
 (command 12); its reply includes firmware-version tag 18 as a little-endian

@@ -12,6 +12,8 @@
 - Calendar/offset tests and36,524 independent reference comparisons pass, as do
   focused persistence/navigation/preview/output checks in both orientations,
   existing header/widget regressions and the approved hardware build.
+- Installed sourcec405738 through the guarded full build/test/UI audit and Pi
+  USB PlatformIO upload; image hash verified. Taller widgets are included.
 
 ## 15 November 2026 — taller Drive dashboard widgets
 

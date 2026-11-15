@@ -318,7 +318,8 @@ per-model RAM histories for the current power session. Hardware validation remai
 - [x] Add a handset-wide timezone selector, default Sydney/Melbourne, at
   Setup → Handset → second page → Clock / timezone. Common Australian presets,
   UTC and custom15-minute offsets persist across models/restarts; focused
-  calendar, persistence, navigation and output-safety tests pass.
+  calendar, persistence, navigation and output-safety tests pass. Guarded
+  uploadc405738 completed with image hash verified.
 - [ ] Confirm timezone selection/persistence on the physical handset after upload.
 - [x] Reclaim the dashboard title bar's unused second-row space for widgets.
   Compact header32/widget top36 adds12 pixels to full-height panels. Focused

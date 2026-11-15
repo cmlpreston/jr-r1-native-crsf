@@ -10,7 +10,8 @@
   remains a TODO. No RTC, global timezone or stored model setting is changed.
 - The preceding UTC build43db14f was uploaded successfully through guarded Pi
   USB PlatformIO; the user observed time on the physical screen via the receiver.
-  This local-time/layout correction is awaiting its own guarded upload.
+  The local-time/layout correction was then installed as source2b4f7e2; its full
+  build/tests/UI audits and guarded upload passed, with image hash verified.
 
 ## 15 November 2026 — GPS v1.9 hardware update verified
 

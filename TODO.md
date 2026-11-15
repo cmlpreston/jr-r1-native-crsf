@@ -309,9 +309,11 @@ per-model RAM histories for the current power session. Hardware validation remai
   UTC is present in both modes; five CRC candidate failures were recorded.
 - [x] Flash the R1 UTC build and verify time reaches the physical header through
   the ER6G/RF path. Guarded upload43db14f succeeded and the user observed time.
-- [ ] Install/verify the follow-up Sydney/Melbourne local-time header, ordered
-  TX voltage / LQ / time / Wi-Fi. Current-rule DST/date rollover and UI tests
-  cover the candidate; underlying UTC telemetry remains unchanged.
+- [x] Install the Sydney/Melbourne local-time header, ordered TX voltage / LQ /
+  time / Wi-Fi. Guarded upload2b4f7e2 passed. Current-rule DST/date rollover,
+  independent timezone comparison and focused layout/touch tests pass.
+- [ ] Confirm the corrected local time/header appearance on the physical R1.
+  Underlying UTC telemetry remains unchanged; prior UTC display was observed.
 - [ ] Add a handset-wide timezone selector. Sydney/Melbourne is the requested
   current default, including daylight saving; it is not model-specific.
 - [ ] Investigate ER6G Wi-Fi-to-UART GPS firmware updating. This needs new raw

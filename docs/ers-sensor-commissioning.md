@@ -237,8 +237,9 @@ the user observed the clock on the physical R1 after reconnecting the receiver
 chain. A follow-up correction is prepared to show Sydney/Melbourne local HH:MM
 in the order TX voltage / LQ / time / Wi-Fi. The default uses current daylight
 saving rules (+10 winter, +11 summer); a handset timezone selector remains TODO.
-UTC in telemetry/`GPSTIME` stays unchanged. Follow-up upload is still pending at
-this record point.
+UTC in telemetry/`GPSTIME` stays unchanged. This follow-up was installed as
+source `2b4f7e2` through the approved guarded upload; physical confirmation of
+the corrected layout/local time remains pending.
 
 For version identification, the official Lua uses a whole-settings read
 (command 12); its reply includes firmware-version tag 18 as a little-endian

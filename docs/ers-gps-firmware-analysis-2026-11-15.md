@@ -183,9 +183,9 @@ Evidence files:
 
 The R1 UTC feature in `8818e6a` was subsequently installed as source `43db14f`;
 the user observed the clock on the physical screen through the receiver chain.
-A follow-up display-only Sydney/Melbourne timezone/header-order correction is
-prepared but still awaiting upload at this record point. Underlying GPS UTC
-telemetry and `GPSTIME` remain unchanged.
+A follow-up display-only Sydney/Melbourne timezone/header-order correction was
+installed as source `2b4f7e2`; physical confirmation of that correction remains
+pending. Underlying GPS UTC telemetry and `GPSTIME` remain unchanged.
 
 ## Sources and scope
 

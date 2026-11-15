@@ -8,6 +8,8 @@
 #include "dashboard_widgets.h"
 #include "speed_statistics.h"
 #include "power_energy_statistics.h"
+#include "trip_run_statistics.h"
+#include "battery_load_balance.h"
 #include "control_history.h"
 #include "gps_widget_view.h"
 #include "sensor_statistics.h"
@@ -625,6 +627,8 @@ private:
     // internal RAM. Their addresses remain stable for the lifetime of LVGL.
     struct WidgetMetricsStorage {
         PowerEnergyStatistics power;
+        TripRunStatistics tripRun;
+        BatteryLoadBalance batteryLoad;
         ControlHistory controls;
         lv_coord_t controlValues[4][2][ControlHistory::Capacity] = {};
         lv_chart_series_t *controlSeries[4][2] = {};
@@ -633,9 +637,14 @@ private:
     };
     UiColdStorage<WidgetMetricsStorage> widgetMetrics_;
     int8_t widgetMetricsReturnMaximized_ = -1;
+    DashboardWidgetKind widgetMetricsResetKind_ = DashboardWidgetKind::PowerEnergy;
     bool initializeWidgetMetrics();
     void updateWidgetMetrics(const CrsfTelemetryState &,OutputSafetyStatus,uint32_t now);
     void resetWidgetPowerMetrics();
+    void resetTripRunMetrics();
+    void resetBatteryLoadMetrics();
+    void drawTripRunBatteryWidget(uint8_t cell,int width,int height);
+    void updateTripRunBatteryWidget(uint8_t cell,uint32_t now);
     void updateControlHistoryWidget(uint8_t cell,uint32_t now);
     uint8_t tuneRole_ = 0; // steering, forward throttle, brake, selected AUX
     uint8_t tuneBank_ = 0, designBank_ = 0, setupBank_ = 0, sensorSelected_ = 0, sensorBank_ = 0;

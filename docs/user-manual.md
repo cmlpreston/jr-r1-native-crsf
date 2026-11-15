@@ -219,6 +219,9 @@ mirror supports the same gesture. The expanded widget omits its own title and ex
 | Drive pack / CU01 | Pack voltage, current, consumed mAh and estimated remaining percentage reported by the CU01. Stale or unavailable readings show `--`. |
 | Power / energy | CU01 electrical input power in watts, observed peak watts, accumulated Wh and estimated Wh/km when enough fresh GPS speed data is available. Reset clears these local measurements. |
 | Control history | Last ten seconds of calibrated steering and throttle inputs, sampled at 100 ms with fixed -100/0/+100% axes. ST and TH use different colours. |
+| Trip computer | GPS distance, moving time, moving average and observed top speed since reset. |
+| Run summary | Elapsed time, GPS distance/top speed, CU01 observed peak watts, capacity used and energy used for the same trip session. |
+| Battery load / balance | CU01 pack voltage/current, observed minimum pack voltage/peak current, CV01 lowest cell and difference between highest and lowest cell. |
 | Controls | Normal / Walk mode controls. |
 | Trim / rates | Steering trim/rate and throttle trim/brake rate, with shortcuts to adjustment. |
 | RF margin | Current margin above the selected RF mode's sensitivity, with LQ and reported RF output power. |
@@ -248,6 +251,33 @@ ESC is braking or reversing. Inputs remain visible in CUT; missing, stale or
 invalid input intervals leave gaps. The graph does not prove that a servo or
 motor followed the command. Both new widgets support the normal dashboard sizes
 and hold-to-maximise gesture; a wide Control history card gives more graph space.
+
+**Trip computer** and **Run summary** share one session. It begins at the first
+fresh GPS-speed or CU01 reading after power-up, model selection or confirmed
+Reset. Either card's Reset clears both cards; it leaves the separate Power /
+energy card and sensor counters unchanged. Elapsed time continues while stopped
+or telemetry is missing. Moving time and distance use fresh GPS speed, excluding
+speed below 1 km/h to reduce standstill jitter. Moving average uses those same
+observed moving intervals; it is unavailable until movement is recorded. This
+is a resettable trip, not a saved lifetime odometer or an automatic lap detector.
+
+Run capacity is the increase in the CU01's consumed-mAh counter since the first
+new reading, so it also works for a partly charged pack. It does not estimate
+remaining charge. A counter decrease starts a new baseline and marks the total
+incomplete. Missing GPS/power intervals are excluded from distance/moving time/Wh and
+marked with `~`; the capacity total may also include sensor-counted use during
+a gap. Observed top speed and peak watts remain visible after telemetry is lost.
+Short peaks between sensor reports may be missed.
+
+**Battery load / balance** keeps CU01 and CV01 readings separate. Live pack
+voltage/current expire after three seconds; cells expire after twenty seconds.
+Their missing values show `--`, while observed minimum pack voltage and peak
+current remain until reset. Cell spread is the highest reported cell minus the
+lowest in the same CV01 packet; it does not diagnose battery health or estimate
+internal resistance. Its Reset clears only this card's local observations.
+Battery warning thresholds and sensor settings are unchanged.
+
+![Trip computer, Run summary and Battery load/balance: synthetic simulator readings, not a hardware capture.](../assets/ui-captures/trip-run-battery/landscape.png)
 
 ![Power/energy and control-history widgets: simulator example with synthetic readings and inputs, not a physical LCD capture.](../assets/ui-captures/power-control/dashboard.png)
 

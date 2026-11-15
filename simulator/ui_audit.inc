@@ -32,6 +32,9 @@ bool TransmitterUi::runSimulatorUiAudit()
     if(getenv("JR_R1_POWER_CONTROL_WIDGET_AUDIT_ONLY")){
 #include "ui_power_control_widgets_audit.inc"
     }
+    if(getenv("JR_R1_TRIP_RUN_BATTERY_WIDGET_AUDIT_ONLY")){
+#include "ui_trip_run_battery_widgets_audit.inc"
+    }
     if(getenv("JR_R1_DISPLAY_TRANSFER_AUDIT_ONLY")){
 #include "ui_display_transfer_audit.inc"
     }
@@ -2436,7 +2439,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(lv_obj_get_width(widgetViews_[cell].panel)==kScreenWidth-20);
         assert(lv_obj_get_height(widgetViews_[cell].panel)==designFooterY-54);
         assert(lv_obj_has_flag(widgetViews_[cell].title,LV_OBJ_FLAG_HIDDEN)==
-            (widget.kind!=DashboardWidgetKind::DrivePack&&widget.kind!=DashboardWidgetKind::PowerEnergy&&widget.kind!=DashboardWidgetKind::ControlHistory));
+            (widget.kind!=DashboardWidgetKind::DrivePack&&widget.kind!=DashboardWidgetKind::PowerEnergy&&widget.kind!=DashboardWidgetKind::ControlHistory&&!dashboardSessionWidget(widget.kind)));
         for(int other=0;other<4;++other)if(other!=cell)assert(!widgetViews_[other].panel);
         assert(!memcmp(&saved,&dashboardLayouts_[activeModelSlot_],sizeof(saved)));
         if(widget.kind==DashboardWidgetKind::AllChannels){

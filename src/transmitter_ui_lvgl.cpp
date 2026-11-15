@@ -1377,6 +1377,8 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     resetSpeedStatistics();
     gpsWidgetPolicy_.reset();
     resetWidgetPowerMetrics();
+    resetTripRunMetrics();
+    resetBatteryLoadMetrics();
     if(widgetMetrics_){
         auto &metrics=*widgetMetrics_.get();metrics.controls.reset();
         metrics.controlSessionAfterMs=millis();metrics.controlSessionGuard=true;

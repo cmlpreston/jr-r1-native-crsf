@@ -49,6 +49,8 @@ TESTS := \
   simulator_handset_test \
   speed_statistics_test \
   power_energy_statistics_test \
+  trip_run_statistics_test \
+  battery_load_balance_test \
   control_history_test \
   dashboard_widgets_test \
   channel_response_test \
@@ -222,6 +224,14 @@ $(BUILD)/dashboard_widgets_test: dashboard_widgets_test.cpp $(ROOT)/include/dash
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/power_energy_statistics_test: power_energy_statistics_test.cpp $(ROOT)/include/power_energy_statistics.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/trip_run_statistics_test: trip_run_statistics_test.cpp $(ROOT)/include/trip_run_statistics.h $(ROOT)/include/power_energy_statistics.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/battery_load_balance_test: battery_load_balance_test.cpp $(ROOT)/include/battery_load_balance.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 

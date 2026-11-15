@@ -1,5 +1,22 @@
 # R-1 EVO change record
 
+## 15 November 2026 — trip, run summary and battery load/balance widgets
+
+- Append optional Trip computer, Run summary and Battery load / balance kinds
+  16–18 without changing saved layout bytes, previous IDs or default dashboards.
+- Share a resettable Trip/Run session for GPS distance, moving time/average,
+  observed top speed, elapsed time, CU01 peak power, used-capacity delta and Wh.
+  Integrate only fresh observed intervals; mark gaps and sensor counter restarts.
+  Use a consistent 1 km/h threshold for moving time and distance.
+- Keep battery load and cell readings independent, with observed minimum pack
+  voltage/peak current and live lowest cell/spread. Retain peaks on telemetry loss
+  and expire live values. No remaining-charge or battery-health inference.
+- Use shared compact/expanded numeric cards and confirmed local resets, with
+  UI-owned cold storage and no changes to control, RF or sensor settings.
+- Host suite, approved XIAO build, both simulator builds/full UI audits and
+  focused render/reset/freshness/allocation-failure tests pass. Real sensor bench
+  validation remains pending. This candidate has not been flashed.
+
 ## 15 November 2026 — automatic GPS map/speed presentation
 
 - Upgrade the existing GPS map widget with reusable map/speed subviews, selected

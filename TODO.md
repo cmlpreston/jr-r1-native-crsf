@@ -278,6 +278,12 @@ per-model RAM histories for the current power session. Hardware validation remai
   sensor-setting actions. Host/build/focused render checks pass (2026-11-15).
 - [ ] Bench-validate Power/energy CU01 units/reset/telemetry gaps and raw-input
   history on the handset; source `dfd57c4` installed 2026-11-15.
+- [x] Implement optional Trip computer, Run summary and Battery load / balance
+  widgets with shared Trip/Run reset, independent battery extrema and explicit
+  missing/incomplete data. Retain saved widget IDs and existing layouts.
+- [ ] Bench-validate the Trip/Run GPS distance/moving-time estimates, CU01
+  capacity deltas/Wh and load/cell freshness with the real sensors. Candidate
+  added 2026-11-15; not yet flashed.
 - [x] Move receiver-integrated S.Port firmware, ER4/ER6G adapters, shared
   decoders, tests and upload workflow into the separate
   [ExpressLRS-SPort fork](https://github.com/cmlpreston/ExpressLRS-SPort).
@@ -290,7 +296,9 @@ per-model RAM histories for the current power session. Hardware validation remai
 - [x] Present FAS300 ADV voltage and current separately from receiver supply.
 - [ ] Validate FAS current scaling against hardware and add consumed mAh.
 - [x] Implement a run timer and speed-statistics accumulation.
-- [ ] Add trip distance, odometer and consumed-capacity accumulation.
+- [x] Add resettable trip distance and consumed-capacity accumulation.
+- [ ] Add a persistent lifetime odometer if needed; current trip totals reset
+  on power-up, model selection or confirmed Reset.
 - [x] Implement GPS trail/map views and the built-in Highfield Park offline
   OSM vector basemap, with synthetic GPS in the simulator.
 - [ ] Add user-selectable/uploadable geographically referenced map packages;

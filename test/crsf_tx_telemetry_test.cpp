@@ -53,9 +53,14 @@ int main() {
     assert(std::string(gpsCourseCardinal(0))=="N" && std::string(gpsCourseCardinal(35999))=="N");
     assert(std::string(gpsCourseCardinal(9000))=="E" && std::string(gpsCourseCardinal(18000))=="S");
     feed(parser,0x02,gps);
-    auto unknown=parser.state();unknown.satellites=0;
+    auto unknown=parser.state();unknown.satellites=0;unknown.gpsSatellitesValid=false;
     assert(gpsPositionAvailable(unknown,testNow) && !gpsFixConfirmed(unknown,testNow));
     assert(!gpsPositionAvailable(unknown,testNow+3001));
+    unknown.gpsSatellitesValid=true;
+    assert(gpsPositionAvailable(unknown,testNow)&&!gpsFixConfirmed(unknown,testNow));
+    // Legacy zero-as-unknown and a native zero with retained coordinates have
+    // the same untagged wire representation: both remain unconfirmed.
+    unknown.gpsSatellitesValid=false;
     unknown.latitudeE7=unknown.longitudeE7=0;assert(!gpsPositionAvailable(unknown,testNow));
     unknown=parser.state();unknown.satellites=3;assert(!gpsPositionAvailable(unknown,testNow));
     testNow+=1;
@@ -228,6 +233,30 @@ int main() {
     testNow=7001;speedOnly.updateFreshness();assert(!gpsSpeedAvailable(speedOnly.state(),testNow));
     testNow=UINT32_MAX-100;feed(speedOnly,0x02,speedPacket);
     testNow=200;speedOnly.updateFreshness();assert(gpsSpeedAvailable(speedOnly.state(),testNow));
+    // A sensor can retain nonzero coordinates while reporting acquisition.
+    // Nonzero low counts cannot qualify a position; zero retains legacy
+    // compatibility but never confirms a fix. FF remains unavailable.
+    CrsfTelemetryParser acquiring;
+    for(uint8_t satellites:{0,1,3}){
+        auto waiting=gps;waiting[14]=satellites;
+        testNow+=100;feed(acquiring,0x02,waiting);
+        assert(acquiring.state().gpsSatellitesValid&&acquiring.state().satellites==satellites);
+        assert(gpsSpeedAvailable(acquiring.state(),testNow));
+        assert(gpsPositionAvailable(acquiring.state(),testNow)==(satellites==0));
+        assert(!gpsFixConfirmed(acquiring.state(),testNow));
+    }
+    auto noFix=gps;for(unsigned n=0;n<8;++n)noFix[n]=0;noFix[14]=0;
+    feed(acquiring,0x02,noFix);
+    assert(acquiring.state().gpsSatellitesValid&&!gpsPositionAvailable(acquiring.state(),testNow));
+    auto countUnknown=gps;countUnknown[14]=0xff;
+    feed(acquiring,0x02,countUnknown);
+    assert(!acquiring.state().gpsSatellitesValid&&acquiring.state().satellites==0);
+    assert(gpsPositionAvailable(acquiring.state(),testNow));
+    auto noPosition=std::vector<uint8_t>(15,0xff);noPosition[8]=noPosition[9]=0;noPosition[14]=8;
+    feed(acquiring,0x02,noPosition);
+    assert(acquiring.state().gpsSatellitesValid&&acquiring.state().satellites==8);
+    assert(!gpsPositionAvailable(acquiring.state(),testNow)); // Count alone is not a usable position.
+    assert(gpsSpeedAvailable(acquiring.state(),testNow)&&acquiring.state().groundSpeedDeciKmh==0);
     // Custom sensor replies do not pollute TX configuration or binding replies.
     auto txseq=parser.state().txParameterSequence;
     feed(parser,0x7b,{0xea,0xc8,3,1,0,0,'G','P','S',0});

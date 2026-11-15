@@ -820,6 +820,7 @@ bool TransmitterUi::resetDisplayTransferStats()
 #include "transmitter_ui_ers.inc"
 #include "transmitter_ui_design.inc"
 #include "transmitter_ui_widget_metrics.inc"
+#include "transmitter_ui_gps_widget.inc"
 #include "transmitter_ui_v2.inc"
 #include "transmitter_ui_drive_battery.inc"
 #include "transmitter_ui_rf_warning.inc"
@@ -1374,6 +1375,7 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     timers_[activeModelSlot_].pause(millis());saveTimerSettings();
     timerOnRemainder_=0;timerConfirmation_=0;timerBank_=timerLapPage_=0;
     resetSpeedStatistics();
+    gpsWidgetPolicy_.reset();
     resetWidgetPowerMetrics();
     if(widgetMetrics_){
         auto &metrics=*widgetMetrics_.get();metrics.controls.reset();
@@ -3222,6 +3224,7 @@ void TransmitterUi::addPageActionTarget(int16_t x, int16_t y, int16_t width,
     if (pageFocusCount_ >= kMaximumPageFocusTargets) return;
     PageFocusTarget &target = pageFocusTargets_[pageFocusCount_++];
     target = PageFocusTarget{};
+    target.enabled = true;
     target.focus.x = x;
     target.focus.y = y;
     target.focus.width = width;
@@ -3254,6 +3257,7 @@ void TransmitterUi::addPageEditorTarget(
     if (pageFocusCount_ >= kMaximumPageFocusTargets) return;
     PageFocusTarget &target = pageFocusTargets_[pageFocusCount_++];
     target = PageFocusTarget{};
+    target.enabled = true;
     target.focus.x = x;
     target.focus.y = y;
     target.focus.width = width;
@@ -3476,11 +3480,13 @@ void TransmitterUi::refreshPageFocus()
 {
     if (pageFocusIndicator_ == nullptr || pageFocusCount_ == 0) return;
     if (pageFocusIndex_ >= pageFocusCount_) pageFocusIndex_ = 0;
+    for(uint8_t n=0;n<pageFocusCount_&&!pageFocusTargets_[pageFocusIndex_].enabled;++n)
+        pageFocusIndex_=(pageFocusIndex_+1)%pageFocusCount_;
     const PageFocusTarget &target = pageFocusTargets_[pageFocusIndex_];
     position(pageFocusIndicator_, target.focus.x, target.focus.y,
              target.focus.width, target.focus.height);
     lv_obj_move_foreground(pageFocusIndicator_);
-    if(pageFocusVisible_) lv_obj_clear_flag(pageFocusIndicator_,LV_OBJ_FLAG_HIDDEN);
+    if(pageFocusVisible_&&target.enabled) lv_obj_clear_flag(pageFocusIndicator_,LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(pageFocusIndicator_,LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -3493,9 +3499,12 @@ void TransmitterUi::movePageFocus(int8_t direction)
         playBuzzer(35);
         return;
     }
-    pageFocusIndex_ = static_cast<uint8_t>(
-        (static_cast<int>(pageFocusIndex_) + (direction < 0 ? -1 : 1) +
-         pageFocusCount_) % pageFocusCount_);
+    for(uint8_t n=0;n<pageFocusCount_;++n){
+        pageFocusIndex_ = static_cast<uint8_t>(
+            (static_cast<int>(pageFocusIndex_) + (direction < 0 ? -1 : 1) +
+             pageFocusCount_) % pageFocusCount_);
+        if(pageFocusTargets_[pageFocusIndex_].enabled)break;
+    }
     refreshPageFocus();
     playKeyClick();
 }
@@ -3529,7 +3538,7 @@ bool TransmitterUi::dispatchPageControl(uint8_t index, PageControlEvent event)
 {
     if (index >= pageFocusCount_) return false;
     const PageFocusTarget target = pageFocusTargets_[index];
-    if (target.handler == nullptr) return false;
+    if (target.handler == nullptr || !target.enabled) return false;
     const uint8_t focused = pageFocusIndex_;
     (this->*target.handler)(target.argument, event);
     if (pageFocusCount_ != 0) {
@@ -3549,7 +3558,7 @@ bool TransmitterUi::dispatchPageControlTouch(int16_t x, int16_t y)
     };
     for (uint8_t index = 0; index < pageFocusCount_; ++index) {
         const PageFocusTarget &target = pageFocusTargets_[index];
-        if (target.handler == nullptr) continue;
+        if (target.handler == nullptr || !target.enabled) continue;
         PageControlEvent event;
         if (contains(target.decrease)) event = PageControlEvent::Decrease;
         else if (contains(target.increase)) event = PageControlEvent::Increase;
@@ -5907,6 +5916,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     speedStatistics_.update(telemetry.groundSpeedDeciKmh, telemetry.gpsSpeedUpdatedMs, millis(),
                             gpsSpeedAvailable(telemetry,millis()));
     designTelemetry_ = telemetry; designSafety_ = safetyStatus;
+    updateGpsWidgetPolicy(telemetry,millis());
     for(uint8_t sensor=0;telemetryHistory_&&sensor<DashboardSensorCount;++sensor){
         int32_t value=0;uint32_t stamp=0;const bool valid=sensorReading(telemetry,sensor,value,stamp);
         sensorStatistics_[sensor].update(value,stamp,millis(),valid);

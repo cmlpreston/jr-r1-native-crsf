@@ -215,7 +215,7 @@ mirror supports the same gesture. The expanded widget omits its own title and ex
 | All channels | Configured outputs, physical controls or both. Choose visible entries; horizontal/vertical bars or numbers, with binary indicators for suitable switch states. Tap to page through entries. |
 | Sensor | Speed, RPM, RX voltage, LQ, satellites and drive-pack readings. Styles depend on the sensor. |
 | Battery cells | Individual reported cells together, plus total, lowest cell and count. Auto or expected 1S–12S; page when needed. |
-| GPS map / trail | Saved map with north indicator, GPS position and trail. Tap for the larger GPS view; source credits are on Data / GPS. |
+| GPS map / speed | Automatically shows the saved map/position/trail or the speed display, based on fresh GPS fields. Acquisition and unavailable data have separate status messages. |
 | Drive pack / CU01 | Pack voltage, current, consumed mAh and estimated remaining percentage reported by the CU01. Stale or unavailable readings show `--`. |
 | Power / energy | CU01 electrical input power in watts, observed peak watts, accumulated Wh and estimated Wh/km when enough fresh GPS speed data is available. Reset clears these local measurements. |
 | Control history | Last ten seconds of calibrated steering and throttle inputs, sampled at 100 ms with fixed -100/0/+100% axes. ST and TH use different colours. |
@@ -250,6 +250,30 @@ motor followed the command. Both new widgets support the normal dashboard sizes
 and hold-to-maximise gesture; a wide Control history card gives more graph space.
 
 ![Power/energy and control-history widgets: simulator example with synthetic readings and inputs, not a physical LCD capture.](../assets/ui-captures/power-control/dashboard.png)
+
+The **GPS map / speed** card chooses its display from the returned data. Fresh
+usable coordinates select the map. Fresh speed without position or satellite
+fields selects speed; after a usable position was shown, a three-second grace
+period avoids switching on a brief interruption. A reported low satellite count
+shows **Acquiring**, while position-shaped data without a usable position stays
+on the map with a waiting status. Unknown satellites differ from a reported zero.
+Some older GPS bridges encode unknown as zero too; fresh non-placeholder
+coordinates with zero retain an amber map labelled **Position unconfirmed**.
+When telemetry expires, the last presentation remains with unavailable readings.
+Speed Max/Avg and Reset use the same statistics as the dedicated Speed card.
+
+This is an automatic display selection, not confirmation of the sensor's physical
+mode. The standard CRSF GPS satellite field means satellites in view, not a fix
+flag. Even a nonzero count does not establish a usable position. Sensor mode is
+only confirmed by its explicit settings reply; the widget does not discover or
+configure sensors. The dedicated Speed card stays a speed display, and Data / GPS
+remains the full map page.
+
+The real blue-mode field set still needs a passive hardware capture. The current
+speed-only examples verify decoding and UI behaviour using synthetic packets;
+they do not establish every field emitted by the physical ERS-GPS in blue mode.
+
+![Automatic speed presentation: simulator-only synthetic packet example, not a verified blue-mode hardware capture.](../assets/ui-captures/gps-auto/speed.png)
 
 ### Monitoring controls while CUT
 

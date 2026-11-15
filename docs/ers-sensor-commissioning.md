@@ -151,3 +151,25 @@ GPSSTATUS includes speed_packets, speed_available and speed_age_ms for rate chec
 This is not a sensor-mode detector: hardware validation is still needed in blue
 and red modes. No sensor discovery, setting writes or RF-rate changes are used.
 Reference: https://github.com/EdgeTX/edgetx/blob/main/radio/src/telemetry/crossfire.cpp
+
+The dashboard GPS map/speed card now selects a useful presentation from these
+independent fields. Position selects the map; speed-only data can select speed
+after a three-second last-position grace. Fresh known low satellite counts or
+position-shaped data lacking a usable position retain an acquiring/waiting map.
+Satellite availability is separate from value: an omitted field is unknown.
+Legacy S.Port bridges also put zero in this field, including untagged15B packets
+when heading is available. Zero plus fresh non-placeholder coordinates therefore
+retains the compatibility map with a visible Position unconfirmed caption and
+amber marker. Zero with missing/placeholder coordinates remains acquisition.
+This still does not establish the physical sensor mode. CRSF0x02 labels its count
+as satellites in view, with no mode/fix flag; setting15 of the ERS config reply is
+the explicit mode confirmation. No automatic discovery/configuration was added.
+Reference: https://github.com/tbs-fpv/tbs-crsf-spec/blob/main/crsf.md#0x02-gps
+
+As of2026-11-15, the real blue-mode field set remains unverified. The RadioMaster
+manual documents blue10Hzground speed, but the speed-only/all-FF-field fixtures
+are synthetic decoder/UI tests, not a capture from this sensor. The user is not
+ready for a hardware check. A later passive blue/red comparison must verify field
+presence, satellite values and update rate without sensor discovery or writes.
+Manufacturer manual:
+https://cdn.shopify.com/s/files/1/0701/8066/7584/files/ERS-GPS-1.3_6cc91247-3d22-44be-ae09-e0db5077a1f1.pdf?v=1770618392

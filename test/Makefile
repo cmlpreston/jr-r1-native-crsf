@@ -31,6 +31,7 @@ TESTS := \
   first_drive_features_test \
   ers_sensor_config_test \
   gps_acquisition_chime_test \
+  gps_widget_view_test \
   race_timer_test \
   firmware_package_test \
   module_link_test \
@@ -237,6 +238,10 @@ $(BUILD)/simulator_handset_test: simulator_handset_test.cpp $(ROOT)/src/physical
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
 
 $(BUILD)/gps_map_test: gps_map_test.cpp $(ROOT)/include/gps_map_projection.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
+
+$(BUILD)/gps_widget_view_test: gps_widget_view_test.cpp $(ROOT)/include/gps_widget_view.h
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 

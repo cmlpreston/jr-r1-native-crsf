@@ -74,8 +74,10 @@ struct CrsfTelemetryState {
 inline bool gpsSpeedAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
     return t.gpsSpeedValid && uint32_t(nowMs-t.gpsSpeedUpdatedMs)<=3000;
 }
-// S.Port omits satellite/fix quality: zero means unknown, while a fresh
-// non-placeholder position remains usable. Known low counts remain unavailable.
+// Legacy S.Port bridges also encode an unavailable satellite count as zero.
+// Keep their fresh non-placeholder positions usable, without confirming a fix.
+// A native reported zero with retained coordinates is intrinsically ambiguous;
+// the dashboard marks that position unconfirmed rather than assuming a fix.
 inline bool gpsPositionAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
     return t.gpsValid && uint32_t(nowMs-t.gpsUpdatedMs)<=3000 &&
         (t.satellites>=4 || (t.satellites==0 && (t.latitudeE7!=0 || t.longitudeE7!=0)));

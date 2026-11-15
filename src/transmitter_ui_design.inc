@@ -14,7 +14,7 @@ static_assert(sizeof(designSensorUnits)/sizeof(*designSensorUnits)==DashboardSen
 const char *const designFieldNames[] = {"Rate", "Expo", "Endpoint", "Response speed", "Direction", "Trim", "Subtrim", "Response offset"};
 const char *const designRoleNames[] = {"Steering", "Throttle", "Brake", "Channel", "Channel"};
 const char *dashboardKindName(DashboardWidgetKind kind) {
-    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / trail","Model image","All channels","Battery cells","Reserved","Controls","Trim / rates","RF margin","Drive pack","Power / energy","Control history"};
+    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / speed","Model image","All channels","Battery cells","Reserved","Controls","Trim / rates","RF margin","Drive pack","Power / energy","Control history"};
     static_assert(sizeof(names)/sizeof(*names)==static_cast<unsigned>(DashboardWidgetKind::Count),"Widget names must cover stable IDs");
     return names[static_cast<uint8_t>(kind)<static_cast<uint8_t>(DashboardWidgetKind::Count)?static_cast<uint8_t>(kind):0];
 }
@@ -896,6 +896,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
                 "Calibrated driver inputs / 10 seconds.\nBefore expo, trim and mixing; not outputs.",12,77+3*(designPortrait?51:30)+4,UiText::Caption,cDim);
             lv_obj_set_width(help,kScreenWidth-24);
         }
+        if(widgetDraft_.kind==DashboardWidgetKind::Map){
+            auto help=label("Position data shows the map.\nSpeed-only data shows speed and statistics.",12,77+3*(designPortrait?51:30)+4,UiText::Caption,cDim);
+            lv_obj_set_width(help,kScreenWidth-24);
+        }
         label("Covered widgets are kept for later",12,designFooterY-(designPortrait?65:45),UiText::Caption,cDim);
         button(10,designFooterY-(designPortrait?44:23),90,designPortrait?40:23,"Cancel",125);button(kScreenWidth-110,designFooterY-(designPortrait?44:23),100,designPortrait?40:23,"Apply",126,true);
         }
@@ -1126,7 +1130,13 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     }
     if(item==246){vehicleBatteryTab_=0;v2SensorSetupReturn_=false;drawDesignPage(UiPage::DriveBatterySetup);return;}
     if(item==254){if(activePage_!=UiPage::RfWarningSetup)rfWarningReturnPage_=activePage_;drawDesignPage(UiPage::RfWarningSetup);return;}
-    if(item>=250&&item<=253){const auto &w=dashboardLayouts_[activeModelSlot_].cells[item-250];if(w.kind==DashboardWidgetKind::Sensor)resetSensorStatistics(w.source);return;}
+    if(item>=250&&item<=253){
+        const uint8_t cell=item-250;const auto &w=dashboardLayouts_[activeModelSlot_].cells[cell];
+        if(w.kind==DashboardWidgetKind::Sensor)resetSensorStatistics(w.source);
+        else if(w.kind==DashboardWidgetKind::Map&&activePage_==UiPage::Dashboard&&
+                widgetViews_[cell].gpsDisplayed==GpsWidgetView::View::Speed)resetSpeedStatistics();
+        return;
+    }
     if(item==247){resetSensorStatistics(sensorSelected_);v2GraphPaused_=false;drawDesignPage(UiPage::SensorDetail);return;}
     if(item==248){sensorSessionStats_[sensorSelected_]=!sensorSessionStats_[sensorSelected_];saveDriveBatterySettings();drawDesignPage(UiPage::SensorDetail);return;}
     if(item==249){v2SensorSetupReturn_=true;ersSelected_=-1;ersDraftDirty_=false;ersUsePackCapacity_=true;ersListBank_=0;drawDesignPage(UiPage::ErsSensors);return;}
@@ -1176,7 +1186,10 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item>=130 && item<=133){const auto &w=dashboardLayouts_[activeModelSlot_].cells[item-130];
         if(w.kind==DashboardWidgetKind::Timer){timerBank_=0;timerConfirmation_=0;drawDesignPage(UiPage::TimerControl);}
         else if(w.kind==DashboardWidgetKind::AllChannels || w.kind==DashboardWidgetKind::BatteryCells){++channelWidgetPages_[item-130];drawDashboard();}
-        else if(w.kind==DashboardWidgetKind::Map)drawDesignPage(UiPage::Gps);
+        else if(w.kind==DashboardWidgetKind::Map){
+            if(widgetViews_[item-130].gpsDisplayed==GpsWidgetView::View::Speed){sensorSelected_=0;drawDesignPage(UiPage::SensorDetail);}
+            else drawDesignPage(UiPage::Gps);
+        }
         else if(w.kind==DashboardWidgetKind::Channels){designBank_=w.source/4;drawDesignPage(UiPage::ChannelMonitor);}
         else if(w.kind==DashboardWidgetKind::Sensor){sensorSelected_=w.source;drawDesignPage(UiPage::SensorDetail);}
         else if(w.kind==DashboardWidgetKind::Power||w.kind==DashboardWidgetKind::RfMargin)drawRadioDiagnostics();
@@ -1342,6 +1355,7 @@ bool TransmitterUi::handleDashboardWidgetHold(int startX,int startY,int endX,int
     if(activePage_!=UiPage::Dashboard||duration<650||abs(endX-startX)>=24||abs(endY-startY)>=24)return false;
     for(uint8_t i=0;i<pageFocusCount_;++i){
         const auto &target=pageFocusTargets_[i];
+        if(!target.enabled)continue;
         if(target.handler!=&TransmitterUi::controlDesign||target.argument<130||target.argument>133)continue;
         const auto &r=target.activate;
         auto inside=[&](int x,int y){return x>=r.x&&x<r.x+r.width&&y>=r.y&&y<r.y+r.height;};
@@ -1387,7 +1401,10 @@ void TransmitterUi::drawDashboardWidgets()
         const bool speedWidget=w.kind==DashboardWidgetKind::Sensor && w.source==0;
         const int actionHeight=w.kind==DashboardWidgetKind::Timer?height-(designPortrait?45:31):speedWidget?height-32:w.kind==DashboardWidgetKind::PowerEnergy?height-22:height;
         const bool interactive=w.kind==DashboardWidgetKind::Controls||w.kind==DashboardWidgetKind::Trims;
-        if(!interactive)addPageActionTarget(x,y,width,actionHeight,&TransmitterUi::controlDesign,130+cell);
+        if(!interactive){
+            if(w.kind==DashboardWidgetKind::Map)view.gpsCardTarget=pageFocusCount_;
+            addPageActionTarget(x,y,width,actionHeight,&TransmitterUi::controlDesign,130+cell);
+        }
         if(speedWidget)addPageActionTarget(x,y+height-32,width-80,32,&TransmitterUi::controlDesign,130+cell);
         if(w.kind==DashboardWidgetKind::PowerEnergy){
             addPageActionTarget(x,y+height-22,width-64,22,&TransmitterUi::controlDesign,130+cell);
@@ -1548,63 +1565,7 @@ void TransmitterUi::drawDashboardWidgets()
             lv_obj_set_size(view.detail,width-16,height<120?15:30);
             lv_label_set_long_mode(view.detail,LV_LABEL_LONG_CLIP);
         } else if(w.kind==DashboardWidgetKind::Sensor){
-            lv_label_set_text(title,designSensorNames[w.source]);
-            const bool speed=w.source==0;
-            if(!speed){
-                char titleText[64];snprintf(titleText,sizeof(titleText),"%s%s",w.speedValue==SpeedWidgetValue::Maximum?"MAX ":w.speedValue==SpeedWidgetValue::Average?"AVG ":"",designSensorNames[w.source]);
-                uiSetText(title,titleText);boundedLabel(title,width-72);
-            }
-            if(speed){
-                const uint8_t primary=static_cast<uint8_t>(w.speedValue);
-                const char *compactTitles[]={"Speed","Max","Avg"};
-                lv_label_set_text(title,width<180?compactTitles[primary]:speedValueTitles[primary]);
-                boundedLabel(title,width-80);
-                view.satellites=makeLabel(view.panel,"-- sats",width-62,21,UiText::Caption,cDim);
-                lv_obj_set_width(view.satellites,54);
-                lv_obj_set_style_text_align(view.satellites,LV_TEXT_ALIGN_RIGHT,0);
-            }
-            const UiText::Style valueStyle=speed?(height>130 && w.style!=DashboardWidgetStyle::Graph?(width>220?UiText::Hero:UiText::Reading):UiText::Heading):UiText::Reading;
-            view.values[0]=makeLabel(view.panel,"--",8,speed?(height>130?40:24):33,valueStyle);
-            view.detail=makeLabel(view.panel,designSensorUnits[w.source],speed?width-43:8,speed?5:height-20,UiText::Caption,cDim);
-            if(!speed){
-                lv_obj_set_pos(view.detail,width-62,5);lv_obj_set_width(view.detail,54);lv_obj_set_style_text_align(view.detail,LV_TEXT_ALIGN_RIGHT,0);
-                view.values[1]=makeLabel(view.panel,"Max -- / Avg --",8,height-18,UiText::Caption,cDim);
-                lv_obj_set_size(view.values[1],width-16,15);lv_label_set_long_mode(view.values[1],LV_LABEL_LONG_CLIP);
-                makePageActionButton(x+width-52,y+height-43,44,22,"Reset",UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,250+cell);
-            }
-            if(speed){
-                lv_obj_set_pos(view.detail,width-62,5);lv_obj_set_width(view.detail,54);
-                lv_obj_set_style_text_align(view.detail,LV_TEXT_ALIGN_RIGHT,0);
-                // Two compact rows fit even a 1x1 landscape panel.
-                view.values[1]=makeLabel(view.panel,"Max --\nAvg --",8,height-36,height>130?UiText::Secondary:UiText::Caption,cDim);
-                lv_obj_set_size(view.values[1],width-88,36);
-                if(width<180)lv_obj_set_style_text_font(view.values[1],UiText::font(UiText::Caption),0);
-                lv_label_set_long_mode(view.values[1],LV_LABEL_LONG_CLIP);
-            }
-            if(speed && w.style==DashboardWidgetStyle::Dials){
-                const bool compact=height<130;
-                const int diameter=compact?min(width/2-12,height-28):min(width-16,height-82);
-                const int ax=compact?8:(width-diameter)/2,ay=compact?23:40;
-                if(compact){lv_obj_set_pos(view.values[1],width/2,36);lv_obj_set_size(view.values[1],width/2-8,30);}
-                auto arc=lv_arc_create(view.panel);view.arcs[0]=arc;
-                position(arc,ax,ay,diameter,diameter);lv_obj_clear_flag(arc,LV_OBJ_FLAG_CLICKABLE);
-                lv_arc_set_rotation(arc,135);lv_arc_set_bg_angles(arc,0,270);
-                lv_arc_set_range(arc,0,1000);
-                lv_obj_set_style_arc_width(arc,4,LV_PART_MAIN);lv_obj_set_style_arc_width(arc,4,LV_PART_INDICATOR);
-                lv_obj_set_style_arc_color(arc,colour(cLine),LV_PART_MAIN);lv_obj_set_style_arc_color(arc,colour(cCyan),LV_PART_INDICATOR);
-                lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_obj_set_style_pad_all(arc,0,LV_PART_KNOB);
-                lv_obj_set_pos(view.values[0],ax+4,ay+diameter/2-12);
-                lv_obj_set_width(view.values[0],diameter-8);lv_obj_set_style_text_align(view.values[0],LV_TEXT_ALIGN_CENTER,0);
-                lv_obj_set_style_text_font(view.values[0],UiText::font(diameter>=110?UiText::Heading:UiText::Secondary),0);
-                lv_obj_move_foreground(view.values[0]);
-                view.marker=makeLabel(view.panel,"0-100",ax,ay+diameter-12,UiText::Caption,cDim);
-                lv_obj_set_width(view.marker,diameter);lv_obj_set_style_text_align(view.marker,LV_TEXT_ALIGN_CENTER,0);
-            }
-            if(w.style==DashboardWidgetStyle::Graph){view.plot=lv_line_create(view.panel);lv_obj_set_style_line_color(view.plot,colour(cCyan),0);lv_obj_set_style_line_width(view.plot,2,0);}
-            if(speed){
-                const bool compactDial=w.style==DashboardWidgetStyle::Dials && height<130;
-                makePageActionButton(x+width-76,y+height-(compactDial?26:30),68,compactDial?24:28,"Reset",UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,148);
-            }
+            drawDashboardSensorWidget(cell,w,x,y,width,height);
         } else if(w.kind==DashboardWidgetKind::Map){
             lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
             view.mapViewport.fillSavedRaster=true;
@@ -1622,6 +1583,21 @@ void TransmitterUi::drawDashboardWidgets()
             view.detail=makeLabel(view.basemap,"",4,4,UiText::Caption,0x17343c);
             lv_obj_set_style_bg_color(view.detail,colour(0xf5f7f3),0);
             lv_obj_set_style_bg_opa(view.detail,LV_OPA_90,0);
+            lv_obj_set_width(view.detail,width-44);
+            lv_label_set_long_mode(view.detail,LV_LABEL_LONG_WRAP);
+            view.speedPanel=makePanel(0,0,width-2,height-2,cPanel,cPanel,0);
+            lv_obj_set_parent(view.speedPanel,view.panel);
+            lv_obj_set_style_border_width(view.speedPanel,0,0);
+            view.gpsFooterTarget=pageFocusCount_;
+            addPageActionTarget(x,y+height-34,width-82,32,&TransmitterUi::controlDesign,130+cell);
+            DashboardWidget speed=w;speed.kind=DashboardWidgetKind::Sensor;speed.source=0;
+            speed.style=DashboardWidgetStyle::Numbers;speed.speedValue=SpeedWidgetValue::Current;
+            drawDashboardSensorWidget(cell,speed,x,y,width-2,height-2,true);
+            view.values[4]=makeLabel(view.speedPanel,"Speed data only",8,height>132?98:53,UiText::Caption,cDim);
+            boundedLabel(view.values[4],width-18);
+            lv_obj_add_flag(view.speedPanel,LV_OBJ_FLAG_HIDDEN);
+            pageFocusTargets_[view.gpsFooterTarget].enabled=false;
+            pageFocusTargets_[view.gpsResetTarget].enabled=false;
         } else if(w.kind==DashboardWidgetKind::Controls){
             const int buttonW=(width-24)/2,buttonH=min(44,height-36),buttonY=y+28+(height-36-buttonH)/2;
             for(uint8_t mode=0;mode<2;++mode){
@@ -1663,11 +1639,6 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
 {
     for(uint8_t cell=0;cell<4;++cell){
         const auto w=dashboardWidgetForView(cell);auto &view=widgetViews_[cell];if(!view.panel)continue;
-        if(view.satellites){
-            if(t.gpsSatellitesValid && uint32_t(millis()-t.gpsSatellitesUpdatedMs)<=3000)
-                uiSetTextFmt(view.satellites,"%u sats",t.satellites);
-            else uiSetText(view.satellites,"-- sats");
-        }
         if(view.heldOutputIcon){
             const bool hidden=lv_obj_has_flag(view.heldOutputIcon,LV_OBJ_FLAG_HIDDEN);
             if(dashboardOutputsLive_&&!hidden)lv_obj_add_flag(view.heldOutputIcon,LV_OBJ_FLAG_HIDDEN);
@@ -1806,49 +1777,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             else if(height<120)uiSetTextFmt(view.detail,"%uS  %u.%02uV  Low %u.%02uV",reported,t.vehiclePackMv/1000,(t.vehiclePackMv%1000)/10,t.vehicleMinimumCellMv/1000,(t.vehicleMinimumCellMv%1000)/10);
             else uiSetTextFmt(view.detail,"%uS  %u.%03u V\nMin %u.%03u V",reported,t.vehiclePackMv/1000,t.vehiclePackMv%1000,t.vehicleMinimumCellMv/1000,t.vehicleMinimumCellMv%1000);
         } else if(w.kind==DashboardWidgetKind::Sensor){
-            int32_t value=0;uint32_t stamp=0;bool valid=sensorReading(t,w.source,value,stamp);char text[24];sensorText(w.source,value,text,sizeof(text));
-            auto stats=telemetryHistory_?sensorStatistics_[w.source].result(sensorSessionStats_[w.source],millis()):SensorStatistics::Result{};
-            if(w.source==0&&sensorSessionStats_[0])stats={speedStatistics_.available(),speedStatistics_.maximum(),0,speedStatistics_.average()};
-            {
-                uiSetText(view.detail,designSensorUnits[w.source]);
-                char readings[3][16];
-                snprintf(readings[0],sizeof(readings[0]),"%s",valid?text:"--");
-                for(uint8_t i=1;i<3;++i){
-                    const int32_t stat=i==1?stats.maximum:stats.average;
-                    if(stats.valid)sensorText(w.source,stat,readings[i],sizeof(readings[i]));
-                    else snprintf(readings[i],sizeof(readings[i]),"--");
-                }
-                const uint8_t primary=static_cast<uint8_t>(w.speedValue);
-                uiSetText(view.values[0],readings[primary]);
-                if(view.arcs[0]){
-                    const bool available=primary==0?valid:stats.valid;
-                    const int selected=primary==0?value:primary==1?stats.maximum:stats.average;
-                    const int peak=max(int(stats.maximum),available?selected:0);
-                    const int maximum=max(1000,((peak+999)/1000)*1000);
-                    lv_arc_set_range(view.arcs[0],0,1000);
-                    lv_arc_set_value(view.arcs[0],available?int(int64_t(selected)*1000/maximum):0);
-                    uiSetArcOpacity(view.arcs[0],available?LV_OPA_COVER:LV_OPA_TRANSP,LV_PART_INDICATOR);
-                    uiSetTextFmt(view.marker,"0-%d",maximum/10);
-                }
-                // Keep the remaining values in Current / Maximum / Average order.
-                uint8_t secondary[2],count=0;
-                for(uint8_t i=0;i<3;++i)if(i!=primary)secondary[count++]=i;
-                uiSetTextFmt(view.values[1],w.source==0?"%s %s\n%s %s":"%s %s / %s %s",
-                    speedValueShortNames[secondary[0]],readings[secondary[0]],
-                    speedValueShortNames[secondary[1]],readings[secondary[1]]);
-            }
-            if(view.plot){
-                if(!telemetryHistory_){uiSetHidden(view.plot,true);continue;}
-                lv_obj_update_layout(view.panel);
-                int start=30;while(start>0 && sensorHistoryValid_[w.source][start-1])--start;
-                if(30-start<2){uiSetHidden(view.plot,true);continue;}
-                int32_t lo=INT32_MAX,hi=INT32_MIN;for(int i=start;i<30;++i){lo=min(lo,sensorHistory_[w.source][i]);hi=max(hi,sensorHistory_[w.source][i]);}
-                int height=lv_obj_get_height(view.panel),width=lv_obj_get_width(view.panel);
-                const int plotBottom=height-(w.source==0?43:24), plotHeight=max(1,plotBottom-(w.source==0?38:23));
-                lv_point_t points[30];
-                for(int i=start;i<30;++i)points[i-start]={static_cast<lv_coord_t>(width/2+(i-start)*(width/2-10)/(29-start)),static_cast<lv_coord_t>(plotBottom-(static_cast<int64_t>(sensorHistory_[w.source][i])-lo)*plotHeight/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
-                uiSetLinePoints(view.plot,view.points,points,30-start);uiSetHidden(view.plot,false);
-            }
+            updateDashboardSensorWidget(cell,w,t,millis());
         } else if(w.kind==DashboardWidgetKind::Controls){
             for(uint8_t mode=0;mode<2;++mode){
                 const bool selected=(driveModeSettings_.activeMode==DriveMode::Walk)==bool(mode);
@@ -1873,18 +1802,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 else uiSetTextFmt(view.detail,"LQ %u%% | power --",t.uplinkLinkQuality);
             }else uiSetText(view.detail,"No fresh link telemetry");
         } else if(w.kind==DashboardWidgetKind::Map){
-            bool reported=gpsPositionAvailable(t,millis()),fix=gpsFixConfirmed(t,millis());int width=lv_obj_get_width(view.basemap),height=lv_obj_get_height(view.basemap);
-            const char *status=!gpsCount_?"No GPS position":"";
-            uiSetText(view.detail,status);
-            uiSetHidden(view.detail,!*status);
-            if(!gpsCount_){previewGpsBasemap(view.basemap,view.mapViewport,true);continue;}
-            const double scale=max(0.15,min(2.0,min(width-20,height-10)/40.0));
-            followGpsBasemap(view.basemap,view.mapViewport,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],scale);
-            updateGpsTrail(view.plot,view.points,view.gpsRenderedCount,gpsLat_,gpsLon_,gpsCount_,view.mapViewport,width,height,true,view.gpsProjection,gpsTrailRevision_);
-            const auto marker=gpsViewportPoint(view.mapViewport,gpsLat_[gpsCount_-1],gpsLon_[gpsCount_-1],width,height);
-            lv_obj_set_pos(view.marker,marker.x-8,marker.y-8);
-            uiSetHidden(view.marker,false);uiSetBgColor(view.marker,colour(fix?0x00707d:reported?0xb87800:0x53636c),0);
-            uiSetOpacity(view.marker,reported?LV_OPA_COVER:LV_OPA_50);
+            updateGpsAutoWidget(cell,t,millis());
         }
     }
 }

@@ -1,5 +1,20 @@
 # R-1 EVO change record
 
+## 15 November 2026 — automatic GPS map/speed presentation
+
+- Upgrade the existing GPS map widget with reusable map/speed subviews, selected
+  by fresh returned fields. Preserve saved kind5, trail, map, sizes and statistics.
+- Use a three-second last-usable-position grace, acquisition/waiting status for
+  low satellites or incomplete position data, and unavailable readings on loss.
+  Preserve legacy zero-as-unknown position data with an unconfirmed amber map.
+- Keep the dedicated Speed card and full Data/GPS page behaviour. Reject delayed
+  browser taps after actual presentation switches without rebuilding the screen.
+- This infers a useful display, not the sensor's physical mode. Blue10Hzspeed is
+  documented; its actual field set remains unverified. The user is not ready for
+  a passive hardware check. Host tests, approved XIAO landscape build, both
+  simulator builds/full UI audits and focused GPS/map/Speed checks pass. Six
+  fixed-Speed before/after captures are byte-identical. Candidate is unflashed.
+
 ## 15 November 2026 — power/energy and control-history widgets
 
 - Append optional Power / energy and Control history widget kinds, preserving

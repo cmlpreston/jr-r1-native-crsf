@@ -263,6 +263,13 @@ per-model RAM histories for the current power session. Hardware validation remai
 
 ## Telemetry and vehicle peripherals
 
+- [x] Implement automatic map/speed presentation for existing GPS widget kind5,
+  with acquisition/stale/unconfirmed status, grace, stable objects and safe tap
+  transitions. Synthetic UI/decoder tests and target build pass (2026-11-15).
+- [ ] Validate the automatic GPS map/speed widget on real blue/red modes with
+  passive field/rate captures. Synthetic speed-only FF-field tests do not prove
+  which fields the ERS-GPS actually emits in blue mode. User not ready to test
+  on2026-11-15; candidate is unflashed. Preserve zero-as-unknown legacy feeds.
 - [x] Decode CRSF GPS, source-zero temperature and RPM with freshness checks.
 - [x] Decode CU01 vehicle-pack voltage/current, consumed mAh and reported
   estimated remaining percentage; provide the combined Drive pack widget.

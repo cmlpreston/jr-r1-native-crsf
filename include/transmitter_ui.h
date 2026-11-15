@@ -9,6 +9,7 @@
 #include "speed_statistics.h"
 #include "power_energy_statistics.h"
 #include "control_history.h"
+#include "gps_widget_view.h"
 #include "sensor_statistics.h"
 #include "ui_telemetry_history.h"
 #include "drive_battery.h"
@@ -274,6 +275,12 @@ private:
     DashboardWidget dashboardWidgetForView(uint8_t cell) const;
     bool handleDashboardWidgetHold(int startX,int startY,int endX,int endY,uint32_t duration);
     void updateDashboardWidgets(const CrsfTelemetryState &telemetry, uint16_t tx, bool txValid);
+    void drawDashboardSensorWidget(uint8_t cell,const DashboardWidget &widget,
+                                   int x,int y,int width,int height,bool gpsAuto=false);
+    void updateDashboardSensorWidget(uint8_t cell,const DashboardWidget &widget,
+                                     const CrsfTelemetryState &,uint32_t now,bool gpsAuto=false);
+    void updateGpsWidgetPolicy(const CrsfTelemetryState &,uint32_t now);
+    void updateGpsAutoWidget(uint8_t cell,const CrsfTelemetryState &,uint32_t now);
     ChannelResponseProfile &profileForChannel(uint8_t channel);
     const ChannelResponseProfile &profileForChannel(uint8_t channel) const;
     ChannelResponseProfile &throttleProfile();
@@ -602,6 +609,9 @@ private:
         lv_obj_t *marker = nullptr;
         lv_obj_t *detail = nullptr;
         lv_obj_t *satellites = nullptr;
+        lv_obj_t *speedPanel = nullptr, *speedReset = nullptr;
+        GpsWidgetView::View gpsDisplayed = GpsWidgetView::View::Map;
+        uint8_t gpsCardTarget=255,gpsFooterTarget=255,gpsResetTarget=255;
         uint8_t gpsRenderedCount = 0;
         GpsMap::TrailProjectionCache gpsProjection;
         lv_point_t points[48] = {};
@@ -609,6 +619,7 @@ private:
     };
     bool dashboardBinaryChannel(uint8_t ch, int &off, int &on) const;
     DashboardWidgetView widgetViews_[4];
+    GpsWidgetView gpsWidgetPolicy_;
     uint8_t channelWidgetPages_[4] = {};
     // Session metrics and externally backed chart series stay out of scarce
     // internal RAM. Their addresses remain stable for the lifetime of LVGL.
@@ -897,6 +908,7 @@ private:
         Rectangle increase;
         PageControlHandler handler = nullptr;
         uint8_t argument = 0;
+        bool enabled = true;
     };
     // The ELRS on-screen keyboard is the largest current page (46 controls).
     // Keep one shared registry large enough that new pages do not need a

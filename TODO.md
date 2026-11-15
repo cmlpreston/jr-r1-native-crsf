@@ -263,6 +263,12 @@ per-model RAM histories for the current power session. Hardware validation remai
 
 ## Telemetry and vehicle peripherals
 
+- [x] Add optional Speed / motor RPM dual dials with independent freshness,
+  explicit scales and stable saved widget IDs; no inferred RPM correction.
+- [ ] Read the RB01 Motor poles setting and validate RPM against shaft speed.
+  User confirms their listing says4poles (2026-11-15); R1 total-poles setting
+  should be4. The actual sensor value and historical ~50,000RPM remain unverified;
+  paired-dial candidate added 2026-11-15 is unflashed.
 - [x] Implement automatic map/speed presentation for existing GPS widget kind5,
   with acquisition/stale/unconfirmed status, grace, stable objects and safe tap
   transitions. Synthetic UI/decoder tests and target build pass (2026-11-15).

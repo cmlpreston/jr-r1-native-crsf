@@ -821,6 +821,7 @@ bool TransmitterUi::resetDisplayTransferStats()
 #include "transmitter_ui_design.inc"
 #include "transmitter_ui_widget_metrics.inc"
 #include "transmitter_ui_gps_widget.inc"
+#include "transmitter_ui_speed_rpm.inc"
 #include "transmitter_ui_v2.inc"
 #include "transmitter_ui_drive_battery.inc"
 #include "transmitter_ui_rf_warning.inc"

@@ -11,7 +11,7 @@ int main()
     const uint8_t retired[]={9,2,2,1,0,1};
     assert(dashboardWidgetFromV2(0,retired).kind==DashboardWidgetKind::Empty);
     assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryCells,1)==DashboardWidgetKind::Controls);
-    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::BatteryLoadBalance);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::SpeedRpm);
     assert(nextDashboardWidgetKind(DashboardWidgetKind::DrivePack,1)==DashboardWidgetKind::PowerEnergy);
     assert(nextDashboardWidgetKind(DashboardWidgetKind::PowerEnergy,1)==DashboardWidgetKind::ControlHistory);
     static_assert(int(DashboardWidgetKind::Controls)==10,"Append widget IDs without changing saved layouts");
@@ -19,7 +19,15 @@ int main()
     static_assert(int(DashboardWidgetKind::PowerEnergy)==14&&int(DashboardWidgetKind::ControlHistory)==15,"Append metrics widgets without changing saved layouts");
     static_assert(int(DashboardWidgetKind::TripComputer)==16&&int(DashboardWidgetKind::RunSummary)==17&&int(DashboardWidgetKind::BatteryLoadBalance)==18,"Keep new session widget IDs stable");
     assert(nextDashboardWidgetKind(DashboardWidgetKind::ControlHistory,1)==DashboardWidgetKind::TripComputer);
-    assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryLoadBalance,1)==DashboardWidgetKind::Empty);
+    static_assert(int(DashboardWidgetKind::SpeedRpm)==19,"Append dual-dial kind without changing earlier IDs");
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryLoadBalance,1)==DashboardWidgetKind::SpeedRpm);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::SpeedRpm,1)==DashboardWidgetKind::Empty);
+    for(int style=0;style<int(DashboardWidgetStyle::Count);++style){
+        DashboardWidget w;w.kind=DashboardWidgetKind::SpeedRpm;w.style=DashboardWidgetStyle(style);
+        assert(dashboardWidgetKindAvailable(w.kind));
+        const auto fixed=sanitizedDashboardWidget(0,w);
+        assert(fixed.kind==DashboardWidgetKind::SpeedRpm&&fixed.style==DashboardWidgetStyle::Dials);
+    }
     for(auto kind:{DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin,DashboardWidgetKind::DrivePack,DashboardWidgetKind::PowerEnergy,DashboardWidgetKind::TripComputer,DashboardWidgetKind::RunSummary,DashboardWidgetKind::BatteryLoadBalance}){
         DashboardWidget w;w.kind=kind;w.style=DashboardWidgetStyle::Graph;
         assert(dashboardWidgetKindAvailable(kind));
@@ -32,7 +40,7 @@ int main()
     }
     // Every prior stored kind retains its meaning; the two new types fit the
     // existing byte schema and every supported size without changing defaults.
-    for(auto kind:{DashboardWidgetKind::PowerEnergy,DashboardWidgetKind::ControlHistory,DashboardWidgetKind::TripComputer,DashboardWidgetKind::RunSummary,DashboardWidgetKind::BatteryLoadBalance}){
+    for(auto kind:{DashboardWidgetKind::PowerEnergy,DashboardWidgetKind::ControlHistory,DashboardWidgetKind::TripComputer,DashboardWidgetKind::RunSummary,DashboardWidgetKind::BatteryLoadBalance,DashboardWidgetKind::SpeedRpm}){
         for(int width=1;width<=2;++width)for(int height=1;height<=2;++height){
             DashboardWidget w;w.kind=kind;w.width=width;w.height=height;
             const auto fixed=sanitizedDashboardWidget(0,w);

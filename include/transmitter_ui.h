@@ -606,6 +606,7 @@ private:
         lv_obj_t *bars[16] = {};
         lv_obj_t *switches[16] = {};
         lv_obj_t *arcs[2] = {};
+        uint32_t dialMaximum[2] = {}; // UI-only ceilings, latched until card rebuild.
         lv_obj_t *plot = nullptr;
         lv_obj_t *secondPlot = nullptr;
         lv_obj_t *marker = nullptr;
@@ -645,6 +646,8 @@ private:
     void resetBatteryLoadMetrics();
     void drawTripRunBatteryWidget(uint8_t cell,int width,int height);
     void updateTripRunBatteryWidget(uint8_t cell,uint32_t now);
+    void drawSpeedRpmWidget(uint8_t cell,int width,int height);
+    void updateSpeedRpmWidget(uint8_t cell,const CrsfTelemetryState &,uint32_t now);
     void updateControlHistoryWidget(uint8_t cell,uint32_t now);
     uint8_t tuneRole_ = 0; // steering, forward throttle, brake, selected AUX
     uint8_t tuneBank_ = 0, designBank_ = 0, setupBank_ = 0, sensorSelected_ = 0, sensorBank_ = 0;

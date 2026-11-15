@@ -14,7 +14,7 @@ static_assert(sizeof(designSensorUnits)/sizeof(*designSensorUnits)==DashboardSen
 const char *const designFieldNames[] = {"Rate", "Expo", "Endpoint", "Response speed", "Direction", "Trim", "Subtrim", "Response offset"};
 const char *const designRoleNames[] = {"Steering", "Throttle", "Brake", "Channel", "Channel"};
 const char *dashboardKindName(DashboardWidgetKind kind) {
-    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / speed","Model image","All channels","Battery cells","Reserved","Controls","Trim / rates","RF margin","Drive pack","Power / energy","Control history","Trip computer","Run summary","Battery load / balance"};
+    const char *names[]={"Empty","Timer","TX / RX power","Channels","Sensor","GPS map / speed","Model image","All channels","Battery cells","Reserved","Controls","Trim / rates","RF margin","Drive pack","Power / energy","Control history","Trip computer","Run summary","Battery load / balance","Speed / motor RPM"};
     static_assert(sizeof(names)/sizeof(*names)==static_cast<unsigned>(DashboardWidgetKind::Count),"Widget names must cover stable IDs");
     return names[static_cast<uint8_t>(kind)<static_cast<uint8_t>(DashboardWidgetKind::Count)?static_cast<uint8_t>(kind):0];
 }
@@ -913,6 +913,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
             auto help=label(text,12,77+3*(designPortrait?51:30)+4,UiText::Caption,cDim);
             lv_obj_set_width(help,kScreenWidth-24);
         }
+        if(widgetDraft_.kind==DashboardWidgetKind::SpeedRpm){
+            auto help=label("GPS ground speed and reported motor RPM.\nIndependent readings and labelled dial ranges.",12,77+3*(designPortrait?51:30)+4,UiText::Caption,cDim);
+            lv_obj_set_width(help,kScreenWidth-24);
+        }
         label("Covered widgets are kept for later",12,designFooterY-(designPortrait?65:45),UiText::Caption,cDim);
         button(10,designFooterY-(designPortrait?44:23),90,designPortrait?40:23,"Cancel",125);button(kScreenWidth-110,designFooterY-(designPortrait?44:23),100,designPortrait?40:23,"Apply",126,true);
         }
@@ -1410,7 +1414,7 @@ void TransmitterUi::drawDashboardWidgets()
         const int width=cellW*w.width+gap*(w.width-1),height=maximizedWidget_>=0?designFooterY-top-6:cellH*w.height+gap*(w.height-1);
         view.panel=makePanel(x,y,width,height,cPanel,cLine);
         auto title=makeLabel(view.panel,dashboardKindName(w.kind),8,5,UiText::Caption,cDim);view.title=title;
-        if(maximizedWidget_>=0&&w.kind!=DashboardWidgetKind::DrivePack&&w.kind!=DashboardWidgetKind::PowerEnergy&&w.kind!=DashboardWidgetKind::ControlHistory&&!dashboardSessionWidget(w.kind))lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
+        if(maximizedWidget_>=0&&w.kind!=DashboardWidgetKind::DrivePack&&w.kind!=DashboardWidgetKind::PowerEnergy&&w.kind!=DashboardWidgetKind::ControlHistory&&w.kind!=DashboardWidgetKind::SpeedRpm&&!dashboardSessionWidget(w.kind))lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
         const bool channelPreview=w.kind==DashboardWidgetKind::Channels ||
             (w.kind==DashboardWidgetKind::AllChannels&&w.source!=1);
         boundedLabel(title,width-(channelPreview?40:16));
@@ -1512,6 +1516,8 @@ void TransmitterUi::drawDashboardWidgets()
                     if(w.style==DashboardWidgetStyle::Bars){view.bars[j]=makeBar(view.panel,8,yy+(power&&height>130?48:19),width-16,5,power?0:-1000,power?160:1000);if(!power)lv_bar_set_mode(view.bars[j],LV_BAR_MODE_SYMMETRICAL);}
                 }
             }
+        } else if(w.kind==DashboardWidgetKind::SpeedRpm){
+            drawSpeedRpmWidget(cell,width,height);
         } else if(dashboardSessionWidget(w.kind)){
             drawTripRunBatteryWidget(cell,width,height);
         } else if(w.kind==DashboardWidgetKind::PowerEnergy){
@@ -1730,6 +1736,8 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                 if(view.arcs[j]){lv_arc_set_range(view.arcs[j],power?0:-1000,maximum);lv_arc_set_value(view.arcs[j],valid?value:0);uiSetArcColor(view.arcs[j],colour(low?cRed:valid?cCyan:cDim),LV_PART_INDICATOR);}
                 if(view.bars[j]){lv_bar_set_range(view.bars[j],power?0:-1000,maximum);lv_bar_set_value(view.bars[j],valid?value:0,LV_ANIM_OFF);uiSetBgColor(view.bars[j],colour(low?cRed:cCyan),LV_PART_INDICATOR);}
             }
+        } else if(w.kind==DashboardWidgetKind::SpeedRpm){
+            updateSpeedRpmWidget(cell,t,millis());
         } else if(dashboardSessionWidget(w.kind)){
             updateTripRunBatteryWidget(cell,millis());
         } else if(w.kind==DashboardWidgetKind::PowerEnergy){

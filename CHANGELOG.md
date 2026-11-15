@@ -1,5 +1,17 @@
 # R-1 EVO change record
 
+## 15 November 2026 — paired speed and motor RPM dials
+
+- Add an optional Speed / motor RPM dashboard widget, appending persisted kind19
+  without changing earlier IDs, saved layout bytes or default dashboards.
+- Show independently fresh GPS speed and sensor-reported RPM with separate
+  units/scales and unavailable indicators. Preserve zero as a real measurement.
+  No gearing-derived RPM, sensor-setting changes or assumed pole correction.
+- Support compact, tall, wide and maximized layouts using the shared dial style.
+- Host suite, approved XIAO build, both simulator builds, focused UI/freshness/
+  persistence checks and full navigation/rotation/typography audits pass.
+  Candidate remains unflashed; actual RPM calibration remains to be checked.
+
 ## 15 November 2026 — trip, run summary and battery load/balance widgets
 
 - Append optional Trip computer, Run summary and Battery load / balance kinds

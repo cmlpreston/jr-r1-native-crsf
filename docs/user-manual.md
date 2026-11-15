@@ -222,6 +222,7 @@ mirror supports the same gesture. The expanded widget omits its own title and ex
 | Trip computer | GPS distance, moving time, moving average and observed top speed since reset. |
 | Run summary | Elapsed time, GPS distance/top speed, CU01 observed peak watts, capacity used and energy used for the same trip session. |
 | Battery load / balance | CU01 pack voltage/current, observed minimum pack voltage/peak current, CV01 lowest cell and difference between highest and lowest cell. |
+| Speed / motor RPM | Two independent dials for GPS ground speed and sensor-reported motor RPM, with separate units and scales. |
 | Controls | Normal / Walk mode controls. |
 | Trim / rates | Steering trim/rate and throttle trim/brake rate, with shortcuts to adjustment. |
 | RF margin | Current margin above the selected RF mode's sensitivity, with LQ and reported RF output power. |
@@ -276,6 +277,20 @@ current remain until reset. Cell spread is the highest reported cell minus the
 lowest in the same CV01 packet; it does not diagnose battery health or estimate
 internal resistance. Its Reset clears only this card's local observations.
 Battery warning thresholds and sensor settings are unchanged.
+
+**Speed / motor RPM** pairs the GPS speed reading with the RB01's reported motor
+RPM. Each reading has its own freshness check: a missing RPM feed leaves the
+speed dial working, and vice versa. Zero is a valid reading. It displays current
+measurements, without deriving RPM from speed or applying a guessed correction.
+Confirm the motor's total magnetic pole count and the RB01 Motor poles setting
+before treating its RPM as calibrated shaft speed.
+
+With fixed gearing and tyre circumference, motor RPM and road speed are
+proportional while the tyres roll without slipping. Wheelspin or tyre expansion
+can change that relationship; different sensor delays can also temporarily
+separate the readings. The two dials do not calculate a calibrated slip ratio.
+
+![Expanded speed and motor RPM dials with synthetic values; krpm means thousands of RPM.](../assets/ui-captures/speed-rpm/expanded.png)
 
 ![Trip computer, Run summary and Battery load/balance: synthetic simulator readings, not a hardware capture.](../assets/ui-captures/trip-run-battery/landscape.png)
 

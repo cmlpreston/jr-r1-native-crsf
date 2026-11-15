@@ -3,7 +3,7 @@
 
 // Persisted UI-only data. Each model has a two-column, two-row dashboard.
 // Fields are bytes (no ABI padding); version is encoded in the NVS key.
-enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, AllChannels, BatteryCells, Course, Controls, Trims, RfMargin, DrivePack, PowerEnergy, ControlHistory, TripComputer, RunSummary, BatteryLoadBalance, Count };
+enum class DashboardWidgetKind : uint8_t { Empty, Timer, Power, Channels, Sensor, Map, Model, AllChannels, BatteryCells, Course, Controls, Trims, RfMargin, DrivePack, PowerEnergy, ControlHistory, TripComputer, RunSummary, BatteryLoadBalance, SpeedRpm, Count };
 
 inline bool dashboardSessionWidget(DashboardWidgetKind kind) {
     return kind==DashboardWidgetKind::TripComputer || kind==DashboardWidgetKind::RunSummary ||
@@ -59,6 +59,7 @@ inline uint8_t dashboardWidgetMask(uint8_t cell, const DashboardWidget &widget)
 inline bool dashboardStyleAllowed(DashboardWidgetKind kind, DashboardWidgetStyle style)
 {
     if (kind == DashboardWidgetKind::ControlHistory) return style == DashboardWidgetStyle::Graph;
+    if (kind == DashboardWidgetKind::SpeedRpm) return style == DashboardWidgetStyle::Dials;
     if (style == DashboardWidgetStyle::Numbers) return true;
     if (kind == DashboardWidgetKind::Power) return style == DashboardWidgetStyle::Bars || style == DashboardWidgetStyle::Dials;
     if (kind == DashboardWidgetKind::AllChannels) return style == DashboardWidgetStyle::Bars || style == DashboardWidgetStyle::VerticalBars;
@@ -78,7 +79,8 @@ inline DashboardWidget sanitizedDashboardWidget(uint8_t cell, DashboardWidget wi
     }
     if (widget.kind == DashboardWidgetKind::BatteryCells && widget.source > 12) widget.source = 0;
     if (!dashboardStyleAllowed(widget.kind, widget.style))
-        widget.style = widget.kind == DashboardWidgetKind::ControlHistory ? DashboardWidgetStyle::Graph : DashboardWidgetStyle::Numbers;
+        widget.style = widget.kind == DashboardWidgetKind::ControlHistory ? DashboardWidgetStyle::Graph :
+                       widget.kind == DashboardWidgetKind::SpeedRpm ? DashboardWidgetStyle::Dials : DashboardWidgetStyle::Numbers;
     widget.width = widget.width == 2 && cell%2==0 ? 2 : 1;
     widget.height = widget.height == 2 && cell/2==0 ? 2 : 1;
     if(widget.kind==DashboardWidgetKind::AllChannels && widget.source>2)widget.source=0;

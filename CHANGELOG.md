@@ -12,6 +12,8 @@
   USB PlatformIO; the user observed time on the physical screen via the receiver.
   The local-time/layout correction was then installed as source2b4f7e2; its full
   build/tests/UI audits and guarded upload passed, with image hash verified.
+- The user confirmed the corrected order and Sydney/Melbourne local time on the
+  physical R1 after restoring receiver/GPS telemetry.
 
 ## 15 November 2026 — GPS v1.9 hardware update verified
 

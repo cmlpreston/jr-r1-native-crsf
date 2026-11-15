@@ -239,7 +239,8 @@ in the order TX voltage / LQ / time / Wi-Fi. The default uses current daylight
 saving rules (+10 winter, +11 summer); a handset timezone selector remains TODO.
 UTC in telemetry/`GPSTIME` stays unchanged. This follow-up was installed as
 source `2b4f7e2` through the approved guarded upload; physical confirmation of
-the corrected layout/local time remains pending.
+the corrected layout/local time was subsequently provided by the user:
+"Correct order and local time".
 
 For version identification, the official Lua uses a whole-settings read
 (command 12); its reply includes firmware-version tag 18 as a little-endian

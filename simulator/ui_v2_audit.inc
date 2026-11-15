@@ -19,13 +19,13 @@ bool TransmitterUi::runSimulatorV2Audit()
     designTelemetry_=t;drawDashboard();updateDesign(t,OutputSafetyStatus::Cut,99,true);lv_obj_update_layout(lv_scr_act());
     // Drive is always the saved widget layout, with no fixed mode row.
     assert(widgetViews_[0].panel);
-    assert(lv_obj_get_y(widgetViews_[0].panel)==48);
+    assert(lv_obj_get_y(widgetViews_[0].panel)==kDashboardWidgetTop);
     for(auto kind:{DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin}){
         for(unsigned span=0;span<4;++span){
             dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
             auto &w=dashboardLayouts_[activeModelSlot_].cells[0];w.kind=kind;w.width=span&1?2:1;w.height=span&2?2:1;
             drawDashboard();updateDesign(t,OutputSafetyStatus::Cut,99,true);lv_obj_update_layout(lv_scr_act());
-            auto &v=widgetViews_[0];assert(v.panel);assert(lv_obj_get_y(v.panel)==48);
+            auto &v=widgetViews_[0];assert(v.panel);assert(lv_obj_get_y(v.panel)==kDashboardWidgetTop);
             if(kind==DashboardWidgetKind::RfMargin){
                 assert(strcmp(lv_label_get_text(v.values[0]),"38")==0);
                 assert(strstr(lv_label_get_text(v.detail),"250 mW"));
@@ -38,7 +38,7 @@ bool TransmitterUi::runSimulatorV2Audit()
                 assert(strstr(lv_label_get_text(v.values[0]),"ST trim"));
                 assert(strstr(lv_label_get_text(v.values[3]),"Brake"));
                 for(unsigned n=0;n<4;++n){const auto r=lv_obj_get_parent(v.values[n]);
-                    assert(lv_obj_get_y(r)>=48&&lv_obj_get_y(r)+lv_obj_get_height(r)<=designFooterY);}
+                    assert(lv_obj_get_y(r)>=kDashboardWidgetTop&&lv_obj_get_y(r)+lv_obj_get_height(r)<=designFooterY);}
                 tap(40);assert(activePage_==UiPage::ValueEditor&&editorField_==5);
                 controlDesign(34,activate);assert(activePage_==UiPage::Dashboard);
             }else{

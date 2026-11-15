@@ -1,5 +1,16 @@
 # R-1 EVO change record
 
+## 15 November 2026 — current development build installed
+
+- Installed source 4fa0968 through the guarded Pi USB PlatformIO upload, approved
+  XIAO / Waveshare LCD (F) landscape environment and schematic (5) pins.
+- Build, host/web checks and full landscape UI audit passed; device hash verified.
+  This includes the optional automatic GPS, Trip/Run/Battery and Speed/RPM widgets,
+  TX title voltage and Wi-Fi session changes below. Hardware checks remain pending.
+- Inspected downloadable GPS/ERS firmware without uploading it; full-length blue
+  GPS packets can contain zero position placeholders. Record evidence separately
+  from actual-unit validation in docs/ers-gps-firmware-analysis-2026-11-15.md.
+
 ## 15 November 2026 — Wi-Fi status without a setup session
 
 - Opening Wi-Fi status to inspect the address no longer starts setup or requests

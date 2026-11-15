@@ -1,7 +1,7 @@
 # JR R-1 EVO User Manual
 
 **Prototype edition 1.3 · 1 November 2026**
-For transmitter firmware **06b6928**, installed by verified Wi-Fi OTA on 1 November 2026, XIAO ESP32-S3 / Waveshare LCD (F), landscape.
+Current development firmware **4fa0968**, installed by verified Pi USB upload on 15 November 2026, XIAO ESP32-S3 / Waveshare LCD (F), landscape. The printable PDF remains the earlier edition.
 
 R-1 EVO retains the original JR wheel, trigger and controls, with a new computer,
 colour touchscreen and an ExpressLRS radio link. This guide describes the current
@@ -318,12 +318,14 @@ only confirmed by its explicit settings reply; the widget does not discover or
 configure sensors. The dedicated Speed card stays a speed display, and Data / GPS
 remains the full map page.
 
-A stationary hardware comparison on 15 November received populated position,
-speed, course and satellite fields in both mapping and freshly confirmed blue
-modes, at about 4.7 delivered GPS packets per second. Both feeds therefore select
-the map. This does not establish whether coordinates are freshly updated or held,
-or the GPS module's internal solution rate. The speed-only examples below use
-synthetic packets; they do not represent the captured blue-mode feed.
+A stationary hardware comparison on 15 November reported position/speed/course
+availability in both mapping and freshly confirmed blue modes, at about 4.7
+delivered GPS packets per second. Subsequent firmware inspection found that blue
+mode can send zero position/course placeholders in the same full-length packet.
+The current widget can mistake those for usable position and retain the map;
+the availability counters do not establish useful position or the GPS solution
+rate. A raw check on this sensor remains pending. The speed-only examples below
+use synthetic packets; they do not represent the captured blue-mode feed.
 
 ![Automatic speed presentation: simulator-only synthetic packet example, not a verified blue-mode hardware capture.](../assets/ui-captures/gps-auto/speed.png)
 

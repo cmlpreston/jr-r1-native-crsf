@@ -199,7 +199,15 @@ updated or held, and the capture did not inspect raw field sentinels, altitude
 or GPS time. The current field-driven map/speed widget would retain the map for
 both observed feeds. Its speed-only/all-FF fixtures remain synthetic tests;
 moving or direct-UART capture is needed to resolve field freshness and mode rate.
-The widget candidate remains unflashed; installed R1 source is dfd57c4.
+The widget was subsequently installed in R1 source 4fa0968. Raw placeholder
+handling still needs a check on the actual sensor: inspection of downloadable
+GPS-labelled v1.8 and ERS-series v1.9 binaries shows that Speed mode selects a
+separate record with zero coordinates/course and altitude 1000 (CRSF encodes
+0 m), while speed and satellite count continue. It still sends all 15 bytes.
+Our availability flags can accept these placeholders, so the earlier capture
+does not prove useful position is delivered in blue mode. See
+[binary inspection evidence](ers-gps-firmware-analysis-2026-11-15.md). The user's
+installed GPS version is unknown; neither downloaded image was flashed.
 
 The manufacturer's manual documents blue 10 Hz ground speed. Independent owners
 also report firmware-dependent discovery behaviour; this is a plausible lead for

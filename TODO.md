@@ -275,7 +275,7 @@ per-model RAM histories for the current power session. Hardware validation remai
   applied 4 poles on 15 November; the sensor acknowledgement confirmed 4.
 - [ ] Validate RPM against shaft speed. The previous setting behind the historical
   ~50,000 RPM reading was not verified, so no exact correction factor is established.
-  The paired-dial candidate added 15 November remains unflashed.
+  The paired dial was installed in source 4fa0968 on 15 November.
 - [x] Implement automatic map/speed presentation for existing GPS widget kind5,
   with acquisition/stale/unconfirmed status, grace, stable objects and safe tap
   transitions. Synthetic UI/decoder tests and target build pass (2026-11-15).
@@ -286,8 +286,15 @@ per-model RAM histories for the current power session. Hardware validation remai
 - [ ] Validate coordinate freshness while moving and automatic GPS widget behaviour
   on the handset. The current stationary samples cannot distinguish the modes
   or prove fresh coordinates; RF delivery rate is not the GNSS solution rate.
-  Both observed feeds select the map. Candidate is unflashed; synthetic speed-only
-  FF-field fixtures remain distinct from this hardware evidence.
+  Both observed feeds select the map in the current inference code (installed
+  source 4fa0968). Binary inspection of GPS-labelled v1.8 and ERS-series v1.9
+  shows Speed mode can send zero position/course placeholders in full-length
+  packets, which our FF-only field checks accept. Verify the actual unit's raw
+  zero/nonzero fields, then handle known placeholders without declaring all
+  geographical 0,0 positions invalid. Synthetic FF-field fixtures remain distinct
+  from this evidence. See docs/ers-gps-firmware-analysis-2026-11-15.md.
+- [ ] Decode GPS UTC/date CRSF 0x03 if confirmed on the actual sensor. The
+  inspected v1.9 image emits it in both modes; installed sensor version unknown.
 - [ ] Investigate ER6G Wi-Fi-to-UART GPS firmware updating. This needs new raw
   exclusive-UART/YMODEM support and verified GPS bootloader entry; installed
   r14/r8 has no sensor flasher. Its existing `/update` endpoint updates the

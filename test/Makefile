@@ -4,6 +4,9 @@ CXX ?= c++
 PYTHON ?= python3
 CPPFLAGS := -I$(ROOT)/include
 CXXFLAGS := -std=c++17 -O0 -g -Wall -Wextra -Werror
+ARDUINOJSON_DIR := $(firstword $(wildcard \
+  $(ROOT)/.pio/libdeps/seeed_xiao_esp32s3-pcb/ArduinoJson/src \
+  $(ROOT)/.pio/libdeps/seeed_xiao_esp32s3-pcb-portrait/ArduinoJson/src))
 
 TESTS := \
   main_input_pipeline_integration_test \
@@ -266,7 +269,8 @@ $(BUILD)/ui_pixel_cache_test: ui_pixel_cache_test.cpp $(ROOT)/include/ui_pixel_c
 
 $(BUILD)/offline_map_test: offline_map_test.cpp $(ROOT)/src/offline_map.cpp $(ROOT)/include/offline_map.h $(ROOT)/include/offline_map_json.h
 	@mkdir -p $(@D)
-	$(CXX) $(CPPFLAGS) -I'$(ROOT)/.pio/libdeps/seeed_xiao_esp32s3-pcb-portrait/ArduinoJson/src' $(CXXFLAGS) offline_map_test.cpp $(ROOT)/src/offline_map.cpp -o $@
+	@test -n "$(ARDUINOJSON_DIR)" || (echo "ArduinoJson missing; first run: .venv/bin/pio run -e seeed_xiao_esp32s3-pcb"; exit 1)
+	$(CXX) $(CPPFLAGS) -I'$(ARDUINOJSON_DIR)' $(CXXFLAGS) offline_map_test.cpp $(ROOT)/src/offline_map.cpp -o $@
 
 $(BUILD)/remote_screen_test: remote_screen_test.cpp $(ROOT)/include/network_hostname.h $(ROOT)/include/wifi_retry.h $(ROOT)/include/remote_screen.h $(ROOT)/include/remote_control_policy.h $(ROOT)/include/output_safety.h
 	@mkdir -p $(@D)

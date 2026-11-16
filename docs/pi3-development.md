@@ -1,5 +1,11 @@
 # pi3 remote firmware bench
 
+For the 16 November move to Codex on this Pi, read
+[MIGRATION-PI-2026-11-16.md](MIGRATION-PI-2026-11-16.md) first. The destination
+development checkout is `/home/pi/r1-dev/project`; the old `firmware` checkout
+and `usb-upload` artifacts below are retained separately. Use one build job.
+The remainder of this document records the earlier remote-bench workflow.
+
 The existing fv-results Pi also hosts the XIAO development tools. Existing
 fv-results files, Pi-hole and Caddy are left in place. At the user's request on
 2026-09-21, the eight fv-results refresh timers were disabled and their services

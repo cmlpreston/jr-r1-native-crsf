@@ -1,10 +1,15 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")"
+JOBS=${JOBS:-6}
+case "$JOBS" in
+    ''|*[!0-9]*) echo 'JOBS must be a positive integer.' >&2; exit 1 ;;
+esac
+test "$JOBS" -gt 0 || { echo 'JOBS must be a positive integer.' >&2; exit 1; }
 command -v emcc >/dev/null || { echo 'Activate emsdk 4.0.15 first (source emsdk_env.sh).'; exit 1; }
 test -d third_party/lvgl/src || { echo 'Run make bootstrap first.'; exit 1; }
-make -f web.mk -j6 web
-make -f web.mk ORIENTATION=portrait -j6 web
+make -f web.mk -j"$JOBS" web
+make -f web.mk ORIENTATION=portrait -j"$JOBS" web
 mkdir -p web/dist/maps
 cp ../assets/maps/highfield.osm ../assets/maps/README.md web/dist/maps/
 mkdir -p web/dist/vendor

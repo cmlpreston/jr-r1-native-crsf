@@ -8,9 +8,19 @@ CXX ?= c++
 CC ?= cc
 SDL_CFLAGS := $(shell sdl2-config --cflags)
 SDL_LIBS := $(shell sdl2-config --libs)
-OPENSSL_PREFIX := $(shell brew --prefix openssl@3 2>/dev/null)
-OPENSSL_CFLAGS := -I$(OPENSSL_PREFIX)/include
-OPENSSL_LIBS := -L$(OPENSSL_PREFIX)/lib -lcrypto
+HOST_OS := $(shell uname -s)
+ifeq ($(HOST_OS),Darwin)
+OPENSSL_PREFIX ?= $(shell brew --prefix openssl@3 2>/dev/null)
+endif
+ifneq ($(strip $(OPENSSL_PREFIX)),)
+OPENSSL_CFLAGS := -I"$(OPENSSL_PREFIX)/include"
+OPENSSL_LIBS := -L"$(OPENSSL_PREFIX)/lib" -lcrypto
+OPENSSL_CHECK = test -f "$(OPENSSL_PREFIX)/include/openssl/md5.h"
+else
+OPENSSL_CFLAGS := $(shell pkg-config --cflags libcrypto 2>/dev/null)
+OPENSSL_LIBS := $(shell pkg-config --libs libcrypto 2>/dev/null)
+OPENSSL_CHECK = command -v pkg-config >/dev/null && pkg-config --exists libcrypto
+endif
 GIT_BRANCH := $(shell git branch --show-current 2>/dev/null || echo unknown)
 GIT_COMMIT := $(shell git rev-parse --short=8 HEAD 2>/dev/null || echo unknown)
 GIT_STATE := $(shell test -n "$$(git status --porcelain 2>/dev/null)" && echo dirty || echo clean)
@@ -37,8 +47,8 @@ LVGL_OBJ := $(patsubst $(LVGL)/src/%.c,$(BUILD)/lvgl/%.o,$(LVGL_C))
 all: check-deps $(TARGET)
 
 check-deps:
-	@command -v sdl2-config >/dev/null || (echo "SDL2 is required (brew install sdl2)"; exit 1)
-	@test -f $(OPENSSL_PREFIX)/include/openssl/md5.h || (echo "OpenSSL is required (brew install openssl@3)"; exit 1)
+	@command -v sdl2-config >/dev/null || (echo "SDL2 development files are required (macOS: brew install sdl2; Debian/Ubuntu: sudo apt install libsdl2-dev)"; exit 1)
+	@$(OPENSSL_CHECK) || (echo "OpenSSL development files are required (macOS: brew install openssl@3; Debian/Ubuntu: sudo apt install libssl-dev pkg-config)"; exit 1)
 	@test -d $(LVGL)/src || (echo "LVGL missing; run: make bootstrap"; exit 1)
 
 bootstrap:

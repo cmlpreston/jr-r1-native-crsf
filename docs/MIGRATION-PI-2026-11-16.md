@@ -5,6 +5,14 @@ about 1 GB RAM. Codex CLI 0.169.0 was verified at `/home/pi/.local/bin/codex`.
 Use one compilation job on this Pi. The models run through the signed-in
 service; this migration does not install a local language model.
 
+Preparation was completed and verified on16 November: Codex sign-in works,
+the fresh checkout is clean and can fetch GitHub, all13 lean package checksums
+match, and834 selected private archive members were extracted safely. Selected
+receiver files are restored into the fresh project's ignored `tmp/`. The Pi
+package is about74MB; the redundant647MB staging copy was removed. Full Mac
+originals and `tmp/migration-2026-11-16-full-export/` remain intact. Linux
+dependencies and the first ARM64 build/test run are the next steps below.
+
 ## What moves and what stays
 
 | Item | Destination / treatment |
@@ -14,7 +22,7 @@ service; this migration does not install a local language model.
 | Older Pi source | Leave `/home/pi/r1-dev/firmware` untouched; it is old and has local changes |
 | Existing USB upload artifacts | Leave `/home/pi/r1-dev/usb-upload` untouched; it is not a development checkout |
 | Existing PlatformIO installation | `/home/pi/r1-dev/venv/bin/pio`; may be reused for inspection, but create the project's own Linux `.venv` |
-| Receiver private files / captures | Restore `workspace-tmp/` from the private archive to the new project's ignored `tmp/` |
+| Receiver private files / captures | Selected `main-repo/tmp/` files are restored to the new project's ignored `tmp/`; other evidence stays in the private package |
 | Historical receiver repository | Compact five-commit bundle plus complete current source tree; do not substitute it for current ER6G overlays |
 | R1 models, calibration, PIN, settings, uploaded maps | Stay on the physical R1; Git and firmware images are not a backup of live NVS/filesystem settings |
 | Mac Python environments / build caches | Recreate on Linux; do not transplant `.venv`, `.pio` or simulator executables |
@@ -108,7 +116,7 @@ project key; do not silently replace the existing read-only key or copy Mac keys
 See the package's `RESTORE-LEAN-ASSETS.md` and `selection-inventory.json` for the
 selected private directories and restoration steps. `leanbench-private.tar.gz`
 holds receiver recovery files, V1/current R1 upload packages and GPS/capture
-evidence. Restore its selected `workspace-tmp/` into the project's ignored
+evidence. Restore its selected `main-repo/tmp/` into the project's ignored
 `tmp/`, keeping other evidence in the private migration directory.
 
 The historical `sport-local-commits.bundle` contains only the five unpublished

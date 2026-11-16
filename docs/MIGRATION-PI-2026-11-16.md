@@ -5,11 +5,11 @@ about 1 GB RAM. Codex CLI 0.169.0 was verified at `/home/pi/.local/bin/codex`.
 Use one compilation job on this Pi. The models run through the signed-in
 service; this migration does not install a local language model.
 
-Preparation was completed and verified on16 November: Codex sign-in works,
-the fresh checkout is clean and can fetch GitHub, all13 lean package checksums
-match, and834 selected private archive members were extracted safely. Selected
+Preparation was completed and verified on 16 November: Codex sign-in works,
+the fresh checkout is clean and can fetch GitHub, all 13 lean package checksums
+match, and 834 selected private archive members were extracted safely. Selected
 receiver files are restored into the fresh project's ignored `tmp/`. The Pi
-package is about74MB; the redundant647MB staging copy was removed. Full Mac
+package is about 74 MB; the redundant 647 MB staging copy was removed. Full Mac
 originals and `tmp/migration-2026-11-16-full-export/` remain intact. Linux
 dependencies and the first ARM64 build/test run are the next steps below.
 
@@ -38,9 +38,9 @@ Synthetic simulator preferences must never be restored to the handset.
 Receiver backups predate the 15 November Team Race change. They preserve known
 firmware/recovery states, not a fresh copy of every current receiver setting.
 The main all-refs bundle preserves the quarantined stash; do not apply it automatically.
-The V1 source snapshot differs from its Git base, so its27 changed/extra files
+The V1 source snapshot differs from its Git base, so its 27 changed/extra files
 are retained as a verified overlay, not discarded as redundant. The current R1
-source snapshot matches commitc405738 exactly and is reconstructed from Git.
+source snapshot matches commit c405738 exactly and is reconstructed from Git.
 
 ## Current hardware baseline
 
@@ -51,7 +51,7 @@ source snapshot matches commitc405738 exactly and is reconstructed from Git.
 - This includes the taller dashboard, local clock and handset timezone page.
 - ER6G: full r14 / startup r8 pair from this repository's stock ELRS 4.1.0
   overlays. ER4: direct-read r6. The historical S.Port repository is different.
-- ER6G Team Race was changed to Disabled; RB01 motor poles confirmed at4.
+- ER6G Team Race was changed to Disabled; RB01 motor poles confirmed at 4.
 - ERS-GPS updated and read back as v1.9. Blue sends position placeholders;
   mapping sends coordinates. Both send UTC. See the commissioning and binary
   analysis documents for measured rates and limits.
@@ -142,9 +142,9 @@ python3 -m venv .venv
 .venv/bin/python -m pip install 'platformio==6.1.19'
 ```
 
-The project core pin matches the Mac's verified PlatformIO Core6.1.19. The
-existing shared Pi environment is Core6.2.0 and is left unchanged. The ESP32
-platform is independently pinned in platformio.ini to espressif327.1.3.
+The project core pin matches the Mac's verified PlatformIO Core 6.1.19. The
+existing shared Pi environment is Core 6.2.0 and is left unchanged. The ESP32
+platform is independently pinned in platformio.ini to espressif32 7.1.3.
 Leave the default PlatformIO core location alone: some host tests inspect its
 framework files.
 

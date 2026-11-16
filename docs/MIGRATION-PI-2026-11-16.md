@@ -15,18 +15,24 @@ service; this migration does not install a local language model.
 | Existing USB upload artifacts | Leave `/home/pi/r1-dev/usb-upload` untouched; it is not a development checkout |
 | Existing PlatformIO installation | `/home/pi/r1-dev/venv/bin/pio`; may be reused for inspection, but create the project's own Linux `.venv` |
 | Receiver private files / captures | Restore `workspace-tmp/` from the private archive to the new project's ignored `tmp/` |
-| Historical receiver repository | All-refs `ExpressLRS-SPort.bundle`; preserve five unpublished commits; do not substitute it for current ER6G overlays |
+| Historical receiver repository | Compact five-commit bundle plus complete current source tree; do not substitute it for current ER6G overlays |
 | R1 models, calibration, PIN, settings, uploaded maps | Stay on the physical R1; Git and firmware images are not a backup of live NVS/filesystem settings |
 | Mac Python environments / build caches | Recreate on Linux; do not transplant `.venv`, `.pio` or simulator executables |
 
 The private package contains binding/network configuration in receiver images.
-Keep it out of GitHub and public file sharing. Its SHA256SUMS verifies the source
-bundles and archive. The installed R1 deployment archive excludes synthetic
-simulator preferences: those must never be restored to the handset.
+Keep it out of GitHub and public file sharing. Its SHA256SUMS verifies the main
+source bundle, compact historical source files and selected private archives.
+The original Mac backups remain intact. The Pi copy is deliberately lean:
+current/proven receiver recovery files, one V1 fallback, GPS tools and captures.
+Duplicate source archives and most old bench/build history are left on the Mac.
+Synthetic simulator preferences must never be restored to the handset.
 
 Receiver backups predate the 15 November Team Race change. They preserve known
 firmware/recovery states, not a fresh copy of every current receiver setting.
-The all-refs bundles preserve the quarantined stash; do not apply it automatically.
+The main all-refs bundle preserves the quarantined stash; do not apply it automatically.
+The V1 source snapshot differs from its Git base, so its27 changed/extra files
+are retained as a verified overlay, not discarded as redundant. The current R1
+source snapshot matches commitc405738 exactly and is reconstructed from Git.
 
 ## Current hardware baseline
 
@@ -89,7 +95,6 @@ cd /home/pi/r1-migration/2026-11-16
 sha256sum -c SHA256SUMS
 cd /home/pi/r1-dev/project
 git bundle verify /home/pi/r1-migration/2026-11-16/jr-r1-native-crsf.bundle
-git bundle verify /home/pi/r1-migration/2026-11-16/ExpressLRS-SPort.bundle
 git status --short --branch
 git fetch origin main
 git merge-base --is-ancestor origin/main HEAD
@@ -100,11 +105,19 @@ Fetching is sufficient for the initial verification. For later pushes, sign
 into GitHub separately on the Pi or deliberately provision a write-capable
 project key; do not silently replace the existing read-only key or copy Mac keys.
 
-Private archive layout: `workspace-tmp/` is the old main project's ignored
-`tmp/`; `related/ExpressLRS-SPort/` holds its local-only hardware/private files;
-`ephemeral/` preserves GPS tools, reports and extra captures; and
-`installed-r1-c405738/` is the exact last tested R1 source/upload package.
-The historical receiver bundle can be cloned into a separate directory later.
+See the package's `RESTORE-LEAN-ASSETS.md` and `selection-inventory.json` for the
+selected private directories and restoration steps. `leanbench-private.tar.gz`
+holds receiver recovery files, V1/current R1 upload packages and GPS/capture
+evidence. Restore its selected `workspace-tmp/` into the project's ignored
+`tmp/`, keeping other evidence in the private migration directory.
+
+The historical `sport-local-commits.bundle` contains only the five unpublished
+commits and requires its published base
+`7213ac5f6cff7573554942b079a810c1c66c977e`. Verify/import it inside a clone of
+`https://github.com/cmlpreston/ExpressLRS-SPort.git`, not the R1 repository.
+`sport-current-tree.tar.gz` also preserves the entire current tree for offline
+inspection without requiring that base download. Detailed instructions and
+the V1 base/overlay verification are in `RESTORE-LEAN-ASSETS.md`.
 
 ## Install development dependencies and rebuild
 

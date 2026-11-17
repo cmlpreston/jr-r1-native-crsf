@@ -127,9 +127,13 @@ hash, image/configuration hashes, hardware profile/pins and the local framework'
 Download and verification directory: `/tmp/r1-github-build-de13f6b`;
 hosted log: `/tmp/r1-github-build-de13f6b.log`. No hardware was contacted.
 
-GitHub reports a nonfatal Node 20 action-runtime deprecation warning and runs
-these action versions on Node 24; every step still passes. The configured Node
-22 used for project JavaScript tests is separate from the actions' own runtime.
+The original workflow emitted a nonfatal Node 20 action-runtime deprecation
+warning. The workflow now uses explicit Node 24 action runtimes: checkout v6,
+setup-python v6, setup-node v6, cache v5 and upload-artifact v6. These versions
+support the existing inputs and zipped firmware/source downloads. The configured
+Node 22 used for project JavaScript tests is separate from the actions' runtime.
+Automatic package-manager caching is disabled because these tests run directly
+with Node; the explicit PlatformIO/ccache caches retain their existing keys.
 
 Local setup verification: Actionlint v1.7.12 accepts the workflow, the complete
 single-job host suite passes on the Pi, and packaging tests verify compatibility

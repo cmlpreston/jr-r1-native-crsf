@@ -29,24 +29,25 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.ref }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
+          package-manager-cache: false
       - name: Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev ccache
           python -m pip install 'platformio==6.1.19'
       - name: Cache PlatformIO downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.platformio/platforms
@@ -54,7 +55,7 @@ jobs:
             ~/.platformio/.cache
           key: pio-${{ runner.os }}-${{ runner.arch }}-6.1.19-${{ hashFiles('platformio.ini') }}
       - name: Cache compiler results
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .ccache
           # Unique save keys let each successful run extend the previous cache.
@@ -130,7 +131,7 @@ jobs:
           JR_R1_SENSOR_HISTORY_UI_CHECK: ${{ steps.sensor-ui.outcome }}
         run: python tools/package_ci_firmware.py
       - name: Save tested firmware
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: r1-landscape-${{ github.sha }}
           path: |
@@ -140,7 +141,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Save committed source archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: r1-source-${{ github.sha }}
           path: |
@@ -151,7 +152,7 @@ jobs:
           retention-days: 3
       - name: Save build and test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: r1-logs-${{ github.sha }}-${{ github.run_attempt }}
           path: ci-output/*.log
@@ -159,7 +160,7 @@ jobs:
           retention-days: 3
       - name: Save sensor history UI previews
         if: always() && steps.history-changes.outputs.changed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: r1-sensor-history-ui-${{ github.sha }}
           path: /tmp/r1-sensor-history-*.bmp

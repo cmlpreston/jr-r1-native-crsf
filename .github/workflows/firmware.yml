@@ -156,3 +156,11 @@ jobs:
           path: ci-output/*.log
           if-no-files-found: ignore
           retention-days: 3
+      - name: Save sensor history UI previews
+        if: always() && steps.history-changes.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r1-sensor-history-ui-${{ github.sha }}
+          path: /tmp/r1-sensor-history-*.bmp
+          if-no-files-found: ignore
+          retention-days: 3

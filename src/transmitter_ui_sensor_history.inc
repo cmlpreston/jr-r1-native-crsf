@@ -50,7 +50,8 @@ void TransmitterUi::updateSensorHistoryWidget(uint8_t cell,const DashboardWidget
     uiSetTextColor(v.values[0],colour(fresh?cWhite:cDim),0);
     int32_t readings[SensorHistory::Capacity];bool valid[SensorHistory::Capacity];
     const auto range=telemetryHistory_.get()->graphs[w.source].project(now,readings,valid);
-    uiSetText(v.values[1],fresh?"60 s / Live":range.available?"60 s / Gap":"60 s / Waiting");
+    const bool narrow=lv_obj_get_width(v.panel)<200;
+    uiSetText(v.values[1],narrow?"60 s":fresh?"60 s / Live":range.available?"60 s / Gap":"60 s / Waiting");
     for(uint8_t n=0;n<2;++n){
         sensorText(w.source,n?range.minimum:range.maximum,text,sizeof(text));
         uiSetText(v.values[2+n],range.available?text:"--");

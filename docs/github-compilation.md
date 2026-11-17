@@ -16,8 +16,9 @@ them; this workflow does not build or audit the simulator.
 Open [the repository Actions page](https://github.com/cmlpreston/jr-r1-native-crsf/actions),
 select **R1 firmware and tests**, then open a run to follow its live output.
 For a manual build, choose **Run workflow** and the desired branch. Download
-the `r1-landscape-<commit>` artifact after success; it contains the upload
-package, exact committed source archive and manifest. A separate logs artifact
+the `r1-landscape-<commit>` artifact after success; it contains the small upload
+package and manifest. The exact committed source archive is a separate
+`r1-source-<commit>` artifact. A separate logs artifact
 is saved even when a build/test step fails. Both expire after three days.
 
 These packages use the existing artifact-preflight format, including hashes for
@@ -67,14 +68,24 @@ gh run download RUN_ID --repo cmlpreston/jr-r1-native-crsf \
   --name r1-landscape-FULL_COMMIT_SHA --dir /tmp/r1-ci-download
 ```
 
-The firmware artifact contains `r1-upload.tar.gz`, a checksum/identity manifest
-and `source.tar.gz` of the exact committed source. The upload package layout is
+The firmware artifact contains only `r1-upload.tar.gz` and a checksum/identity
+manifest. Routine flashing downloads this artifact alone; do not download all
+run artifacts by omitting `--name`. The separate `r1-source-<full commit SHA>`
+artifact contains `source.tar.gz` and the same manifest, for optional source
+inspection or archival. Its checksum remains recorded in the firmware manifest;
+the source archive is not required by the Pi artifact-upload verifier. The
+firmware, bootloader, partition and configuration checks remain unchanged.
+The upload package layout is
 compatible with `tools/artifact_preflight.py`; its attestation lists firmware
 and host checks explicitly and records that the UI audit was not run.
 Neither downloading nor building authorizes flashing. Before any local upload,
 follow `AGENTS.md`, confirm current main ancestry and the connected hardware,
 review the exact tested commit and any needed UI checks, then use PlatformIO's
 guarded upload target. GitHub never connects to the transmitter.
+
+Both packages are already gzip-compressed, so artifact uploads use compression
+level zero to avoid recompressing them. Firmware, source and logs retain the
+same three-day expiry.
 
 ## Keep usage free
 
@@ -187,8 +198,11 @@ because initial cleanup removed the staged images; no hardware was written.
 Preparation/restoration added another 16.54 s before the successful retry.
 Logs, downloaded package and timing JSON are in `/tmp/r1-timed-cloud-flash`.
 
-Next opportunities: split the approximately 53 MiB source archive into a
-separate artifact so flashing downloads only the small firmware package; reduce
-runner setup overhead; separate native compilation/linking to cache the host
+Firmware and source uploads are now separate artifacts, so routine flashing
+downloads only the small firmware package. The table above records the earlier
+combined-artifact baseline.
+
+Next opportunities: reduce runner setup overhead; separate native
+compilation/linking to cache the host
 objects; scope identity definitions to the sources that consume them to improve
 direct cache hits. Keep correct embedded identity, hash checks and upload guards.

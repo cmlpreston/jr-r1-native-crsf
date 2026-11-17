@@ -108,8 +108,18 @@ jobs:
           name: r1-landscape-${{ github.sha }}
           path: |
             ci-output/r1-upload.tar.gz
+            ci-output/r1-upload-manifest.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+      - name: Save committed source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: r1-source-${{ github.sha }}
+          path: |
             ci-output/source.tar.gz
             ci-output/r1-upload-manifest.json
+          compression-level: 0
           if-no-files-found: error
           retention-days: 3
       - name: Save build and test logs

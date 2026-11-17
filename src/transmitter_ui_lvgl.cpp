@@ -870,6 +870,7 @@ bool TransmitterUi::resetDisplayTransferStats()
 #include "transmitter_ui_design.inc"
 #include "transmitter_ui_widget_metrics.inc"
 #include "transmitter_ui_gps_widget.inc"
+#include "transmitter_ui_sensor_history.inc"
 #include "transmitter_ui_speed_rpm.inc"
 #include "transmitter_ui_run_records.inc"
 #include "transmitter_ui_v2.inc"
@@ -1440,6 +1441,10 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     for(auto &statistics:sensorStatistics_)statistics=SensorStatistics{};
     gpsLastSampleMs_ = designTelemetry_.gpsUpdatedMs;
     if(telemetryHistory_)memset(sensorHistoryValid_.data(), 0, sensorHistoryValid_.bytes());
+    if(telemetryHistory_)for(uint8_t sensor=0;sensor<DashboardSensorCount;++sensor){
+        int32_t value=0;uint32_t stamp=0;sensorReading(designTelemetry_,sensor,value,stamp);
+        telemetryHistory_.get()->graphs[sensor].reset(stamp);
+    }
     activeModelSlot_ = slot;
     timerLastSavedOn_=timers_[slot].settings.onSeconds;
     timers_[slot].tick(millis());

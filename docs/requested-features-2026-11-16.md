@@ -12,8 +12,9 @@
   telemetry or resume a running/ready timer or an armed state.
 - Add a sensor widget Graph style alongside Number/Dial. Desired window: the
   last minute, scrolling like the live control chart. Missing/stale data should
-  leave gaps; units and scale should be explicit. This is a requested follow-up,
-  not yet implemented.
+  leave gaps; units and scale should be explicit. Implemented as a fixed
+  60-second rolling chart; see `docs/sensor-history-widget.md` for behavior and
+  validation. Deployment is recorded there after the authorized upload.
 
 User selected a **1 Hz route track with 2,048 points**. This provides about
 34 minutes before progressive decimation reduces temporal detail to preserve

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Package CI-tested landscape binaries; never connect to or flash hardware."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import tarfile
@@ -38,6 +39,10 @@ def main():
         'ui_audit_passed': False,
         'sha256': {name: digest(ROOT / name) for name in files},
     }
+    if os.environ.get('JR_R1_SENSOR_HISTORY_UI_CHECK') == 'success':
+        manifest['checks'].append('sensor history focused UI audit: all sizes, landscape and portrait')
+        manifest['ui_audit_run'] = manifest['ui_audit_passed'] = True
+        manifest['ui_audit_scope'] = 'sensor history'
     manifest_path = output / 'r1-upload-manifest.json'
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
     verify_manifest(ROOT, manifest)

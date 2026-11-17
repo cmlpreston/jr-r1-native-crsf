@@ -9,6 +9,7 @@ ARDUINOJSON_DIR := $(firstword $(wildcard \
   $(ROOT)/.pio/libdeps/seeed_xiao_esp32s3-pcb-portrait/ArduinoJson/src))
 
 TESTS := \
+  sensor_history_test \
   run_records_test \
   main_input_pipeline_integration_test \
   input_pipeline_test \
@@ -73,6 +74,10 @@ TESTS := \
 .PHONY: all run clean
 
 all: $(addprefix $(BUILD)/,$(TESTS))
+
+$(BUILD)/sensor_history_test: sensor_history_test.cpp $(ROOT)/include/sensor_history.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/run_records_test: run_records_test.cpp $(ROOT)/src/run_record_store.cpp
 	@mkdir -p $(@D)

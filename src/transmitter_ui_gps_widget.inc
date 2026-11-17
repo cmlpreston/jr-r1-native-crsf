@@ -4,11 +4,11 @@ void TransmitterUi::drawDashboardSensorWidget(uint8_t cell,const DashboardWidget
     int x,int y,int width,int height,bool gpsAuto)
 {
     auto &view=widgetViews_[cell];
+    if(w.style==DashboardWidgetStyle::Graph&&!gpsAuto){drawSensorHistoryWidget(cell,w,width,height);return;}
     auto parent=gpsAuto?view.speedPanel:view.panel;
     auto title=gpsAuto?(view.values[3]=makeLabel(parent,"",8,5,UiText::Caption,cDim)):view.title;
     auto &unit=gpsAuto?view.values[2]:view.detail;
     auto &marker=gpsAuto?view.values[5]:view.marker;
-    auto &plot=gpsAuto?view.secondPlot:view.plot;
     lv_label_set_text(title,designSensorNames[w.source]);
     const bool speed=w.source==0;
     if(!speed){
@@ -61,7 +61,6 @@ void TransmitterUi::drawDashboardSensorWidget(uint8_t cell,const DashboardWidget
         marker=makeLabel(parent,"0-100",ax,ay+diameter-12,UiText::Caption,cDim);
         lv_obj_set_width(marker,diameter);lv_obj_set_style_text_align(marker,LV_TEXT_ALIGN_CENTER,0);
     }
-    if(w.style==DashboardWidgetStyle::Graph){plot=lv_line_create(parent);lv_obj_set_style_line_color(plot,colour(cCyan),0);lv_obj_set_style_line_width(plot,2,0);}
     if(speed){
         const bool compactDial=w.style==DashboardWidgetStyle::Dials && height<130;
         view.speedReset=makePageActionButton(x+width-76,y+height-(compactDial?26:30),68,compactDial?24:28,"Reset",UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,gpsAuto?250+cell:148);
@@ -76,10 +75,10 @@ void TransmitterUi::drawDashboardSensorWidget(uint8_t cell,const DashboardWidget
 void TransmitterUi::updateDashboardSensorWidget(uint8_t cell,const DashboardWidget &w,
     const CrsfTelemetryState &t,uint32_t now,bool gpsAuto)
 {
+    if(w.style==DashboardWidgetStyle::Graph&&!gpsAuto){updateSensorHistoryWidget(cell,w,t,now);return;}
     auto &view=widgetViews_[cell];
     auto unit=gpsAuto?view.values[2]:view.detail;
     auto marker=gpsAuto?view.values[5]:view.marker;
-    auto plot=gpsAuto?view.secondPlot:view.plot;
     if(view.satellites){
         if(t.gpsSatellitesValid&&uint32_t(now-t.gpsSatellitesUpdatedMs)<=3000)
             uiSetTextFmt(view.satellites,"%u sats",t.satellites);
@@ -118,18 +117,6 @@ void TransmitterUi::updateDashboardSensorWidget(uint8_t cell,const DashboardWidg
         uiSetTextFmt(view.values[1],w.source==0?"%s %s\n%s %s":"%s %s / %s %s",
             speedValueShortNames[secondary[0]],readings[secondary[0]],
             speedValueShortNames[secondary[1]],readings[secondary[1]]);
-    }
-    if(plot){
-        if(!telemetryHistory_){uiSetHidden(plot,true);return;}
-        lv_obj_update_layout(view.panel);
-        int start=30;while(start>0 && sensorHistoryValid_[w.source][start-1])--start;
-        if(30-start<2){uiSetHidden(plot,true);return;}
-        int32_t lo=INT32_MAX,hi=INT32_MIN;for(int i=start;i<30;++i){lo=min(lo,sensorHistory_[w.source][i]);hi=max(hi,sensorHistory_[w.source][i]);}
-        int height=lv_obj_get_height(view.panel),width=lv_obj_get_width(view.panel);
-        const int plotBottom=height-(w.source==0?43:24), plotHeight=max(1,plotBottom-(w.source==0?38:23));
-        lv_point_t points[30];
-        for(int i=start;i<30;++i)points[i-start]={static_cast<lv_coord_t>(width/2+(i-start)*(width/2-10)/(29-start)),static_cast<lv_coord_t>(plotBottom-(static_cast<int64_t>(sensorHistory_[w.source][i])-lo)*plotHeight/max<int64_t>(1,static_cast<int64_t>(hi)-lo))};
-        uiSetLinePoints(plot,view.points,points,30-start);uiSetHidden(plot,false);
     }
 }
 

@@ -89,6 +89,30 @@ jobs:
         run: |
           set -o pipefail
           make -C test -j1 CXX=/usr/lib/ccache/c++ CC=/usr/lib/ccache/cc run 2>&1 | tee ci-output/host-tests.log
+      - name: Check for sensor history UI changes
+        id: history-changes
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base="$BEFORE"
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            base=origin/main
+          fi
+          if git diff --quiet "$base" HEAD -- include/sensor_history.h include/ui_telemetry_history.h src/transmitter_ui_sensor_history.inc simulator/ui_sensor_history_audit.inc; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Validate sensor history UI
+        id: sensor-ui
+        if: steps.history-changes.outputs.changed == 'true'
+        run: |
+          sudo apt-get install --no-install-recommends -y libsdl2-dev
+          make -C simulator -j1 bootstrap
+          set -o pipefail
+          make -C simulator -j1 CXX=/usr/lib/ccache/c++ CC=/usr/lib/ccache/cc 2>&1 | tee ci-output/simulator-build.log
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_SENSOR_HISTORY_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/sensor-history-ui.log
       - name: Report compiler cache statistics
         if: always()
         run: |
@@ -101,6 +125,8 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Package tested firmware
+        env:
+          JR_R1_SENSOR_HISTORY_UI_CHECK: ${{ steps.sensor-ui.outcome }}
         run: python tools/package_ci_firmware.py
       - name: Save tested firmware
         uses: actions/upload-artifact@v4

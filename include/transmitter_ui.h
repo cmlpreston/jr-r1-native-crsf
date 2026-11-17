@@ -645,6 +645,7 @@ private:
         ControlHistory controls;
         lv_coord_t controlValues[4][2][ControlHistory::Capacity] = {};
         lv_chart_series_t *controlSeries[4][2] = {};
+        lv_coord_t sensorValues[4][SensorHistory::Capacity] = {};
         uint32_t controlSessionAfterMs = 0;
         bool controlSessionGuard = false;
     };
@@ -652,6 +653,8 @@ private:
     int8_t widgetMetricsReturnMaximized_ = -1;
     DashboardWidgetKind widgetMetricsResetKind_ = DashboardWidgetKind::PowerEnergy;
     bool initializeWidgetMetrics();
+    void drawSensorHistoryWidget(uint8_t cell,const DashboardWidget &,int width,int height);
+    void updateSensorHistoryWidget(uint8_t cell,const DashboardWidget &,const CrsfTelemetryState &,uint32_t now);
     void updateWidgetMetrics(const CrsfTelemetryState &,OutputSafetyStatus,uint32_t now);
     void resetWidgetPowerMetrics();
     void resetTripRunMetrics();

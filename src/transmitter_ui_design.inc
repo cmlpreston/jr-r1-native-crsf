@@ -145,6 +145,7 @@ void TransmitterUi::resetSpeedStatistics()
     speedStatistics_.reset(designTelemetry_.gpsSpeedUpdatedMs);
     if(!telemetryHistory_)return;
     memset(sensorHistoryValid_[0], 0, sizeof(sensorHistoryValid_[0]));
+    telemetryHistory_.get()->graphs[0].reset(designTelemetry_.gpsSpeedUpdatedMs);
     sensorStatistics_[0].reset(designTelemetry_.gpsSpeedUpdatedMs);
 }
 
@@ -153,6 +154,7 @@ void TransmitterUi::resetSensorStatistics(uint8_t sensor){
     if(!telemetryHistory_){if(sensor==0)resetSpeedStatistics();return;}
     int32_t value=0;uint32_t stamp=0;sensorReading(designTelemetry_,sensor,value,stamp);
     sensorStatistics_[sensor].reset(stamp);memset(sensorHistoryValid_[sensor],0,sizeof(sensorHistoryValid_[sensor]));
+    telemetryHistory_.get()->graphs[sensor].reset(stamp);
     if(sensor==0)resetSpeedStatistics();
 }
 
@@ -914,6 +916,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
         if(widgetDraft_.secondSource==16)snprintf(values[4],32,"None");else snprintf(values[4],32,"CH%u",widgetDraft_.secondSource+1);
         if(speed)snprintf(values[4],32,"%s",speedValueNames[static_cast<uint8_t>(widgetDraft_.speedValue)]);
         for(int i=0;i<5;++i){
+            if(i==4&&widgetDraft_.kind==DashboardWidgetKind::Sensor&&widgetDraft_.style==DashboardWidgetStyle::Graph)break;
+            if(i==4&&speed&&widgetDraft_.style==DashboardWidgetStyle::Graph)break;
             if(i>=3 && widgetDraft_.kind!=DashboardWidgetKind::Sensor && widgetDraft_.kind!=DashboardWidgetKind::Channels && widgetDraft_.kind!=DashboardWidgetKind::AllChannels && widgetDraft_.kind!=DashboardWidgetKind::BatteryCells)break;
             if(i==4 && widgetDraft_.kind!=DashboardWidgetKind::Channels && widgetDraft_.kind!=DashboardWidgetKind::Sensor)break;
             row(77+i*(designPortrait?51:30),names[i],values[i],120+i,designPortrait?47:28);
@@ -1254,6 +1258,11 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
 void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus safety, uint16_t tx, bool txValid)
 {
     const uint32_t now=millis();
+    if(telemetryHistory_)for(uint8_t sensor=0;sensor<DashboardSensorCount;++sensor){
+        int32_t value=0;uint32_t stamp=0;
+        const bool valid=sensorReading(t,sensor,value,stamp);
+        telemetryHistory_.get()->graphs[sensor].update(value,stamp,valid,now);
+    }
     // Histories only contain real decoded readings; storage is fixed and bounded.
     if(telemetryHistory_&&static_cast<int32_t>(now-nextSensorSampleMs_)>=0){
         nextSensorSampleMs_=now+1000;

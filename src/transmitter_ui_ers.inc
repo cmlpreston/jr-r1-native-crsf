@@ -1,4 +1,21 @@
 // Native commissioning uses the same client and management queue as the web UI.
+void TransmitterUi::consumeErsReplies(CrsfTelemetryParser &parser)
+{
+    if(designSafety_!=OutputSafetyStatus::Cut||armRequested_||
+       (moduleLinkManaged_&&!moduleLink_.enabled()))ersConfig_.cancel();
+    ErsReply reply;
+    for(uint32_t n=0;n<ErsReplyQueue::Capacity&&parser.popErsReply(reply);++n){
+        ++ersSequence_;
+        ersConfig_.receive(reply.frameType,reply.payload,reply.length,reply.receivedMs);
+    }
+    const uint32_t dropped=parser.ersReplyDrops();
+    if(dropped!=ersReplyDropsSeen_){
+        ersReplyDropsSeen_=dropped;
+        snprintf(ersPageMessage_,sizeof(ersPageMessage_),"ERS reply buffer full; run Discover again");
+        ersUiRevision_=~ersConfig_.revision();
+    }
+}
+
 void TransmitterUi::drawErsSensorContent()
 {
     const bool portrait=portraitUi;

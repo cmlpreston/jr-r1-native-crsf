@@ -5978,7 +5978,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
                         const CrsfTelemetryState &telemetry,
                         uint16_t txVoltageDecivolts, bool txVoltageValid,
                         const CrsfChannelOutputModel &channelOutputs,
-                        bool channelOutputsLive)
+                        bool channelOutputsLive,CrsfTelemetryParser *ersReplies)
 {
     if (hardwareRecovery_ || rfBenchMode_ || (moduleLinkManaged_&&!moduleLink_.enabled())) armRequested_ = false;
     if(escProgrammer_.blocksArm())armRequested_=false;
@@ -6023,11 +6023,8 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
         if (activePage_ == UiPage::Dashboard) drawDashboard();
     }
     updateEscProgrammer(telemetry,safetyStatus);
-    if(ersSequence_!=telemetry.ersSequence){
-        ersSequence_=telemetry.ersSequence;
-        ersConfig_.receive(telemetry.ersFrameType,telemetry.ersPayload,telemetry.ersLength,millis());
-    }
     if(designSafety_!=OutputSafetyStatus::Cut || armRequested_ || (moduleLinkManaged_ && !moduleLink_.enabled()))ersConfig_.cancel();
+    if(ersReplies)consumeErsReplies(*ersReplies);
     ersConfig_.update(millis());
     if(ersUiRevision_!=ersConfig_.revision()){
         ersUiRevision_=ersConfig_.revision();

@@ -91,7 +91,7 @@ jobs:
         run: |
           set -o pipefail
           make -C test -j1 CXX=/usr/lib/ccache/c++ CC=/usr/lib/ccache/cc run 2>&1 | tee ci-output/host-tests.log
-      - name: Check for sensor history UI changes
+      - name: Check for focused UI changes
         id: history-changes
         env:
           BEFORE: ${{ github.event.before }}
@@ -105,16 +105,32 @@ jobs:
           else
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
-      - name: Validate sensor history UI
-        id: sensor-ui
-        if: steps.history-changes.outputs.changed == 'true'
+          if git diff --quiet "$base" HEAD -- include/ers_reply_queue.h include/ers_sensor_config.h include/crsf_telemetry.h src/crsf_telemetry.cpp src/transmitter_ui_ers.inc simulator/ui_audit.inc; then
+            echo 'ers=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ers=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build simulator for focused UI checks
+        if: steps.history-changes.outputs.changed == 'true' || steps.history-changes.outputs.ers == 'true'
         run: |
           sudo apt-get install --no-install-recommends -y libsdl2-dev
           make -C simulator -j1 bootstrap
           set -o pipefail
           make -C simulator -j1 CXX=/usr/lib/ccache/c++ CC=/usr/lib/ccache/cc 2>&1 | tee ci-output/simulator-build.log
+      - name: Validate sensor history UI
+        id: sensor-ui
+        if: steps.history-changes.outputs.changed == 'true'
+        run: |
+          set -o pipefail
           audit_state=$(mktemp -d)
           SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_SENSOR_HISTORY_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/sensor-history-ui.log
+      - name: Validate ERS discovery UI
+        id: ers-ui
+        if: steps.history-changes.outputs.ers == 'true'
+        run: |
+          set -o pipefail
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_ERS_NATIVE_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/ers-discovery-ui.log
       - name: Report compiler cache statistics
         if: always()
         run: |
@@ -129,6 +145,7 @@ jobs:
       - name: Package tested firmware
         env:
           JR_R1_SENSOR_HISTORY_UI_CHECK: ${{ steps.sensor-ui.outcome }}
+          JR_R1_ERS_DISCOVERY_UI_CHECK: ${{ steps.ers-ui.outcome }}
         run: python tools/package_ci_firmware.py
       - name: Save tested firmware
         uses: actions/upload-artifact@v6
@@ -164,5 +181,13 @@ jobs:
         with:
           name: r1-sensor-history-ui-${{ github.sha }}
           path: /tmp/r1-sensor-history-*.bmp
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Save ERS UI previews
+        if: always() && steps.history-changes.outputs.ers == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: r1-ers-ui-${{ github.sha }}
+          path: /tmp/r1-ers-native-*.bmp
           if-no-files-found: ignore
           retention-days: 3

@@ -186,11 +186,12 @@ void CrsfTelemetryParser::processFrame()
         return;
     }
     // RadioMaster replies are opaque to the binding/MSP parser. Preserve a
-    // bounded mailbox for the UI-owned discovery/configuration state machine.
+    // bounded FIFO for the UI-owned discovery/configuration state machine.
     if ((frameType==0x7a || frameType==0x7b || frameType==0x7c) &&
         payloadLength>=6 && payloadLength<=60 && payload[0]==0xea && payload[1]==0xc8) {
-        memcpy(state_.ersPayload,payload,payloadLength);
-        state_.ersLength=payloadLength;state_.ersFrameType=frameType;++state_.ersSequence;
+        ++state_.ersSequence;
+        ersReplies_.push(frameType,payload,payloadLength,millis());
+        state_.ersReplyDrops=ersReplies_.dropped();
         return;
     }
     if(frameType==kFrameTypeBatterySensor &&

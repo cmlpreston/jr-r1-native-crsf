@@ -43,6 +43,10 @@ def main():
         manifest['checks'].append('sensor history focused UI audit: all sizes, landscape and portrait')
         manifest['ui_audit_run'] = manifest['ui_audit_passed'] = True
         manifest['ui_audit_scope'] = 'sensor history'
+    if os.environ.get('JR_R1_ERS_DISCOVERY_UI_CHECK') == 'success':
+        manifest['checks'].append('ERS discovery focused UI audit: queued four-sensor burst, settings and CUT, landscape and portrait')
+        manifest['ui_audit_run'] = manifest['ui_audit_passed'] = True
+        manifest['ui_audit_scope'] = (manifest.get('ui_audit_scope', '') + '; ERS discovery').lstrip('; ')
     manifest_path = output / 'r1-upload-manifest.json'
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
     verify_manifest(ROOT, manifest)

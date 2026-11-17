@@ -922,8 +922,8 @@ bool consumeScreenshotCommand()
             if (strcmp(usbCommand, "GPSTIME") == 0) printGpsTimeTelemetrySnapshot(readTelemetrySnapshot(),millis());
             if(strcmp(usbCommand,"ERSSTATUS")==0){
                 const auto t=readTelemetrySnapshot();
-                Serial.printf("ERS RX: configFrames=%lu accepted=%lu lastType=%02x header=%02x %02x %02x %02x %02x\n",
-                    static_cast<unsigned long>(t.configWireFrames),static_cast<unsigned long>(t.ersSequence),t.lastConfigType,
+                Serial.printf("ERS RX: configFrames=%lu accepted=%lu queueDrops=%lu lastType=%02x header=%02x %02x %02x %02x %02x\n",
+                    static_cast<unsigned long>(t.configWireFrames),static_cast<unsigned long>(t.ersSequence),static_cast<unsigned long>(t.ersReplyDrops),t.lastConfigType,
                     t.lastConfigHeader[0],t.lastConfigHeader[1],t.lastConfigHeader[2],t.lastConfigHeader[3],t.lastConfigHeader[4]);
             }
             if(strcmp(usbCommand,"MEMORY")==0||strcmp(usbCommand,"memory")==0)MemoryDiagnostics::print(Serial);
@@ -1192,7 +1192,7 @@ void loop()
                       telemetry, txVoltageDecivolts, txVoltageValid,
                       channelOutputs.model,
                       crsfRuntime.outputSafetyStatus ==
-                          OutputSafetyStatus::Armed);
+                          OutputSafetyStatus::Armed,&telemetryParser);
     inputUiContext.store(transmitterUi.activeControlContext());
     moduleLinkEnabled.store(transmitterUi.moduleLinkEnabled());
     telemetryParser.setStandardBatteryVehicle(transmitterUi.portalStandardBatteryVehicle());

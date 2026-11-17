@@ -180,7 +180,7 @@ public:
                 const CrsfTelemetryState &telemetry,
                 uint16_t txVoltageDecivolts, bool txVoltageValid,
                 const CrsfChannelOutputModel &channelOutputs,
-                bool channelOutputsLive);
+                bool channelOutputsLive,CrsfTelemetryParser *ersReplies=nullptr);
     int16_t mapAdcToPermille(uint16_t adc) const;
     ProportionalInputProfile throttleInputProfile() const;
     ProportionalInputProfile steeringInputProfile() const;
@@ -821,6 +821,8 @@ private:
     char ersPageMessage_[96]={};
     ErsSensorConfig ersConfig_;
     uint32_t ersSequence_=0;
+    uint32_t ersReplyDropsSeen_=0;
+    void consumeErsReplies(CrsfTelemetryParser &parser);
     CrsfTxConfig txConfig_;
     uint32_t txConfigSequence_ = 0, txConfigRevision_ = 0;
     uint8_t txConfigFolder_ = 0, txConfigOffset_ = 0, txConfigSelected_ = 0;

@@ -19,8 +19,34 @@ approval it was changed to Disabled, read back, and followed by a receiver power
 cycle. Discovery then found RPM type 8 / ID 4; GPS/CV01/CU01 remained absent.
 The single-ER6G firmware bypasses Team Race for normal control but retains a gate
 in `SerialCRSF::forwardMessage`, so enabled Team Race can block sensor requests.
-Latest-only configuration-reply storage is another possible partial-discovery
-limitation. Neither proves the cause of every remaining missing sensor.
+The R1's latest-only configuration-reply mailbox could also lose all but the
+last reply in a burst. The software correction is described below; a physical
+four-sensor rescan is still needed to establish whether other transport issues
+remain.
+
+### Buffered discovery replies — 17 November
+
+R1 now passes validated ERS replies from the CRSF receive task to the UI through
+a fixed 16-entry single-producer/single-consumer FIFO. The queue is separate from
+the ordinary telemetry snapshot, so control-task copies do not grow. Producer
+operations do not allocate or wait. UI work is bounded to 16 replies per update;
+all queued replies retain their arrival timestamps and are processed in order.
+Replies from before the active request, or outside its eight-second discovery /
+four-second settings window, are ignored. Settings writes are still not retried.
+
+A full queue drops new replies rather than overwriting unread slots. The
+`ERSSTATUS` diagnostic includes `queueDrops`; the ERS page asks for another
+Discover when overflow occurs. Ordinary discovery does not run automatically on
+startup, and this change does not enable RF, alter Team Race or update sensors.
+
+Regression tests feed CRC-valid GPS, CV01, CU01 and RB01 replies through the real
+parser before any consumer runs, covering all 24 arrival orders, heartbeat
+deduplication, a settings acknowledgement followed by another sensor's reply,
+CRC/envelope rejection, overflow/recovery, stale scan rejection, counter wrap
+and concurrent producer/consumer operation. The focused native ERS UI audit
+also uses this parser/FIFO path for its four-sensor burst in both orientations.
+These are software tests, not a claim that all four physical modules have been
+rediscovered through the receiver chain.
 
 The user checked the motor listing and applied **4 total poles** to RB01; its
 acknowledgement confirmed 4. The previous setting behind the historical roughly

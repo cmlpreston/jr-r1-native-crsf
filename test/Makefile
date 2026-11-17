@@ -9,6 +9,7 @@ ARDUINOJSON_DIR := $(firstword $(wildcard \
   $(ROOT)/.pio/libdeps/seeed_xiao_esp32s3-pcb-portrait/ArduinoJson/src))
 
 TESTS := \
+  ers_discovery_transport_test \
   sensor_history_test \
   run_records_test \
   main_input_pipeline_integration_test \
@@ -234,6 +235,10 @@ $(BUILD)/ui_cold_storage_test: ui_cold_storage_test.cpp cold_storage_mocks/esp_h
 $(BUILD)/crsf_tx_telemetry_test: crsf_tx_telemetry_test.cpp $(ROOT)/src/crsf_telemetry.cpp $(ROOT)/src/crsf_channel_output.cpp
 	@mkdir -p $(@D)
 	$(CXX) -Icrsf_mocks $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
+
+$(BUILD)/ers_discovery_transport_test: ers_discovery_transport_test.cpp $(ROOT)/src/crsf_telemetry.cpp $(ROOT)/src/crsf_channel_output.cpp
+	@mkdir -p $(@D)
+	$(CXX) -Icrsf_mocks $(CPPFLAGS) $(CXXFLAGS) -pthread $(filter %.cpp,$^) -o $@
 
 $(BUILD)/dashboard_widgets_test: dashboard_widgets_test.cpp $(ROOT)/include/dashboard_widgets.h
 	@mkdir -p $(@D)

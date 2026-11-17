@@ -60,6 +60,9 @@ public:
     }
     void cancel() {if(busy_){busy_=queued_=false;++revision_;status_="Cancelled; refresh settings before retrying";}}
     void receive(uint8_t frameType,const uint8_t *p,size_t n,uint32_t now) {
+        // Queued replies retain wire arrival time. Reject an older scan's
+        // replies and acknowledgements outside this request's time window.
+        if(!busy_||uint32_t(now-started_)>=(pending_.type==255?8000u:4000u))return;
         if((frameType!=0x7a && frameType!=0x7b && frameType!=0x7c) || n<6 || p[0]!=0xea || p[1]!=0xc8)return;
         if(p[2]!=2 && p[2]!=3 && p[2]!=4 && p[2]!=8)return;
         if(!p[3] || p[3]==255)return;

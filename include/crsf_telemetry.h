@@ -7,6 +7,7 @@ inline unsigned crsfPowerMilliwatts(unsigned code) {
 
 #include <Arduino.h>
 #include <atomic>
+#include "ers_reply_queue.h"
 
 struct CrsfTelemetryState {
     // Last validated TX configuration response. Single-flight client retries
@@ -19,7 +20,7 @@ struct CrsfTelemetryState {
     uint32_t configWireFrames=0;
     uint8_t lastConfigType=0,lastConfigHeader[5]={};
     uint32_t ersSequence=0;
-    uint8_t ersFrameType=0, ersLength=0, ersPayload[60]={};
+    uint32_t ersReplyDrops=0;
     // External CRSF battery ID 2, tagged by our ER6G serial ingress.
     bool ersBatteryValid=false, ersRemainingValid=false;
     uint16_t ersVoltageDeciV=0, ersCurrentDeciA=0;
@@ -110,6 +111,9 @@ public:
     void setStandardBatteryVehicle(bool vehicle) { requestedBatteryVehicle_.store(vehicle); }
     void updateFreshness();
     const CrsfTelemetryState &state() const { return state_; }
+    // Only the UI task consumes this stream; status snapshots never drain it.
+    bool popErsReply(ErsReply &reply){return ersReplies_.pop(reply);}
+    uint32_t ersReplyDrops()const{return ersReplies_.dropped();}
 
 private:
     void processFrame();
@@ -123,4 +127,5 @@ private:
     uint8_t index_ = 0;
     uint8_t expectedBytes_ = 0;
     CrsfTelemetryState state_;
+    ErsReplyQueue ersReplies_;
 };

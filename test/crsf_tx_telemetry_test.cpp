@@ -325,7 +325,9 @@ int main() {
     // Custom sensor replies do not pollute TX configuration or binding replies.
     auto txseq=parser.state().txParameterSequence;
     feed(parser,0x7b,{0xea,0xc8,3,1,0,0,'G','P','S',0});
-    assert(parser.state().ersSequence==1 && parser.state().ersLength==10);
+    assert(parser.state().ersSequence==1);
+    ErsReply ersReply;assert(parser.popErsReply(ersReply)&&ersReply.length==10);
+    assert(ersReply.receivedMs==testNow&&ersReply.frameType==0x7b);
     assert(parser.state().txParameterSequence==txseq);
     feed(parser,0x7b,{0xec,0xc8,3,1,0,0});assert(parser.state().ersSequence==1);
     EscWire::Message esc;esc.session=0x12345678;esc.sequence=7;esc.flags=EscWire::SelectorAvailable;

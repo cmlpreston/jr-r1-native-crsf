@@ -711,7 +711,14 @@ bool TransmitterUi::runSimulatorUiAudit()
             controlErsSensor(0,activate);assert(ersConfig_.busy());ErsRequest q;
             assert(ersConfig_.poll(q,millis()) && q.type==255);
             const uint8_t types[]={3,8,4,2};
-            for(auto type:types){uint8_t response[]={0xea,0xc8,type,1,0,0,'E','R','S',0};ersConfig_.receive(0x7b,response,sizeof(response),millis());}
+            CrsfTelemetryParser ersParser;
+            for(auto type:types){
+                uint8_t frame[]={0xc8,12,0x7b,0xea,0xc8,type,1,0,0,'E','R','S',0,0};
+                frame[13]=crc8DvbS2(frame+2,11);
+                for(auto byte:frame)ersParser.feed(byte);
+            }
+            assert(ersConfig_.count()==0&&ersParser.state().ersSequence==4);
+            consumeErsReplies(ersParser);assert(ersConfig_.count()==4);
             ersConfig_.update(millis()+8000);drawDesignPage(UiPage::ErsSensors);assert(ersConfig_.count()==4);
             controlErsSensor(10,activate);assert(ersSelected_==0 && ersDraft_==2);
             controlErsSensor(6,activate);assert(ersDraft_==1 && ersDraftDirty_);
@@ -734,7 +741,12 @@ bool TransmitterUi::runSimulatorUiAudit()
             controlErsSensor(8,activate);assert(!ersConfig_.busy()); // cells read-only
             controlErsSensor(4,activate);controlErsSensor(4,activate);assert(activePage_==UiPage::MainMenu && setupPage_==1 && setupBank_==0);
             controlDesign(244,activate);armRequested_=true;controlErsSensor(0,activate);assert(!ersConfig_.busy());armRequested_=false;
-            controlErsSensor(0,activate);assert(ersConfig_.busy());ersConfig_.cancel();
+            controlErsSensor(0,activate);assert(ersConfig_.busy());
+            uint8_t pendingFrame[]={0xc8,8,0x7b,0xea,0xc8,3,1,0,0,0};
+            pendingFrame[9]=crc8DvbS2(pendingFrame+2,7);
+            for(auto byte:pendingFrame)ersParser.feed(byte);
+            armRequested_=true;consumeErsReplies(ersParser);
+            assert(armRequested_&&!ersConfig_.busy()&&ersConfig_.count()==0);armRequested_=false;
             assert(requestDisplayRotation());applyDisplayRotation();
         }
         Serial.println("Native ERS: menu/list/details, discovery, confirmed writes, readback, drafts, bounds, CUT and both orientations PASS");return true;

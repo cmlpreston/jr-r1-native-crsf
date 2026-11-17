@@ -37,8 +37,9 @@ The job summary and `ccache.log` report actual hit/miss counts.
 
 The CI-only PRE script wraps C/C++ compilation, including framework/library
 sources. Native tests also use ccache. Linking and assembly run normally.
-The extra-script override explicitly retains `tools/upload_preflight.py` and
-its source identity. Local PlatformIO configuration and upload guards remain
+The extra-script environment setting appends to `tools/upload_preflight.py`,
+preserving its source identity; CI checks that both scripts occur once.
+Local PlatformIO configuration and upload guards remain
 unchanged. The first ccache run populates the cache; subsequent runs can reuse
 unchanged results even after a fresh checkout. Changed commit identity still
 recompiles code that embeds that identity. Cache entries can be evicted under

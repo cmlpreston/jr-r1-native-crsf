@@ -72,14 +72,18 @@ jobs:
           PY
       - name: Build landscape firmware (one job)
         env:
-          # This override must retain the existing upload/identity preflight.
+          # PlatformIO appends this to the existing upload/identity preflight.
           # Local builds and downloaded-artifact uploads use platformio.ini.
           PLATFORMIO_EXTRA_SCRIPTS: |
-            pre:tools/upload_preflight.py
             pre:tools/ci_ccache.py
         run: |
           mkdir -p ci-output
           set -o pipefail
+          python - <<'PY'
+          from platformio.project.config import ProjectConfig
+          scripts = ProjectConfig.get_instance().get('env:seeed_xiao_esp32s3-pcb', 'extra_scripts')
+          assert scripts == ['pre:tools/upload_preflight.py', 'pre:tools/ci_ccache.py'], scripts
+          PY
           pio run -e seeed_xiao_esp32s3-pcb -j 1 2>&1 | tee ci-output/firmware-build.log
       - name: Run complete host suite (one job)
         run: |

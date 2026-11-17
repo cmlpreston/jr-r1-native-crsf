@@ -29,6 +29,7 @@ public:
         seen_ = continuous_ = available_ = true;
     }
     bool available() const { return available_; }
+    void resumeAfterPowerCycle(uint32_t ignoredStamp=0) { seen_=true;continuous_=false;stamp_=ignoredStamp; }
     uint16_t maximum() const { return maximum_; }
     uint16_t average() const {
         return durationMs_ ? uint16_t((weightedTwice_ + durationMs_) / (2 * durationMs_)) : previous_;

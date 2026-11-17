@@ -19,6 +19,13 @@ public:
         double kilometres=0,averageMovingKmh=0,maxSpeedKmh=0,peakAmps=0,peakWatts=0,wattHours=0;
     };
     void reset(){*this=TripRunStatistics{};}
+    void checkpointClock(uint32_t now){advanceClock(now);}
+    void resumeAfterPowerCycle(uint32_t now,uint32_t powerStamp=0,uint32_t speedStamp=0){
+        clockStamp_=now;powerSeen_=speedSeen_=true;powerActive_=speedActive_=speedContinuous_=false;
+        powerStamp_=powerStamp;speedStamp_=speedStamp;movingComplete_=capacityComplete_=false;
+        // First postboot counter is a baseline, not consumption during power-off.
+        powerBaselinePending_=true;integrals_.resumeAfterPowerCycle(powerStamp,speedStamp);
+    }
     // Ignore cached packets until each source advances after reset/model switch.
     void reset(uint32_t powerStamp,uint32_t speedStamp){
         reset();powerSeen_=speedSeen_=true;powerStamp_=powerStamp;speedStamp_=speedStamp;
@@ -132,7 +139,7 @@ private:
         if(powerSeen_&&!elapsed)return;
         if(powerSeen_&&elapsed>=0x80000000u){powerActive_=false;capacityComplete_=false;return;}
         startClock(stamp,now);
-        if(havePower_){
+        if(havePower_&&!powerBaselinePending_){
             if(!powerActive_||elapsed>FreshnessMs)capacityComplete_=false;
             // A decreasing sensor counter denotes a new/restarted counter, not
             // negative consumption or an unsigned wrap-sized capacity jump.
@@ -141,7 +148,7 @@ private:
                 capacityOverflow_=true;capacityComplete_=false;
             }
         }
-        previousUsedMah_=used;powerStamp_=stamp;
+        powerBaselinePending_=false;previousUsedMah_=used;powerStamp_=stamp;
         if(!havePower_||amps>peakAmps_)peakAmps_=amps;
         havePower_=powerSeen_=powerActive_=true;
     }
@@ -151,5 +158,6 @@ private:
     uint16_t previousSpeed_=0,maxSpeed_=0,peakAmps_=0;
     bool started_=false,powerSeen_=false,speedSeen_=false,havePower_=false,haveSpeed_=false;
     bool powerActive_=false,speedActive_=false,speedContinuous_=false;
+    bool powerBaselinePending_=false;
     bool movingComplete_=true,capacityComplete_=true,movingOverflow_=false,distanceOverflow_=false,capacityOverflow_=false;
 };

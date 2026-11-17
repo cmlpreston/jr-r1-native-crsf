@@ -9,6 +9,7 @@ ARDUINOJSON_DIR := $(firstword $(wildcard \
   $(ROOT)/.pio/libdeps/seeed_xiao_esp32s3-pcb-portrait/ArduinoJson/src))
 
 TESTS := \
+  run_records_test \
   main_input_pipeline_integration_test \
   input_pipeline_test \
   critical_diagnostics_test \
@@ -72,6 +73,10 @@ TESTS := \
 .PHONY: all run clean
 
 all: $(addprefix $(BUILD)/,$(TESTS))
+
+$(BUILD)/run_records_test: run_records_test.cpp $(ROOT)/src/run_record_store.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -DJR_R1_SIMULATOR $(filter %.cpp,$^) -o $@
 
 $(BUILD)/er4_bridge_integration_test: er4_bridge_integration_test.cpp $(wildcard er4_stubs/*) \
     $(ROOT)/receiver/er4/Er4EscBridge.cpp $(ROOT)/receiver/er4/Er4EscBridge.h \
@@ -140,6 +145,7 @@ run: all
 	$(PYTHON) er6g_restore_upload_preflight_test.py
 	$(PYTHON) er6g_write_upload_preflight_test.py
 	$(PYTHON) flash_via_pi_test.py
+	$(PYTHON) package_ci_firmware_test.py
 	$(PYTHON) input_monitor_test.py
 	@set -e; for test in *test.cjs; do node "$$test"; done
 	@set -e; for test in $(TESTS); do ./$(BUILD)/$$test; done

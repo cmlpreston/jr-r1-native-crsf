@@ -1,0 +1,86 @@
+name: R1 firmware and tests
+
+on:
+  push:
+    branches: [main, 'codex/**']
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'tools/systemd/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r1-firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  landscape:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev
+          python -m pip install 'platformio==6.1.19'
+      - name: Cache PlatformIO downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/platforms
+            ~/.platformio/packages
+            ~/.platformio/.cache
+          key: pio-${{ runner.os }}-${{ runner.arch }}-6.1.19-${{ hashFiles('platformio.ini') }}
+      - name: Validate hardware configuration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from tools.flash_via_pi import validate_hardware
+          validate_hardware(Path.cwd(), 'seeed_xiao_esp32s3-pcb')
+          PY
+      - name: Build landscape firmware (one job)
+        run: |
+          mkdir -p ci-output
+          set -o pipefail
+          pio run -e seeed_xiao_esp32s3-pcb -j 1 2>&1 | tee ci-output/firmware-build.log
+      - name: Run complete host suite (one job)
+        run: |
+          set -o pipefail
+          make -C test -j1 run 2>&1 | tee ci-output/host-tests.log
+      - name: Package tested firmware
+        run: python tools/package_ci_firmware.py
+      - name: Save tested firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: r1-landscape-${{ github.sha }}
+          path: |
+            ci-output/r1-upload.tar.gz
+            ci-output/source.tar.gz
+            ci-output/r1-upload-manifest.json
+          if-no-files-found: error
+          retention-days: 3
+      - name: Save build and test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r1-logs-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-output/*.log
+          if-no-files-found: ignore
+          retention-days: 3

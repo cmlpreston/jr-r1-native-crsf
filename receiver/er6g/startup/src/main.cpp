@@ -42,7 +42,8 @@ bool waitForQuiet(){
  const uint32_t began=millis();uint32_t quiet=began;int previous=-1;uint8_t discarded;
  while(uint32_t(millis()-began)<500){
   const int level=gpio_get_level(Pin);
-  if(level==0||level!=previous)quiet=millis();previous=level;
+  if(level==0||level!=previous)quiet=millis();
+  previous=level;
   while(uart_read_bytes(Port,&discarded,1,0)==1){received(discarded);quiet=millis();}
   if(level==1&&uint32_t(millis()-quiet)>=40)return true;
   delay(1);

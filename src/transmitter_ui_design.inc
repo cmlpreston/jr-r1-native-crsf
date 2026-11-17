@@ -977,6 +977,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
             if(widgetMetricsResetKind_==DashboardWidgetKind::BatteryLoadBalance)resetBatteryLoadMetrics();
             else if(widgetMetricsResetKind_==DashboardWidgetKind::TripComputer||widgetMetricsResetKind_==DashboardWidgetKind::RunSummary)resetTripRunMetrics();
             else resetWidgetPowerMetrics();
+            saveRunRecords();
         }
         maximizedWidget_=widgetMetricsReturnMaximized_;drawDashboard();return;
     }
@@ -1186,9 +1187,10 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         if(w.kind==DashboardWidgetKind::Sensor)resetSensorStatistics(w.source);
         else if(w.kind==DashboardWidgetKind::Map&&activePage_==UiPage::Dashboard&&
                 widgetViews_[cell].gpsDisplayed==GpsWidgetView::View::Speed)resetSpeedStatistics();
+        saveRunRecords();
         return;
     }
-    if(item==247){resetSensorStatistics(sensorSelected_);v2GraphPaused_=false;drawDesignPage(UiPage::SensorDetail);return;}
+    if(item==247){resetSensorStatistics(sensorSelected_);saveRunRecords();v2GraphPaused_=false;drawDesignPage(UiPage::SensorDetail);return;}
     if(item==248){sensorSessionStats_[sensorSelected_]=!sensorSessionStats_[sensorSelected_];saveDriveBatterySettings();drawDesignPage(UiPage::SensorDetail);return;}
     if(item==249){v2SensorSetupReturn_=true;ersSelected_=-1;ersDraftDirty_=false;ersUsePackCapacity_=true;ersListBank_=0;drawDesignPage(UiPage::ErsSensors);return;}
     if(item==245 && activePage_==UiPage::Telemetry){
@@ -1204,7 +1206,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         else designBank_=constrain(designBank_+direction,0,3);
         drawDesignPage(activePage_);return;
     }
-    if(item>=82 && item<=85){if(item==82)gpsZoom_=max<int>(-3,gpsZoom_-1);if(item==83)gpsZoom_=min<int>(3,gpsZoom_+1);if(item==84)gpsTrailVisible_=!gpsTrailVisible_;if(item==85){gpsCount_=0;++gpsTrailRevision_;}drawDesignPage(UiPage::Gps);return;}
+    if(item>=82 && item<=85){if(item==82)gpsZoom_=max<int>(-3,gpsZoom_-1);if(item==83)gpsZoom_=min<int>(3,gpsZoom_+1);if(item==84)gpsTrailVisible_=!gpsTrailVisible_;if(item==85){gpsCount_=0;++gpsTrailRevision_;if(runRecords_)runRecords_.get()->clearGps();saveRunRecords();}drawDesignPage(UiPage::Gps);return;}
     if(item==86){drawChannelRolesPage();return;}
     if(item>=90 && item<=93){selectedChannel_=designBank_*4+item-90+1;drawChannelPlaceholder();return;}
     if(item>=100 && item<=104){selectModelMemory(modelSelectBank_*5+item-100);drawModelSelectPage();return;}
@@ -1289,7 +1291,12 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             case OutputSafetyStatus::Cut:break;
         }
         if(activePage_==UiPage::OutputStatus){
-            uiSetText(designDetails_[0],safety==OutputSafetyStatus::Armed?"LIVE - output enabled":
+            uiSetText(designDetails_[0],hardwareRecovery_?"HARDWARE RECOVERY":
+                safety==OutputSafetyStatus::InputFault?"INPUT FAULT":
+                safety==OutputSafetyStatus::ConfigurationFault?"CONFIGURATION FAULT":
+                safety==OutputSafetyStatus::ControlStale?"CONTROL DATA STALE":
+                safety==OutputSafetyStatus::StartupWarning?"STARTUP CHECK":
+                safety==OutputSafetyStatus::Armed?"LIVE - output enabled":
                 safety==OutputSafetyStatus::LinkRequired?"LINK WAIT":
                 safety==OutputSafetyStatus::NeutralRequired?"NEUTRAL WAIT":"CUT - output inhibited");
             uiSetText(designDetails_[1],hardwareRecovery_?"Hardware fault; arming inhibited.":SetupPortal::active()?"Finish Wi-Fi setup before enabling output.":moduleLinkManaged_&&!moduleLink_.enabled()?"Module link paused; enable it before arming.":reason);

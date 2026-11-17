@@ -38,7 +38,7 @@ public:
         update(now);
         if(busy_ || !validErsRequest(r))return false;
         if(r.type!=255 && !find(r.type,r.id))return false;
-        if(r.type==255){count_=0;memset(devices_,0,sizeof(devices_));}
+        if(r.type==255){count_=0;for(auto &device:devices_)device=ErsDevice{};}
         pending_=r;busy_=true;queued_=true;started_=now;nextHeartbeatMs_=2000;++revision_;
         status_=r.type==255?"Discovering sensors":"Queued; awaiting sensor acknowledgement";
         return true;

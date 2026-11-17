@@ -53,7 +53,7 @@ void TransmitterUi::drawV2RunReview()
     makeLabel(lv_scr_act(),"Run review",12,49,UiText::Heading,cWhite);
     if(!telemetryHistory_)makeLabel(lv_scr_act(),"History unavailable: memory",12,72,UiText::Caption,cAmber);
     if(v2ReviewConfirm_){
-        auto text=makeLabel(lv_scr_act(),"Reset all sensor statistics?\nSensor consumed mAh is not reset.\nTimer and GPS trail are retained.",12,100,UiText::Menu,cWhite);boundedLabel(text,kScreenWidth-24);
+        auto text=makeLabel(lv_scr_act(),"Delete this model's saved and current data?\nPeaks, totals, laps and GPS log are cleared.\nPause timer and CUT first. Settings retained.",12,100,UiText::Menu,cWhite);boundedLabel(text,kScreenWidth-24);
         makePageActionButton(12,210,kScreenWidth/2-18,40,"Keep records",UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlV2,51);
         makePageActionButton(kScreenWidth/2+6,210,kScreenWidth/2-18,40,"Reset records",UiText::Menu,cPanel2,cAmber,cLine,&TransmitterUi::controlV2,52);return;
     }
@@ -62,7 +62,10 @@ void TransmitterUi::drawV2RunReview()
     const int cols=portraitUi?2:3,w=(kScreenWidth-20-(cols-1)*4)/cols;
     for(unsigned i=0;i<6;++i){auto p=makePanel(10+(i%cols)*(w+4),86+(i/cols)*73,w,67,cPanel,cLine);
         makeLabel(p,names[i],6,5,UiText::Caption,cDim);designValues_[i]=makeLabel(p,"--",6,24,UiText::Heading,cWhite);makeLabel(p,units[i],w-42,49,UiText::Caption,cDim);}
-    makePageActionButton(12,portraitUi?318:238,kScreenWidth-24,30,"Reset run statistics...",UiText::Caption,cPanel,cAmber,cLine,&TransmitterUi::controlV2,50);
+    const int y=portraitUi?318:232;
+    makePageActionButton(12,y,kScreenWidth/2-18,30,"Save records",UiText::Caption,cPanel,cCyan,cLine,&TransmitterUi::controlV2,53);
+    makePageActionButton(kScreenWidth/2+6,y,kScreenWidth/2-18,30,"Delete records...",UiText::Caption,cPanel,cAmber,cLine,&TransmitterUi::controlV2,50);
+    auto note=makeLabel(lv_scr_act(),runRecordsNotice_,12,y+31,UiText::Caption,cDim);boundedLabel(note,kScreenWidth-24);
 }
 void TransmitterUi::updateV2RunReview()
 {
@@ -113,6 +116,13 @@ void TransmitterUi::controlV2(uint8_t item,PageControlEvent event)
         selectedChannel_=tuneRole_==0?steeringChannel():throttleChannel();
         openDesignEditor(item==40||item==42?5:0,UiPage::Dashboard);
     }else if(item==50||item==51){v2ReviewConfirm_=item==50;drawDesignPage(UiPage::RunReview);}
-    else if(item==52){for(unsigned i=0;i<DashboardSensorCount;++i)resetSensorStatistics(i);v2ReviewConfirm_=false;drawDesignPage(UiPage::RunReview);}
+    else if(item==52){
+        if(!v2ReviewConfirm_)return;
+        if(armRequested_||designSafety_==OutputSafetyStatus::Armed||timers_[activeModelSlot_].running()){
+            snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"CUT and pause timer before deleting");
+        }else deleteRunRecords();
+        v2ReviewConfirm_=false;drawDesignPage(UiPage::RunReview);
+    }
+    else if(item==53){if(armRequested_||designSafety_==OutputSafetyStatus::Armed){snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"CUT before saving manually");}else saveRunRecords();drawDesignPage(UiPage::RunReview);}
     else if(item>=60&&item<68){const unsigned i=item-60;if(i){const auto value=v2QuickSlots_[i];v2QuickSlots_[i]=v2QuickSlots_[i-1];v2QuickSlots_[i-1]=value;saveV2Quick();drawDesignPage(UiPage::QuickNavigation);}}
 }

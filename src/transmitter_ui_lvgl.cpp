@@ -9,10 +9,12 @@
 #include "input_bus_guard.h"
 #include "lcd_pixel_transport.h"
 #include "gps_local_time.h"
+#include "run_record_store.h"
 
 #include <Preferences.h>
 #include "boot_diagnostics.h"
 #include <cmath>
+#include <memory>
 #ifndef JR_R1_SIMULATOR
 #include <Arduino_GFX_Library.h>
 #include <esp_heap_caps.h>
@@ -869,6 +871,7 @@ bool TransmitterUi::resetDisplayTransferStats()
 #include "transmitter_ui_widget_metrics.inc"
 #include "transmitter_ui_gps_widget.inc"
 #include "transmitter_ui_speed_rpm.inc"
+#include "transmitter_ui_run_records.inc"
 #include "transmitter_ui_v2.inc"
 #include "transmitter_ui_drive_battery.inc"
 #include "transmitter_ui_rf_warning.inc"
@@ -916,6 +919,7 @@ bool TransmitterUi::begin()
 #endif
     loadModelMemorySettings();
     loadTimerSettings();
+    loadRunRecords();
     loadChannelRoleSettings();
     loadSettings();
     loadSystemSettings();
@@ -1411,7 +1415,7 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     if (slot >= kModelMemoryCount || slot == activeModelSlot_) return true;
     const int throttleDelta = static_cast<int>(latestRawAdc_) -
                               static_cast<int>(triggerInput_.centre());
-    if (armRequested_ || abs(throttleDelta) > ARM_NEUTRAL_ADC_WINDOW) {
+    if (armRequested_ || designSafety_==OutputSafetyStatus::Armed || abs(throttleDelta) > ARM_NEUTRAL_ADC_WINDOW) {
         snprintf(modelSelectStatus_, sizeof(modelSelectStatus_),
                  "CUT and centre throttle before changing model");
         playBuzzer(180);
@@ -1421,6 +1425,7 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     requestConfigurationCut();
     saveCurrentModelMemory();
     timers_[activeModelSlot_].pause(millis());saveTimerSettings();
+    saveRunRecords();
     timerOnRemainder_=0;timerConfirmation_=0;timerBank_=timerLapPage_=0;
     resetSpeedStatistics();
     gpsWidgetPolicy_.reset();
@@ -1438,6 +1443,7 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     activeModelSlot_ = slot;
     timerLastSavedOn_=timers_[slot].settings.onSeconds;
     timers_[slot].tick(millis());
+    loadRunRecords();
     saveModelMemorySettings();
     loadChannelRoleSettings();
     loadSettings();
@@ -5999,6 +6005,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     else if(gpsNote.durationMs)emitBuzzerNote(gpsNote.pitchHz,gpsNote.durationMs);
     latestSteeringRawAdc_ = steeringRawAdc;
     updateWidgetMetrics(telemetry,safetyStatus,millis());
+    updateRunRecords(millis());
     updateSteeringEndpointSelection();
     // Dashboard controls preview requested positions even in CUT. Keep the
     // separately resolved values for Data > Channels (requested / sent).

@@ -11,11 +11,13 @@ int main(){
  assert(overflows==1&&frameErrors==1&&parityErrors==1);
  for(unsigned i=0;i<80;++i)uartInput.push_back(i);
  er6gEscListenLoop();assert(uartInput.size()==64); // bounded read, no blocking
- for(unsigned i=0;i<4;++i)er6gEscListenLoop();assert(byteCount==82&&uartInput.empty());
+ for(unsigned i=0;i<4;++i)er6gEscListenLoop();
+ assert(byteCount==82&&uartInput.empty());
  const char *text=er6gEscListenDiagnostics();
  assert(strstr(text,"tx=disabled pwm=disabled ready=1")&&strstr(text,"bytes=82 startups=1"));
  const char *trace=strstr(text," trace=");assert(trace);unsigned commas=0;
- for(const char *p=trace;*p;++p)if(*p==',')++commas;assert(commas==63);
+ for(const char *p=trace;*p;++p)if(*p==',')++commas;
+ assert(commas==63);
  // Initialization failure leaves only input configuration and is visible, not retried.
  attempted=ready=false;failInstall=true;er6gEscListenLoop();assert(!ready);
  const unsigned before=installs;er6gEscListenLoop();assert(installs==before);

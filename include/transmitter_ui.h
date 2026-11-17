@@ -18,6 +18,7 @@
 #include "drive_battery.h"
 #include "rf_link_warning.h"
 #include "race_timer.h"
+#include "run_records.h"
 #include "gps_acquisition_chime.h"
 #include "control_configuration.h"
 #include "channel_model.h"
@@ -702,6 +703,14 @@ private:
     lv_obj_t *timerSummary_=nullptr;
     void loadTimerSettings();
     bool saveTimerSettings();
+    UiColdStorage<RunRecords> runRecords_;
+    uint32_t runRecordsNextSaveMs_=0,runRecordsGpsStamp_=0;
+    bool runRecordsLoaded_=false,runRecordsHadLive_=false;
+    char runRecordsNotice_[64]={};
+    void loadRunRecords();
+    bool saveRunRecords();
+    bool deleteRunRecords();
+    void updateRunRecords(uint32_t now);
     void updateRaceTimer(uint32_t now);
     void drawTimerPage();
     void controlTimer(uint8_t item,PageControlEvent event);

@@ -14,6 +14,12 @@ public:
     };
 
     void reset(){*this=PowerEnergyStatistics{};}
+    void resumeAfterPowerCycle(uint32_t powerStamp=0,uint32_t speedStamp=0){
+        powerSeen_=speedSeen_=true;powerActive_=speedActive_=powerContinuous_=speedContinuous_=efficiencyContinuous_=false;
+        previousSpeedSample_.valid=currentSpeedSample_.valid=false;
+        energyComplete_=distanceComplete_=efficiencyComplete_=false;
+        powerStamp_=powerStamp;speedStamp_=speedStamp;
+    }
     void reset(uint32_t powerStamp,uint32_t speedStamp){
         reset();powerSeen_=speedSeen_=true;powerStamp_=powerStamp;speedStamp_=speedStamp;
     }

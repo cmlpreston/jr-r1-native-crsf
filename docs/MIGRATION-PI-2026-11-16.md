@@ -11,7 +11,90 @@ match, and 834 selected private archive members were extracted safely. Selected
 receiver files are restored into the fresh project's ignored `tmp/`. The Pi
 package is about 74 MB; the redundant 647 MB staging copy was removed. Full Mac
 originals and `tmp/migration-2026-11-16-full-export/` remain intact. Linux
-dependencies and the first ARM64 build/test run are the next steps below.
+dependencies and ARM64 validation results are recorded below.
+
+## Pi validation — 16 November
+
+All 13 package checksums and the main Git bundle verify. The clean initial
+`codex/r1-v2` checkout at `7c373de3` contains freshly fetched `origin/main`.
+Installed Node 18.20.4, SDL2 development files 2.26.5, OpenSSL development files
+3.0.22, ripgrep and tmux; project `.venv` uses PlatformIO Core 6.1.19. The shared
+environment was left unchanged. Apt also installed newer Raspberry Pi kernel
+images/headers through package resolution; no reboot was performed.
+
+The first approved landscape firmware build passed with one job in 18m17s
+(RAM 204196 bytes, flash 2237493 bytes). GCC 12 host checks then exposed
+misleading indentation in receiver/test sources and a typed-device `memset`.
+Separate statements and value initialization resolve these without disabling
+warnings. The complete `make -C test -j1 run` passes with `-Werror`. Run it outside
+the Codex sandbox: LeakSanitizer cannot inspect processes under its ptrace
+restrictions.
+
+Pinned LVGL v8.4.0 bootstrap, `make -C simulator -j1`, and a headless full
+`--ui-audit` with disposable `/tmp` preferences pass, including runtime rotation
+and typography. Nonfatal GCC simulator warnings remain (switch coverage,
+indentation, signedness, unused code and possible text truncation). Optional
+WASM/iOS and physical hardware validation were not run. No hardware was flashed;
+the temporary bench startup baseline remains enabled. Future feature checks
+should match the change; a full simulator rebuild/audit is not required for
+every feature.
+
+Session logs (temporary, not committed):
+
+- `/tmp/r1-pi-firmware-build.log`
+- `/tmp/r1-pi-host-tests.log` (includes initial failures and successful reruns)
+- `/tmp/r1-pi-simulator-build.log`
+- `/tmp/r1-pi-ui-audit.log`
+
+Follow an active log with `tail -f /tmp/r1-pi-host-tests.log` (substitute the
+desired filename). The firmware rebuild after compiler fixes also passed
+(17m22s; RAM 204196 bytes, flash 2237545 bytes).
+
+During validation the user also requested the installed-handset Idle Up / Drive
+Mode correction and persistent run records. These are additional source changes;
+see `docs/requested-features-2026-11-16.md` and `docs/run-records.md` for scope.
+Their final checks are recorded separately from the clean migration baseline.
+
+The additional candidate passes the complete host suite, checkpoint unit tests,
+focused record UI audit and full UI/rotation/typography audit. A C++11-only GPS
+point initializer failure was corrected; the C++11 header syntax check and
+checkpoint tests pass. Final approved landscape firmware build passed with
+`-j 1` in 17m41s: RAM 204284 bytes, flash 2241753 bytes. Image SHA256:
+`2e9f4b04160281d51d24ebf20feb1d389b0a1d275bcc827360a27ea0d83c1c3d`.
+This is an unflashed candidate on `codex/r1-v2` with local source changes.
+
+Saved records use a 1 Hz, 2048-point bounded route and CUT-only checkpoints;
+confirmed deletion clears this model's saved/current observations. The original
+red-lock report remains unconfirmed on hardware; Output status now names fault
+categories explicitly. The 60-second scrolling sensor graph is recorded as a
+follow-up, not implemented. Additional logs:
+`/tmp/r1-pi-feature-tests.log` and `/tmp/r1-pi-records-ui-audit.log`.
+
+### Authorized R1 upload after the Pi reboot — 16 November
+
+The user subsequently authorized uploading the new firmware. Fresh
+`origin/main` fetch/ancestry, working-tree inspection, approved hardware/profile
+and matching USB serial `90:70:69:11:DE:70` were checked. Single-job firmware
+build and the complete host suite passed again; the earlier passing full UI
+audit was reused, without another simulator rebuild/audit.
+
+PlatformIO's guarded upload installed the tested `codex/r1-v2` working tree,
+environment `seeed_xiao_esp32s3-pcb`, XIAO ESP32-S3 / Waveshare LCD(F),
+480x320 landscape / schematic(5) with the documented switch identity correction.
+No unsafe override was used. All upload hashes verified and the device reset.
+Application transfer: 2242112 bytes, 25.6 seconds. Image SHA256 remains
+`2e9f4b04160281d51d24ebf20feb1d389b0a1d275bcc827360a27ea0d83c1c3d`.
+The temporary bench startup flag is preserved.
+
+Three read-only `INPUTMON` snapshots at uptime 45–47 seconds report CUT,
+safe channel values 992/992, both MCPs online and zero read errors. Drive Mode
+reports K2 PB6 and Idle Up K2 PA4, neither faulted. RF bench authorization and
+arm request are zero; no RF-enable, arming or setting command was sent.
+Physical switch operation/red-lock reproduction and saved-record power-cycle
+behavior still need handset observation with real telemetry.
+
+Upload/build/test log: `/tmp/r1-upload-progress.log`.
+Read-only postboot report: `/tmp/r1-upload-postboot.json`.
 
 ## What moves and what stays
 
@@ -82,6 +165,33 @@ Start in the new project, not the old firmware directory:
 cd /home/pi/r1-dev/project
 ~/.local/bin/codex
 ```
+
+### Automatic startup on this Pi
+
+At the user's request on 16 November, the system startup job
+`codex-r1-startup.service` is installed and enabled. Its source is
+`tools/systemd/codex-r1-startup.service`; the installed copy is
+`/etc/systemd/system/codex-r1-startup.service`.
+
+It runs as `pi`, after `network-online.target`, with working directory
+`/home/pi/r1-dev/project` and the existing `/home/pi/.codex` configuration and
+sign-in. It invokes `codex app-server daemon start`, which reuses an existing
+managed daemon and preserves its existing remote-control preference. It does
+not launch an interactive terminal, resume a chat, build, or upload firmware.
+After reboot, reconnect the client to this Pi and reopen the saved project/chat.
+
+The unit is a oneshot boot launcher: `active (exited)` is expected after a
+successful start, and it does not monitor subsequent daemon health. Failed
+startup attempts retry after 30 seconds. Codex manages its own daemon lifecycle.
+
+Unit syntax validation and an actual service start passed. The unit reports
+`enabled`, `active`, `Result=success`, and exit status 0; daemon PID 219324 was
+unchanged across the test. No reboot or current-session restart was performed.
+
+Check the job with `systemctl status codex-r1-startup.service`. To disable future
+boot starts without stopping the current Codex process, use
+`sudo systemctl disable codex-r1-startup.service`. Avoid stopping/restarting the
+unit during active work: after boot its daemon children belong to that unit.
 
 First message for the Pi's new chat:
 
@@ -172,6 +282,12 @@ tools are separate from the firmware/native-test prerequisites. Full ARM64
 build/UI validation must pass before treating this Pi as a proven build host.
 
 ## Later uploads and optional tools
+
+GitHub-hosted landscape builds and host tests are described in
+`docs/github-compilation.md`. They produce downloadable, checksummed firmware
+packages without contacting hardware. Publishing/running the workflow needs
+separate write-capable GitHub sign-in; the original read-only SSH key remains
+unchanged. Account billing limits must be checked before relying on free usage.
 
 Follow AGENTS.md for every upload. Fetch main, inspect status and ancestry,
 confirm hardware/pins/environment, build and run available tests, and state the

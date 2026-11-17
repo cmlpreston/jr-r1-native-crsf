@@ -19,6 +19,7 @@ public:
     };
 
     void reset(){*this=BatteryLoadBalance{};}
+    void resumeAfterPowerCycle(uint32_t powerStamp=0,uint32_t cellsStamp=0){powerSeen_=cellsSeen_=true;powerActive_=cellsActive_=false;powerStamp_=powerStamp;cellsStamp_=cellsStamp;}
     void reset(uint32_t powerStamp,uint32_t cellsStamp){
         reset();powerSeen_=cellsSeen_=true;powerStamp_=powerStamp;cellsStamp_=cellsStamp;
     }

@@ -12,7 +12,8 @@ const esp_partition_t *verifiedPeer=nullptr;
 esp_err_t lastError=ESP_OK;
 uint32_t stageResult=0,stageReadyUs=0,stageElapsedUs=0,stageRxCount=0,stageRxTail=0,stageReadProgress=0;
 const esp_partition_t *peer(){
- if(checked)return verifiedPeer;checked=true;
+ if(checked)return verifiedPeer;
+ checked=true;
  const auto *running=esp_ota_get_running_partition();
  const auto *candidate=esp_ota_get_next_update_partition(running);
  if(!running||!candidate||candidate==running||candidate->type!=ESP_PARTITION_TYPE_APP)return nullptr;

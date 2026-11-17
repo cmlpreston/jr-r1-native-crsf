@@ -14,6 +14,8 @@ public:
         Result(bool v=false,int32_t hi=0,int32_t lo=0,int32_t mean=0):valid(v),maximum(hi),minimum(lo),average(mean){}
     };
     void reset(uint32_t stamp) { *this=SensorStatistics{};stamp_=stamp;seen_=true; }
+    // Retain session extrema/mean, never resurrect a rolling window or packet clock.
+    void resumeAfterPowerCycle(uint32_t ignoredStamp=0) { for(auto &bin:bins_)bin=Bin{};stamp_=ignoredStamp;seen_=true; }
     void update(int32_t value,uint32_t stamp,uint32_t now,bool valid) {
         if(!valid || uint32_t(now-stamp)>3000 || (seen_&&stamp==stamp_))return;
         stamp_=stamp;seen_=true;

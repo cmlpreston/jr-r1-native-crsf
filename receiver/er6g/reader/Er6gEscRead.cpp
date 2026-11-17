@@ -146,7 +146,8 @@ void er6gEscListenLoop(){
     uint8_t input[16];const int count=uart_read_bytes(Port,input,sizeof(input),0);
     for(int i=0;i<count;++i){
         const uint8_t b=input[i];record('R',b);++bytes;lastRxUs=micros();
-        if(previous==0x1b&&b==0xff)++startups;previous=b;
+        if(previous==0x1b&&b==0xff)++startups;
+        previous=b;
         if(!active||awaitingBus)continue;
         if(entryState==2){
             if(previousEntry==0x1b&&b==0xff){
@@ -289,11 +290,13 @@ const char *er6gEscListenDiagnostics(){
         unsigned(length-echoAt),(unsigned long)timeouts,(unsigned long)entryPulses,(unsigned long)entryStartups,
         (unsigned long)pulseDurationUs,unsigned(entryState),(unsigned long)bootReadyUs,
         (unsigned long)bootDurationUs,unsigned(bootValue),bootResult,er6gStartupDiagnostics());
-    if(n<0)return "format error";size_t used=size_t(n)<sizeof(text)?size_t(n):sizeof(text)-1;
+    if(n<0)return "format error";
+    size_t used=size_t(n)<sizeof(text)?size_t(n):sizeof(text)-1;
     const uint32_t first=traceTotal>64?traceTotal-64:0;
     for(uint32_t i=first;i<traceTotal&&used<sizeof(text)-1;++i){const auto &s=samples[i%64];
         n=snprintf(text+used,sizeof(text)-used,"%s%lu:%c%02x",i==first?"":",",(unsigned long)s.us,s.kind,s.byte);
-        if(n<0)break;used+=size_t(n)<sizeof(text)-used?size_t(n):sizeof(text)-used-1;}
+        if(n<0)break;
+        used+=size_t(n)<sizeof(text)-used?size_t(n):sizeof(text)-used-1;}
     return text;
 }
 

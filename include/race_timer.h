@@ -30,6 +30,9 @@ public:
     enum Alarm:uint8_t { None=0,RaceEnd=1,Target=2,Remaining20=4,Remaining10=8,CountdownTick=16 };
     TimerSettings settings;
     bool running()const{return running_;}
+    void resumeAfterPowerCycle(uint32_t now){
+        running_=ready_=neutralSeen_=false;lastTick_=now;clockSet_=true;alarms_=None;
+    }
     bool ready()const{return ready_;}
     uint64_t elapsed()const{return elapsed_;}
     uint64_t currentLap()const{return elapsed_-lapStart_;}

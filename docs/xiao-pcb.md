@@ -39,14 +39,17 @@ no DevKitC reset/IRQ GPIO is driven by this profile.
 | K1 0x20 | GPA4 / GPB6 | Steering trim minus/plus |
 | K1 0x20 | GPB0..5 | CLEAR, MINUS, DOWN, PLUS, SELECT, UP |
 | K2 0x21 | GPA0/2 | Grip A minus/plus |
-| K2 0x21 | GPA1/4 | Timer / drive mode |
+| K2 0x21 | GPA1/4 | Timer / idle-up |
 | K2 0x21 | GPA3 / GPB5 | Grip B minus/plus |
 | K2 0x21 | GPB0 | Touch reset |
 | K2 0x21 | GPB1/2 | AUX3 minus/plus |
 | K2 0x21 | GPB3 | LCD reset |
 | K2 0x21 | GPB4 | GT911 INT/address select |
-| K2 0x21 | GPB6 | Idle-up |
+| K2 0x21 | GPB6 | Drive mode |
 | K2 0x21 | GPB7 | RUN LED: reserved output, held off |
+
+Drive mode and idle-up labels above reflect the installed-handset correction
+reported on 16 November 2026; their original schematic labels were reversed.
 
 The separate legacy display switch is unmapped because it is absent from this
 schematic. GPA7/GPB7 are not used as inputs on the PCB. The RUN heartbeat itself

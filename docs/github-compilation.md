@@ -36,7 +36,9 @@ Builds still check every source; a printed `Compiling` line can be a cache hit.
 The job summary and `ccache.log` report actual hit/miss counts.
 
 The CI-only PRE script wraps C/C++ compilation, including framework/library
-sources. Native tests also use ccache. Linking and assembly run normally.
+sources. Native compiler invocations also pass through ccache, but most native
+targets compile and link in one command and remain uncacheable. Linking and
+assembly run normally; the host suite still takes about 22 seconds.
 The extra-script environment setting appends to `tools/upload_preflight.py`,
 preserving its source identity; CI checks that both scripts occur once.
 Local PlatformIO configuration and upload guards remain
@@ -121,5 +123,72 @@ these action versions on Node 24; every step still passes. The configured Node
 Local setup verification: Actionlint v1.7.12 accepts the workflow, the complete
 single-job host suite passes on the Pi, and packaging tests verify compatibility
 with artifact preflight, committed source identity and tamper detection. Local
-setup log: `/tmp/r1-github-setup-tests.log`. The first actual GitHub run is a
-separate validation; these local checks do not establish a passing hosted run.
+setup log: `/tmp/r1-github-setup-tests.log`. The successful hosted runs below
+also validate the actual GitHub environment.
+
+## Compiler cache measurements — 17 November
+
+The [cache-populating run](https://github.com/cmlpreston/jr-r1-native-crsf/actions/runs/44063243172)
+passed with 395 cacheable misses. The subsequent
+[comment-only rebuild](https://github.com/cmlpreston/jr-r1-native-crsf/actions/runs/44064002274)
+passed with 393/395 cache hits (99.49%; 390 preprocessed hits, three direct).
+Embedded Git identity remains current; the downloaded image contains `67bd5ab3`.
+
+| Stage | Populate cache | Reuse cache |
+| --- | ---: | ---: |
+| Firmware step | 118 s | 49 s |
+| Complete host suite | 23 s | 22 s |
+| Entire job, excluding queue | 197 s | 117 s |
+
+The measured job improvement is about 41%. PlatformIO still prints `Compiling`
+when ccache returns an object. Changing the global Git identity definitions
+requires preprocessing to check most cache entries; most hits are therefore
+preprocessed hits rather than direct hits.
+
+## Default R1 upload path
+
+At the user's request, use GitHub for compilation and the complete host suite
+on future authorized uploads. Avoid recompiling or rerunning that suite on the
+Pi3. Keep Pi checks to artifact/source identity and hashes, fresh main ancestry,
+approved hardware/profile/pins, guarded PlatformIO upload and read-only postboot
+status. UI/simulator checks remain change-dependent.
+
+Reuse `/home/pi/r1-dev/project/.pio/cloud-upload`, an ignored persistent
+artifact workspace. Do not create a fresh project and reinstall libraries on
+every upload. Download and validate the package before replacing workspace
+inputs. For first-time setup, initialize PlatformIO before restoring packaged
+binaries; its automatic initial cleanup can remove them. Subsequent verified
+artifact uploads use `--disable-auto-clean -t nobuild -t upload`, the approved
+environment, explicit matching USB port and `JR_R1_ARTIFACT_MANIFEST` so the
+existing artifact guard checks all image/configuration hashes before writing.
+Disabling automatic build cleanup does not disable the upload preflight.
+
+The user-authorized upload of `67bd5ab36984915cb897c966b1184943926464ba`
+completed on 17 November, using the approved XIAO/Waveshare landscape profile.
+Firmware SHA256:
+`d09d51aaefaa8c90c47e220f1c229ce539a73880453a83814922cf4396a763a8`.
+All flash hashes verified. Read-only status at uptime 10.3 s reports CUT, both
+MCPs online with zero read errors, outputs 992/992, no RF bench authorization
+and no arm request. Opening USB serial may restart the XIAO.
+
+| Stage | Measured duration |
+| --- | ---: |
+| Cached GitHub build/tests/package job | 117 s |
+| Download existing combined firmware/source artifact | 42.87 s |
+| Source/image hash, embedded identity and hardware verification | 1.52 s |
+| Guarded upload using prepared workspace | 49.24 s |
+| Application transfer within upload | 26.1 s |
+
+The stage sum through flash completion is 210.6 s (about 3m31s); allow roughly
+3m40s including startup. This is a stage-based estimate, excluding queue time,
+conversation pauses, fresh-main fetch overhead and the one-time workspace setup.
+The first attempt spent 60.98 s preparing dependencies, then correctly refused
+because initial cleanup removed the staged images; no hardware was written.
+Preparation/restoration added another 16.54 s before the successful retry.
+Logs, downloaded package and timing JSON are in `/tmp/r1-timed-cloud-flash`.
+
+Next opportunities: split the approximately 53 MiB source archive into a
+separate artifact so flashing downloads only the small firmware package; reduce
+runner setup overhead; separate native compilation/linking to cache the host
+objects; scope identity definitions to the sources that consume them to improve
+direct cache hits. Keep correct embedded identity, hash checks and upload guards.

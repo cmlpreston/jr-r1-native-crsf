@@ -285,9 +285,17 @@ build/UI validation must pass before treating this Pi as a proven build host.
 
 GitHub-hosted landscape builds and host tests are described in
 `docs/github-compilation.md`. They produce downloadable, checksummed firmware
-packages without contacting hardware. Publishing/running the workflow needs
-separate write-capable GitHub sign-in; the original read-only SSH key remains
-unchanged. Account billing limits must be checked before relying on free usage.
+packages without contacting hardware. Write-capable GitHub CLI sign-in is now
+configured separately; the original read-only SSH key remains unchanged. The
+repository is public, so standard hosted runner compute is free. Compiler-cache
+reuse and a guarded Pi USB upload have both passed on 17 November.
+
+The user prefers future authorized uploads to compile/test on GitHub, download
+and verify the exact successful artifacts, and use the Pi only for lightweight
+safety checks and USB transfer. Reuse `.pio/cloud-upload`; do not recreate its
+dependencies or rerun the entire host suite on the Pi for an already tested
+cloud image. The installed source is now `67bd5ab3`, XIAO/Waveshare landscape;
+see the GitHub compilation guide for image hash, timings and postboot evidence.
 
 Follow AGENTS.md for every upload. Fetch main, inspect status and ancestry,
 confirm hardware/pins/environment, build and run available tests, and state the

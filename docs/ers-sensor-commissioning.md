@@ -48,6 +48,28 @@ also uses this parser/FIFO path for its four-sensor burst in both orientations.
 These are software tests, not a claim that all four physical modules have been
 rediscovered through the receiver chain.
 
+The [GitHub validation run](https://github.com/cmlpreston/jr-r1-native-crsf/actions/runs/44080114625)
+passed the approved firmware build, full host suite and focused ERS UI audit.
+Firmware cache hits were 386/392 (98.47%), with six misses and a 63.00 s build.
+RAM is 205220 bytes and flash 2244401 bytes.
+
+The subsequent user-authorized upload installed
+`0876022fabd2f407b0e6a4ab35ca10dd99bf842d` from `codex/r1-v2`, environment
+`seeed_xiao_esp32s3-pcb`, XIAO ESP32-S3 / Waveshare LCD(F), schematic (5),
+480x320 landscape. Fresh main ancestry, clean source, matching USB serial
+`90:70:69:11:DE:70`, compiled identity and artifact/framework hashes passed.
+Firmware SHA256:
+`2a5d3774ce7fb76fd60c77780f5614bd0aae5a02e00455475919510d952fdffa`.
+The prepared `.pio/cloud-upload` workspace was reused without local compilation
+or full test reruns. Upload took 38.16 s (application transfer 25.7 s), with all
+flash hashes verified. Read-only status at uptime 10.4 s shows CUT, both MCPs
+online with zero errors, safe outputs 992/992, RF bench authorization/arm request
+zero, and `queueDrops=0` before any new discovery. No sensor/configuration command
+or RF-enable was sent during that check; the receiver and sensors were not
+flashed or reconfigured. Repeat Discover on the connected, powered four-sensor
+chain to validate the full physical path. Logs/artifacts/postboot snapshots:
+`/tmp/r1-ers-discovery-validated`; upload: `/tmp/r1-ers-discovery-upload.log`.
+
 The user checked the motor listing and applied **4 total poles** to RB01; its
 acknowledgement confirmed 4. The previous setting behind the historical roughly
 50,000 RPM reading was not verified, so an exact correction factor is unknown.

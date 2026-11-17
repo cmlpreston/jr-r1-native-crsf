@@ -294,10 +294,12 @@ The user prefers future authorized uploads to compile/test on GitHub, download
 and verify the exact successful artifacts, and use the Pi only for lightweight
 safety checks and USB transfer. Reuse `.pio/cloud-upload`; do not recreate its
 dependencies or rerun the entire host suite on the Pi for an already tested
-cloud image. The installed source is now `929620cb`, XIAO/Waveshare landscape,
-including the scrolling sensor history widget. See `docs/sensor-history-widget.md`
-for the latest image hash, cloud/UI validation, cache rate and postboot evidence;
-the GitHub compilation guide records the earlier workflow timing baseline.
+cloud image. The installed source is now `0876022f`, XIAO/Waveshare landscape,
+including the scrolling sensor history widget and queued ERS discovery replies.
+See `docs/ers-sensor-commissioning.md` for the latest image hash, cloud/burst/UI
+validation, cache rate and postboot evidence. `docs/sensor-history-widget.md`
+records the graph feature; the GitHub compilation guide records the workflow
+timing baseline.
 
 Follow AGENTS.md for every upload. Fetch main, inspect status and ancestry,
 confirm hardware/pins/environment, build and run available tests, and state the

@@ -202,6 +202,20 @@ Firmware and source uploads are now separate artifacts, so routine flashing
 downloads only the small firmware package. The table above records the earlier
 combined-artifact baseline.
 
+The [split-artifact validation run](https://github.com/cmlpreston/jr-r1-native-crsf/actions/runs/44066365424)
+passed the firmware build and complete host suite at `fc46579b`. Uploaded sizes
+are 1,210,422 bytes for firmware and 54,416,821 bytes for the separate source
+archive. A timed firmware-only download on the Pi took 4.25 s, compared with
+42.87 s for the earlier combined artifact (about 90% less download time).
+The existing artifact preflight and embedded commit-identity check passed in
+0.29 s without downloading the source archive. Measurement and extracted
+verification files are in `/tmp/r1-split-firmware-download`. No upload was
+performed for this packaging-only change; the persistent upload workspace was
+not replaced. Combining the new download timing with the earlier build/upload
+measurements suggests roughly three minutes including startup, excluding queue
+time and fresh-main fetch overhead; this is an estimate rather than another
+measured complete upload.
+
 Next opportunities: reduce runner setup overhead; separate native
 compilation/linking to cache the host
 objects; scope identity definitions to the sources that consume them to improve

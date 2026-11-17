@@ -20,6 +20,11 @@ jobs:
   landscape:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: 1G
+      CCACHE_COMPILERCHECK: content
     defaults:
       run:
         shell: bash
@@ -38,7 +43,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev ccache
           python -m pip install 'platformio==6.1.19'
       - name: Cache PlatformIO downloads
         uses: actions/cache@v4
@@ -48,6 +53,16 @@ jobs:
             ~/.platformio/packages
             ~/.platformio/.cache
           key: pio-${{ runner.os }}-${{ runner.arch }}-6.1.19-${{ hashFiles('platformio.ini') }}
+      - name: Cache compiler results
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          # Unique save keys let each successful run extend the previous cache.
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('platformio.ini', 'tools/ci_ccache.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('platformio.ini', 'tools/ci_ccache.py') }}-
+      - name: Reset compiler cache statistics
+        run: ccache --zero-stats
       - name: Validate hardware configuration
         run: |
           python - <<'PY'
@@ -56,6 +71,12 @@ jobs:
           validate_hardware(Path.cwd(), 'seeed_xiao_esp32s3-pcb')
           PY
       - name: Build landscape firmware (one job)
+        env:
+          # This override must retain the existing upload/identity preflight.
+          # Local builds and downloaded-artifact uploads use platformio.ini.
+          PLATFORMIO_EXTRA_SCRIPTS: |
+            pre:tools/upload_preflight.py
+            pre:tools/ci_ccache.py
         run: |
           mkdir -p ci-output
           set -o pipefail
@@ -63,7 +84,18 @@ jobs:
       - name: Run complete host suite (one job)
         run: |
           set -o pipefail
-          make -C test -j1 run 2>&1 | tee ci-output/host-tests.log
+          make -C test -j1 CXX=/usr/lib/ccache/c++ CC=/usr/lib/ccache/cc run 2>&1 | tee ci-output/host-tests.log
+      - name: Report compiler cache statistics
+        if: always()
+        run: |
+          mkdir -p ci-output
+          ccache --show-stats | tee ci-output/ccache.log
+          {
+            echo '### Compiler cache'
+            echo '```text'
+            cat ci-output/ccache.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Package tested firmware
         run: python tools/package_ci_firmware.py
       - name: Save tested firmware

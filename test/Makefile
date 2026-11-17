@@ -146,6 +146,7 @@ run: all
 	$(PYTHON) er6g_write_upload_preflight_test.py
 	$(PYTHON) flash_via_pi_test.py
 	$(PYTHON) package_ci_firmware_test.py
+	$(PYTHON) ci_ccache_test.py
 	$(PYTHON) input_monitor_test.py
 	@set -e; for test in *test.cjs; do node "$$test"; done
 	@set -e; for test in $(TESTS); do ./$(BUILD)/$$test; done

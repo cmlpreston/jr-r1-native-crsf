@@ -27,8 +27,22 @@ firmware still requires the normal AGENTS.md review, fresh `origin/main`
 ancestry check, matching hardware, relevant tests and explicit user-authorized
 PlatformIO upload. No CI step opens a USB device or uploads firmware.
 
-PlatformIO tool downloads are cached; firmware objects and test binaries are
-rebuilt. Cache keys include the OS, CPU architecture, Core pin and configuration.
+PlatformIO tool downloads and ccache compiler results are cached. The ccache
+directory is capped at 1 GiB; cache keys include OS, architecture and build
+configuration, with a unique save key for each run. Each fresh runner restores
+the latest compatible cache. Compiler binaries are checked by content and
+ordinary header/flag checks remain enabled, with no relaxed correctness options.
+Builds still check every source; a printed `Compiling` line can be a cache hit.
+The job summary and `ccache.log` report actual hit/miss counts.
+
+The CI-only PRE script wraps C/C++ compilation, including framework/library
+sources. Native tests also use ccache. Linking and assembly run normally.
+The extra-script override explicitly retains `tools/upload_preflight.py` and
+its source identity. Local PlatformIO configuration and upload guards remain
+unchanged. The first ccache run populates the cache; subsequent runs can reuse
+unchanged results even after a fresh checkout. Changed commit identity still
+recompiles code that embeds that identity. Cache entries can be evicted under
+GitHub's repository storage limit; a missing cache causes a normal compilation.
 No private receiver archives, Codex settings, handset settings or credentials
 are uploaded. Keep private files in the ignored local directories.
 

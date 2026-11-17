@@ -16,3 +16,4 @@ tft-screenshot*.png
 
 # Hosted build logs and firmware packages.
 /ci-output/
+/.ccache/

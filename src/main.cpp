@@ -41,6 +41,7 @@ namespace {
 // Native USB CDC owns the debug console, leaving UART0 available for the
 // latency-sensitive single-wire CRSF handset connection. ExpressLRS uses the
 // same UART on ESP32 targets for its proven half-duplex implementation.
+// Keep debug console traffic on USB rather than the CRSF connection.
 HardwareSerial rangerSerial(0);
 // Defaults off before either task starts. No channel OR management frame may
 // revive the Ranger's handset watchdog without a physical confirmation.

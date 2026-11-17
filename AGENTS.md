@@ -34,3 +34,20 @@ pre-Waveshare work and must remain quarantined unless explicitly reviewed.
 
 Use the PlatformIO upload target so `tools/upload_preflight.py` runs. Do not
 invoke `esptool.py` directly.
+
+## Default build and upload workflow
+
+As directed by the user on 2026-11-17, use GitHub Actions for firmware builds
+and the complete host test suite, with ccache and one compilation job. For an
+authorized R1 flash, download only the successful run's small
+`r1-landscape-<commit>` artifact; the separate source archive is optional.
+Verify the exact tested commit, fresh `origin/main` ancestry, artifact hashes
+and connected hardware before the guarded PlatformIO upload.
+
+Reuse `.pio/cloud-upload` and its installed dependencies. Do not recreate the
+workspace, compile firmware or rerun the full host suite on the Pi3 for an
+already tested cloud artifact. Keep Pi work to lightweight integrity/safety
+checks, the guarded `nobuild` upload and read-only postboot status. Simulator/UI
+checks remain change-dependent. All hardware safety rules above still apply;
+a build/download alone does not authorize flashing. See
+`docs/github-compilation.md` for the validated procedure and timings.

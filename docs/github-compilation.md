@@ -134,6 +134,12 @@ support the existing inputs and zipped firmware/source downloads. The configured
 Node 22 used for project JavaScript tests is separate from the actions' runtime.
 Automatic package-manager caching is disabled because these tests run directly
 with Node; the explicit PlatformIO/ccache caches retain their existing keys.
+The [Node 24 validation run](https://github.com/cmlpreston/jr-r1-native-crsf/actions/runs/44073656915)
+passed firmware compilation, the full host suite and artifact uploads. Both
+existing caches restored successfully; firmware cache hits were 390/392
+(99.49%). The Pi's installed GitHub CLI downloaded the small firmware artifact
+and its image/configuration hashes verified. The Node 20 deprecation warning
+is absent from the completed run. This workflow-only update did not flash R1.
 
 Local setup verification: Actionlint v1.7.12 accepts the workflow, the complete
 single-job host suite passes on the Pi, and packaging tests verify compatibility

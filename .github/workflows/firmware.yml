@@ -102,15 +102,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Package tested firmware
         run: python tools/package_ci_firmware.py
-      - name: Report compiler cache statistics
-        if: always()
-        run: |
-          mkdir -p ci-output
-          if command -v ccache >/dev/null; then
-            ccache --show-stats 2>&1 | tee ci-output/ccache.log
-            echo 'Compiler cache statistics:' >> "$GITHUB_STEP_SUMMARY"
-            cat ci-output/ccache.log >> "$GITHUB_STEP_SUMMARY"
-          fi
       - name: Save tested firmware
         uses: actions/upload-artifact@v4
         with:

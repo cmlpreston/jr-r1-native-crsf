@@ -32,7 +32,6 @@ def main():
     manifest = {
         'branch': branch, 'commit': commit, 'environment': environment,
         'source_checks_passed': True,
-        'checks': ['landscape firmware build', 'complete host suite'],
         'ui_audit_run': False,
         'source_snapshot_sha256': digest(snapshot), 'boot_app0_sha256': digest(boot),
         'checks': ['landscape firmware build', 'complete host test suite'],

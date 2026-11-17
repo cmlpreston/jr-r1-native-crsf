@@ -76,6 +76,33 @@ See [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product
 and [included plan usage](https://docs.github.com/en/billing/reference/product-usage-included)
 for current allowances. Billing controls must be verified on the owner's account.
 
+## Hosted validation — 17 November 2026
+
+GitHub sign-in and workflow publication are complete. The repository was
+confirmed public, with Actions enabled, so standard hosted-runner compute is
+free independently of the private-repository allowance. The dedicated read-only
+SSH key was preserved; publication used the separately authorized HTTPS login.
+No paid runner, increased cache allowance or billing setting was enabled.
+
+[The first hosted run](https://github.com/cmlpreston/jr-r1-native-crsf/actions/runs/44060405986)
+passes at source commit `de13f6b707fcbcfb33f731eef06a03d682e121c2` on
+`codex/r1-v2`. The complete job took 3m48s, including a cold toolchain download,
+single-job firmware build (2m11s), complete host suite and artifact upload.
+Firmware RAM is 204284 bytes; flash is 2241793 bytes. The first cache occupies
+about 963 MiB, below the default 10 GiB allowance; firmware/source artifacts
+total about 53 MiB and expire after three days.
+
+Downloaded artifacts also pass the existing Pi artifact verifier: source archive
+hash, image/configuration hashes, hardware profile/pins and the local framework's
+`boot_app0` match. Firmware SHA256:
+`2e832ad2349bf26697d6137992688401d85f186947326dd85df02e0a4780725b`.
+Download and verification directory: `/tmp/r1-github-build-de13f6b`;
+hosted log: `/tmp/r1-github-build-de13f6b.log`. No hardware was contacted.
+
+GitHub reports a nonfatal Node 20 action-runtime deprecation warning and runs
+these action versions on Node 24; every step still passes. The configured Node
+22 used for project JavaScript tests is separate from the actions' own runtime.
+
 Local setup verification: Actionlint v1.7.12 accepts the workflow, the complete
 single-job host suite passes on the Pi, and packaging tests verify compatibility
 with artifact preflight, committed source identity and tamper detection. Local

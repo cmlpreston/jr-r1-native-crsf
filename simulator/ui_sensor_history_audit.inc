@@ -10,10 +10,12 @@ for(uint8_t rotation=0;rotation<2;++rotation){
         auto &layout=dashboardLayouts_[activeModelSlot_];layout=DashboardLayout{};
         auto &w=layout.cells[0];w.kind=DashboardWidgetKind::Sensor;w.style=DashboardWidgetStyle::Graph;
         w.source=2;w.width=(size&1)?2:1;w.height=(size&2)?2:1;
+        // Page creation samples the simulator's real clock. Seed the explicit
+        // audit timeline afterwards so that collection cannot overwrite it.
+        drawDashboard();lv_obj_update_layout(lv_scr_act());
         auto &history=telemetryHistory_.get()->graphs[2];history.reset(0);
         for(uint32_t i=0;i<=60;++i)history.update(10000+1000*(i%15),now-60000+i*1000,
             !(i>=25&&i<=30),now-60000+i*1000);
-        drawDashboard();lv_obj_update_layout(lv_scr_act());
         CrsfTelemetryState t{};t.rpmValid=true;t.rpm=70000;t.rpmUpdatedMs=now;
         updateSensorHistoryWidget(0,w,t,now);
         auto &v=widgetViews_[0];assert(v.plot&&lv_obj_check_type(v.plot,&lv_chart_class));

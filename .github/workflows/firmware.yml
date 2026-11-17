@@ -85,6 +85,7 @@ jobs:
           assert scripts == ['pre:tools/upload_preflight.py', 'pre:tools/ci_ccache.py'], scripts
           PY
           pio run -e seeed_xiao_esp32s3-pcb -j 1 2>&1 | tee ci-output/firmware-build.log
+          ccache --show-stats | tee ci-output/firmware-ccache.log
       - name: Run complete host suite (one job)
         run: |
           set -o pipefail

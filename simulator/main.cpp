@@ -140,12 +140,8 @@ int main(int argc, char **argv)
     else if (initialPage == "wifi") { SetupPortal::start();ui.showSimulatorPage(UiPage::WifiSetup); }
     else if (initialPage == "setup")
         ui.showSimulatorPage(UiPage::Setup);
-    else if (initialPage == "display")
+    else if (initialPage == "display" || initialPage == "display2")
         ui.showSimulatorPage(UiPage::DisplaySetup);
-    else if (initialPage == "display2") {
-        ui.selectSimulatorDisplayBank(1);
-        ui.showSimulatorPage(UiPage::DisplaySetup);
-    }
     else if (initialPage == "info" || initialPage == "firmware")
         ui.showSimulatorPage(UiPage::FirmwareInfo);
     else if (initialPage == "models")

@@ -61,23 +61,58 @@ void TransmitterUi::updateWidgetMetrics(const CrsfTelemetryState &t,OutputSafety
 }
 
 namespace {
-const char *sessionMetricCaption(DashboardWidgetKind kind,uint8_t field,bool compact)
+struct MetricCaption {
+    const char *full;
+    const char *shortName;
+};
+
+constexpr MetricCaption tripCaptions[] = {
+    {"Distance", "Dist"}, {"Moving time", "Move"},
+    {"Moving average", "Avg"}, {"Top speed", "Max"},
+};
+constexpr MetricCaption runCaptions[] = {
+    {"Elapsed time", "Time"}, {"Distance", "Dist"}, {"Top speed", "Max"},
+    {"Peak power seen", "Peak"}, {"Capacity used", "Used"}, {"Energy used", "Wh"},
+};
+constexpr MetricCaption balanceCaptions[] = {
+    {"Pack / CU01", "Pack"}, {"Current / CU01", "Load"}, {"Min pack seen", "Min"},
+    {"Peak amps seen", "Peak"}, {"Lowest / CV01", "Low"}, {"Spread / CV01", "Delta"},
+};
+constexpr MetricCaption powerCaptions[] = {
+    {"Input power", "Power"}, {"Peak seen", "Peak"},
+    {"Energy used", "Wh"}, {"Est. Wh/km", "Wh/km"},
+};
+constexpr MetricCaption packCaptions[] = {
+    {"Pack voltage", "Volts"}, {"Current", "Amps"},
+    {"Used capacity", "Used"}, {"Est. remaining", "Left"},
+};
+
+void setMetricReading(lv_obj_t *label,const char *text)
 {
-    const char *trip[]={"Distance","Moving time","Moving average","Top speed"};
-    const char *tripShort[]={"Dist","Move","Avg","Max"};
-    const char *run[]={"Elapsed time","Distance","Top speed","Peak power seen","Capacity used","Energy used"};
-    const char *runShort[]={"Time","Dist","Max","Peak","Used","Energy"};
-    const char *battery[]={"Pack / CU01","Current / CU01","Min pack seen","Peak amps seen","Lowest / CV01","Spread / CV01"};
-    const char *batteryShort[]={"Pack","Load","Min","Peak","Low","Spread"};
-    if(kind==DashboardWidgetKind::TripComputer)return compact?tripShort[field]:trip[field];
-    if(kind==DashboardWidgetKind::RunSummary)return compact?runShort[field]:run[field];
-    return compact?batteryShort[field]:battery[field];
+    if (strcmp(lv_label_get_text(label),text)==0) return;
+    lv_label_set_text(label,text);
+    uiSetTextColor(label,colour(strcmp(text,"--")==0?cDim:cWhite),0);
+    uiSetTextFont(label,drivePackReadingFont(text,lv_obj_get_style_width(label,0),
+                                          lv_obj_get_style_height(label,0)),0);
+}
+
+void formatMetricQuantity(char (&text)[32],lv_obj_t *label,double quantity,int decimals,
+                          const char *unit,bool complete)
+{
+    const char *mark = complete?"":"~";
+    snprintf(text,sizeof(text),"%s%.*f %s",mark,decimals,quantity,unit);
+    // Long-running totals can outgrow a single card even in the caption font.
+    if (lv_txt_get_width(text,strlen(text),UiText::font(UiText::Caption),0,LV_TEXT_FLAG_NONE)
+        > lv_obj_get_style_width(label,0)) {
+        snprintf(text,sizeof(text),"%s%.1e %s",mark,quantity,unit);
+    }
 }
 void sessionDuration(char *text,size_t size,uint64_t millis)
 {
     const auto seconds=millis/1000;
     if(seconds<3600)snprintf(text,size,"%llu:%02u",static_cast<unsigned long long>(seconds/60),unsigned(seconds%60));
     else if(seconds<360000)snprintf(text,size,"%llu:%02u:%02u",static_cast<unsigned long long>(seconds/3600),unsigned(seconds/60%60),unsigned(seconds%60));
+    else if(seconds>=864000000)snprintf(text,size,"%.1e d",seconds/86400.0);
     else snprintf(text,size,"%llud %02uh",static_cast<unsigned long long>(seconds/86400),unsigned(seconds/3600%24));
 }
 void sessionDistance(char *text,size_t size,double kilometres,bool complete)
@@ -90,28 +125,76 @@ void sessionDistance(char *text,size_t size,double kilometres,bool complete)
 }
 }
 
-void TransmitterUi::drawTripRunBatteryWidget(uint8_t cell,int width,int height)
+void TransmitterUi::drawMetricWidget(uint8_t cell,int width,int height)
 {
-    auto &view=widgetViews_[cell];
-    const auto kind=dashboardWidgetForView(cell).kind;
-    if(kind==DashboardWidgetKind::BatteryLoadBalance)uiSetText(view.title,width<200?"Load / balance":"Battery load / balance");
-    const unsigned fields=kind==DashboardWidgetKind::TripComputer?4:6;
-    const int columns=width>=220?2:1,rows=(fields+columns-1)/columns;
-    const int cw=(width-16)/columns,rh=(height-46)/rows;
-    const int ch=UiText::font(UiText::Caption)->line_height;
-    const bool compact=rh<ch*2+2;
-    for(uint8_t n=0;n<fields;++n){
-        const int xx=8+(n%columns)*cw,yy=23+(n/columns)*rh;
-        if(!compact){
-            view.bars[n]=makeLabel(view.panel,sessionMetricCaption(kind,n,false),xx,yy,UiText::Caption,cDim);
-            boundedLabel(view.bars[n],cw-6);
-        }
-        view.values[n]=makeLabel(view.panel,"--",xx,yy+(compact?0:ch),UiText::Caption,cWhite);
-        lv_obj_set_size(view.values[n],cw-6,compact?rh:max(ch,rh-ch));
-        lv_label_set_long_mode(view.values[n],LV_LABEL_LONG_CLIP);
+    auto &view = widgetViews_[cell];
+    const auto kind = dashboardWidgetForView(cell).kind;
+    const int titleWidth = lv_obj_get_style_width(view.title,0);
+    const MetricCaption *captions;
+    int fields = 4;
+    switch (kind) {
+        case DashboardWidgetKind::TripComputer:
+            captions = tripCaptions;
+            break;
+        case DashboardWidgetKind::RunSummary:
+            captions = runCaptions;
+            fields = 6;
+            break;
+        case DashboardWidgetKind::BatteryLoadBalance:
+            captions = balanceCaptions;
+            fields = 6;
+            uiSetText(view.title,titleWidth<150?"Load / balance":"Battery load / balance");
+            break;
+        case DashboardWidgetKind::DrivePack:
+            captions = packCaptions;
+            uiSetText(view.title,"Drive pack / CU01");
+            break;
+        case DashboardWidgetKind::PowerEnergy:
+            captions = powerCaptions;
+            uiSetText(view.title,titleWidth<148?"CU01 power / Wh":"Power / energy / CU01");
+            break;
+        default:
+            return;
     }
-    view.detail=makeLabel(view.panel,widgetMetrics_?"Since reset":"Unavailable",8,height-17,UiText::Caption,cDim);
-    boundedLabel(view.detail,width-76);
+
+    const int columns = width<216?1:width>=400&&fields==6?3:2;
+    const int rows = (fields+columns-1)/columns;
+    const int inset = UiLayout::WidgetInset;
+    const int columnWidth = (width-2*inset-(columns-1)*UiLayout::Gap)/columns;
+    const int footerY = height-UiLayout::WidgetFooterHeight;
+    const int rowHeight = (footerY-UiLayout::SmallGap-UiLayout::WidgetBodyY)/rows;
+    const auto *captionFont = UiText::font(UiText::Caption);
+    const int captionHeight = captionFont->line_height;
+    const bool inlineReading = rowHeight<2*captionHeight+UiLayout::SmallGap;
+
+    for (int n=0;n<fields;++n) {
+        const int x = inset+(n%columns)*(columnWidth+UiLayout::Gap);
+        const int y = UiLayout::WidgetBodyY+(n/columns)*rowHeight;
+        const char *caption = inlineReading?captions[n].shortName:captions[n].full;
+        const int captionWidth = inlineReading
+            ? lv_txt_get_width(caption,strlen(caption),captionFont,0,LV_TEXT_FLAG_NONE)
+            : columnWidth;
+        const int captionY = inlineReading?y+(rowHeight-captionHeight)/2:y;
+        boundedLabel(makeLabel(view.panel,caption,x,captionY,UiText::Caption,cDim),captionWidth);
+
+        // Inline rows reserve width for the caption. Stacked tiles use all
+        // the column's width. Both keep the reading anchored to its right edge.
+        const int readX = inlineReading?captionWidth+UiLayout::SmallGap:0;
+        const int readY = inlineReading?0:captionHeight+UiLayout::SmallGap;
+        const int readHeight = inlineReading
+            ? min(rowHeight,int(UiText::font(UiText::Menu)->line_height))
+            : rowHeight-readY;
+        const int offset = inlineReading?(rowHeight-readHeight)/2:readY;
+        auto *value = makeLabel(view.panel,"--",x+readX,y+offset,UiText::Caption,cDim);
+        lv_obj_set_size(value,columnWidth-readX,readHeight);
+        lv_label_set_long_mode(value,LV_LABEL_LONG_CLIP);
+        lv_obj_set_style_text_align(value,LV_TEXT_ALIGN_RIGHT,0);
+        uiSetTextFont(value,drivePackReadingFont("--",columnWidth-readX,readHeight),0);
+        view.values[n] = value;
+    }
+    const int footerTextY = footerY+(UiLayout::WidgetFooterHeight-captionHeight)/2;
+    view.detail = makeLabel(view.panel,"",inset,footerTextY,UiText::Caption,cDim);
+    boundedLabel(view.detail,width-2*inset-(dashboardMetricsResettable(kind)?60:0));
 }
 
 void TransmitterUi::updateTripRunBatteryWidget(uint8_t cell,uint32_t now)
@@ -119,10 +202,9 @@ void TransmitterUi::updateTripRunBatteryWidget(uint8_t cell,uint32_t now)
     auto &view=widgetViews_[cell];
     const auto kind=dashboardWidgetForView(cell).kind;
     if(!dashboardSessionWidget(kind))return;
-    lv_obj_update_layout(view.panel);
     const unsigned fields=kind==DashboardWidgetKind::TripComputer?4:6;
     char text[6][32];for(auto &value:text)snprintf(value,sizeof(value),"--");
-    const bool narrow=lv_obj_get_width(view.panel)<200;
+    const bool narrow=lv_obj_get_style_width(view.panel,0)<200;
     const char *status="Unavailable";
     if(widgetMetrics_&&kind==DashboardWidgetKind::BatteryLoadBalance){
         const auto r=widgetMetrics_.get()->batteryLoad.result(now);
@@ -150,21 +232,52 @@ void TransmitterUi::updateTripRunBatteryWidget(uint8_t cell,uint32_t now)
             }
             if(r.usedCapacityValid){
                 if(r.usedMah<10000)snprintf(text[4],sizeof(text[4]),"%s%llu mAh",r.usedCapacityComplete?"":"~",static_cast<unsigned long long>(r.usedMah));
-                else snprintf(text[4],sizeof(text[4]),"%s%.1f Ah",r.usedCapacityComplete?"":"~",r.usedMah/1000.0);
+                else formatMetricQuantity(text[4],view.values[4],r.usedMah/1000.0,1,"Ah",r.usedCapacityComplete);
             }
-            if(r.energyValid)snprintf(text[5],sizeof(text[5]),"%s%.2f Wh",r.energyComplete?"":"~",r.wattHours);
+            if(r.energyValid)formatMetricQuantity(text[5],view.values[5],r.wattHours,2,"Wh",r.energyComplete);
             status=!r.elapsedValid?"Waiting":!r.distanceValid?(narrow?"No GPS":"GPS missing"):!r.energyValid?(narrow?"No CU01":"CU01 missing"):
                 !r.distanceComplete||!r.energyComplete||!r.usedCapacityComplete?(narrow?"Gaps ~":"Totals ~ / gaps"):"Since reset";
         }
     }
-    for(uint8_t n=0;n<fields;++n){
-        char combined[64];const char *value=text[n];
-        if(!view.bars[n]){
-            snprintf(combined,sizeof(combined),"%s %s",sessionMetricCaption(kind,n,true),text[n]);value=combined;
-        }
-        uiSetText(view.values[n],value);
-        uiSetTextFont(view.values[n],drivePackReadingFont(value,lv_obj_get_width(view.values[n]),lv_obj_get_height(view.values[n])),0);
+    for(uint8_t n=0;n<fields;++n)setMetricReading(view.values[n],text[n]);
+    uiSetText(view.detail,status);
+}
+
+void TransmitterUi::updateMetricWidget(uint8_t cell,const CrsfTelemetryState &telemetry,uint32_t now)
+{
+    const auto kind = dashboardWidgetForView(cell).kind;
+    if (dashboardSessionWidget(kind)) {
+        updateTripRunBatteryWidget(cell,now);
+        return;
     }
+
+    auto &view = widgetViews_[cell];
+    char text[4][32] = {"--","--","--","--"};
+    const char *status;
+    if (kind==DashboardWidgetKind::DrivePack) {
+        const auto reading = drivePackWidgetReading(telemetry,now);
+        if (reading.fresh) {
+            snprintf(text[0],sizeof(text[0]),"%u.%u V",reading.voltageDeciV/10,reading.voltageDeciV%10);
+            snprintf(text[1],sizeof(text[1]),"%u.%u A",reading.currentDeciA/10,reading.currentDeciA%10);
+            snprintf(text[2],sizeof(text[2]),"%lu mAh",static_cast<unsigned long>(reading.usedMah));
+            if (reading.remainingValid) snprintf(text[3],sizeof(text[3]),"%u%%",reading.remainingPercent);
+        }
+        status = reading.fresh?(reading.remainingValid?"Live":"Remaining unknown")
+            :telemetry.ersBatteryUpdatedMs?"CU01 stale":"CU01 waiting";
+    } else {
+        const auto reading = widgetMetrics_?widgetMetrics_.get()->power.result(now):PowerEnergyStatistics::Result{};
+        if (reading.powerValid) snprintf(text[0],sizeof(text[0]),"%.1f W",reading.watts);
+        if (reading.peakValid) snprintf(text[1],sizeof(text[1]),"%.1f W",reading.peakWatts);
+        if (reading.energyValid) formatMetricQuantity(text[2],view.values[2],reading.wattHours,2,"Wh",reading.energyComplete);
+        if (reading.efficiencyValid) formatMetricQuantity(text[3],view.values[3],reading.wattHoursPerKm,1,"Wh/km",reading.efficiencyComplete);
+        const bool narrow = lv_obj_get_style_width(view.panel,0)<200;
+        status = !widgetMetrics_?(narrow?"Unavailable":"Metrics unavailable"):
+            !reading.energyValid?(narrow?"CU01 wait":"CU01 / waiting"):
+            !reading.energyComplete?(narrow?"Wh gaps":"CU01 / gaps"):
+            !reading.efficiencyValid?(narrow?"GPS/100m":"Wh/km needs GPS/100m"):
+            !reading.efficiencyComplete?(narrow?"Wh/km gap":"Wh/km / gaps"):"Since reset";
+    }
+    for (uint8_t n=0;n<4;++n) setMetricReading(view.values[n],text[n]);
     uiSetText(view.detail,status);
 }
 

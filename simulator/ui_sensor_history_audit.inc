@@ -98,6 +98,26 @@ for(uint8_t rotation=0;rotation<2;++rotation){
     assert(sensorDetailPoints_[0]==0 && sensorDetailPoints_[1]==LV_CHART_POINT_NONE);
     assert(sensorDetailPoints_[59]!=LV_CHART_POINT_NONE && sensorDetailPoints_[60]==1000);
     for (size_t i=0;i<SensorHistory::Capacity;++i) assert(sensorDetailPoints_[i]==dashboardPoints[i]);
+
+    // The number card and its separate Reset hit area must dispatch different
+    // actions. Previously the full-card tap target intercepted Reset.
+    w.style=DashboardWidgetStyle::Numbers;
+    drawDashboard();
+    const auto resetNow=millis();
+    history.reset(resetNow-1000);
+    history.update(70000,resetNow,true,resetNow);
+    int32_t resetValues[SensorHistory::Capacity];
+    bool resetValid[SensorHistory::Capacity];
+    assert(history.project(resetNow,resetValues,resetValid).available);
+    const PageFocusTarget *reset = nullptr;
+    for(uint8_t i=0;i<pageFocusCount_;++i){
+        if(pageFocusTargets_[i].handler==&TransmitterUi::controlDesign&&pageFocusTargets_[i].argument==250)
+            reset = &pageFocusTargets_[i];
+    }
+    assert(reset);
+    const auto target = reset->activate;
+    assert(dispatchPageControlTouch(target.x+target.width/2,target.y+target.height/2));
+    assert(activePage_==UiPage::Dashboard&&!history.project(resetNow,resetValues,resetValid).available);
     if(rotation==0){assert(requestDisplayRotation());applyDisplayRotation();}
 }
 dashboardLayouts_[activeModelSlot_]=original;

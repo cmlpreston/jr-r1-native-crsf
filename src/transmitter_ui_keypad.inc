@@ -80,7 +80,6 @@ void TransmitterUi::keypadPage(int direction)
         case UiPage::ModelSelect:
             if(!modelAppearanceEditing_){modelSelectBank_=constrain(int(modelSelectBank_)+direction,0,int((kModelMemoryCount+4)/5)-1);drawModelSelectPage();}return;
         case UiPage::ControlAssignments:controlAssignments(direction<0?5:8,PageControlEvent::Activate);return;
-        case UiPage::DisplaySetup:displaySetupBank_=constrain(int(displaySetupBank_)+direction,0,1);drawDisplayPage();return;
         case UiPage::ResponseProfile:responseDetailBank_=constrain(int(responseDetailBank_)+direction,0,1);drawDesignPage(activePage_);return;
         case UiPage::BindingEditor:controlBindingEditor(constrain(int(bindingEditorBank_)+direction,0,3)+8,PageControlEvent::Activate);return;
         default:playBuzzer(35);return;

@@ -324,6 +324,46 @@ if(metricsUnavailable){
         placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,previewPower);
         placeDashboardWidget(dashboardLayouts_[activeModelSlot_],2,previewControl);
         drawDashboard();metricsRender(metricsTelemetry);metricsFit(0);metricsFit(2);metricsShot("combined-dashboard");
+
+        // Mix compact cards so the graph, bars and dials share a real dashboard.
+        // At the narrowest width both channel readings and both rail values fit.
+        auto &layout=dashboardLayouts_[activeModelSlot_];layout=DashboardLayout{};
+        DashboardWidget dials;
+        dials.kind=DashboardWidgetKind::Power;dials.style=DashboardWidgetStyle::Dials;
+        DashboardWidget bars;
+        bars.kind=DashboardWidgetKind::Channels;bars.style=DashboardWidgetStyle::Bars;
+        bars.source=0;bars.secondSource=1;
+        DashboardWidget graph=bars;graph.style=DashboardWidgetStyle::Graph;
+        DashboardWidget speedRpm;
+        speedRpm.kind=DashboardWidgetKind::SpeedRpm;speedRpm.style=DashboardWidgetStyle::Dials;
+        placeDashboardWidget(layout,0,speedRpm);
+        placeDashboardWidget(layout,1,dials);
+        placeDashboardWidget(layout,2,graph);
+        placeDashboardWidget(layout,3,bars);
+        metricsTelemetry.rpmValid=true;metricsTelemetry.rpm=36700;
+        metricsTelemetry.rpmUpdatedMs=metricsTelemetry.gpsSpeedUpdatedMs=millis();
+        const auto negative=crsfValueFromPermille(-1000),positive=crsfValueFromPermille(1000);
+        designRequested_[0]=negative;designRequested_[1]=positive;
+        channelHistoryCount_=30;
+        if(telemetryHistory_){
+            for(int n=0;n<30;++n){
+                const int value=n<15?-1000+n*130:1000-(n-15)*130;
+                channelHistory_[0][n]=crsfValueFromPermille(value);
+                channelHistory_[1][n]=crsfValueFromPermille(-value);
+            }
+        }
+        drawDashboard();metricsRender(metricsTelemetry);
+        for(uint8_t cell:{1,2,3})metricsFit(cell);
+        assert(widgetViews_[0].arcs[0]&&widgetViews_[0].arcs[1]);
+        assert(!strcmp(lv_label_get_text(widgetViews_[1].values[0]),"9.9"));
+        assert(!strcmp(lv_label_get_text(widgetViews_[1].values[1]),"6.2"));
+        assert(widgetViews_[2].plot&&widgetViews_[2].secondPlot);
+        if(telemetryHistory_)assert(widgetViews_[2].points[0].y>widgetViews_[2].secondPoints[0].y);
+        for(uint8_t cell:{2,3}){
+            assert(!strcmp(lv_label_get_text(widgetViews_[cell].values[0]),"-100%"));
+            assert(!strcmp(lv_label_get_text(widgetViews_[cell].values[1]),"+100%"));
+        }
+        metricsShot("instruments");
         assert(requestDisplayRotation());applyDisplayRotation();
     }
 }
@@ -370,7 +410,8 @@ if(!metricsUnavailable){
     assert(!memcmp(&metricsOther,&dashboardLayouts_[metricsOtherSlot],sizeof(metricsOther)));
     latestRawAdc_=triggerInput_.centre();assert(selectModelMemory(previousSlot));
     assert(!armRequested_&&safetyResetRequested_&&auditCutRequests==metricsCuts+2);
-    assert(metrics.controls.count()==0&&!metrics.power.result(millis()).energyValid);
+    const auto restored=metrics.power.result(millis());
+    assert(metrics.controls.count()==0&&restored.peakValid&&restored.peakWatts==160&&!restored.powerValid);
 }
 lv_obj_remove_event_cb(lv_scr_act(),metricsObjectEvent);metricsDisplay->driver->monitor_cb=metricsPriorMonitor;
 safetyCutHandler_=metricsCutHandler;

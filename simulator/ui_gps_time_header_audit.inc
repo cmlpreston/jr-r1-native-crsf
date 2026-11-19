@@ -21,13 +21,18 @@ lv_obj_add_event_cb(lv_scr_act(),timeObjectEvent,LV_EVENT_ALL,&timeChurn);
 auto timeFit=[&]{
     lv_obj_update_layout(lv_scr_act());
     const int headerHeight=activePage_==UiPage::Dashboard?kDashboardHeaderHeight:44;
-    lv_area_t clock,voltage,link,wifi;lv_obj_get_coords(headerGpsTimeLabel,&clock);
+    assert(designHeaderOutput_);
+    lv_area_t clock,voltage,link,wifi,output;lv_obj_get_coords(headerGpsTimeLabel,&clock);
     lv_obj_get_coords(headerTxVoltageLabel,&voltage);lv_obj_get_coords(designLink_,&link);
     lv_obj_get_coords(wifiStatusIcon,&wifi);
+    lv_obj_get_coords(lv_obj_get_parent(designHeaderOutput_),&output);
     assert(clock.x1>=0&&clock.y1>=0&&clock.x2<kScreenWidth&&clock.y2<headerHeight);
     const auto *font=lv_obj_get_style_text_font(headerGpsTimeLabel,0);
     assert(lv_txt_get_width(lv_label_get_text(headerGpsTimeLabel),strlen(lv_label_get_text(headerGpsTimeLabel)),font,0,LV_TEXT_FLAG_NONE)<=lv_obj_get_width(headerGpsTimeLabel));
     assert(voltage.x2<link.x1&&link.x2<clock.x1&&clock.x2<wifi.x1);
+    assert(output.y1>=0&&output.y2<headerHeight);
+    if(portraitUi)assert(clock.x2<output.x1&&output.x2<wifi.x1);
+    else assert(output.x2<voltage.x1);
     assert(clock.y1==voltage.y1&&clock.y1==link.y1);
     const auto textFits=[](lv_obj_t *label){
         const auto *f=lv_obj_get_style_text_font(label,0);const auto *text=lv_label_get_text(label);
@@ -102,18 +107,50 @@ for(unsigned orientation=0;orientation<2;++orientation){
                 moduleLinkManaged_=true;drawDashboard();
                 const auto oldDuration=lastTouchDurationMs_;
                 const auto oldStartX=touchStartX_,oldStartY=touchStartY_;
-                touchStartX_=kScreenWidth-58;touchStartY_=18;lastTouchDurationMs_=900;
+                lv_obj_update_layout(lv_scr_act());
+                touchStartX_=lv_obj_get_x(headerGpsTimeLabel)+lv_obj_get_width(headerGpsTimeLabel)/2;
+                touchStartY_=lv_obj_get_y(headerGpsTimeLabel)+4;
+                lastTouchDurationMs_=900;
                 handleTouch(touchStartX_,touchStartY_);assert(activePage_==UiPage::Dashboard);
-                touchStartX_=kScreenWidth-110;
+                touchStartX_=designHeaderLinkX()+designHeaderLinkWidth()/2;
                 handleTouch(touchStartX_,touchStartY_);assert(activePage_==UiPage::ModuleLink);
                 drawDashboard();lastTouchDurationMs_=100;
-                handleTouch(kScreenWidth-110,18);assert(activePage_==UiPage::RadioDiagnostics);
+                handleTouch(touchStartX_,touchStartY_);assert(activePage_==UiPage::RadioDiagnostics);
                 moduleLinkManaged_=false;lastTouchDurationMs_=oldDuration;
                 touchStartX_=oldStartX;touchStartY_=oldStartY;drawDashboard();
             }
             assert(!armRequested_&&!safetyResetRequested_&&auditCutRequests==timeCuts);
         }
     }
+    const auto originalBank=setupBank_,originalPage=setupPage_;
+    const auto originalDuration=lastTouchDurationMs_;
+    const auto originalGesture=armGestureValid_;
+    setupBank_=setupPage_=1;
+    drawDisplayPage();lv_obj_update_layout(lv_scr_act());
+    auto *output=designHeaderOutput_;
+    assert(output&&!strcmp(lv_label_get_text(output),"CUT"));
+    updateDesign(designTelemetry_,OutputSafetyStatus::Armed,123,true);
+    assert(output==designHeaderOutput_&&!strcmp(lv_label_get_text(output),"LIVE"));
+    designSafety_=OutputSafetyStatus::InputFault;
+    updateDesign(designTelemetry_,designSafety_,123,true);
+    assert(output==designHeaderOutput_&&!strcmp(lv_label_get_text(output),"FAULT"));
+    lv_area_t pill;lv_obj_get_coords(lv_obj_get_parent(output),&pill);
+    armGestureValid_=true;
+    for(uint32_t duration:{100U,1800U}){
+        lastTouchDurationMs_=duration;
+        handleTouch((pill.x1+pill.x2)/2,(pill.y1+pill.y2)/2);
+        assert(activePage_==UiPage::OutputStatus&&!armRequested_&&!safetyResetRequested_);
+        assert(!strcmp(lv_label_get_text(designDetails_[0]),"INPUT FAULT"));
+        navigateBack();
+        assert(activePage_==UiPage::DisplaySetup&&auditCutRequests==timeCuts);
+    }
+    designSafety_=OutputSafetyStatus::Cut;
+    updateDesign(designTelemetry_,designSafety_,123,true);
+    navigateBack();
+    assert(activePage_==UiPage::MainMenu&&setupBank_==1&&setupPage_==1);
+    setupBank_=originalBank;setupPage_=originalPage;
+    lastTouchDurationMs_=originalDuration;
+    armGestureValid_=originalGesture;
     assert(requestDisplayRotation());applyDisplayRotation();
 }
 lv_obj_remove_event_cb_with_user_data(lv_scr_act(),timeObjectEvent,&timeChurn);
@@ -121,5 +158,5 @@ timeDisplay->driver->monitor_cb=timePriorMonitor;safetyCutHandler_=timeCutHandle
 memcpy(modelNames_[activeModelSlot_],timeOriginalName,sizeof(timeOriginalName));
 brakeAbs_.enabled=timeOriginalAbs;uiNightMode=timeOriginalNight;uiDarkColourScheme=timeOriginalScheme;
 systemSettings_.timeZone=timeOriginalZone;
-Serial.println("GPS local-time header: Sydney/Melbourne summer/winter, fresh/absent/stale, midnight, voltage/LQ/time/Wi-Fi order, both orientations/palettes, stable objects and output guards PASS");
+Serial.println("Handset header: GPS time and metadata fit, both orientations/palettes, stable objects, status entry and Back, output guards PASS");
 return true;

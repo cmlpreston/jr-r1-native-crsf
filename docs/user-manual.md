@@ -718,15 +718,13 @@ Open **Setup → Handset** and page for additional entries.
 
 | Area | Main settings |
 | --- | --- |
-| Display | Screen timeout, idle action (logo saver/display off), brightness, colour scheme, activate now and orientation. |
+| Display | Screen timeout, idle action (logo saver/display off), brightness, colour scheme and activate now. |
 | Sounds / alerts | Available sound and alarm options. |
 | TX battery | Chemistry, cell count, low alarm and voltage sensing. The installed pack is 3S LiFe. |
 | Network / web | Home Wi-Fi, auto-connect, setup access, web address/credentials and hostname. |
 | System | Input diagnostics, firmware information, PIN and restart. |
 
-Orientation changes reflow the UI between portrait and landscape; they are a
-manual test/control, not accelerometer-driven rotation. Perform changes while
-CUT and finish any active editor/hold first. The installed default is landscape.
+The handset display uses 480 × 320 landscape.
 The logo saver alternates JR PROPO and R-1 EVO. Touch or a navigation key wakes it;
 the wake action need not also operate the underlying control.
 
@@ -867,10 +865,8 @@ Its model/state and sensor fixtures are separate from the handset and are not
 transferred automatically. Font rendering and display appearance may differ from
 the physical LCD. See [Development guide](../DEVELOPMENT.md) for launch commands.
 
-Both portrait (320 × 480) and landscape (480 × 320) layouts are maintained and
-checked in the simulator. **Setup → Handset → Display → Orientation** changes
-the display orientation. Automatic rotation is not implemented; it would require
-an accelerometer and orientation-detection firmware in a future revision.
+The simulator checks the handset's 480 × 320 landscape layout and also
+exercises a 320 × 480 portrait layout.
 
 ### Serial diagnostics
 

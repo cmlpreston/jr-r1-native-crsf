@@ -42,6 +42,14 @@ void boundedLabel(lv_obj_t *label, int width)
     lv_obj_set_width(label, width);
     lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
 }
+
+void drawSettingsScope(const char *scope)
+{
+    const int width=portraitUi?110:176;
+    auto label=makeLabel(lv_scr_act(),scope,kScreenWidth-UiLayout::PageInset-width,54,UiText::Caption,cDim);
+    boundedLabel(label,width);
+    lv_obj_set_style_text_align(label,LV_TEXT_ALIGN_RIGHT,0);
+}
 lv_point_t gpsViewportPoint(const GpsMapViewport &view,int32_t lat,int32_t lon,int width,int height)
 {
     return {static_cast<lv_coord_t>(constrain(width/2+GpsMap::east(view.latitude,lon,view.longitude)*view.pixelsPerMetre,-10000,10000)),
@@ -336,36 +344,49 @@ lv_obj_t *TransmitterUi::drawMenuRow(const char *title,const char *value,int y,i
                                     PageControlHandler handler,uint8_t action,bool chevron,
                                     int trailing,const char *subtitle,lv_obj_t **subtitleLabel)
 {
-    const int width=kScreenWidth-20,line=UiText::font(UiText::Menu)->line_height;
-    auto panel=makePanel(10,y,width,height,cBlack,cLine,0);
+    const int width=kScreenWidth-2*UiLayout::PageInset;
+    const int line=UiText::font(UiText::Menu)->line_height;
+    const int inset=UiLayout::Gap;
+    const int valueRight=chevron?max(trailing,2*UiLayout::LargeGap):trailing;
+    auto panel=makePanel(UiLayout::PageInset,y,width,height,cBlack,cLine,0);
     lv_obj_set_style_border_side(panel,LV_BORDER_SIDE_BOTTOM,0);
-    auto name=makeLabel(panel,title,10,designPortrait? (subtitle?2:6):subtitle?0:(height-line)/2,UiText::Menu,cWhite);
-    boundedLabel(name,designPortrait||!*value?width-38:width/2-12);
-    auto v=makeLabel(panel,value,0,0,UiText::Menu,cCyan);
-    if(designPortrait){lv_obj_set_pos(v,10,subtitle?line+3:height-line-4);boundedLabel(v,width-trailing-12);}
+    const int nameY=subtitle?0:designPortrait&&*value?UiLayout::SmallGap:(height-line)/2;
+    auto name=makeLabel(panel,title,inset,nameY,UiText::Menu,cWhite);
+    boundedLabel(name,designPortrait||!*value?width-valueRight-inset:width/2-2*inset);
+    auto v=makeLabel(panel,value,0,0,UiText::Menu,cDim);
+    if(designPortrait){
+        lv_obj_set_pos(v,inset,subtitle?line+3:height-line-UiLayout::SmallGap);
+        boundedLabel(v,width-valueRight-inset);
+    }
     else{
-        boundedLabel(v,width/2-trailing-12);lv_obj_set_style_text_align(v,LV_TEXT_ALIGN_RIGHT,0);
-        if(subtitle)lv_obj_set_pos(v,width/2+12,0);
-        else lv_obj_align(v,LV_ALIGN_RIGHT_MID,-trailing,0);
+        boundedLabel(v,width/2-valueRight-inset);lv_obj_set_style_text_align(v,LV_TEXT_ALIGN_RIGHT,0);
+        if(subtitle)lv_obj_align(v,LV_ALIGN_TOP_RIGHT,-valueRight,0);
+        else lv_obj_align(v,LV_ALIGN_RIGHT_MID,-valueRight,0);
     }
     if(subtitle){
-        auto detail=makeLabel(panel,subtitle,10,height-UiText::font(UiText::Caption)->line_height-2,UiText::Caption,cDim);
-        boundedLabel(detail,width-20);if(subtitleLabel)*subtitleLabel=detail;
+        auto detail=makeLabel(panel,subtitle,inset,height-UiText::font(UiText::Caption)->line_height-2,UiText::Caption,cDim);
+        boundedLabel(detail,width-2*inset);if(subtitleLabel)*subtitleLabel=detail;
     }
-    if(chevron)makeLabel(panel,LV_SYMBOL_RIGHT,width-20,(height-16)/2,UiText::Caption,cDim);
-    if(handler)addPageActionTarget(10,y,width,height,handler,action);
+    if(chevron){
+        auto arrow=makeLabel(panel,LV_SYMBOL_RIGHT,0,0,UiText::Caption,cDim);
+        lv_obj_align(arrow,LV_ALIGN_RIGHT_MID,-inset,0);
+    }
+    if(handler)addPageActionTarget(UiLayout::PageInset,y,width,height,handler,action);
     return v;
 }
 
 lv_obj_t *TransmitterUi::drawSettingsRow(const char *title,const char *value,int y,int height,
-                                    PageControlHandler handler,uint8_t action,bool numeric)
+                                    PageControlHandler handler,uint8_t action,bool numeric,
+                                    bool chevron)
 {
-    auto valueLabel=drawMenuRow(title,value,y,height,numeric?nullptr:handler,action,false,numeric?104:10);
+    auto valueLabel=drawMenuRow(title,value,y,height,numeric?nullptr:handler,action,chevron,numeric?104:UiLayout::Gap);
     if(numeric){
-        const int bx=kScreenWidth-102,by=y+(height-32)/2;
-        makeButton(bx,by,36,32,"-",UiText::Menu);
-        makeButton(bx+44,by,36,32,"+",UiText::Menu);
-        addPageEditorTarget(10,y,kScreenWidth-20,height,bx,by,36,32,bx+44,by,36,32,handler,action);
+        const int stepWidth=36,stepHeight=min(40,height);
+        const int bx=kScreenWidth-102,by=y+(height-stepHeight)/2,plusX=bx+stepWidth+UiLayout::Gap;
+        makeButton(bx,by,stepWidth,stepHeight,"-",UiText::Menu);
+        makeButton(plusX,by,stepWidth,stepHeight,"+",UiText::Menu);
+        addPageEditorTarget(UiLayout::PageInset,y,kScreenWidth-2*UiLayout::PageInset,height,
+                            bx,by,stepWidth,stepHeight,plusX,by,stepWidth,stepHeight,handler,action);
     }
     return valueLabel;
 }
@@ -448,6 +469,11 @@ void TransmitterUi::drawDesignPage(UiPage page)
     auto row = [&](int y, const char *title, const char *value, uint8_t action, int height = 39) {
         return drawMenuRow(title,value,y,height,&TransmitterUi::controlDesign,action);
     };
+    const auto modelScope=[&]{
+        char scope[sizeof(modelNames_[0])+8];
+        snprintf(scope,sizeof(scope),"Model / %s",modelNames_[activeModelSlot_]);
+        drawSettingsScope(scope);
+    };
     if (fullScreenGps) {
         drawGpsMapView(true);
         finishPageFocus();
@@ -457,6 +483,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
     }
     const int headerHeight = compactHeader ? kDashboardHeaderHeight : 44;
     const bool backButton = !rootPage && (!modal || page == UiPage::ElrsBinding || page == UiPage::Calibration);
+    const int statusX=kScreenWidth-(portraitUi?96:247);
+    const int statusWidth=portraitUi?54:58;
     if (!retainChrome) {
         makePanel(0,0,kScreenWidth,headerHeight,cHeader,cHeader,0);
         if (backButton) {
@@ -474,22 +502,34 @@ void TransmitterUi::drawDesignPage(UiPage page)
                 lv_obj_set_pos(logo,5,4);
             }
         }
-        auto *modelLabel = label(modelNames_[activeModelSlot_],modelX,10,UiText::Secondary,0xe7edef);
-        boundedLabel(modelLabel,kScreenWidth-modelX-192-(compactHeader&&brakeAbs_.enabled?28:0));
+        const int metadataY=portraitUi?designHeaderLinkY(headerHeight):12;
+        const int modelY=portraitUi?(compactHeader?1:5):10;
+        const int modelRight=statusX-(brakeAbs_.enabled?32:UiLayout::SmallGap);
+        auto *modelLabel = label(modelNames_[activeModelSlot_],modelX,modelY,UiText::Secondary,0xe7edef);
+        boundedLabel(modelLabel,modelRight-modelX);
         lv_obj_set_height(modelLabel,UiText::font(UiText::Secondary)->line_height);
-        makeHeaderTxVoltage(kScreenWidth-184,12);
-        makeHeaderGpsTime(kScreenWidth-76,12);
+        makeHeaderTxVoltage(portraitUi?86:kScreenWidth-184,metadataY);
+        makeHeaderGpsTime(portraitUi?184:kScreenWidth-76,metadataY);
         if (brakeAbs_.enabled) {
-            label("ABS",kScreenWidth-(compactHeader?214:116),compactHeader?12:26,UiText::Caption,cAmber);
+            label("ABS",statusX-29,portraitUi?modelY+1:metadataY,UiText::Caption,cAmber);
         }
-        designLink_=label("LQ --",kScreenWidth-136,12,UiText::Caption,cDim);
+        if (!modal) {
+            const int statusHeight=min(28,headerHeight-2*UiLayout::SmallGap);
+            auto status=makePanel(statusX,(headerHeight-statusHeight)/2,statusWidth,statusHeight,cPanel2,cAmber);
+            designHeaderOutput_=makeLabel(status,"CUT",0,0,UiText::Caption,cWhite);
+            lv_obj_center(designHeaderOutput_);
+        }
+        designLink_=label("LQ --",portraitUi?designHeaderLinkX()+2:kScreenWidth-136,metadataY,UiText::Caption,cDim);
         boundedLabel(designLink_,52);
         makeWifiStatusIcon(kScreenWidth-33,11);
     }
     if (backButton) addPageActionTarget(8,5,76,34,&TransmitterUi::controlNavigation,0);
     if (!modal) {
-        addPageActionTarget(kScreenWidth-kHeaderLinkTargetRight,0,kHeaderLinkTargetWidth,
-                            min(38,headerHeight),&TransmitterUi::controlDesign,63);
+        if(page!=UiPage::OutputStatus)
+            addPageActionTarget(statusX,0,statusWidth,headerHeight,&TransmitterUi::controlDesign,5);
+        const int linkY=designHeaderLinkY(headerHeight);
+        addPageActionTarget(designHeaderLinkX(),linkY,designHeaderLinkWidth(),
+                            headerHeight-linkY,&TransmitterUi::controlDesign,63);
         drawSectionNavigation(section,retainChrome);
     }
     if (chrome.screen && !retainChrome) {
@@ -535,7 +575,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
         drawDashboardWidgets();
         if(minimize)lv_obj_move_foreground(minimize);
     } else if(page==UiPage::RfWarningSetup){
-        label("Model RF warnings",12,48,UiText::Heading);
+        label("RF warnings",12,48,UiText::Heading);
+        modelScope();
         const char *names[]={"Warn while driving","2.4 GHz ELRS version","RSSI margin alarm","LQ alarm at / below"};
         const auto &s=rfWarningSettings_;
         for(uint8_t n=0;n<4;++n){char value[32];
@@ -583,23 +624,18 @@ void TransmitterUi::drawDesignPage(UiPage page)
         boundedLabel(designDetails_[0],kScreenWidth-40);
     } else if(page==UiPage::DisplaySetup) {
         label("Display",12,48,UiText::Heading);
-        const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now","Orientation"};
-        const int first=displaySetupBank_*4,step=designPortrait?70:40;
-        for(int i=first;i<min(first+4,6);++i){
+        drawSettingsScope("Handset");
+        const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now"};
+        const int step=designPortrait?64:40,height=designPortrait?60:38;
+        for(uint8_t i=0;i<sizeof(names)/sizeof(*names);++i){
             char value[40];
             if(i==0){if(systemSettings_.screenTimeoutSeconds)snprintf(value,sizeof(value),"%u sec",systemSettings_.screenTimeoutSeconds);else strcpy(value,"Never");}
-            else if(i==1)snprintf(value,sizeof(value),"%s >",systemSettings_.logoScreensaverEnabled?"Logo saver":"Display off");
+            else if(i==1)snprintf(value,sizeof(value),"%s",systemSettings_.logoScreensaverEnabled?"Logo saver":"Display off");
             else if(i==2)snprintf(value,sizeof(value),"%u%%",systemSettings_.displayBrightnessPercent);
-            else if(i==3)snprintf(value,sizeof(value),"%s >",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme,systemSettings_.lightColourScheme));
-            else if(i==4)snprintf(value,sizeof(value),"%s >",systemSettings_.logoScreensaverEnabled?"Show logo":"Display off");
-            else snprintf(value,sizeof(value),"%s >",designPortrait?"Portrait":"Landscape");
-            drawSettingsRow(names[i],value,80+(i-first)*step,step-2,&TransmitterUi::controlDisplay,i,i==0||i==2);
+            else if(i==3)snprintf(value,sizeof(value),"%s",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme,systemSettings_.lightColourScheme));
+            else snprintf(value,sizeof(value),"%s",systemSettings_.logoScreensaverEnabled?"Show logo":"Display off");
+            drawSettingsRow(names[i],value,76+i*step,height,&TransmitterUi::controlDisplay,i,i==0||i==2,i==3);
         }
-        if(displaySetupBank_){
-            boundedLabel(label("Logo saver dims to 25%.",20,designPortrait?252:184,UiText::Caption,cDim),kScreenWidth-40);
-            boundedLabel(label("Display off saves the most power.",20,designPortrait?278:207,UiText::Caption,cDim),kScreenWidth-40);
-        }
-        drawPageControls(displaySetupBank_,2);
     } else if(page==UiPage::ErsSensors) {
         drawErsSensorContent();
     } else if(page==UiPage::ModuleLink) {
@@ -616,7 +652,9 @@ void TransmitterUi::drawDesignPage(UiPage page)
     } else if(page==UiPage::OutputStatus) {
         label("Output status",12,48,UiText::Heading);
         designDetails_[0]=label("",12,94,UiText::Menu,cCyan);boundedLabel(designDetails_[0],kScreenWidth-24);
-        designDetails_[1]=label("",12,designPortrait?138:126,UiText::Secondary,cWhite);boundedLabel(designDetails_[1],kScreenWidth-24);
+        designDetails_[1]=label("",12,designPortrait?138:126,UiText::Secondary,cWhite);
+        lv_obj_set_width(designDetails_[1],kScreenWidth-24);
+        lv_label_set_long_mode(designDetails_[1],LV_LABEL_LONG_WRAP);
         label("Physical handset only. Unlocking never arms.",12,designPortrait?190:158,UiText::Caption,cDim);
         auto arm=button(12,designPortrait?238:184,kScreenWidth-24,48,"Enable output",181);
         armProgress_=makeBar(arm,4,41,kScreenWidth-32,4,0,800);
@@ -702,14 +740,16 @@ void TransmitterUi::drawDesignPage(UiPage page)
         button(12,designFooterY-42,100,34,"Cancel",209);button(kScreenWidth-124,designFooterY-42,112,34,mixingSaveError_?"Retry apply":"Apply",204);
     } else if(page==UiPage::Setup) {
         label("Sounds / alerts",12,48,UiText::Heading);
+        drawSettingsScope("Handset");
         char pitch[24],length[24];snprintf(pitch,sizeof(pitch),"%u Hz",systemSettings_.buzzerPitchHz);snprintf(length,sizeof(length),"%u ms",systemSettings_.keyClickDurationMs);
         const char *names[]={"Buzzer","Key clicks","Pitch","Click length"};const char *values[]={systemSettings_.buzzerEnabled?"On":"Off",systemSettings_.keyClicksEnabled?"On":"Off",pitch,length};
         for(uint8_t i=0;i<4;++i)drawMenuRow(names[i],values[i],85+i*(designPortrait?64:36),
-            designPortrait?56:34,&TransmitterUi::controlSound,i);
+            designPortrait?56:34,&TransmitterUi::controlSound,i,false,UiLayout::Gap);
         makePageActionButton(kScreenWidth-124,designFooterY-42,112,34,"Test sound",UiText::Menu,
             cPanel,cWhite,cLine,&TransmitterUi::controlSound,static_cast<uint8_t>(SoundSetting::Test));
     } else if(page==UiPage::NetworkOptions || page==UiPage::SystemMenu) {
         const bool network=page==UiPage::NetworkOptions;label(network?"Network / web":"System",12,48,UiText::Heading);
+        drawSettingsScope("Handset");
         if(network){row(94,"Home Wi-Fi","Connection",210,designPortrait?64:44);row(designPortrait?170:148,"Web access","Address / credentials",211,designPortrait?64:44);}
         else{row(designPortrait?90:82,"Input diagnostics","Monitor",48,designPortrait?60:34);row(designPortrait?162:120,"Firmware information","",144,designPortrait?60:34);row(designPortrait?234:158,"PIN","Change / recovery",237,designPortrait?60:34);row(designPortrait?306:196,"Restart handset","",212,designPortrait?60:34);}
 
@@ -815,16 +855,13 @@ void TransmitterUi::drawDesignPage(UiPage page)
             drawGpsMapView(false);
         }
     } else if(page==UiPage::MainMenu || page==UiPage::BatteryMenu) {
-        if(page==UiPage::BatteryMenu)label("Vehicle batteries",12,48,UiText::Heading);
+        if(page==UiPage::BatteryMenu){
+            label("Vehicle batteries",12,48,UiText::Heading);
+            modelScope();
+        }
         auto menuRow=[&](int y,const char *name,const char *value,uint8_t id){
             const int h=designPortrait?(setupBank_?52:59):(setupBank_?32:38);
-            auto panel=makePanel(12,y,kScreenWidth-24,h,cBlack,cLine);
-            lv_obj_set_style_border_side(panel,LV_BORDER_SIDE_BOTTOM,0);
-            auto title=makeLabel(panel,name,0,(h-UiText::font(UiText::Menu)->line_height)/2,UiText::Menu,cWhite);
-            boundedLabel(title,kScreenWidth-118);
-            auto v=makeLabel(panel,value,0,0,UiText::Menu,cCyan);lv_obj_align(v,LV_ALIGN_RIGHT_MID,-18,0);
-            makeLabel(panel,LV_SYMBOL_RIGHT,kScreenWidth-36,(h-12)/2,UiText::Caption,cCyan);
-            addPageActionTarget(12,y,kScreenWidth-24,h,&TransmitterUi::controlDesign,id);
+            row(y,name,value,id,h);
         };
         if(page==UiPage::BatteryMenu){
             menuRow(94,"Receiver battery","RX",146);
@@ -841,6 +878,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         }
     } else if(page==UiPage::Channels) {
         label("Channels",12,48,UiText::Heading);
+        modelScope();
         for(int i=0;i<4;++i){int ch=designBank_*4+i+1;char name[36];snprintf(name,sizeof(name),"CH%u  %s",ch,ch==channelRoleSettings_.steeringChannel?"Steering":ch==channelRoleSettings_.throttleChannel?"Throttle":"Auxiliary");row(86+i*(designPortrait?67:40),name,"Configure",90+i,designPortrait?56:37);}
         button(10,designFooterY-34,60,28,"<",80);button(kScreenWidth-70,designFooterY-34,60,28,">",81);
     } else if(page==UiPage::ModelSelect) {
@@ -1041,14 +1079,28 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item==237){beginPin(PinPurpose::ChangeCurrent,UiPage::SystemMenu);return;}
     if(item>=180 && item<=220){
         if(item==218){drawDesignPage(UiPage::MixingOverview);return;}
-        if(item==180){if(designTouchDispatch_&&lastTouchDurationMs_>=800)drawDesignPage(UiPage::WidgetSelect);else{statusReturnPage_=UiPage::Dashboard;drawDesignPage(UiPage::OutputStatus);}return;}
+        if(item==180){
+            if(designTouchDispatch_&&lastTouchDurationMs_>=800)drawDesignPage(UiPage::WidgetSelect);
+            else{
+                statusReturnPage_=UiPage::Dashboard;
+                statusReturnMaximized_=maximizedWidget_;
+                drawDesignPage(UiPage::OutputStatus);
+            }
+            return;
+        }
         if(item==181){
             if(designTouchDispatch_&&armGestureValid_&&lastTouchDurationMs_>=kDashboardArmHoldMs){
                 if(armRequested_){requestConfigurationCut();}
                 else if(moduleLinkManaged_&&!moduleLink_.enabled()){
                     moduleLinkReturnPage_=UiPage::OutputStatus;drawDesignPage(UiPage::ModuleLink);return;
                 }
-                else if(!SetupPortal::active()&&(!remoteTouchActive_||remoteArmHoldDispatch_)&&!calibrationActive()&&!escProgrammer_.blocksArm()){armRequested_=true;safetyResetRequested_=true;activePage_=statusReturnPage_;redrawActivePage();}
+                else if(!SetupPortal::active()&&(!remoteTouchActive_||remoteArmHoldDispatch_)&&!calibrationActive()&&!escProgrammer_.blocksArm()){
+                    armRequested_=true;
+                    safetyResetRequested_=true;
+                    activePage_=statusReturnPage_;
+                    maximizedWidget_=statusReturnMaximized_;
+                    redrawActivePage();
+                }
             }
             return;
         }
@@ -1087,7 +1139,12 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         if(item==206){drawDesignPage(UiPage::SystemMenu);return;}
         if(item==207||item==208){setupPage_=constrain(setupPage_+(item==207?-1:1),0,1);drawMainMenu();return;}
         if(item==209){
-            if(activePage_==UiPage::OutputStatus){activePage_=statusReturnPage_;redrawActivePage();return;}
+            if(activePage_==UiPage::OutputStatus){
+                activePage_=statusReturnPage_;
+                maximizedWidget_=statusReturnMaximized_;
+                redrawActivePage();
+                return;
+            }
             if(activePage_==UiPage::ParameterControlPicker||activePage_==UiPage::ResponseProfile){drawDesignPage(UiPage::ChannelResponseSetup);return;}
             if(activePage_==UiPage::ChannelInput&&channelInputPage_){channelInputPage_=0;drawDesignPage(UiPage::ChannelInput);return;}
             if(activePage_==UiPage::ChannelInput||activePage_==UiPage::ChannelResponseSetup||activePage_==UiPage::MixingOverview){drawChannelPlaceholder();return;}
@@ -1131,7 +1188,9 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
             moduleLinkReturnPage_=UiPage::Dashboard;drawDesignPage(UiPage::ModuleLink);return;
         }
         else if(SetupPortal::active()){
-            statusReturnPage_=UiPage::Dashboard;drawDesignPage(UiPage::OutputStatus);return;
+            statusReturnPage_=UiPage::Dashboard;
+            statusReturnMaximized_=maximizedWidget_;
+            drawDesignPage(UiPage::OutputStatus);return;
         }
         else if((!remoteTouchActive_||remoteArmHoldDispatch_)&&!calibrationActive()&&!escProgrammer_.blocksArm()){armRequested_=true;safetyResetRequested_=true;}
         drawDashboard();return;
@@ -1143,7 +1202,14 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         }
         designBank_=0;if(item==3)setupBank_=0;drawDesignPage(item==0?UiPage::Dashboard:item==1?UiPage::Tune:item==2?UiPage::Telemetry:UiPage::MainMenu);return;}
     if(item==4){drawModelSelectPage();return;}
-    if(item==5){statusReturnPage_=activePage_;drawDesignPage(UiPage::OutputStatus);return;}
+    if(item==5){
+        if(event==PageControlEvent::Activate&&activePage_!=UiPage::OutputStatus){
+            statusReturnPage_=activePage_;
+            statusReturnMaximized_=maximizedWidget_;
+            drawDesignPage(UiPage::OutputStatus);
+        }
+        return;
+    }
     if(item==6){driveModesReturnPage_=UiPage::Dashboard;drawDesignPage(UiPage::ModeChooser);return;}
     if(item==7){toggleRunTimer();return;}
     if(item==8){timerAction(2);return;}
@@ -1257,7 +1323,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item==125){drawDesignPage(UiPage::WidgetSelect);return;}
     if(item==126){dashboardHidden_[activeModelSlot_][widgetCell_]=widgetHiddenDraft_;channelWidgetPages_[widgetCell_]=0;placeDashboardWidget(dashboardLayouts_[activeModelSlot_],widgetCell_,widgetDraft_);saveModelMemorySettings();drawDashboard();return;}
     if(item==140 || item==141){setupBank_=item-140;setupPage_=0;drawMainMenu();return;}
-    if(item==142){displaySetupBank_=0;drawDisplayPage();return;}
+    if(item==142){drawDisplayPage();return;}
     if(item==143){drawDesignPage(UiPage::BatteryMenu);return;}
     if(item==144){drawFirmwareInfoPage();return;}
     if(item==145){drawTxBatteryPage();return;}
@@ -1331,6 +1397,13 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             if(armProgress_)uiSetText(lv_obj_get_child(lv_obj_get_parent(armProgress_),0),armRequested_?"Hold to cut (0.8 s)":"Enable output");
         }
         if(hardwareRecovery_&&!rfBenchMode_)col=cRed;
+        if(designHeaderOutput_){
+            uiSetText(designHeaderOutput_,col==cRed?"FAULT":safety==OutputSafetyStatus::Armed?"LIVE":"CUT");
+            auto status=lv_obj_get_parent(designHeaderOutput_);
+            const auto tint=colour(col);
+            if(lv_obj_get_style_border_color(status,0).full!=tint.full)
+                lv_obj_set_style_border_color(status,tint,0);
+        }
         if(designStatus_)uiSetText(designStatus_,"Drive");
         updateDriveIcon(driveIcon_,safety==OutputSafetyStatus::Armed,col==cRed);
     }
@@ -1442,19 +1515,40 @@ bool TransmitterUi::handleDashboardWidgetHold(int startX,int startY,int endX,int
     return false;
 }
 
+namespace {
+constexpr int kWidgetPercentPlotLeft=38;
+
+int channelPlotTop(bool stacked)
+{
+    return UiLayout::WidgetBodyY+(stacked?34:18);
+}
+
+void drawWidgetPercentAxis(lv_obj_t *parent,int top,int height)
+{
+    const int textHeight=UiText::font(UiText::Caption)->line_height;
+    makeLabel(parent,"+100",4,top-2,UiText::Caption,cDim);
+    makeLabel(parent,"0",4,top+(height-textHeight)/2,UiText::Caption,cDim);
+    makeLabel(parent,"-100",4,top+height-textHeight+2,UiText::Caption,cDim);
+}
+}
+
 void TransmitterUi::drawDashboardWidgets()
 {
     const auto &layout=dashboardLayouts_[activeModelSlot_];
-    constexpr int gap=kPanelGap;
+    constexpr int gap=UiLayout::Gap;
+    constexpr int inset=UiLayout::PageInset;
+    constexpr int pad=UiLayout::WidgetInset;
+    constexpr int bodyY=UiLayout::WidgetBodyY;
     const int top=kDashboardWidgetTop;
-    const int cellW=(kScreenWidth-20-gap)/2, cellH=(designFooterY-top-gap-6)/2;
+    const int cellW=(kScreenWidth-2*inset-gap)/2, cellH=(designFooterY-top-gap-6)/2;
     const uint8_t visible=maximizedWidget_>=0?uint8_t(1<<maximizedWidget_):visibleDashboardWidgets(layout);
     uint8_t occupied=0;
     for(uint8_t i=0;i<4;++i)if(visible&(1<<i))occupied |= dashboardWidgetMask(i,layout.cells[i]);
     for(uint8_t cell=0;cell<4;++cell){
         if(maximizedWidget_>=0&&cell!=maximizedWidget_)continue;
         const auto w=dashboardWidgetForView(cell);
-        int x=maximizedWidget_>=0?10:10+cell%2*(cellW+gap),y=maximizedWidget_>=0?top:top+cell/2*(cellH+gap);
+        const int x=maximizedWidget_>=0?inset:inset+cell%2*(cellW+gap);
+        const int y=maximizedWidget_>=0?top:top+cell/2*(cellH+gap);
         if(w.kind==DashboardWidgetKind::Empty){
             if(!(occupied&(1<<cell)))makePageActionButton(x,y,cellW,cellH,"+ Add widget",UiText::Secondary,cPanel,cDim,cLine,&TransmitterUi::controlDesign,110+cell);
             continue;
@@ -1462,32 +1556,33 @@ void TransmitterUi::drawDashboardWidgets()
         if(!(visible&(1<<cell)))continue;
         auto &view=widgetViews_[cell];
         const int width=cellW*w.width+gap*(w.width-1),height=maximizedWidget_>=0?designFooterY-top-6:cellH*w.height+gap*(w.height-1);
-        view.panel=makePanel(x,y,width,height,cPanel,cLine);
-        auto title=makeLabel(view.panel,dashboardKindName(w.kind),8,5,UiText::Caption,cDim);view.title=title;
-        if(maximizedWidget_>=0&&w.kind!=DashboardWidgetKind::DrivePack&&w.kind!=DashboardWidgetKind::PowerEnergy&&w.kind!=DashboardWidgetKind::ControlHistory&&w.kind!=DashboardWidgetKind::SpeedRpm&&!dashboardSessionWidget(w.kind))lv_obj_add_flag(title,LV_OBJ_FLAG_HIDDEN);
+        view.panel=makePanel(x,y,width,height,cPanel,cLine,UiLayout::WidgetRadius);
+        auto title=makeLabel(view.panel,dashboardKindName(w.kind),pad,UiLayout::WidgetTitleY,UiText::Secondary,cWhite);
+        view.title=title;
         const bool channelPreview=w.kind==DashboardWidgetKind::Channels ||
             (w.kind==DashboardWidgetKind::AllChannels&&w.source!=1);
-        boundedLabel(title,width-(channelPreview?40:16));
+        const int titleWidth=width-(channelPreview?40:2*pad);
+        boundedLabel(title,maximizedWidget_>=0?min(titleWidth,width/2-28):titleWidth);
         if(channelPreview){
             view.heldOutputIcon=makeHeldOutputIcon(view.panel);
             if(dashboardOutputsLive_)lv_obj_add_flag(view.heldOutputIcon,LV_OBJ_FLAG_HIDDEN);
         }
-        const bool speedWidget=w.kind==DashboardWidgetKind::Sensor && w.source==0;
-        const int actionHeight=w.kind==DashboardWidgetKind::Timer?height-(designPortrait?45:31):speedWidget?height-32:dashboardMetricsResettable(w.kind)?height-22:height;
+        const bool sensorReset=w.kind==DashboardWidgetKind::Sensor && w.style!=DashboardWidgetStyle::Graph;
+        const int actionHeight=w.kind==DashboardWidgetKind::Timer?height-(designPortrait?45:31):sensorReset?height-32:dashboardMetricsResettable(w.kind)?height-22:height;
         const bool interactive=w.kind==DashboardWidgetKind::Controls||w.kind==DashboardWidgetKind::Trims;
         if(!interactive){
             if(w.kind==DashboardWidgetKind::Map)view.gpsCardTarget=pageFocusCount_;
             addPageActionTarget(x,y,width,actionHeight,&TransmitterUi::controlDesign,130+cell);
         }
-        if(speedWidget)addPageActionTarget(x,y+height-32,width-80,32,&TransmitterUi::controlDesign,130+cell);
+        if(sensorReset)addPageActionTarget(x,y+height-32,width-80,32,&TransmitterUi::controlDesign,130+cell);
         if(dashboardMetricsResettable(w.kind)){
             addPageActionTarget(x,y+height-22,width-64,22,&TransmitterUi::controlDesign,130+cell);
             makePageActionButton(x+width-60,y+height-21,54,19,"Reset",UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,154+cell);
         }
         if(w.kind==DashboardWidgetKind::Timer){
-            view.values[0]=makeLabel(view.panel,"00:00",8,24,height>130?UiText::Reading:UiText::Menu);
-            view.values[1]=makeLabel(view.panel,"",8,height>130?76:44,UiText::Caption,cDim);
-            if(height>130){view.values[2]=makeLabel(view.panel,"",8,100,UiText::Caption,cDim);}
+            view.values[0]=makeLabel(view.panel,"00:00",pad,bodyY,height>130?UiText::Reading:UiText::Heading);
+            view.values[1]=makeLabel(view.panel,"",pad,height>130?76:49,UiText::Caption,cDim);
+            if(height>130){view.values[2]=makeLabel(view.panel,"",pad,100,UiText::Caption,cDim);}
 
             makePageActionButton(x+8,y+height-(designPortrait?45:31),width/2-12,designPortrait?40:26,timerPrimaryLabel(),UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,7);
             makePageActionButton(x+width/2+4,y+height-(designPortrait?45:31),width/2-12,designPortrait?40:26,"Reset",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,8);
@@ -1498,10 +1593,10 @@ void TransmitterUi::drawDashboardWidgets()
             const int pages=max(1,(total+capacity-1)/capacity);
             channelWidgetPages_[cell]%=pages;
             const int first=channelWidgetPages_[cell]*capacity,count=min(capacity,total-first);
-            const int rows=(capacity+columns-1)/columns,cw=(width-16)/columns;
+            const int rows=(capacity+columns-1)/columns,cw=(width-2*pad)/columns;
             const int rowHeight=vertical?(height-42)/rows:28;
             for(int j=0;j<count;++j){
-                const int xx=8+(vertical?j%columns:j/rows)*cw,yy=25+(vertical?j/columns:j%rows)*rowHeight;
+                const int xx=pad+(vertical?j%columns:j/rows)*cw,yy=bodyY+(vertical?j/columns:j%rows)*rowHeight;
                 view.values[j]=makeLabel(view.panel,"",xx,yy,UiText::Caption,cWhite);
                 int off=0,on=0;const int entry=channels[first+j];
                 const bool trim=entry==(0x80|4)||entry==(0x80|5);
@@ -1513,7 +1608,7 @@ void TransmitterUi::drawDashboardWidgets()
                     lv_obj_clear_flag(view.switches[j],LV_OBJ_FLAG_CLICKABLE);
                     lv_obj_set_style_bg_color(view.switches[j],colour(cCyan),LV_PART_INDICATOR|LV_STATE_CHECKED);
                 }
-                else if(w.style==DashboardWidgetStyle::Bars){view.bars[j]=makeBar(view.panel,xx,yy+18,cw-8,4,-1000,1000);lv_bar_set_mode(view.bars[j],LV_BAR_MODE_SYMMETRICAL);}
+                else if(w.style==DashboardWidgetStyle::Bars){view.bars[j]=makeBar(view.panel,xx,yy+18,cw-pad,UiLayout::WidgetRailHeight,-1000,1000);lv_bar_set_mode(view.bars[j],LV_BAR_MODE_SYMMETRICAL);}
                 else if(vertical){
                     const int barHeight=max(12,rowHeight-34),barX=xx+(cw-10)/2;
                     view.bars[j]=makeBar(view.panel,barX,yy+30,10,barHeight,-1000,1000);
@@ -1527,87 +1622,99 @@ void TransmitterUi::drawDashboardWidgets()
             if(!total)snprintf(caption,sizeof(caption),"No selected inputs");
             else if(pages>1)snprintf(caption,sizeof(caption),"%u/%u - tap for more",channelWidgetPages_[cell]+1,pages);
             else snprintf(caption,sizeof(caption),"%u %s",total,w.source==1?"physical inputs":w.source==2?"outputs / inputs":"configured outputs");
-            view.detail=makeLabel(view.panel,caption,8,height-16,UiText::Caption,cDim);boundedLabel(view.detail,width-16);
+            view.detail=makeLabel(view.panel,caption,pad,height-UiLayout::WidgetFooterHeight,UiText::Caption,cDim);
+            boundedLabel(view.detail,width-2*pad);
         } else if(w.kind==DashboardWidgetKind::Power || w.kind==DashboardWidgetKind::Channels){
-            bool power=w.kind==DashboardWidgetKind::Power;
+            const bool power=w.kind==DashboardWidgetKind::Power;
             const int count=power || w.secondSource<16?2:1;
+            const bool tall=w.width==1&&w.height==2;
             if(w.style==DashboardWidgetStyle::Graph){
-                view.plot=lv_line_create(view.panel);lv_obj_set_style_line_color(view.plot,colour(cCyan),0);lv_obj_set_style_line_width(view.plot,2,0);
-                if(count==2){view.secondPlot=lv_line_create(view.panel);lv_obj_set_style_line_color(view.secondPlot,colour(cAmber),0);lv_obj_set_style_line_width(view.secondPlot,2,0);}
-                view.detail=makeLabel(view.panel,"Output history / 30 s",8,height-16,UiText::Caption,cDim);
+                const int plotTop=channelPlotTop(tall&&count==2);
+                const int plotHeight=height-plotTop-UiLayout::WidgetFooterHeight-2;
+                drawWidgetPercentAxis(view.panel,plotTop,plotHeight);
+                auto zero=lv_obj_create(view.panel);
+                position(zero,kWidgetPercentPlotLeft,plotTop+plotHeight/2,width-kWidgetPercentPlotLeft-pad,1);
+                lv_obj_set_style_bg_color(zero,colour(cLine),0);
+                lv_obj_set_style_border_width(zero,0,0);
+                view.plot=lv_line_create(view.panel);
+                lv_obj_set_style_line_color(view.plot,colour(cCyan),0);
+                lv_obj_set_style_line_width(view.plot,UiLayout::WidgetSeriesStroke,0);
+                if(count==2){
+                    view.secondPlot=lv_line_create(view.panel);
+                    lv_obj_set_style_line_color(view.secondPlot,colour(cAmber),0);
+                    lv_obj_set_style_line_width(view.secondPlot,UiLayout::WidgetSeriesStroke,0);
+                }
+                view.detail=makeLabel(view.panel,"Requested / 30 s",pad,height-UiLayout::WidgetFooterHeight,UiText::Caption,cDim);
+                boundedLabel(view.detail,width-42);
+                makeLabel(view.panel,"Now",width-34,height-UiLayout::WidgetFooterHeight,UiText::Caption,cDim);
             }
             for(int j=0;j<count;++j){
-                int channel=(j?w.secondSource:w.source)+1;
-                char text[20];snprintf(text,sizeof(text),power?(j?"RX":"TX"):"CH%u",channel);
+                const int channel=(j?w.secondSource:w.source)+1;
+                char text[20];
+                if(power)snprintf(text,sizeof(text),"%s",j?"RX":"TX");
+                else snprintf(text,sizeof(text),"CH%u",channel);
                 if(w.style==DashboardWidgetStyle::Dials){
-                    const bool tall=w.width==1&&w.height==2;
-                    int diameter=tall?min(width-16,(height-28)/count-6):min(width/count-12,height-24);
-                    int ax=tall?(width-diameter)/2:width/(2*count)+j*width/count-diameter/2;
-                    int ay=tall?25+j*(height-28)/count:22;
-                    auto arc=lv_arc_create(view.panel);view.arcs[j]=arc;
-                    position(arc,ax,ay,diameter,diameter);lv_obj_clear_flag(arc,LV_OBJ_FLAG_CLICKABLE);
-                    lv_arc_set_rotation(arc,135);lv_arc_set_bg_angles(arc,0,270);
-                    lv_obj_set_style_arc_width(arc,4,LV_PART_MAIN);lv_obj_set_style_arc_width(arc,4,LV_PART_INDICATOR);
-                    lv_obj_set_style_arc_color(arc,colour(cLine),LV_PART_MAIN);lv_obj_set_style_arc_color(arc,colour(cCyan),LV_PART_INDICATOR);
-                    lv_obj_set_style_bg_opa(arc,LV_OPA_TRANSP,LV_PART_KNOB);lv_obj_set_style_pad_all(arc,0,LV_PART_KNOB);
-                    auto name=makeLabel(view.panel,text,0,0,UiText::Caption,cDim);lv_obj_set_pos(name,ax+diameter/2-12,ay+diameter-14);
-                    view.values[j]=makeLabel(view.panel,"--",ax+5,ay+diameter/2-9,UiText::Secondary,cWhite);
-                    lv_obj_set_width(view.values[j],diameter-10);lv_obj_set_style_text_align(view.values[j],LV_TEXT_ALIGN_CENTER,0);
+                    const int rowHeight=(height-bodyY-pad)/(tall?count:1);
+                    const int columnWidth=(width-2*pad)/(tall?1:count);
+                    const int diameter=min(columnWidth-gap,rowHeight);
+                    const int ax=pad+(tall?0:j)*columnWidth+(columnWidth-diameter)/2;
+                    const int ay=bodyY+(tall?j:0)*rowHeight+(rowHeight-diameter)/2;
+                    view.arcs[j]=makeWidgetDial(view.panel,ax,ay,diameter);
+                    auto name=makeLabel(view.panel,power?(j?"RX / V":"TX / V"):text,ax,ay+diameter-16,UiText::Caption,cDim);
+                    lv_obj_set_width(name,diameter);
+                    lv_obj_set_style_text_align(name,LV_TEXT_ALIGN_CENTER,0);
+                    const auto valueStyle=diameter>=105?UiText::Heading:diameter>=75?UiText::Menu:UiText::Secondary;
+                    const int lineHeight=UiText::font(valueStyle)->line_height;
+                    view.values[j]=makeLabel(view.panel,"--",ax+5,ay+(diameter-lineHeight)/2,valueStyle,cWhite);
+                    lv_obj_set_width(view.values[j],diameter-10);
+                    lv_obj_set_style_text_align(view.values[j],LV_TEXT_ALIGN_CENTER,0);
                 } else {
-                    int yy=25+j*(height-27)/count;
                     if(w.style==DashboardWidgetStyle::Graph){
-                        const bool tall=w.width==1&&w.height==2;
-                        makeLabel(view.panel,text,tall?8:8+j*width/count,tall?22+j*15:22,UiText::Caption,j?cAmber:cCyan);
-                        view.values[j]=makeLabel(view.panel,"--",tall?50:50+j*width/count,tall?22+j*15:22,UiText::Caption);
+                        const int cw=(width-2*pad)/(tall?1:count);
+                        const int xx=pad+(tall?0:j)*cw, yy=bodyY+(tall?j*15:0);
+                        makeLabel(view.panel,text,xx,yy,UiText::Caption,j?cAmber:cCyan);
+                        view.values[j]=makeLabel(view.panel,"--",xx+36,yy,UiText::Caption);
                         continue;
                     }
-                    makeLabel(view.panel,text,8,yy,UiText::Caption,cDim);
-                    view.values[j]=makeLabel(view.panel,"--",power&&height>130?8:width/2,power&&height>130?yy+18:yy,power&&height>130?UiText::Heading:UiText::Menu);
-                    if(w.style==DashboardWidgetStyle::Bars){view.bars[j]=makeBar(view.panel,8,yy+(power&&height>130?48:19),width-16,5,power?0:-1000,power?160:1000);if(!power)lv_bar_set_mode(view.bars[j],LV_BAR_MODE_SYMMETRICAL);}
+                    const int rowHeight=(height-bodyY-pad)/count;
+                    const auto valueStyle=height>=170?UiText::Heading:UiText::Menu;
+                    const int lineHeight=UiText::font(valueStyle)->line_height;
+                    const int captionHeight=UiText::font(UiText::Caption)->line_height;
+                    const bool bar=w.style==DashboardWidgetStyle::Bars;
+                    const int railSpace=bar?UiLayout::SmallGap+UiLayout::WidgetRailHeight:0;
+                    const int yy=bodyY+j*rowHeight+(rowHeight-lineHeight-railSpace)/2;
+                    makeLabel(view.panel,text,pad,yy+(lineHeight-captionHeight)/2,UiText::Caption,cDim);
+                    view.values[j]=makeLabel(view.panel,"--",width/2,yy,valueStyle);
+                    lv_obj_set_width(view.values[j],width/2-pad);
+                    lv_obj_set_style_text_align(view.values[j],LV_TEXT_ALIGN_RIGHT,0);
+                    if(bar){
+                        view.bars[j]=makeBar(view.panel,pad,yy+lineHeight+UiLayout::SmallGap,width-2*pad,
+                                             UiLayout::WidgetRailHeight,power?0:-1000,power?160:1000);
+                        if(!power)lv_bar_set_mode(view.bars[j],LV_BAR_MODE_SYMMETRICAL);
+                    }
                 }
             }
         } else if(w.kind==DashboardWidgetKind::SpeedRpm){
+            uiSetText(title,"Speed / RPM");
             drawSpeedRpmWidget(cell,width,height);
-        } else if(dashboardSessionWidget(w.kind)){
-            drawTripRunBatteryWidget(cell,width,height);
-        } else if(w.kind==DashboardWidgetKind::PowerEnergy){
-            uiSetText(title,"Power / energy / CU01");
-            const int columns=width>=220?2:1,rows=4/columns;
-            const int cw=(width-16)/columns,rh=(height-46)/rows;
-            const char *captions[]={"Input power","Peak seen","Energy used","Est. Wh/km"};
-            const int ch=UiText::font(UiText::Caption)->line_height;
-            for(uint8_t n=0;n<4;++n){
-                const int xx=8+(n%columns)*cw,yy=23+(n/columns)*rh;
-                boundedLabel(makeLabel(view.panel,captions[n],xx,yy,UiText::Caption,cDim),cw-6);
-                view.values[n]=makeLabel(view.panel,"--",xx,yy+ch,UiText::Secondary,cWhite);
-                lv_obj_set_size(view.values[n],cw-6,max(ch,rh-ch));
-                lv_label_set_long_mode(view.values[n],LV_LABEL_LONG_CLIP);
-            }
-            view.detail=makeLabel(view.panel,"CU01 / since reset",8,height-17,UiText::Caption,cDim);
-            boundedLabel(view.detail,width-76);
+        } else if(dashboardSessionWidget(w.kind) || w.kind==DashboardWidgetKind::PowerEnergy || w.kind==DashboardWidgetKind::DrivePack){
+            drawMetricWidget(cell,width,height);
         } else if(w.kind==DashboardWidgetKind::ControlHistory){
-            uiSetText(title,"Control INPUTS");
-            const int legendWidth=(width-16)/2;
-            view.values[0]=makeLabel(view.panel,"ST --",8,21,UiText::Caption,cCyan);
-            view.values[1]=makeLabel(view.panel,"TH --",8+legendWidth,21,UiText::Caption,cAmber);
+            uiSetText(title,"Control inputs");
+            const bool stackLegend=width<170;
+            const int legendWidth=(width-2*pad)/(stackLegend?1:2);
+            view.values[0]=makeLabel(view.panel,"ST --",pad,bodyY,UiText::Caption,cCyan);
+            view.values[1]=makeLabel(view.panel,"TH --",stackLegend?pad:pad+legendWidth,bodyY+(stackLegend?15:0),UiText::Caption,cAmber);
             boundedLabel(view.values[0],legendWidth-4);boundedLabel(view.values[1],legendWidth-4);
-            const int plotTop=39,plotHeight=max(6,height-plotTop-29);
-            makeLabel(view.panel,"+100",5,plotTop-3,UiText::Caption,cDim);
-            makeLabel(view.panel,"0",5,plotTop+plotHeight/2-6,UiText::Caption,cDim);
-            makeLabel(view.panel,"-100",5,plotTop+plotHeight-9,UiText::Caption,cDim);
-            auto oldest=makeLabel(view.panel,"-10s",38,plotTop+plotHeight+1,UiText::Caption,cDim);
+            const int plotTop=channelPlotTop(stackLegend),plotHeight=max(6,height-plotTop-29);
+            drawWidgetPercentAxis(view.panel,plotTop,plotHeight);
+            auto oldest=makeLabel(view.panel,"-10s",kWidgetPercentPlotLeft,plotTop+plotHeight+1,UiText::Caption,cDim);
             boundedLabel(oldest,38);
             makeLabel(view.panel,"Now",width-30,plotTop+plotHeight+1,UiText::Caption,cDim);
             if(widgetMetrics_){
-                view.plot=lv_chart_create(view.panel);position(view.plot,38,plotTop,width-46,plotHeight);
-                lv_obj_set_style_pad_all(view.plot,0,0);lv_obj_set_style_border_width(view.plot,0,0);
-                lv_obj_set_style_bg_opa(view.plot,LV_OPA_TRANSP,0);
-                lv_obj_set_style_line_color(view.plot,colour(cLine),LV_PART_MAIN);
-                lv_obj_set_style_line_width(view.plot,1,LV_PART_MAIN);
-                lv_obj_set_style_line_width(view.plot,2,LV_PART_ITEMS);
-                lv_obj_set_style_size(view.plot,0,LV_PART_INDICATOR);
-                lv_obj_clear_flag(view.plot,LV_OBJ_FLAG_CLICKABLE|LV_OBJ_FLAG_SCROLLABLE);
-                lv_chart_set_type(view.plot,LV_CHART_TYPE_LINE);
+                view.plot=lv_chart_create(view.panel);
+                position(view.plot,kWidgetPercentPlotLeft,plotTop,width-kWidgetPercentPlotLeft-pad,plotHeight);
+                styleWidgetChart(view.plot,0);
                 lv_chart_set_point_count(view.plot,ControlHistory::Capacity);
                 lv_chart_set_range(view.plot,LV_CHART_AXIS_PRIMARY_Y,-1000,1000);
                 lv_chart_set_div_line_count(view.plot,3,3);
@@ -1619,21 +1726,8 @@ void TransmitterUi::drawDashboardWidgets()
                     lv_chart_set_ext_y_array(view.plot,series,values);
                 }
             }
-            view.detail=makeLabel(view.panel,widgetMetrics_?"INPUTS / CUT":"Metrics unavailable",8,height-15,UiText::Caption,cDim);
-            boundedLabel(view.detail,width-16);
-        } else if(w.kind==DashboardWidgetKind::DrivePack){
-            uiSetText(title,"Drive pack / CU01");
-            const DrivePackWidgetGrid grid(width,height);
-            const char *captions[]={"Pack voltage","Current","Used capacity","Est. remaining"};
-            const int captionHeight=UiText::font(UiText::Caption)->line_height;
-            for(uint8_t n=0;n<4;++n){
-                const int xx=8+(n%grid.columns)*grid.columnWidth,yy=24+(n/grid.columns)*grid.rowHeight;
-                auto caption=makeLabel(view.panel,captions[n],xx,yy,UiText::Caption,cDim);
-                boundedLabel(caption,grid.columnWidth-6);
-                view.values[n]=makeLabel(view.panel,"--",xx,yy+captionHeight+2,UiText::Menu,n==3?cDim:cWhite);
-                lv_obj_set_size(view.values[n],grid.columnWidth-6,grid.rowHeight-captionHeight-2);
-                lv_label_set_long_mode(view.values[n],LV_LABEL_LONG_CLIP);
-            }
+            view.detail=makeLabel(view.panel,widgetMetrics_?"INPUTS / CUT":"Metrics unavailable",pad,height-15,UiText::Caption,cDim);
+            boundedLabel(view.detail,width-2*pad);
         } else if(w.kind==DashboardWidgetKind::BatteryCells){
             for(uint8_t i=0;i<CrsfTelemetryState::MaxVehicleCells;++i){
                 view.values[i]=makeLabel(view.panel,"--",8,24,UiText::Caption,cWhite);
@@ -1671,8 +1765,6 @@ void TransmitterUi::drawDashboardWidgets()
             DashboardWidget speed=w;speed.kind=DashboardWidgetKind::Sensor;speed.source=0;
             speed.style=DashboardWidgetStyle::Numbers;speed.speedValue=SpeedWidgetValue::Current;
             drawDashboardSensorWidget(cell,speed,x,y,width-2,height-2,true);
-            view.values[4]=makeLabel(view.speedPanel,"Speed data only",8,height>132?98:53,UiText::Caption,cDim);
-            boundedLabel(view.values[4],width-18);
             lv_obj_add_flag(view.speedPanel,LV_OBJ_FLAG_HIDDEN);
             pageFocusTargets_[view.gpsFooterTarget].enabled=false;
             pageFocusTargets_[view.gpsResetTarget].enabled=false;
@@ -1778,9 +1870,10 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                     lv_obj_update_layout(view.panel);
                     lv_point_t points[30];int ch=j?w.secondSource:w.source;
                     int width=lv_obj_get_width(view.panel),height=lv_obj_get_height(view.panel),count=min<int>(30,channelHistoryCount_);
-                    const int plotTop=w.width==1&&w.height==2&&w.secondSource<16?55:37;
-                    const int plotHeight=max(1,height-plotTop-21);
-                    for(int i=0;i<count;++i)points[i]={static_cast<lv_coord_t>(8+i*(width-16)/(count-1)),static_cast<lv_coord_t>(plotTop+plotHeight/2-permilleFromCrsfValue(channelHistory_[ch][30-count+i])*plotHeight/2000)};
+                    const int plotTop=channelPlotTop(w.width==1&&w.height==2&&w.secondSource<16);
+                    const int plotHeight=max(1,height-plotTop-UiLayout::WidgetFooterHeight-2);
+                    const int plotWidth=width-kWidgetPercentPlotLeft-UiLayout::WidgetInset;
+                    for(int i=0;i<count;++i)points[i]={static_cast<lv_coord_t>(kWidgetPercentPlotLeft+(30-count+i)*plotWidth/29),static_cast<lv_coord_t>(plotTop+plotHeight/2-permilleFromCrsfValue(channelHistory_[ch][30-count+i])*plotHeight/2000)};
                     uiSetLinePoints(j?view.secondPlot:view.plot,j?view.secondPoints:view.points,points,count);
                 }
                 if(view.arcs[j]){lv_arc_set_range(view.arcs[j],power?0:-1000,maximum);lv_arc_set_value(view.arcs[j],valid?value:0);uiSetArcColor(view.arcs[j],colour(low?cRed:valid?cCyan:cDim),LV_PART_INDICATOR);}
@@ -1788,44 +1881,10 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
             }
         } else if(w.kind==DashboardWidgetKind::SpeedRpm){
             updateSpeedRpmWidget(cell,t,millis());
-        } else if(dashboardSessionWidget(w.kind)){
-            updateTripRunBatteryWidget(cell,millis());
-        } else if(w.kind==DashboardWidgetKind::PowerEnergy){
-            lv_obj_update_layout(view.panel);
-            const auto reading=widgetMetrics_?widgetMetrics_.get()->power.result(millis()):PowerEnergyStatistics::Result{};
-            char text[4][32];for(auto &line:text)snprintf(line,sizeof(line),"--");
-            if(reading.powerValid)snprintf(text[0],sizeof(text[0]),"%.1f W",reading.watts);
-            if(reading.peakValid)snprintf(text[1],sizeof(text[1]),"%.1f W",reading.peakWatts);
-            if(reading.energyValid)snprintf(text[2],sizeof(text[2]),"%s%.2f Wh",reading.energyComplete?"":"~",reading.wattHours);
-            if(reading.efficiencyValid)snprintf(text[3],sizeof(text[3]),"%s%.1f Wh/km",reading.efficiencyComplete?"":"~",reading.wattHoursPerKm);
-            for(uint8_t n=0;n<4;++n){
-                auto value=view.values[n];uiSetText(value,text[n]);
-                uiSetTextFont(value,drivePackReadingFont(text[n],lv_obj_get_width(value),lv_obj_get_height(value)),0);
-            }
-            const bool narrow=lv_obj_get_width(view.panel)<200;
-            const char *caption=!widgetMetrics_?(narrow?"Unavailable":"Metrics unavailable"):
-                !reading.energyValid?"CU01 / waiting":
-                !reading.energyComplete?(narrow?"Wh gaps":"CU01 / gaps"):
-                !reading.efficiencyValid?(narrow?"GPS/100m":"Wh/km needs GPS/100m"):
-                !reading.efficiencyComplete?(narrow?"Wh/km gaps":"Wh/km / gaps"):"Since reset";
-            uiSetText(view.detail,caption);
+        } else if(dashboardSessionWidget(w.kind) || w.kind==DashboardWidgetKind::PowerEnergy || w.kind==DashboardWidgetKind::DrivePack){
+            updateMetricWidget(cell,t,millis());
         } else if(w.kind==DashboardWidgetKind::ControlHistory){
             updateControlHistoryWidget(cell,millis());
-        } else if(w.kind==DashboardWidgetKind::DrivePack){
-            lv_obj_update_layout(view.panel);
-            const auto reading=drivePackWidgetReading(t,millis());
-            char text[4][32];
-            for(auto &line:text)snprintf(line,sizeof(line),"--");
-            if(reading.fresh){
-                snprintf(text[0],sizeof(text[0]),"%u.%u V",reading.voltageDeciV/10,reading.voltageDeciV%10);
-                snprintf(text[1],sizeof(text[1]),"%u.%u A",reading.currentDeciA/10,reading.currentDeciA%10);
-                snprintf(text[2],sizeof(text[2]),"%lu mAh",static_cast<unsigned long>(reading.usedMah));
-                if(reading.remainingValid)snprintf(text[3],sizeof(text[3]),"%u%%",reading.remainingPercent);
-            }
-            for(uint8_t n=0;n<4;++n){
-                auto value=view.values[n];uiSetText(value,text[n]);
-                uiSetTextFont(value,drivePackReadingFont(text[n],lv_obj_get_width(value),lv_obj_get_height(value)),0);
-            }
         } else if(w.kind==DashboardWidgetKind::BatteryCells){
             lv_obj_update_layout(view.panel);
             const uint8_t reported=min<uint8_t>(t.vehicleCellCount,CrsfTelemetryState::MaxVehicleCells);

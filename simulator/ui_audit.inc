@@ -1219,8 +1219,21 @@ bool TransmitterUi::runSimulatorUiAudit()
     const auto auditDisplay=[&](){
         const auto saved=systemSettings_;
         systemSettings_.screenTimeoutSeconds=60;systemSettings_.displayBrightnessPercent=100;
-        displaySetupBank_=0;drawDisplayPage();
+        drawDisplayPage();
         assert(sectionNavigationVisible_);
+        uint8_t rows=0;
+        for(uint8_t i=0;i<pageFocusCount_;++i){
+            const auto &target=pageFocusTargets_[i];
+            if(target.handler==&TransmitterUi::controlDisplay){
+                assert(target.argument<5);
+                rows|=1U<<target.argument;
+            }
+            assert(target.handler!=&TransmitterUi::controlPageDot);
+        }
+        assert(rows==0x1f);
+        const int width=kScreenWidth;
+        controlDisplay(5,activate); // The previous Orientation action is absent.
+        assert(!rotationPending_&&kScreenWidth==width);
         auto capture=[&](const char *page){if(const char *prefix=getenv("JR_R1_DISPLAY_IMAGES")){
             lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
             snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",page);simulatorSaveScreenshot(path);
@@ -1234,15 +1247,13 @@ bool TransmitterUi::runSimulatorUiAudit()
         };
         decrease(0);assert(systemSettings_.screenTimeoutSeconds==30);
         decrease(2);assert(systemSettings_.displayBrightnessPercent==90);
-        assert(handlePageSwipe(250,150,100,154,400)&&displaySetupBank_==1);
-        capture("2");
-        assert(touchAction(&TransmitterUi::controlPageDot,0)&&displaySetupBank_==0);
-        controlDisplay(3,activate);assert(activePage_==UiPage::ColourScheme);
+        assert(handlePageSwipe(250,150,100,154,400)&&activePage_==UiPage::DisplaySetup);
+        assert(touchAction(&TransmitterUi::controlDisplay,3)&&activePage_==UiPage::ColourScheme);
         navigateBack();assert(activePage_==UiPage::DisplaySetup);
         assert(touchAction(&TransmitterUi::controlNavigation,0)&&activePage_==UiPage::MainMenu);
         systemSettings_=saved;saveSystemSettings();uiBrightnessPercent=saved.displayBrightnessPercent;applyBacklight(uiBrightnessPercent);
-        displaySetupBank_=0;drawDashboard();
-        Serial.println("Display settings: shared rows, actual +/- targets, swipe/dots, colour chooser and Back PASS");
+        drawDashboard();
+        Serial.println("Display settings: single page, five controls, drag guard, colour chooser and Back PASS");
     };
     if(getenv("JR_R1_DISPLAY_AUDIT_ONLY")){auditDisplay();return true;}
     const auto auditModuleLink=[&](){
@@ -2190,7 +2201,6 @@ bool TransmitterUi::runSimulatorUiAudit()
     // Colour choices persist without altering control state. Light retains the
     // last dark palette for the existing assignable Night mode action.
     const auto originalSystem = systemSettings_;
-    displaySetupBank_ = 0;
     drawDisplayPage();controlDisplay(3,activate);
     assert(activePage_ == UiPage::ColourScheme);
     for(uint8_t choice=0;choice<=darkColourSchemeCount;++choice){
@@ -2591,11 +2601,10 @@ bool TransmitterUi::runSimulatorUiAudit()
         assert(!armRequested_&&moduleLink_.enabled()==approved);
         lv_obj_update_layout(lv_scr_act());updateDashboardWidgets(designTelemetry_,designTxVoltage_,designTxValid_);
         lv_refr_now(nullptr);auditTypography(lv_scr_act());
-        assert(lv_obj_get_x(widgetViews_[cell].panel)==10&&lv_obj_get_y(widgetViews_[cell].panel)==kDashboardWidgetTop);
-        assert(lv_obj_get_width(widgetViews_[cell].panel)==kScreenWidth-20);
+        assert(lv_obj_get_x(widgetViews_[cell].panel)==UiLayout::PageInset&&lv_obj_get_y(widgetViews_[cell].panel)==kDashboardWidgetTop);
+        assert(lv_obj_get_width(widgetViews_[cell].panel)==kScreenWidth-2*UiLayout::PageInset);
         assert(lv_obj_get_height(widgetViews_[cell].panel)==designFooterY-kDashboardWidgetTop-6);
-        assert(lv_obj_has_flag(widgetViews_[cell].title,LV_OBJ_FLAG_HIDDEN)==
-            (widget.kind!=DashboardWidgetKind::DrivePack&&widget.kind!=DashboardWidgetKind::PowerEnergy&&widget.kind!=DashboardWidgetKind::ControlHistory&&!dashboardSessionWidget(widget.kind)&&widget.kind!=DashboardWidgetKind::SpeedRpm));
+        assert(lv_obj_has_flag(widgetViews_[cell].title,LV_OBJ_FLAG_HIDDEN)==(widget.kind==DashboardWidgetKind::Map));
         for(int other=0;other<4;++other)if(other!=cell)assert(!widgetViews_[other].panel);
         assert(!memcmp(&saved,&dashboardLayouts_[activeModelSlot_],sizeof(saved)));
         if(widget.kind==DashboardWidgetKind::AllChannels){
@@ -2705,7 +2714,7 @@ bool TransmitterUi::runSimulatorUiAudit()
     armRequested_=false;bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;touchWasDown_=false;
     const int initialWidth=kScreenWidth;size_t rotationFree=0;
     for(int cycle=0;cycle<8;++cycle){
-        displaySetupBank_=1;drawDisplayPage();controlDisplay(5,activate);assert(rotationPending_);
+        drawDisplayPage();assert(requestDisplayRotation()&&rotationPending_);
         applyDisplayRotation();assert(kScreenWidth==((cycle%2)?initialWidth:(initialWidth==480?320:480)));
         assert(kScreenWidth*kScreenHeight==153600&&designFooterY==kScreenHeight-(portraitUi?60:40));
         assert(lv_disp_get_hor_res(registeredDisplay)==kScreenWidth&&lv_disp_get_ver_res(registeredDisplay)==kScreenHeight);

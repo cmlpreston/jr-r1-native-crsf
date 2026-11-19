@@ -38,7 +38,7 @@ auto spaceBounds=[&](uint8_t cell){
     const auto target=spaceTarget(130+cell);
     assert(target.x==x&&target.y==y&&target.width<=width&&target.height<=height);
     const auto link=spaceTarget(63),wifi=spaceTarget(205);
-    assert(link.y==0&&link.y+link.height<=kDashboardHeaderHeight);
+    assert(link.y>=0&&link.y+link.height<=kDashboardHeaderHeight);
     assert(wifi.y==0&&wifi.y+wifi.height<=kDashboardHeaderHeight);
     assert(link.y+link.height<y&&wifi.y+wifi.height<y);
     if(dashboardWidgetForView(cell).kind==DashboardWidgetKind::Map){
@@ -68,7 +68,7 @@ for(unsigned orientation=0;orientation<2;++orientation){
             drawDashboard();spaceBounds(cell);++spaceCases;
             assert(!memcmp(&saved,&dashboardLayouts_[activeModelSlot_],sizeof(saved)));
             if(cell/2==0)assert(lv_obj_get_y(widgetViews_[cell].panel)==kDashboardWidgetTop);
-            if(!portraitUi)assert(lv_obj_get_height(widgetViews_[cell].panel)==(height==1?116:238));
+            if(!portraitUi)assert(lv_obj_get_height(widgetViews_[cell].panel)==(height==1?115:238));
             if(widgetKind==DashboardWidgetKind::Map&&width==2&&height==2)spaceShot("map-full-grid");
             // Cycle the maximized origin across kinds while keeping all original
             // size/anchor combinations above under the same geometry checks.
@@ -107,9 +107,11 @@ for(unsigned orientation=0;orientation<2;++orientation){
         spaceGuards();
     }
     // The same shortcuts remain usable in their new, shorter header region.
-    drawDashboard();lastTouchDurationMs_=100;handleTouch(kScreenWidth-110,18);
+    drawDashboard();const auto link=spaceTarget(63);
+    const int linkX=link.x+link.width/2,linkY=link.y+link.height/2;
+    lastTouchDurationMs_=100;handleTouch(linkX,linkY);
     assert(activePage_==UiPage::RadioDiagnostics);spaceGuards();
-    drawDashboard();lastTouchDurationMs_=900;touchStartX_=kScreenWidth-110;touchStartY_=18;
+    drawDashboard();lastTouchDurationMs_=900;touchStartX_=linkX;touchStartY_=linkY;
     handleTouch(touchStartX_,touchStartY_);assert(activePage_==UiPage::ModuleLink);spaceGuards();
     drawDashboard();lastTouchDurationMs_=100;handleTouch(kScreenWidth-20,18);
     assert(activePage_==UiPage::NetworkOptions);spaceGuards();

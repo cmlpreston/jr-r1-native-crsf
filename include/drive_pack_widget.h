@@ -18,9 +18,3 @@ inline DrivePackWidgetReading drivePackWidgetReading(const Telemetry &t,uint32_t
     r.usedMah=t.ersCapacityMah;r.remainingPercent=t.ersRemainingPercent;
     return r;
 }
-
-struct DrivePackWidgetGrid {
-    int columns, rows, columnWidth, rowHeight;
-    DrivePackWidgetGrid(int width,int height):columns(width>=220?2:1),rows(4/columns),
-        columnWidth((width-16)/columns),rowHeight((height-28)/rows) {}
-};

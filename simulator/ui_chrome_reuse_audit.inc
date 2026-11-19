@@ -7,7 +7,7 @@
     armRequested_ = false;
     designSafety_ = OutputSafetyStatus::Cut;
     designTelemetry_ = CrsfTelemetryState{};
-    displaySetupBank_ = sensorBank_ = designBank_ = 0;
+    sensorBank_ = designBank_ = 0;
     constexpr UiPage pages[] = {UiPage::DisplaySetup, UiPage::TxBatterySetup,
         UiPage::ClockSetup, UiPage::DisplaySetup, UiPage::Telemetry,
         UiPage::ChannelMonitor, UiPage::Telemetry};

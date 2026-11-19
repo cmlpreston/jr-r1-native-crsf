@@ -94,7 +94,7 @@ handset does not itself implement a vehicle stabilisation gyro.
 - **Maps:** street/satellite style, address/location, zoom and download area,
   map name/source attribution, import/export/upload and storage preparation;
   map zoom and trail visibility/reset on the handset.
-- **Handset:** display orientation, colour scheme, brightness/night behaviour,
+- **Handset:** colour scheme, brightness/night behaviour,
   screensaver, PIN change/recovery, input calibration, saved Wi-Fi connection,
   automatic connection option, setup hotspot, hostname and software restart.
 
@@ -163,14 +163,10 @@ The GPS example has no reported position and does not imply a confirmed fix.
 | --- | --- |
 | ![Simulator: GPS map expanded](assets/ui-captures/widget-focus/gps-expanded.png) | ![Simulator: Timer expanded](assets/ui-captures/widget-focus/timer-expanded.png) |
 
-### Portrait and landscape
+### Handset display
 
-We maintain a complete **320 × 480 portrait UI** alongside the **480 × 320
-landscape UI**, with simulator/build coverage and rotation checks for both.
-Select orientation in **Setup → Handset → Display**. This keeps the software
-ready for physically rotating the handset display. Automatic rotation is a
-future option: an accelerometer has not been added, and orientation detection
-and automatic-rotation behaviour still need implementation.
+The handset uses **480 × 320 landscape**. The simulator also exercises the
+**320 × 480 portrait** layout.
 
 ## CUT, Normal/Walk and PIN protection
 

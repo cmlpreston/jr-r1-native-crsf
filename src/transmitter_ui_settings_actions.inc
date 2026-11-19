@@ -1,6 +1,6 @@
 namespace {
 enum class TxBatterySetting : uint8_t { Chemistry, CellCount, LowAlarm, VoltageSensing };
-enum class DisplaySetting : uint8_t { Timeout, IdleAction, Brightness, Colours, ActivateNow, Orientation };
+enum class DisplaySetting : uint8_t { Timeout, IdleAction, Brightness, Colours, ActivateNow };
 enum class SoundSetting : uint8_t { Buzzer, Clicks, Pitch, ClickLength, Test };
 }
 
@@ -73,9 +73,6 @@ void TransmitterUi::controlDisplay(uint8_t row, PageControlEvent event)
             } else {
                 sleepDisplay();
             }
-            return;
-        case DisplaySetting::Orientation:
-            requestDisplayRotation();
             return;
         default: return;
     }

@@ -278,9 +278,10 @@ assert(!memcmp(&trbSaved,&dashboardLayouts_[activeModelSlot_],sizeof(trbSaved))&
 assert(!armRequested_&&!safetyResetRequested_&&auditCutRequests==trbCuts);
 dashboardLayouts_[activeModelSlot_]=trbOriginal;
 if(!trbUnavailable){
-    // A deliberate model switch clears every local observation and rejects
-    // still-fresh packets belonging to the previous model.
+    // A model switch rejects old packets and restores the selected model's saved totals.
     const auto previousSlot=activeModelSlot_;const uint32_t now=millis();trbSeed(now);
+    const auto savedTrip=widgetMetrics_.get()->tripRun.result(now);
+    const auto savedBattery=widgetMetrics_.get()->batteryLoad.result(now);
     designTelemetry_=trbTelemetry;latestRawAdc_=triggerInput_.centre();assert(selectModelMemory(trbOtherSlot));
     auto &metrics=*widgetMetrics_.get();
     assert(!metrics.tripRun.result(now).elapsedValid&&!metrics.batteryLoad.result(now).packExtremaValid);
@@ -290,7 +291,10 @@ if(!trbUnavailable){
     updateWidgetMetrics(trbTelemetry,OutputSafetyStatus::Cut,now+1);
     assert(metrics.tripRun.result(now+1).elapsedValid&&metrics.batteryLoad.result(now+1).packExtremaValid);
     latestRawAdc_=triggerInput_.centre();assert(selectModelMemory(previousSlot));
-    assert(!metrics.tripRun.result(now+1).elapsedValid&&!metrics.batteryLoad.result(now+1).packExtremaValid);
+    const auto restoredTrip=metrics.tripRun.result(millis());
+    const auto restoredBattery=metrics.batteryLoad.result(millis());
+    assert(restoredTrip.elapsedValid&&restoredTrip.kilometres==savedTrip.kilometres&&!restoredTrip.speedFresh);
+    assert(restoredBattery.packExtremaValid&&restoredBattery.minimumVoltageDeciV==savedBattery.minimumVoltageDeciV&&!restoredBattery.packFresh);
     assert(!armRequested_&&safetyResetRequested_&&auditCutRequests==trbCuts+2);
 }
 lv_obj_remove_event_cb(lv_scr_act(),trbObjectEvent);trbDisplay->driver->monitor_cb=trbPriorMonitor;

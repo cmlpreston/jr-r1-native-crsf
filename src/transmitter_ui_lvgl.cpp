@@ -1,6 +1,7 @@
 #include "channel_settings_repository.h"
 #include "transmitter_ui.h"
 #include "ui_colour_schemes.h"
+#include "ui_layout.h"
 #include "ui_refresh.h"
 #include "model_image.h"
 #include "setup_portal.h"
@@ -302,7 +303,9 @@ lv_color_t colour(uint32_t rgb)
 }
 
 UiPixelCache<DISPLAY_LANDSCAPE_WIDTH, DISPLAY_LANDSCAPE_HEIGHT> pixelCache;
+#ifdef JR_R1_SIMULATOR
 lv_disp_t *registeredDisplay=nullptr;
+#endif
 bool lcdTransportReady = false;
 struct UiFrameMetrics {
     uint32_t rendered = 0, sent = 0, transfers = 0, transferUs = 0;
@@ -470,8 +473,12 @@ lv_obj_t *wifiStatusIcon=nullptr;
 int wifiIconState=-1;
 lv_obj_t *headerTxVoltageLabel=nullptr;
 lv_obj_t *headerGpsTimeLabel=nullptr;
-constexpr int kHeaderLinkTargetRight=142;
-constexpr int kHeaderLinkTargetWidth=64;
+int designHeaderLinkX(){return portraitUi?128:kScreenWidth-142;}
+int designHeaderLinkWidth(){return portraitUi?56:64;}
+int designHeaderLinkY(int headerHeight)
+{
+    return portraitUi?headerHeight-UiText::font(UiText::Caption)->line_height-2:0;
+}
 uint16_t headerTxVoltageDecivolts=0,headerTxLowDecivolts=0;
 bool headerTxVoltageValid=false;
 void updateHeaderTxVoltage(uint16_t decivolts,bool valid,uint16_t lowDecivolts)
@@ -625,6 +632,35 @@ lv_obj_t *makeBar(lv_obj_t *parent, int16_t x, int16_t y, int16_t width,
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(bar, 2, LV_PART_INDICATOR);
     return bar;
+}
+
+lv_obj_t *makeWidgetDial(lv_obj_t *parent, int x, int y, int diameter, uint32_t accent = cCyan)
+{
+    auto *dial = lv_arc_create(parent);
+    position(dial, x, y, diameter, diameter);
+    lv_obj_clear_flag(dial, LV_OBJ_FLAG_CLICKABLE);
+    lv_arc_set_rotation(dial, 135);
+    lv_arc_set_bg_angles(dial, 0, 270);
+    lv_obj_set_style_arc_width(dial, UiLayout::WidgetDialStroke, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(dial, UiLayout::WidgetDialStroke, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(dial, colour(cLine), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(dial, colour(accent), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(dial, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(dial, 0, LV_PART_KNOB);
+    return dial;
+}
+
+void styleWidgetChart(lv_obj_t *chart, lv_coord_t pointSize)
+{
+    lv_obj_set_style_pad_all(chart, 0, 0);
+    lv_obj_set_style_border_width(chart, 0, 0);
+    lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_line_color(chart, colour(cLine), LV_PART_MAIN);
+    lv_obj_set_style_line_width(chart, 1, LV_PART_MAIN);
+    lv_obj_set_style_line_width(chart, UiLayout::WidgetSeriesStroke, LV_PART_ITEMS);
+    lv_obj_set_style_size(chart, pointSize, LV_PART_INDICATOR);
+    lv_obj_clear_flag(chart, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
 }
 
 #include "transmitter_ui_feedback.inc"
@@ -1064,7 +1100,11 @@ bool TransmitterUi::begin()
     displayDriver.flush_cb = flushDisplay;
     displayDriver.draw_buf = &drawBuffer;
     pixelCache.setDimensions(kScreenWidth,kScreenHeight);
+#ifdef JR_R1_SIMULATOR
     registeredDisplay=lv_disp_drv_register(&displayDriver);
+#else
+    lv_disp_drv_register(&displayDriver);
+#endif
 
     drawBootSplash();
     lastInteractionMs_ = millis();
@@ -1223,7 +1263,7 @@ void TransmitterUi::resetLvglObjects(bool retainDesignChrome)
     if (!retainDesignChrome) {
         designChrome_ = DesignChrome{};
         sectionNavigationVisible_ = false;
-        designStatus_ = designLink_ = driveProgress_ = driveIcon_ = nullptr;
+        designStatus_ = designHeaderOutput_ = designLink_ = driveProgress_ = driveIcon_ = nullptr;
     }
     steeringEndpointButtons_[0]=steeringEndpointButtons_[1]=editorStepButton_=editorValueLabel_=nullptr;
     driveHint_=nullptr;
@@ -3382,7 +3422,6 @@ void TransmitterUi::controlPageDot(uint8_t page,PageControlEvent event)
     else if(activePage_==UiPage::Telemetry&&page<(DisplaySensorCount+5)/6){sensorBank_=page;drawDesignPage(activePage_);}
     else if(activePage_==UiPage::ChannelMonitor&&page<4){designBank_=page;drawDesignPage(activePage_);}
     else if(activePage_==UiPage::MainMenu&&page<2){setupPage_=page;drawMainMenu();}
-    else if(activePage_==UiPage::DisplaySetup&&page<2){displaySetupBank_=page;drawDisplayPage();}
     else if(activePage_==UiPage::ControlAssignments&&page<(kPhysicalControlCount+4)/5){assignmentBank_=page;drawControlAssignmentsPage();}
     else if(activePage_==UiPage::InputMonitor&&page<(kPhysicalControlCount+4)/5){inputMonitorBank_=page;drawInputMonitorPage();}
 }
@@ -3396,7 +3435,7 @@ bool TransmitterUi::handlePageSwipe(int16_t x,int16_t y,int16_t endX,int16_t end
         case UiPage::EscProgramming:page=escProgrammingTab_;count=5;break;
         case UiPage::RxBatterySetup:case UiPage::DriveBatterySetup:page=vehicleBatteryTab_;count=2;break;
         case UiPage::TimerControl:page=timerBank_==2?timerSettingsPage_:timerBank_==1?timerLapPage_:0;count=timerBank_==2?3:timerBank_==1?max<unsigned>(1,(timers_[activeModelSlot_].lapCount()+4)/5):1;break;
-        case UiPage::DisplaySetup:page=displaySetupBank_;count=2;break;
+        case UiPage::DisplaySetup:count=1;break;
         case UiPage::Tune:page=tuneBank_;count=2;break;
         case UiPage::Telemetry:page=sensorBank_;count=(DisplaySensorCount+5)/6;break;
         case UiPage::ChannelMonitor:page=designBank_;count=4;break;
@@ -3435,13 +3474,16 @@ void TransmitterUi::drawSectionNavigation(uint8_t section, bool retainObjects)
             names[i],UiText::Menu,i==section?cPanel2:cPanel,i==section?cCyan:cWhite,cLine,
             &TransmitterUi::controlSectionNavigation,i);
         lv_obj_set_style_radius(tab,0,0);
+        lv_obj_set_style_border_side(tab,LV_BORDER_SIDE_TOP,0);
         if(i==0){
             designStatus_=lv_obj_get_child(tab,0);lv_obj_align(designStatus_,LV_ALIGN_CENTER,0,0);
             driveIcon_=makeDriveIcon(tab,0,0);lv_obj_align(driveIcon_,LV_ALIGN_LEFT_MID,4,0);
             driveProgress_=makeBar(tab,0,37,kScreenWidth/4,3,0,800);
         }
-        if(i==section){auto mark=makePanel(0,0,kScreenWidth/4,i==0?2:5,cCyan,cCyan,0);
-            lv_obj_set_parent(mark,tab);lv_obj_set_pos(mark,0,35);}
+        if(i==section){
+            auto mark=makePanel(0,0,kScreenWidth/4-2*UiLayout::Gap,3,cCyan,cCyan,0);
+            lv_obj_set_parent(mark,tab);lv_obj_set_pos(mark,UiLayout::Gap,33);
+        }
     }
     updateDriveIcon(driveIcon_,designSafety_==OutputSafetyStatus::Armed,
         hardwareRecovery_ || designSafety_==OutputSafetyStatus::InputFault ||
@@ -4590,18 +4632,38 @@ void TransmitterUi::drawColourSchemePage()
 
 void TransmitterUi::drawColourSchemeContent()
 {
-    makeLabel(lv_scr_act(),"Colour scheme",12,48,UiText::Heading,cWhite);
+    makeLabel(lv_scr_act(),"Colour scheme",UiLayout::PageInset,48,UiText::Heading,cWhite);
+    drawSettingsScope("Handset");
     const uint8_t selected=systemSettings_.nightMode?systemSettings_.darkColourScheme+1:
         systemSettings_.lightColourScheme?darkColourSchemeCount+systemSettings_.lightColourScheme:0;
-    const int tabWidth=(kScreenWidth-32)/2;
-    for(uint8_t bank=0;bank<2;++bank)makePageActionButton(12+bank*(tabWidth+8),80,tabWidth,28,
-        bank?"Dark":"Light",UiText::Secondary,bank==colourSchemeBank_?cPanel2:cPanel,
-        bank==colourSchemeBank_?cCyan:cWhite,cLine,&TransmitterUi::controlColourScheme,250+bank);
+    const char *tabs[]={"Light","Dark"};const uint8_t actions[]={250,251};
+    drawPageTabs(tabs,actions,2,colourSchemeBank_,&TransmitterUi::controlColourScheme,76);
     const uint8_t count=colourSchemeBank_?darkColourSchemeCount:lightColourSchemeCount;
+    const auto *schemes=colourSchemeBank_?darkColourSchemes:lightColourSchemes;
+    const int rowHeight=portraitUi?52:34;
+    const int width=kScreenWidth-2*UiLayout::PageInset;
     for(uint8_t row=0;row<count;++row){
         const uint8_t choice=colourSchemeBank_?row+1:row?darkColourSchemeCount+row:0;
-        drawMenuRow(colourSchemeName(colourSchemeBank_!=0,row,row),choice==selected?LV_SYMBOL_OK:"",
-            116+row*(portraitUi?56:32),portraitUi?56:32,&TransmitterUi::controlColourScheme,choice,false,10);
+        const auto &scheme=schemes[row];
+        auto panel=lv_obj_get_parent(drawMenuRow(scheme.name,"",116+row*rowHeight,rowHeight,
+            &TransmitterUi::controlColourScheme,choice,false,86));
+        constexpr int size=13;
+        int x=width-80;
+        for(auto sample:{scheme.background,scheme.surface,scheme.accent}){
+            auto swatch=lv_obj_create(panel);
+            position(swatch,x,(rowHeight-size)/2,size,size);
+            lv_obj_set_style_radius(swatch,2,0);
+            lv_obj_set_style_bg_color(swatch,lv_color_hex(sample),0);
+            lv_obj_set_style_bg_opa(swatch,LV_OPA_COVER,0);
+            lv_obj_set_style_border_color(swatch,colour(cLine),0);
+            lv_obj_set_style_border_width(swatch,1,0);
+            lv_obj_clear_flag(swatch,LV_OBJ_FLAG_CLICKABLE);
+            x+=size+UiLayout::SmallGap;
+        }
+        if(choice==selected){
+            auto mark=makeLabel(panel,LV_SYMBOL_OK,0,0,UiText::Caption,cCyan);
+            lv_obj_align(mark,LV_ALIGN_RIGHT_MID,-UiLayout::Gap,0);
+        }
     }
     boundedLabel(makeLabel(lv_scr_act(),"Saved automatically",12,kScreenHeight-(portraitUi?60:40)-22,UiText::Caption,cDim),kScreenWidth-24);
 }
@@ -4943,9 +5005,13 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
     if(activePage_==UiPage::Gps&&gpsFullScreen_){
         gpsFullScreen_=false;lastInteractionMs_=millis();armGestureValid_=false;drawDesignPage(UiPage::Gps);return;
     }
+    const auto linkTouched=[headerHeight](int px,int py){
+        const int left=designHeaderLinkX();
+        return px>=left && px<left+designHeaderLinkWidth() &&
+            py>=designHeaderLinkY(headerHeight) && py<headerHeight;
+    };
     if(!navigationIsModal() && designLink_ && moduleLinkManaged_ && lastTouchDurationMs_>=800 &&
-       touchStartX_>=kScreenWidth-kHeaderLinkTargetRight && touchStartX_<kScreenWidth-kHeaderLinkTargetRight+kHeaderLinkTargetWidth && touchStartY_<headerHeight &&
-       x>=kScreenWidth-kHeaderLinkTargetRight && x<kScreenWidth-kHeaderLinkTargetRight+kHeaderLinkTargetWidth && y<headerHeight){
+       linkTouched(touchStartX_,touchStartY_) && linkTouched(x,y)){
         moduleLinkReturnPage_=activePage_;drawDesignPage(UiPage::ModuleLink);return;
     }
     if(sectionNavigationVisible_ && y>=kScreenHeight-(portraitUi?60:40) && y<kScreenHeight-(portraitUi?20:0)){
@@ -5362,7 +5428,9 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     updateRfWarning(telemetry,millis());
     updateChannelAdjustment(millis());
     updateDriveHoldFeedback(millis());
+#ifdef JR_R1_SIMULATOR
     if(rotationPending_&&!touchWasDown_)applyDisplayRotation();
+#endif
     if (calibrationActive()) updateCalibration(
         calibratingSteering_ ? steeringRawAdc : rawAdc);
 
@@ -5441,6 +5509,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
 
 int TransmitterUi::screenWidth() const {return kScreenWidth;}
 int TransmitterUi::screenHeight() const {return kScreenHeight;}
+#ifdef JR_R1_SIMULATOR
 bool TransmitterUi::requestDisplayRotation() {
     if(!displayReady_||armRequested_||calibrationActive()||activePage_==UiPage::BootPin||
        pinPurpose_!=PinPurpose::None||remoteArmHold_.id())return false;
@@ -5456,11 +5525,7 @@ void TransmitterUi::applyDisplayRotation() {
     kScreenWidth=portraitUi?DISPLAY_LANDSCAPE_HEIGHT:DISPLAY_LANDSCAPE_WIDTH;
     kScreenHeight=portraitUi?DISPLAY_LANDSCAPE_WIDTH:DISPLAY_LANDSCAPE_HEIGHT;
     designFooterY=kScreenHeight-(portraitUi?60:40);
-#ifdef JR_R1_SIMULATOR
     simulatorDisplayResize(kScreenWidth,kScreenHeight);
-#else
-    if(lcdTransportReady)display->setRotation(portraitUi?2:1);
-#endif
     pixelCache.setDimensions(kScreenWidth,kScreenHeight);
     lv_disp_draw_buf_init(&drawBuffer,lineBuffer,nullptr,kScreenWidth*16);
     displayDriver.hor_res=kScreenWidth;displayDriver.ver_res=kScreenHeight;
@@ -5468,10 +5533,8 @@ void TransmitterUi::applyDisplayRotation() {
     SetupPortal::resizeScreen(kScreenWidth,kScreenHeight);
     lastInteractionMs_=millis();redrawActivePage();
     Serial.printf("DISPLAY: rotated to %dx%d; reused framebuffer and draw buffer\n",kScreenWidth,kScreenHeight);
-#ifndef JR_R1_SIMULATOR
-    Serial.printf("ROTATION MEMORY: heap=%u largest_DMA=%u PSRAM=%u\n",unsigned(ESP.getFreeHeap()),unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)),unsigned(ESP.getFreePsram()));
-#endif
 }
+#endif
 
 #include "transmitter_ui_wifi.inc"
 

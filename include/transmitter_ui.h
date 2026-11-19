@@ -152,8 +152,10 @@ public:
     bool portalEnableScreen();
     int screenWidth() const;
     int screenHeight() const;
+#ifdef JR_R1_SIMULATOR
     bool requestDisplayRotation();
     void applyDisplayRotation();
+#endif
     bool portalScreenNeedsWake() const { return displaySleeping_ || activePage_ == UiPage::LogoSaver; }
     bool portalWakeScreen();
     bool portalRequestRemoteControl();
@@ -233,9 +235,6 @@ public:
         activePage_ = page; redrawActivePage();
     }
     bool selectSimulatorModel(uint8_t slot) { return selectModelMemory(slot); }
-    void selectSimulatorDisplayBank(uint8_t bank) {
-        displaySetupBank_ = bank > 1 ? 1 : bank;
-    }
     void selectSimulatorChannel(uint8_t channel) {
         selectedChannel_ = channel >= 1 && channel <= CRSF_CHANNEL_COUNT
             ? channel : selectedChannel_;
@@ -364,7 +363,8 @@ private:
                          int trailing=22,const char *subtitle=nullptr,
                          lv_obj_t **subtitleLabel=nullptr);
     lv_obj_t *drawSettingsRow(const char *title,const char *value,int y,int height,
-                         PageControlHandler handler,uint8_t action,bool numeric);
+                         PageControlHandler handler,uint8_t action,bool numeric,
+                         bool chevron=false);
     void addPageActionTarget(int16_t x, int16_t y, int16_t width,
                              int16_t height, PageControlHandler handler,
                              uint8_t argument);
@@ -645,7 +645,8 @@ private:
     void resetWidgetPowerMetrics();
     void resetTripRunMetrics();
     void resetBatteryLoadMetrics();
-    void drawTripRunBatteryWidget(uint8_t cell,int width,int height);
+    void drawMetricWidget(uint8_t cell,int width,int height);
+    void updateMetricWidget(uint8_t cell,const CrsfTelemetryState &,uint32_t now);
     void updateTripRunBatteryWidget(uint8_t cell,uint32_t now);
     void drawSpeedRpmWidget(uint8_t cell,int width,int height);
     void updateSpeedRpmWidget(uint8_t cell,const CrsfTelemetryState &,uint32_t now);
@@ -654,6 +655,7 @@ private:
     uint8_t tuneBank_ = 0, designBank_ = 0, setupBank_ = 0, sensorSelected_ = 0, sensorBank_ = 0;
     uint8_t setupPage_ = 0, channelInputPage_ = 0;
     UiPage statusReturnPage_ = UiPage::Dashboard;
+    int8_t statusReturnMaximized_ = -1;
     UiPage inputMonitorReturnPage_ = UiPage::ControlAssignments;
     bool channelRoleConflict_ = false;
     lv_obj_t *armProgress_ = nullptr;
@@ -718,6 +720,7 @@ private:
     lv_obj_t *designDetails_[8] = {};
     lv_obj_t *designBars_[4] = {};
     lv_obj_t *designStatus_ = nullptr;
+    lv_obj_t *designHeaderOutput_ = nullptr;
     lv_obj_t *designLink_ = nullptr;
     lv_obj_t *designCurve_ = nullptr;
     lv_obj_t *designMarker_ = nullptr;
@@ -786,7 +789,6 @@ private:
     uint32_t modelAccents_[kModelMemoryCount] = {},modelBases_[kModelMemoryCount] = {};
     uint8_t modelPaintEditing_ = 0;
     uint8_t modelSelectBank_ = 0;
-    uint8_t displaySetupBank_ = 0;
     char modelNames_[kModelMemoryCount][kModelNameCapacity] = {};
     char modelSelectStatus_[64] = {};
     uint8_t modelSelectPendingSlot_ = kModelMemoryCount;
@@ -870,7 +872,9 @@ private:
     ModuleLink moduleLink_;
     UiPage moduleLinkReturnPage_ = UiPage::Dashboard;
     bool displaySleeping_ = false;
+#ifdef JR_R1_SIMULATOR
     bool rotationPending_ = false;
+#endif
     // A touch-triggered sleep can leave the controller IRQ asserted for the
     // tail of the same gesture. Require an idle/released sample before that
     // IRQ is allowed to wake the display again.

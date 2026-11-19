@@ -302,7 +302,7 @@ private:
     void loadModelMemorySettings();
     void saveModelMemorySettings();
     void saveCurrentModelMemory();
-    bool selectModelMemory(uint8_t slot);
+    bool selectModelMemory(uint8_t slot, bool discardUnsaved = false);
     bool saveCalibration();
     void loadChannelRoleSettings();
     void saveChannelRoleSettings();
@@ -711,9 +711,13 @@ private:
     UiColdStorage<RunRecords> runRecords_;
     uint32_t runRecordsNextSaveMs_=0,runRecordsGpsStamp_=0;
     bool runRecordsLoaded_=false,runRecordsHadLive_=false;
+    bool runRecordsSavePending_=false;
+    const char *runRecordsReadError_=nullptr;
     char runRecordsNotice_[64]={};
     void loadRunRecords();
     bool saveRunRecords();
+    bool hasRunRecordData(uint32_t now) const;
+    void resetSavedSpeedStatistics();
     bool deleteRunRecords();
     void updateRunRecords(uint32_t now);
     void updateRaceTimer(uint32_t now);
@@ -800,6 +804,7 @@ private:
     uint8_t displaySetupBank_ = 0;
     char modelNames_[kModelMemoryCount][kModelNameCapacity] = {};
     char modelSelectStatus_[64] = {};
+    uint8_t modelSelectPendingSlot_ = kModelMemoryCount;
     ChannelRoleSettings channelRoleSettings_;
     ProportionalInput triggerInput_;
     ProportionalInput steeringInput_;

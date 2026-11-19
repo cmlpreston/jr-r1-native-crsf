@@ -9,7 +9,9 @@ Run review offers **Save records** and **Delete records...**. Deletion asks for
 confirmation and requires CUT with the timer paused. It clears this model's
 saved and current statistics, laps and GPS route, keeping settings and the
 accumulated handset on-time. Other model slots are unaffected. Individual
-statistics/lap/trail reset actions also checkpoint their changes.
+statistics, lap and trail resets checkpoint immediately in CUT or queue a
+checkpoint for the next CUT. This includes the speed widget Reset button and
+the assigned physical speed reset action, even when the reset leaves no data.
 New observations collected after deletion start a new record set.
 
 Checkpoints run every 30 seconds **while CUT** and observations exist, on leaving
@@ -18,6 +20,15 @@ checkpoint flash writes are deferred until CUT. Abrupt power loss while driving
 can lose the uncheckpointed portion of that drive. CUT before normal power-off;
 manual Save also requires CUT. Errors are shown on Run
 review; the previous committed checkpoint remains if a replacement fails.
+If a checkpoint fails when loading another model, the current model and its
+observations are kept. Choose **Retry save and change model**, **Stay here** or
+**Switch anyway** to discard the unsaved observations. A completely empty
+session can switch models without writing a checkpoint.
+
+Run review shows whether a checkpoint is corrupt, incompatible or failed to
+read. An unreadable file is protected from both automatic and manual saves.
+Restart to retry a read error or use **Delete records...** to explicitly clear
+the protected file and resume saving for that model.
 
 On reboot/model load the timer is paused, auto-start readiness is cleared,
 rolling windows are empty and all telemetry freshness/continuity clocks reset.
@@ -40,9 +51,12 @@ the larger track. A GPS CSV/GPX export is not implemented yet.
 
 ## Storage and validation
 
-Handset records use private LittleFS files `/run-model-N.dat`, separate from
-NVS settings and map files. Storage is mounted without formatting; a storage
-failure never triggers an automatic erase/format. Files are written through a
+Handset records use private LittleFS files `/run-model-N.dat`. They share the
+filesystem with uploaded maps. The web portal's **Storage recovery** retries
+opening that filesystem before formatting it.
+If initialisation is necessary and confirmed, it erases maps and run records
+for all models. Model settings are stored separately in NVS. Routine record
+operations mount storage without formatting. Files are written through a
 temporary file and atomic rename, with version, payload length and CRC32
 validation. Delete atomically commits an empty record, preventing an incomplete
 delete from reviving old data. This is logical deletion, not secure flash erase.

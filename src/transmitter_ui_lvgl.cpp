@@ -1404,9 +1404,10 @@ void TransmitterUi::saveCurrentModelMemory()
     saveBindings();
 }
 
-bool TransmitterUi::selectModelMemory(uint8_t slot)
+bool TransmitterUi::selectModelMemory(uint8_t slot, bool discardUnsaved)
 {
     if (slot >= kModelMemoryCount || slot == activeModelSlot_) return true;
+    modelSelectPendingSlot_ = kModelMemoryCount;
     const int throttleDelta = static_cast<int>(latestRawAdc_) -
                               static_cast<int>(triggerInput_.centre());
     if (armRequested_ || designSafety_==OutputSafetyStatus::Armed || abs(throttleDelta) > ARM_NEUTRAL_ADC_WINDOW) {
@@ -1417,9 +1418,15 @@ bool TransmitterUi::selectModelMemory(uint8_t slot)
     }
 
     requestConfigurationCut();
+    if (!discardUnsaved && (runRecordsSavePending_ || hasRunRecordData(millis())) &&
+        !saveRunRecords()) {
+        modelSelectPendingSlot_ = slot;
+        snprintf(modelSelectStatus_, sizeof(modelSelectStatus_), "Records could not be saved");
+        playBuzzer(180);
+        return false;
+    }
     saveCurrentModelMemory();
     timers_[activeModelSlot_].pause(millis());saveTimerSettings();
-    saveRunRecords();
     timerOnRemainder_=0;timerConfirmation_=0;timerBank_=timerLapPage_=0;
     resetSpeedStatistics();
     gpsWidgetPolicy_.reset();
@@ -2886,7 +2893,7 @@ bool TransmitterUi::applyTransmitterFunctionAction(uint16_t targetId, int16_t va
             if(value>0){timerConfirmation_=1;drawDesignPage(UiPage::TimerControl);}
             return true;
         case TransmitterFunction::ResetSpeedStatistics:
-            if (value > 0) resetSpeedStatistics();
+            if (value > 0) resetSavedSpeedStatistics();
             return true;
         case TransmitterFunction::TimerReset:
             if (value > 0) timerAction(2);
@@ -4105,6 +4112,12 @@ void TransmitterUi::controlNavigation(uint8_t item, PageControlEvent)
 
 void TransmitterUi::navigateBack()
 {
+    if (activePage_ == UiPage::ModelSelect && modelSelectPendingSlot_ < kModelMemoryCount) {
+        modelSelectPendingSlot_ = kModelMemoryCount;
+        modelSelectStatus_[0] = '\0';
+        drawModelSelectPage();
+        return;
+    }
     if(activePage_==UiPage::Dashboard&&maximizedWidget_>=0){maximizedWidget_=-1;drawDashboard();return;}
     if(activePage_==UiPage::ModuleLink){controlDesign(241,PageControlEvent::Activate);return;}
     if(activePage_==UiPage::QuickNavigation){drawDesignPage(keypadReturnPage_);return;}

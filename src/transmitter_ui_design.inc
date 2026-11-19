@@ -411,6 +411,10 @@ lv_obj_t *TransmitterUi::drawSettingsRow(const char *title,const char *value,int
 
 void TransmitterUi::drawDesignPage(UiPage page)
 {
+    if (page != UiPage::ModelSelect && modelSelectPendingSlot_ < kModelMemoryCount) {
+        modelSelectPendingSlot_ = kModelMemoryCount;
+        modelSelectStatus_[0] = '\0';
+    }
     if(page==UiPage::WifiSetup){drawWifiPage();return;}
     const bool leavingWifi=activePage_==UiPage::WifiSetup||
         (activePage_==UiPage::QuickNavigation&&keypadReturnPage_==UiPage::WifiSetup);
@@ -845,7 +849,19 @@ void TransmitterUi::drawDesignPage(UiPage page)
         button(10,designFooterY-34,60,28,"<",80);button(kScreenWidth-70,designFooterY-34,60,28,">",81);
     } else if(page==UiPage::ModelSelect) {
         label("Models",12,48,UiText::Heading);
-        if(modelAppearanceEditing_){
+        if (modelSelectPendingSlot_ < kModelMemoryCount) {
+            label("Records could not be saved",12,82,UiText::Menu,cAmber);
+            auto reason = label(runRecordsNotice_,12,106,UiText::Secondary,cDim);
+            lv_obj_set_width(reason,kScreenWidth-24);
+            lv_label_set_long_mode(reason,LV_LABEL_LONG_WRAP);
+            auto help = label("Changing models now drops unsaved observations.",12,148,UiText::Secondary,cDim);
+            lv_obj_set_width(help,kScreenWidth-24);
+            lv_label_set_long_mode(help,LV_LABEL_LONG_WRAP);
+            const int y = designFooterY-88;
+            button(12,y,kScreenWidth-24,34,"Retry save and change model",166);
+            button(12,y+42,(kScreenWidth-32)/2,34,"Stay here",167);
+            button(20+(kScreenWidth-32)/2,y+42,(kScreenWidth-32)/2,34,"Switch anyway",168);
+        } else if(modelAppearanceEditing_){
             label(modelImageName(modelImages_[activeModelSlot_]),12,85,UiText::Menu,cCyan);
             button(10,113,70,32,"<",161);button(designPortrait?kScreenWidth-80:160,113,70,32,">",162);
             if(const auto *art=modelImage(modelImages_[activeModelSlot_],modelColours_[activeModelSlot_],modelAccents_[activeModelSlot_],modelBases_[activeModelSlot_])){
@@ -867,10 +883,11 @@ void TransmitterUi::drawDesignPage(UiPage page)
             updateDesign(designTelemetry_,designSafety_,designTxVoltage_,designTxValid_);
             uiMetrics.buildUs = uint32_t(micros()) - uiMetrics.pageStartedUs;
             return;
+        } else {
+            for(int i=0;i<5;++i){int slot=modelSelectBank_*5+i;row(78+i*(designPortrait?56:29),modelNames_[slot],slot==activeModelSlot_?"Active":"Load",100+i,designPortrait?48:29);}
+            boundedLabel(label(modelSelectStatus_[0]?modelSelectStatus_:"Change model in CUT with throttle centred",12,designFooterY-49,UiText::Caption,cDim),kScreenWidth-24);
+            button(10,designFooterY-32,60,27,"<",80);button(78,designFooterY-32,kScreenWidth-156,27,"Appearance",160);button(kScreenWidth-70,designFooterY-32,60,27,">",81);
         }
-        for(int i=0;i<5;++i){int slot=modelSelectBank_*5+i;row(78+i*(designPortrait?56:29),modelNames_[slot],slot==activeModelSlot_?"Active":"Load",100+i,designPortrait?48:29);}
-        boundedLabel(label(modelSelectStatus_[0]?modelSelectStatus_:"Change model in CUT with throttle centred",12,designFooterY-49,UiText::Caption,cDim),kScreenWidth-24);
-        button(10,designFooterY-32,60,27,"<",80);button(78,designFooterY-32,kScreenWidth-156,27,"Appearance",160);button(kScreenWidth-70,designFooterY-32,60,27,">",81);
     } else if(page==UiPage::WidgetSelect) {
         label("Drive layout",12,48,UiText::Heading);
         const char *positions[]={"Top left","Top right","Bottom left","Bottom right"};
@@ -1214,6 +1231,18 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item==86){drawChannelRolesPage();return;}
     if(item>=90 && item<=93){selectedChannel_=designBank_*4+item-90+1;drawChannelPlaceholder();return;}
     if(item>=100 && item<=104){selectModelMemory(modelSelectBank_*5+item-100);drawModelSelectPage();return;}
+    if (item >= 166 && item <= 168 && activePage_ == UiPage::ModelSelect &&
+        modelSelectPendingSlot_ < kModelMemoryCount) {
+        const auto destination = modelSelectPendingSlot_;
+        if (item == 167) {
+            modelSelectPendingSlot_ = kModelMemoryCount;
+            modelSelectStatus_[0] = '\0';
+        } else {
+            selectModelMemory(destination, item == 168);
+        }
+        drawModelSelectPage();
+        return;
+    }
     if(item>=110 && item<=113){widgetCell_=item-110;widgetDraft_=dashboardLayouts_[activeModelSlot_].cells[widgetCell_];widgetHiddenDraft_=dashboardHidden_[activeModelSlot_][widgetCell_];widgetInputsEditing_=false;drawDesignPage(UiPage::WidgetEditor);return;}
     if(item>=120 && item<=124){
         int direction=event==PageControlEvent::Decrease?-1:1;
@@ -1238,7 +1267,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
     if(item==144){drawFirmwareInfoPage();return;}
     if(item==145){drawTxBatteryPage();return;}
     if(item==146){drawRxBatteryPage();return;}
-    if(item==148){resetSpeedStatistics();return;}
+    if(item==148){resetSavedSpeedStatistics();return;}
     if(item==147){dashboardLayouts_[activeModelSlot_]=defaultDashboardLayout();saveModelMemorySettings();drawDashboard();return;}
     if(item>=130 && item<=133){const auto &w=dashboardLayouts_[activeModelSlot_].cells[item-130];
         if(w.kind==DashboardWidgetKind::Timer){timerBank_=0;timerConfirmation_=0;drawDesignPage(UiPage::TimerControl);}

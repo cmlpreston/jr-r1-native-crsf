@@ -1,4 +1,5 @@
 #include "run_record_store.h"
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <new>
@@ -21,7 +22,39 @@ uint32_t checksum(const void *data,size_t bytes){
     for(size_t i=0;i<bytes;++i){crc^=p[i];for(unsigned b=0;b<8;++b)crc=(crc>>1)^(0xedb88320u&uint32_t(-int32_t(crc&1)));}
     return ~crc;
 }
-bool valid(const Header &h,size_t bytes){return h.magic==Magic&&h.version==Version&&h.bytes==bytes;}
+using RunRecordStore::ReadResult;
+
+ReadResult checkHeader(const Header &header, size_t bytes)
+{
+    if (header.magic != Magic) return ReadResult::Corrupt;
+    if (header.version != Version) return ReadResult::Incompatible;
+    if (header.bytes == 0) {
+        return header.checksum == 0 ? ReadResult::Missing : ReadResult::Corrupt;
+    }
+    return header.bytes == bytes ? ReadResult::Loaded : ReadResult::Incompatible;
+}
+
+#ifndef __EMSCRIPTEN__
+ReadResult readFile(const char *path, void *data, size_t bytes)
+{
+    // VFS reports missing files and I/O errors separately through errno.
+    auto *file = std::fopen(path, "rb");
+    if (!file) return errno == ENOENT ? ReadResult::Missing : ReadResult::IoError;
+    Header header{};
+    auto result = std::fread(&header, 1, sizeof(header), file) == sizeof(header)
+        ? checkHeader(header, bytes) : ReadResult::Corrupt;
+    if (result == ReadResult::Loaded &&
+        (std::fread(data, 1, bytes, file) != bytes || checksum(data, bytes) != header.checksum)) {
+        result = ReadResult::Corrupt;
+    }
+    if ((result == ReadResult::Loaded || result == ReadResult::Missing) && std::fgetc(file) != EOF) {
+        result = ReadResult::Corrupt;
+    }
+    const bool readError = std::ferror(file);
+    const bool closeError = std::fclose(file) != 0;
+    return readError || closeError ? ReadResult::IoError : result;
+}
+#endif
 #if defined(JR_R1_SIMULATOR) && !defined(__EMSCRIPTEN__)
 std::filesystem::path path(uint8_t model){
     const char *root=std::getenv("JR_R1_SIM_STATE");
@@ -37,29 +70,48 @@ void path(uint8_t model,char (&out)[32]){std::snprintf(out,sizeof(out),"/run-mod
 #endif
 }
 namespace RunRecordStore {
-bool read(uint8_t model,void *data,size_t bytes){
-    if(model>=10||!data||!bytes)return false;
-    Header h{};
+ReadResult read(uint8_t model, void *data, size_t bytes)
+{
+    if (model >= 10 || !data || !bytes) return ReadResult::IoError;
 #ifdef __EMSCRIPTEN__
-    Preferences p;char key[16];std::snprintf(key,sizeof(key),"model%u",unsigned(model));
-    if(!p.begin("r1-runlogs",true))return false;
-    bool ok=p.getBytesLength(key)==bytes+sizeof(h);
-    // Browser demo has no handset filesystem; use its localStorage adapter.
-    auto *buffer=ok?new(std::nothrow) uint8_t[bytes+sizeof(h)]:nullptr;
-    if(buffer){ok=p.getBytes(key,buffer,bytes+sizeof(h))==bytes+sizeof(h);if(ok){std::memcpy(&h,buffer,sizeof(h));std::memcpy(data,buffer+sizeof(h),bytes);}delete[] buffer;}else ok=false;
-    p.end();if(!ok)return false;
+    Preferences preferences;
+    char key[16];
+    std::snprintf(key, sizeof(key), "model%u", unsigned(model));
+    if (!preferences.begin("r1-runlogs", true)) return ReadResult::IoError;
+    if (!preferences.isKey(key)) {
+        preferences.end();
+        return ReadResult::Missing;
+    }
+    const size_t size = preferences.getBytesLength(key);
+    Header header{};
+    const bool readHeader = preferences.getBytes(key, &header, sizeof(header)) == sizeof(header);
+    auto result = readHeader ? checkHeader(header, bytes) : ReadResult::Corrupt;
+    if ((result == ReadResult::Loaded || result == ReadResult::Missing) &&
+        size != sizeof(header) + header.bytes) {
+        result = ReadResult::Corrupt;
+    }
+    if (result == ReadResult::Loaded) {
+        auto *buffer = new(std::nothrow) uint8_t[size];
+        if (buffer && preferences.getBytes(key, buffer, size) == size) {
+            std::memcpy(data, buffer + sizeof(header), bytes);
+            if (checksum(data, bytes) != header.checksum) result = ReadResult::Corrupt;
+        } else {
+            result = ReadResult::IoError;
+        }
+        delete[] buffer;
+    }
+    preferences.end();
+    return result;
 #elif defined(JR_R1_SIMULATOR)
-    std::ifstream file(path(model),std::ios::binary);
-    if(!file.read(reinterpret_cast<char *>(&h),sizeof(h))||!valid(h,bytes))return false;
-    if(!file.read(static_cast<char *>(data),bytes)||file.peek()!=std::char_traits<char>::eof())return false;
+    return readFile(path(model).string().c_str(), data, bytes);
 #else
-    if(!LittleFS.begin(false))return false;
-    char name[32];path(model,name);
-    auto file=LittleFS.open(name,"r");
-    if(!file||file.size()!=sizeof(h)+bytes||file.read(reinterpret_cast<uint8_t *>(&h),sizeof(h))!=sizeof(h)||!valid(h,bytes))return false;
-    if(file.read(static_cast<uint8_t *>(data),bytes)!=bytes)return false;
+    if (!LittleFS.begin(false)) return ReadResult::IoError;
+    char name[32];
+    path(model, name);
+    char mountedPath[48];
+    std::snprintf(mountedPath, sizeof(mountedPath), "/littlefs%s", name);
+    return readFile(mountedPath, data, bytes);
 #endif
-    return valid(h,bytes)&&checksum(data,bytes)==h.checksum;
 }
 bool write(uint8_t model,const void *data,size_t bytes){
     if(model>=10||(!data&&bytes)||bytes>128*1024)return false;

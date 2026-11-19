@@ -65,11 +65,13 @@ void TransmitterUi::drawV2RunReview()
     const int y=portraitUi?318:232;
     makePageActionButton(12,y,kScreenWidth/2-18,30,"Save records",UiText::Caption,cPanel,cCyan,cLine,&TransmitterUi::controlV2,53);
     makePageActionButton(kScreenWidth/2+6,y,kScreenWidth/2-18,30,"Delete records...",UiText::Caption,cPanel,cAmber,cLine,&TransmitterUi::controlV2,50);
-    auto note=makeLabel(lv_scr_act(),runRecordsNotice_,12,y+31,UiText::Caption,cDim);boundedLabel(note,kScreenWidth-24);
+    designDetails_[0]=makeLabel(lv_scr_act(),runRecordsNotice_,12,y+31,UiText::Caption,cDim);
+    boundedLabel(designDetails_[0],kScreenWidth-24);
 }
 void TransmitterUi::updateV2RunReview()
 {
     if(v2ReviewConfirm_)return;
+    uiSetText(designDetails_[0],runRecordsNotice_);
     const uint8_t source[]={0,2,6,7,16,4};const uint32_t now=millis();
     for(unsigned i=0;i<6;++i){auto result=telemetryHistory_?sensorStatistics_[source[i]].result(true,now):SensorStatistics::Result{};char text[24];
         int32_t value=(i==2||i==3||i==5)?result.minimum:result.maximum;
@@ -118,7 +120,9 @@ void TransmitterUi::controlV2(uint8_t item,PageControlEvent event)
     }else if(item==50||item==51){v2ReviewConfirm_=item==50;drawDesignPage(UiPage::RunReview);}
     else if(item==52){
         if(!v2ReviewConfirm_)return;
-        if(armRequested_||designSafety_==OutputSafetyStatus::Armed||timers_[activeModelSlot_].running()){
+        if (SetupPortal::firmwareUpdating()) {
+            snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"Wait for firmware update before deleting");
+        } else if(armRequested_||designSafety_==OutputSafetyStatus::Armed||timers_[activeModelSlot_].running()){
             snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"CUT and pause timer before deleting");
         }else deleteRunRecords();
         v2ReviewConfirm_=false;drawDesignPage(UiPage::RunReview);

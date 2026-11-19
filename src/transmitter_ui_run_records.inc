@@ -2,6 +2,8 @@
 void TransmitterUi::loadRunRecords()
 {
     runRecordsLoaded_=true;runRecordsHadLive_=false;runRecordsNextSaveMs_=millis()+30000;
+    runRecordsSavePending_ = false;
+    runRecordsReadError_ = nullptr;
     runRecordsGpsStamp_=designTelemetry_.gpsUpdatedMs;
     if(!runRecords_.initialize()){snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"Records unavailable: memory");return;}
     auto invalidateLive=[&](){
@@ -18,8 +20,22 @@ void TransmitterUi::loadRunRecords()
         timers_[activeModelSlot_].resumeAfterPowerCycle(millis());
     };
     auto &r=*runRecords_.get();r.clear();
-    if(!RunRecordStore::read(activeModelSlot_,&r,sizeof(r))||!r.valid()){
-        r.clear();invalidateLive();snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"No saved records for this model");return;
+    using RunRecordStore::ReadResult;
+    auto result = RunRecordStore::read(activeModelSlot_, &r, sizeof(r));
+    if (result == ReadResult::Loaded && !r.valid()) {
+        result = r.schema == RunRecords::Schema ? ReadResult::Corrupt : ReadResult::Incompatible;
+    }
+    if (result != ReadResult::Loaded) {
+        r.clear();
+        invalidateLive();
+        gpsCount_ = 0;
+        ++gpsTrailRevision_;
+        if (result == ReadResult::Corrupt) runRecordsReadError_ = "Corrupt records protected; delete to record again";
+        else if (result == ReadResult::Incompatible) runRecordsReadError_ = "Incompatible records protected; delete to record again";
+        else if (result == ReadResult::IoError) runRecordsReadError_ = "Record read failed; restart to retry or delete";
+        snprintf(runRecordsNotice_, sizeof(runRecordsNotice_), "%s",
+                 runRecordsReadError_ ? runRecordsReadError_ : "No saved records for this model");
+        return;
     }
     r.resumeAfterPowerCycle(millis());
     if(telemetryHistory_)for(unsigned i=0;i<DashboardSensorCount;++i)sensorStatistics_[i]=r.sensors[i];
@@ -38,18 +54,59 @@ void TransmitterUi::loadRunRecords()
 }
 bool TransmitterUi::saveRunRecords()
 {
-    if(armRequested_||designSafety_==OutputSafetyStatus::Armed||SetupPortal::firmwareUpdating()){
-        runRecordsNextSaveMs_=millis();snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"Save queued until CUT");return false;
+    runRecordsSavePending_ = true;
+    // Keep the original read error visible and the committed file untouched
+    // until the user explicitly deletes it or the next startup can read it.
+    if (runRecordsReadError_) {
+        snprintf(runRecordsNotice_, sizeof(runRecordsNotice_), "%s", runRecordsReadError_);
+        return false;
     }
-    if(!runRecords_||!telemetryHistory_||!widgetMetrics_)return false;
-    auto &r=*runRecords_.get();const auto now=millis();
+    const auto now = millis();
+    if(armRequested_||designSafety_==OutputSafetyStatus::Armed||SetupPortal::firmwareUpdating()){
+        runRecordsNextSaveMs_ = now;
+        snprintf(runRecordsNotice_, sizeof(runRecordsNotice_), "Save queued until CUT");
+        return false;
+    }
+    runRecordsNextSaveMs_ = now + 30000;
+    if (!runRecords_ || !telemetryHistory_ || !widgetMetrics_) {
+        snprintf(runRecordsNotice_, sizeof(runRecordsNotice_), "Records unavailable: memory");
+        return false;
+    }
+    auto &r = *runRecords_.get();
     for(unsigned i=0;i<DashboardSensorCount;++i)r.sensors[i]=sensorStatistics_[i];
     r.speed=speedStatistics_;const auto &m=*widgetMetrics_.get();r.power=m.power;r.trip=m.tripRun;r.trip.checkpointClock(now);r.battery=m.batteryLoad;
     r.timer=timers_[activeModelSlot_];
+    r.timer.pause(now);
     const bool saved=RunRecordStore::write(activeModelSlot_,&r,sizeof(r));
+    runRecordsSavePending_ = !saved;
     snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),saved?"Saved / %u GPS points; 30s checkpoints in CUT":"Save failed; check handset storage",unsigned(r.gpsCount));
     return saved;
 }
+
+bool TransmitterUi::hasRunRecordData(uint32_t now) const
+{
+    const auto &timer = timers_[activeModelSlot_];
+    if ((runRecords_ && runRecords_.get()->gpsCount) || timer.lapCount() || timer.elapsed() ||
+        timer.running() || speedStatistics_.available()) return true;
+    if (telemetryHistory_) {
+        for (unsigned i = 0; i < DashboardSensorCount; ++i) {
+            if (sensorStatistics_[i].result(true, now).valid) return true;
+        }
+    }
+    if (!widgetMetrics_) return false;
+    const auto &metrics = *widgetMetrics_.get();
+    const auto power = metrics.power.result(now);
+    const auto battery = metrics.batteryLoad.result(now);
+    return power.peakValid || power.distanceValid || metrics.tripRun.result(now).elapsedValid ||
+        battery.packExtremaValid || battery.cellExtremaValid;
+}
+
+void TransmitterUi::resetSavedSpeedStatistics()
+{
+    resetSpeedStatistics();
+    saveRunRecords();
+}
+
 void TransmitterUi::updateRunRecords(uint32_t now)
 {
     if(!runRecordsLoaded_)loadRunRecords();
@@ -59,22 +116,24 @@ void TransmitterUi::updateRunRecords(uint32_t now)
     }
     const bool live=designSafety_==OutputSafetyStatus::Armed;
     const bool cut=runRecordsHadLive_&&!live;runRecordsHadLive_=live;
-    if(!runRecords_||live||armRequested_||SetupPortal::firmwareUpdating()||(int32_t(now-runRecordsNextSaveMs_)<0&&!cut))return;
+    if (!runRecords_ || runRecordsReadError_ || live || armRequested_ ||
+        SetupPortal::firmwareUpdating() || (int32_t(now-runRecordsNextSaveMs_) < 0 && !cut)) return;
     // Empty sessions do not create files merely because the UI is ticking.
-    bool haveData=runRecords_.get()->gpsCount||timers_[activeModelSlot_].lapCount()||timers_[activeModelSlot_].elapsed();
-    for(unsigned i=0;telemetryHistory_&&!haveData&&i<DashboardSensorCount;++i)haveData=sensorStatistics_[i].result(true,now).valid;
-    if(haveData)saveRunRecords();
+    if (runRecordsSavePending_ || hasRunRecordData(now)) saveRunRecords();
     runRecordsNextSaveMs_=now+30000;
 }
 bool TransmitterUi::deleteRunRecords()
 {
-    if(armRequested_||designSafety_==OutputSafetyStatus::Armed||timers_[activeModelSlot_].running())return false;
+    if (armRequested_ || designSafety_ == OutputSafetyStatus::Armed ||
+        SetupPortal::firmwareUpdating() || timers_[activeModelSlot_].running()) return false;
     if(!RunRecordStore::erase(activeModelSlot_)){snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"Delete failed; records retained");return false;}
     for(unsigned i=0;i<DashboardSensorCount;++i)resetSensorStatistics(i);
     resetSpeedStatistics();resetWidgetPowerMetrics();resetTripRunMetrics();resetBatteryLoadMetrics();
     auto &timer=timers_[activeModelSlot_];timer.reset(millis());timer.clearLaps();
     gpsCount_=0;++gpsTrailRevision_;
     if(runRecords_)runRecords_.get()->clear();
+    runRecordsReadError_ = nullptr;
+    runRecordsSavePending_ = false;
     runRecordsNextSaveMs_=millis()+30000;
     snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"This model's records deleted");return true;
 }

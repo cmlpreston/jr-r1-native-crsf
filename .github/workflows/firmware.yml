@@ -32,8 +32,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Verify event commit and set firmware branch identity
+        run: |
+          test "$GITHUB_REF_TYPE" = branch
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git switch --force-create "$GITHUB_REF_NAME" "$GITHUB_SHA"
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -91,47 +96,43 @@ jobs:
         run: |
           set -o pipefail
           make -C test -j1 CXX=/usr/lib/ccache/c++ CC=/usr/lib/ccache/cc run 2>&1 | tee ci-output/host-tests.log
-      - name: Check for focused UI changes
-        id: history-changes
+      - name: Select simulator checks
+        id: ui-changes
         env:
           BEFORE: ${{ github.event.before }}
         run: |
-          base="$BEFORE"
-          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
-            base=origin/main
-          fi
-          if git diff --quiet "$base" HEAD -- include/sensor_history.h include/ui_telemetry_history.h src/transmitter_ui_sensor_history.inc simulator/ui_sensor_history_audit.inc; then
-            echo 'changed=false' >> "$GITHUB_OUTPUT"
-          else
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-          fi
-          if git diff --quiet "$base" HEAD -- include/ers_reply_queue.h include/ers_sensor_config.h include/crsf_telemetry.h src/crsf_telemetry.cpp src/transmitter_ui_ers.inc simulator/ui_audit.inc; then
-            echo 'ers=false' >> "$GITHUB_OUTPUT"
-          else
-            echo 'ers=true' >> "$GITHUB_OUTPUT"
-          fi
-          if git diff --quiet "$base" HEAD -- include/ui_colour_schemes.h simulator/ui_colour_schemes_audit.inc; then
-            echo 'colours=false' >> "$GITHUB_OUTPUT"
-          else
-            echo 'colours=true' >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build simulator for focused UI checks
-        if: steps.history-changes.outputs.changed == 'true' || steps.history-changes.outputs.ers == 'true' || steps.history-changes.outputs.colours == 'true'
+          python tools/ci_ui_checks.py --before="$BEFORE" --head="$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+      - name: Build simulator for selected UI checks
+        if: steps.ui-changes.outputs.simulator == 'true'
         run: |
           sudo apt-get install --no-install-recommends -y libsdl2-dev
           make -C simulator -j1 bootstrap
           set -o pipefail
           make -C simulator -j1 CXX=/usr/lib/ccache/c++ CC=/usr/lib/ccache/cc 2>&1 | tee ci-output/simulator-build.log
+      - name: Validate shared UI and layout
+        id: shared-ui
+        if: steps.ui-changes.outputs.shared == 'true'
+        run: |
+          set -o pipefail
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/shared-ui.log
+      - name: Validate saved records UI
+        id: records-ui
+        if: steps.ui-changes.outputs.records == 'true'
+        run: |
+          set -o pipefail
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_RUN_RECORDS_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/run-records-ui.log
       - name: Validate sensor history UI
         id: sensor-ui
-        if: steps.history-changes.outputs.changed == 'true'
+        if: steps.ui-changes.outputs.history == 'true'
         run: |
           set -o pipefail
           audit_state=$(mktemp -d)
           SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_SENSOR_HISTORY_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/sensor-history-ui.log
       - name: Validate ERS discovery UI
         id: ers-ui
-        if: steps.history-changes.outputs.ers == 'true'
+        if: steps.ui-changes.outputs.ers == 'true'
         run: |
           set -o pipefail
           audit_state=$(mktemp -d)
@@ -140,7 +141,7 @@ jobs:
       # used on the handset, with disposable preferences in both orientations.
       - name: Validate light colour schemes
         id: colours-ui
-        if: steps.history-changes.outputs.colours == 'true'
+        if: steps.ui-changes.outputs.colours == 'true'
         run: |
           set -o pipefail
           audit_state=$(mktemp -d)
@@ -158,10 +159,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Package tested firmware
         env:
+          JR_R1_SHARED_UI_CHECK: ${{ steps.shared-ui.outcome }}
+          JR_R1_RUN_RECORDS_UI_CHECK: ${{ steps.records-ui.outcome }}
           JR_R1_SENSOR_HISTORY_UI_CHECK: ${{ steps.sensor-ui.outcome }}
           JR_R1_ERS_DISCOVERY_UI_CHECK: ${{ steps.ers-ui.outcome }}
           JR_R1_COLOUR_SCHEMES_UI_CHECK: ${{ steps.colours-ui.outcome }}
-        run: python tools/package_ci_firmware.py
+        run: python tools/package_ci_firmware.py --commit "$GITHUB_SHA" --branch "$GITHUB_REF_NAME"
       - name: Save tested firmware
         uses: actions/upload-artifact@v6
         with:
@@ -191,7 +194,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
       - name: Save sensor history UI previews
-        if: always() && steps.history-changes.outputs.changed == 'true'
+        if: always() && steps.ui-changes.outputs.history == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: r1-sensor-history-ui-${{ github.sha }}
@@ -199,7 +202,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
       - name: Save ERS UI previews
-        if: always() && steps.history-changes.outputs.ers == 'true'
+        if: always() && steps.ui-changes.outputs.ers == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: r1-ers-ui-${{ github.sha }}
@@ -207,7 +210,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
       - name: Save light colour scheme previews
-        if: always() && steps.history-changes.outputs.colours == 'true'
+        if: always() && steps.ui-changes.outputs.colours == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: r1-light-schemes-ui-${{ github.sha }}

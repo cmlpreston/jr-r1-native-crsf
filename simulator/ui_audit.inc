@@ -3,6 +3,10 @@
 #include <cassert>
 #include <cstdlib>
 #include <vector>
+#ifndef __EMSCRIPTEN__
+#include <filesystem>
+#include <fstream>
+#endif
 #include "control_engine.h"
 static uint64_t auditRedrawnPixels = 0;
 static unsigned auditCutRequests = 0;

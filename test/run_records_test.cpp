@@ -8,6 +8,7 @@
 #include <cstdio>
 
 int main(){
+    using RunRecordStore::ReadResult;
     char directory[]="/tmp/r1-record-test.XXXXXX";assert(mkdtemp(directory));
     assert(setenv("JR_R1_SIM_STATE",directory,1)==0);
     auto source=std::make_unique<RunRecords>();auto restored=std::make_unique<RunRecords>();
@@ -24,15 +25,15 @@ int main(){
     r.timer.resume(0);assert(r.timer.recordLap(1500));
     r.addGps(-370000000,1450000000,1000);r.addGps(-370000010,1450000010,2000);
     assert(r.valid());assert(RunRecordStore::write(0,&r,sizeof(r)));
-    assert(!RunRecordStore::read(1,restored.get(),sizeof(*restored)));
+    assert(RunRecordStore::read(1,restored.get(),sizeof(*restored))==ReadResult::Missing);
     // A truncated pending write never replaces the last complete checkpoint.
     {std::ofstream pending(std::string(directory)+"/run-records/model-0.dat.pending");pending<<"partial";}
-    assert(RunRecordStore::read(0,restored.get(),sizeof(*restored)));assert(restored->valid());
-    assert(!RunRecordStore::read(0,restored.get(),sizeof(*restored)-1));
+    assert(RunRecordStore::read(0,restored.get(),sizeof(*restored))==ReadResult::Loaded);assert(restored->valid());
+    assert(RunRecordStore::read(0,restored.get(),sizeof(*restored)-1)==ReadResult::Incompatible);
     const auto pendingPath=std::string(directory)+"/run-records/model-0.dat.pending";
     std::filesystem::remove(pendingPath);std::filesystem::create_directory(pendingPath);
     assert(!RunRecordStore::write(0,&r,sizeof(r))&&!RunRecordStore::erase(0));
-    assert(RunRecordStore::read(0,restored.get(),sizeof(*restored))); // Failed write/delete preserve old file.
+    assert(RunRecordStore::read(0,restored.get(),sizeof(*restored))==ReadResult::Loaded); // Failed write/delete preserve old file.
     std::filesystem::remove(pendingPath);
     const auto energy=restored->power.result(2000).wattHours;
     restored->resumeAfterPowerCycle(50);
@@ -58,12 +59,15 @@ int main(){
     restored->addGps(-370000020,1450000020,100);assert(restored->gpsCount==3);
     assert(restored->gps[2].segment!=restored->gps[1].segment);
     assert(RunRecordStore::write(1,restored.get(),sizeof(*restored)));
-    assert(RunRecordStore::erase(0));assert(!RunRecordStore::read(0,source.get(),sizeof(*source)));
-    assert(RunRecordStore::read(1,source.get(),sizeof(*source))); // Model isolation on delete.
+    assert(RunRecordStore::erase(0));assert(RunRecordStore::read(0,source.get(),sizeof(*source))==ReadResult::Missing);
+    assert(RunRecordStore::read(1,source.get(),sizeof(*source))==ReadResult::Loaded); // Model isolation on delete.
     // Corrupt committed payload is rejected, not restored as fresh telemetry.
     {std::fstream file(std::string(directory)+"/run-records/model-1.dat",std::ios::in|std::ios::out|std::ios::binary);
      file.seekp(-1,std::ios::end);file.put(char(0xa5));}
-    assert(!RunRecordStore::read(1,source.get(),sizeof(*source)));
+    assert(RunRecordStore::read(1,source.get(),sizeof(*source))==ReadResult::Corrupt);
+    const auto inaccessiblePath=std::filesystem::path(directory)/"run-records/model-2.dat";
+    assert(std::filesystem::create_directory(inaccessiblePath));
+    assert(RunRecordStore::read(2,source.get(),sizeof(*source))==ReadResult::IoError);
     r.clear();
     for(uint32_t i=0;i<20000;++i)r.addGps(-370000000-int32_t(i),1450000000+int32_t(i),i*1000);
     assert(r.valid()&&r.gpsCount<=RunRecords::MaxGps&&r.gpsPeriodMs>1000);

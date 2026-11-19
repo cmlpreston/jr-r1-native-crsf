@@ -30,6 +30,8 @@ class CiPackageTest(unittest.TestCase):
         self.git('add', '.')
         self.git('-c', 'user.name=CI test', '-c', 'user.email=ci@example.invalid',
                  'commit', '-m', 'Fixture')
+        self.commit = self.git('rev-parse', 'HEAD').decode().strip()
+        self.branch = self.git('branch', '--show-current').decode().strip()
         self.environment = 'seeed_xiao_esp32s3-pcb'
         build = self.root / '.pio/build' / self.environment
         build.mkdir(parents=True)
@@ -44,7 +46,7 @@ class CiPackageTest(unittest.TestCase):
 
     def test_package_verifies_and_detects_tampering(self):
         with patch.object(package, 'ROOT', self.root), patch.object(Path, 'home', return_value=self.root):
-            package.main()
+            package.main(self.commit, self.branch)
             output = self.root / 'ci-output'
             with tarfile.open(output / 'r1-upload.tar.gz') as archive:
                 names = set(archive.getnames())
@@ -55,7 +57,7 @@ class CiPackageTest(unittest.TestCase):
             shutil.copyfile(output / 'r1-upload-manifest.json', self.root / 'r1-upload-manifest.json')
             manifest = artifact_preflight.verify(self.root, self.environment,
                 'seeed_xiao_esp32s3', ['nobuild', 'upload'], 'r1-upload-manifest.json')
-            self.assertEqual(manifest['commit'], self.git('rev-parse', 'HEAD').decode().strip())
+            self.assertEqual(manifest['commit'], self.commit)
             self.assertFalse(manifest['ui_audit_passed'])
             with tarfile.open(output / 'source.tar.gz') as snapshot:
                 self.assertNotIn('.pio', snapshot.getnames())
@@ -70,7 +72,21 @@ class CiPackageTest(unittest.TestCase):
             source.write('\n; changed source\n')
         with patch.object(package, 'ROOT', self.root):
             with self.assertRaisesRegex(ValueError, 'Commit source'):
-                package.main()
+                package.main(self.commit, self.branch)
+
+    def test_rejects_branch_moved_after_event(self):
+        self.git('-c', 'user.name=CI test', '-c', 'user.email=ci@example.invalid',
+                 'commit', '--allow-empty', '-m', 'Later push')
+        with patch.object(package, 'ROOT', self.root):
+            with self.assertRaisesRegex(ValueError, 'differs from event commit'):
+                package.main(self.commit, self.branch)
+        self.assertFalse((self.root / 'ci-output').exists())
+
+    def test_rejects_wrong_branch_identity(self):
+        with patch.object(package, 'ROOT', self.root):
+            with self.assertRaisesRegex(ValueError, 'differs from event branch'):
+                package.main(self.commit, 'codex/other-branch')
+        self.assertFalse((self.root / 'ci-output').exists())
 
 
 if __name__ == '__main__':

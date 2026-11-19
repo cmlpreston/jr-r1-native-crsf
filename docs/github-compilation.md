@@ -5,13 +5,18 @@ when source changes are pushed to `main` or `codex/**`. Documentation-only
 changes do not trigger builds. It can also be started manually from Actions.
 There is one job and one compiler process at a time, a 30-minute timeout, and
 new pushes cancel obsolete runs for the same branch. No secrets are required.
+The checkout is pinned to the event commit, with a local branch at that commit
+for the handset firmware identity. Packaging rechecks both before saving artifacts.
 
 The job uses Python 3.11, PlatformIO Core 6.1.19 and the dependencies pinned in
 `platformio.ini`. It validates the installed hardware configuration, builds only
 `seeed_xiao_esp32s3-pcb` (XIAO ESP32-S3, Waveshare LCD(F), 480x320 landscape),
 then runs `make -C test -j1 run`, including the C++, Python and JavaScript tests.
-The simulator and UI audit are separate checks, used when a change warrants
-them; this workflow does not build or audit the simulator.
+Isolated changes to saved records, sensor history, ERS or colour schemes run their
+focused simulator audits. Changes to shared UI code run the full UI audit and
+all four focused audits, using one simulator build and separate disposable
+preferences for each check. A manual run or a push without a known previous
+commit uses the same broad coverage. Other pushes skip the simulator.
 
 Open [the repository Actions page](https://github.com/cmlpreston/jr-r1-native-crsf/actions),
 select **R1 firmware and tests**, then open a run to follow its live output.
@@ -23,7 +28,7 @@ is saved even when a build/test step fails. Both expire after three days.
 
 These packages use the existing artifact-preflight format, including hashes for
 the application, bootloader, partition table, source archive and framework
-`boot_app0`. The manifest explicitly records that no UI audit ran. Downloaded
+`boot_app0`. The manifest records the UI audits that passed when selected. Downloaded
 firmware still requires the normal AGENTS.md review, fresh `origin/main`
 ancestry check, matching hardware, relevant tests and explicit user-authorized
 PlatformIO upload. No CI step opens a USB device or uploads firmware.
@@ -76,8 +81,8 @@ inspection or archival. Its checksum remains recorded in the firmware manifest;
 the source archive is not required by the Pi artifact-upload verifier. The
 firmware, bootloader, partition and configuration checks remain unchanged.
 The upload package layout is
-compatible with `tools/artifact_preflight.py`; its attestation lists firmware
-and host checks explicitly and records that the UI audit was not run.
+compatible with `tools/artifact_preflight.py`. Its attestation lists firmware
+and host checks and the scope of any successful UI audits.
 Neither downloading nor building authorizes flashing. Before any local upload,
 follow `AGENTS.md`, confirm current main ancestry and the connected hardware,
 review the exact tested commit and any needed UI checks, then use PlatformIO's

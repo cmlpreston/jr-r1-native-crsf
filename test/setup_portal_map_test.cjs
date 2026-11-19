@@ -75,6 +75,33 @@ assert.throws(()=>scope.satelliteCrop({...extent,xmax:NaN},bounds,512,256),/inva
 new vm.Script(source.split('<script>')[1].split('</script>')[0]);
 console.log('setup portal satellite geometry and script: PASS');
 
+// Storage recovery requires a fresh confirmation that names all affected records.
+(async()=>{
+ const button={}, requests=[];
+ let confirmed=false,prompt='',notice='';
+ const recovery={
+  $:()=>button, URLSearchParams,
+  confirm:message=>{prompt=message;return confirmed},
+  request:async(path,params)=>{
+   requests.push([path,params.get('confirm')]);
+   return {text:async()=> 'Storage already ready. Maps and run records were kept.'};
+  },
+  notify:message=>notice=message,
+  load:async()=>{},
+ };
+ vm.createContext(recovery);
+ const start=source.indexOf("$('prepare').onclick=");
+ vm.runInContext(source.slice(start,source.indexOf('\n',start)),recovery);
+ await button.onclick();
+ assert.match(prompt,/uploaded map and saved GPS tracks, laps and run statistics for every model/);
+ assert.equal(requests.length,0);
+ confirmed=true;
+ await button.onclick();
+ assert.deepEqual(requests,[['/api/storage','erase-shared-storage']]);
+ assert.match(notice,/run records were kept/);
+ console.log('shared storage recovery confirmation: PASS');
+})().catch(e=>{console.error(e);process.exitCode=1});
+
 
 // Square selection uses the same dimension for the visible frame and bounds.
 {

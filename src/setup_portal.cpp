@@ -640,10 +640,23 @@ static void routes() {
     });
     server.on("/api/storage",HTTP_POST,[]{
         if(!authorized(true))return;
-        if(server.arg("confirm")!="prepare"){server.send(400,"text/plain","Explicit storage preparation required");return;}
-        if(info.storageReady){server.send(409,"text/plain","Storage already ready; no format performed");return;}
-        info.storageReady=LittleFS.format()&&LittleFS.begin(false);++info.revision;
-        server.send(info.storageReady?200:500,"text/plain",info.storageReady?"Map storage prepared":"Storage unavailable");
+        if(server.arg("confirm")!="erase-shared-storage"){
+            server.send(400,"text/plain","Confirm erasing shared map and run-record storage");
+            return;
+        }
+        // A run-record operation may have mounted LittleFS after portal startup.
+        if(!info.storageReady && LittleFS.begin(false)){
+            info.storageReady=true;
+            ++info.revision;
+            loadMap();
+        }
+        if(info.storageReady){
+            server.send(409,"text/plain","Storage already ready. Maps and run records were kept.");
+            return;
+        }
+        info.storageReady=LittleFS.format()&&LittleFS.begin(false);
+        ++info.revision;
+        server.send(info.storageReady?200:500,"text/plain",info.storageReady?"Shared storage initialized":"Storage unavailable");
     });
     server.on("/api/map",HTTP_GET,[]{if(!authorized())return;auto file=LittleFS.open(mapPath(),"r");if(!file){server.send(404,"text/plain","No uploaded map");return;}server.streamFile(file,"application/octet-stream");});
     server.on("/api/map",HTTP_POST,[]{
@@ -660,7 +673,7 @@ static void routes() {
         OfflineMap::install(*candidate,pixels);++info.revision;Serial.println("MAP: saved and installed");server.send(200,"text/plain","Map saved; available on GPS view");
     },[]{
         auto &u=server.upload();
-        if(u.status==UPLOAD_FILE_START){uploadError=!canControl()?"Map upload requires CUT":!info.storageReady?"Map storage is not ready. Use Prepare map storage first":!authenticated()?"Map upload authentication failed":server.header("X-R1-Token")!=token?"Session expired; reload this page":"";
+        if(u.status==UPLOAD_FILE_START){uploadError=!canControl()?"Map upload requires CUT":!info.storageReady?"Shared storage is unavailable. See Storage recovery.":!authenticated()?"Map upload authentication failed":server.header("X-R1-Token")!=token?"Session expired; reload this page":"";
             uploadGood=!*uploadError;uploadBytes=0;if(upload)upload.close();
             if(uploadGood){upload=LittleFS.open("/map.pending","w");uploadGood=bool(upload);if(!uploadGood)uploadError="Could not open map storage for writing";}}
         else if(u.status==UPLOAD_FILE_WRITE){if(!canControl()){uploadGood=false;uploadError="Map upload interrupted: transmitter is no longer CUT";}uploadBytes+=u.currentSize;if(uploadBytes>MaxUpload){uploadGood=false;uploadError="Map exceeds the 512 x 512 image package size limit";}if(uploadGood&&upload.write(u.buf,u.currentSize)!=u.currentSize){uploadGood=false;uploadError="Map storage write failed; storage may be full";}}

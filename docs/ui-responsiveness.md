@@ -269,3 +269,25 @@ PSRAM free 7,045.5 KiB, minimum 7,034.2 KiB. Minimum unused stacks were UI/web
 2,256 B. These are observations, not worst-case margin qualification. Evidence:
 `/tmp/r1-medium-display-comparison-2026-11-14.png` and ignored
 `tmp/medium-performance-2026-11-14/hardware-comparison.json`.
+
+## Live web screen transfer
+
+The browser now requests up to four contiguous changed rows at a time. A
+landscape reply carries at most 3,840 bytes of pixels. If two nonadjacent rows
+change, the viewer requests each in its own strip. A fixed revision per scan
+lets the next scan collect changes that arrived behind the cursor. The browser
+paints a new page only after it has received all its rows and keeps coordinates
+and holds tied to the current page epoch.
+
+Live screen GET responses use the socket's nonblocking send operation once per
+response piece. A short write closes that response and the browser retries the
+same cursor. This removes the WiFiClient write retry waits from screen GETs.
+HTTP request parsing and other portal endpoints still run on the UI loop. After
+25 seconds without an authenticated screen poll, the device frees the 300 KiB
+capture buffer unless it is in use for a USB screenshot.
+
+Host tests cover the strip size cap, distant dirty rows, changes during a scan,
+lease timeout, page changes and retry after a truncated response. The original
+timings above predate this change. The next handset test should measure the
+effect on touch response and input, control and radio timing with live viewing,
+including slow Wi-Fi, full page changes, reconnect and USB capture.

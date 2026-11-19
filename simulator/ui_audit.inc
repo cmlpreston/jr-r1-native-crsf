@@ -134,7 +134,7 @@ bool TransmitterUi::runSimulatorUiAudit()
             sensorSelected_=2;drawDesignPage(UiPage::SensorDetail);
             updateDesign(t,OutputSafetyStatus::Cut,99,true);
             assert(!strcmp(lv_label_get_text(designDetails_[2]),"Statistics unavailable: memory"));
-            assert(lv_obj_has_flag(designCurve_,LV_OBJ_FLAG_HIDDEN));
+            assert(!sensorDetailChart_);
             controlV2(20,activate);assert(!v2GraphPaused_);
             resetSensorStatistics(0);resetSensorStatistics(2);
             dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
@@ -142,7 +142,7 @@ bool TransmitterUi::runSimulatorUiAudit()
             placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,sensor);
             DashboardWidget channel;channel.kind=DashboardWidgetKind::Channels;channel.source=0;channel.secondSource=1;channel.style=DashboardWidgetStyle::Graph;
             placeDashboardWidget(dashboardLayouts_[activeModelSlot_],1,channel);
-            sensorHistoryCount_=30; // stress guards even with a nonzero retained count
+            channelHistoryCount_=30; // stress guards even with a nonzero retained count
             drawDashboard();updateDashboardWidgets(t,99,true);
             assert(!strcmp(lv_label_get_text(widgetViews_[0].values[0]),"12345"));
             drawDesignPage(UiPage::RunReview);updateV2RunReview();
@@ -317,7 +317,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         };
         for(bool pack:{false,true})for(unsigned tab=0;tab<2;++tab){
             vehicleBatteryTab_=tab;drawDesignPage(pack?UiPage::DriveBatterySetup:UiPage::RxBatterySetup);
-            lv_obj_update_layout(lv_scr_act());assert(!detailContentCompacted_&&sectionNavigationVisible_);auditTypography(lv_scr_act());
+            lv_obj_update_layout(lv_scr_act());assert(sectionNavigationVisible_);auditTypography(lv_scr_act());
             for(unsigned i=0;i<pageFocusCount_;++i){const auto &t=pageFocusTargets_[i];for(const auto r:{t.focus,t.activate,t.decrease,t.increase})if(r.width){assert(r.x>=0&&r.y>=0&&r.x+r.width<=kScreenWidth&&r.y+r.height<=kScreenHeight);}}
             if(const char *prefix=getenv("JR_R1_BATTERY_MENU_IMAGES")){lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",pack?"drive":"receiver",tab?"warnings":"battery");simulatorSaveScreenshot(path);}
             tap(&TransmitterUi::controlVehicleBatteryTab,1-tab);assert(vehicleBatteryTab_==1-tab);
@@ -365,7 +365,7 @@ bool TransmitterUi::runSimulatorUiAudit()
             }assert(false);
         };
         auto check=[&](){lv_obj_update_layout(lv_scr_act());auditTypography(lv_scr_act());
-            assert(!detailContentCompacted_&&!armRequested_);
+            assert(!armRequested_);
             for(uint8_t n=0;n<pageFocusCount_;++n){const auto r=pageFocusTargets_[n].focus;
                 assert(r.x>=0&&r.y>=0&&r.x+r.width<=kScreenWidth&&r.y+r.height<=kScreenHeight);}
         };
@@ -426,27 +426,34 @@ bool TransmitterUi::runSimulatorUiAudit()
         for(unsigned orientation=0;orientation<2;++orientation){
             auto shot=[&](const char *name){if(const char *prefix=getenv("JR_R1_GRAPH_LINK_IMAGES")){
                 lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",name);simulatorSaveScreenshot(path);}};
-            nextSensorSampleMs_=millis()+100000;sensorSelected_=2;
-            memset(sensorHistoryValid_[2],0,sizeof(sensorHistoryValid_[2]));
-            for(unsigned n=0;n<30;++n){sensorHistory_[2][n]=6000+n*200;sensorHistoryValid_[2][n]=true;}
-            CrsfTelemetryState t{};t.rpmValid=true;t.rpm=11800;t.rpmUpdatedMs=millis();designTelemetry_=t;
-            drawDesignPage(UiPage::SensorDetail);updateDesign(t,OutputSafetyStatus::Cut,99,true);lv_obj_update_layout(lv_scr_act());
+            const auto graphNow=millis();
+            auto seed=[&](uint8_t source,int32_t first,int32_t step) {
+                auto &history=telemetryHistory_.get()->graphs[source];
+                history.reset(graphNow-31000);
+                for (unsigned n=0;n<30;++n) {
+                    const auto time=graphNow-(29-n)*1000;
+                    history.update(first+n*step,time,true,time);
+                }
+            };
+            sensorSelected_=2;seed(2,6000,200);
+            CrsfTelemetryState t{};t.rpmValid=true;t.rpm=11800;t.rpmUpdatedMs=graphNow;designTelemetry_=t;
+            drawDesignPage(UiPage::SensorDetail);updateSensorDetail(graphNow);lv_obj_update_layout(lv_scr_act());
             assert(strcmp(lv_label_get_text(designDetails_[3]),"11800")==0);
             assert(strcmp(lv_label_get_text(designDetails_[4]),"8900")==0);
             assert(strcmp(lv_label_get_text(designDetails_[5]),"6000")==0);
-            auto graph=lv_obj_get_parent(designCurve_);const int height=lv_obj_get_height(graph),width=lv_obj_get_width(graph);
-            assert(height==(portraitUi?255:121));
-            for(unsigned n=0;n<30;++n)assert(designPoints_[n].x>=60&&designPoints_[n].x<width&&designPoints_[n].y>=7&&designPoints_[n].y<height-7);
+            auto graph=lv_obj_get_parent(sensorDetailChart_);
+            assert(lv_obj_get_height(graph)==(portraitUi?255:121));
+            assert(lv_chart_get_point_count(sensorDetailChart_)==61);
+            assert(sensorDetailPoints_[30]==LV_CHART_POINT_NONE&&sensorDetailPoints_[31]==0&&sensorDetailPoints_[60]==1000);
             assert(lv_obj_has_flag(designDetails_[1],LV_OBJ_FLAG_HIDDEN));shot("rpm-graph");
-            sensorSelected_=7;memset(sensorHistoryValid_[7],0,sizeof(sensorHistoryValid_[7]));
-            for(unsigned n=0;n<30;++n){sensorHistory_[7][n]=3980+n;sensorHistoryValid_[7][n]=true;}
-            drawDesignPage(UiPage::SensorDetail);assert(strcmp(lv_label_get_text(designDetails_[3]),"4.009")==0);shot("cell-graph");
-            for(unsigned n=0;n<30;++n)sensorHistory_[7][n]=4000;
-            updateDesign(t,OutputSafetyStatus::Cut,99,true);
+            sensorSelected_=7;seed(7,3980,1);
+            drawDesignPage(UiPage::SensorDetail);updateSensorDetail(graphNow);
+            assert(strcmp(lv_label_get_text(designDetails_[3]),"4.009")==0);shot("cell-graph");
+            seed(7,4000,0);updateSensorDetail(graphNow);
             assert(strcmp(lv_label_get_text(designDetails_[3]),"4.040")==0&&strcmp(lv_label_get_text(designDetails_[5]),"3.960")==0);
-            for(unsigned n=0;n<30;++n)assert(designPoints_[n].y>7&&designPoints_[n].y<height-7);
-            memset(sensorHistoryValid_[7],0,sizeof(sensorHistoryValid_[7]));updateDesign(t,OutputSafetyStatus::Cut,99,true);
-            assert(strcmp(lv_label_get_text(designDetails_[3]),"--")==0&&lv_obj_has_flag(designCurve_,LV_OBJ_FLAG_HIDDEN));
+            assert(sensorDetailPoints_[60]==500);
+            telemetryHistory_.get()->graphs[7].reset(graphNow);updateSensorDetail(graphNow);
+            assert(strcmp(lv_label_get_text(designDetails_[3]),"--")==0&&lv_obj_has_flag(sensorDetailChart_,LV_OBJ_FLAG_HIDDEN));
             armRequested_=false;controlDesign(254,activate);assert(activePage_==UiPage::RfWarningSetup);shot("rf-settings");
             rfWarningSettings_=RfLinkWarningSettings{};const auto now=millis();
             t.linkValid=true;t.rfMode=27;t.uplinkRssiDbm=-100;t.uplinkLinkQuality=100;t.linkUpdatedMs=now;
@@ -1104,7 +1111,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         const auto saved=txBatterySettings_;
         txBatterySettings_.chemistry=BatteryChemistry::LiFe;txBatterySettings_.cellCount=3;
         txBatterySettings_.lowAlarmDecivolts=90;txBatterySettings_.voltageSenseEnabled=false;
-        drawTxBatteryPage();assert(sectionNavigationVisible_&&!detailContentCompacted_);
+        drawTxBatteryPage();assert(sectionNavigationVisible_);
         if(const char *prefix=getenv("JR_R1_TX_BATTERY_IMAGES")){
             lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
             snprintf(path,sizeof(path),"%s-%s.bmp",prefix,portraitUi?"portrait":"landscape");simulatorSaveScreenshot(path);
@@ -1132,7 +1139,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         const auto saved=systemSettings_;
         systemSettings_.screenTimeoutSeconds=60;systemSettings_.displayBrightnessPercent=100;
         displaySetupBank_=0;drawDisplayPage();
-        assert(sectionNavigationVisible_&&!detailContentCompacted_);
+        assert(sectionNavigationVisible_);
         auto capture=[&](const char *page){if(const char *prefix=getenv("JR_R1_DISPLAY_IMAGES")){
             lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);char path[256];
             snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",page);simulatorSaveScreenshot(path);
@@ -1210,12 +1217,12 @@ bool TransmitterUi::runSimulatorUiAudit()
         delay(1);sportGps.gpsUpdatedMs=millis();updateDesign(sportGps,OutputSafetyStatus::Cut,99,true);
         assert(gpsCount_==1); // A fresh packet with identical coordinates adds no trail point.
         assert(lv_obj_get_style_opa(designMarker_,0)==LV_OPA_COVER);
-        int32_t speed=0;uint32_t stamp=0;assert(sensorReading(sportGps,0,speed,stamp)&&speed==235);
-        assert(!sensorReading(sportGps,5,speed,stamp)); // unknown count is not zero satellites
+        const auto speed=sensorReading(sportGps,0,millis());assert(speed.valid&&speed.value==235);
+        assert(!sensorReading(sportGps,5,millis()).valid); // unknown count is not zero satellites
         sportGps.gpsValid=false;updateDesign(sportGps,OutputSafetyStatus::Cut,99,true);assert(gpsCount_==1);
         assert(lv_obj_has_flag(designDetails_[0],LV_OBJ_FLAG_HIDDEN));
         assert(lv_obj_get_style_opa(designMarker_,0)==LV_OPA_50);
-        assert(sensorReading(sportGps,0,speed,stamp) && speed==235); // fresh speed, no position
+        assert(sensorReading(sportGps,0,millis()).valid && sensorReading(sportGps,0,millis()).value==235); // fresh speed, no position
         const auto oldLayout=dashboardLayouts_[activeModelSlot_];
         dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
         DashboardWidget speedWidget;speedWidget.kind=DashboardWidgetKind::Sensor;
@@ -1586,7 +1593,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         preview.configure(1,crsfValueFromPermille(650),CRSF_CHANNEL_MID,true);
         preview.configure(2,crsfValueFromPermille(-400),CRSF_CHANNEL_MID,true);
         uint8_t before[CRSF_FRAME_BYTES],after[CRSF_FRAME_BYTES];buildCrsfChannelsFrame(preview,false,before);
-        drawDashboard();nextDisplayUpdateMs_=0;nextSensorSampleMs_=0;
+        drawDashboard();nextDisplayUpdateMs_=0;nextChannelSampleMs_=0;
         update(triggerInput_.centre(),steeringInput_.centre(),-400,0,CRSF_CHANNEL_MID,
                OutputSafetyStatus::Cut,previewTelemetry,99,true,preview,false);
         lv_obj_update_layout(lv_scr_act());updateDashboardWidgets(previewTelemetry,99,true);
@@ -1703,7 +1710,7 @@ bool TransmitterUi::runSimulatorUiAudit()
         ControlBinding savedBindings[kPhysicalControlCount];
         memcpy(savedBindings,bindings_,sizeof(savedBindings));
         selectedChannel_=16;bindingCount_=0;
-        drawChannelPlaceholder();controlChannelConfig(4,activate);
+        drawChannelPlaceholder();controlDesign(186,activate);controlDesign(190,activate);
         assert(activePage_==UiPage::ControlAssignments && assignmentChannelContext_==16);
         const size_t input=static_cast<size_t>(PhysicalControlId::TimerButton);
         assignmentBank_=input/5;
@@ -1715,11 +1722,13 @@ bool TransmitterUi::runSimulatorUiAudit()
         navigateBack();assert(activePage_==UiPage::ChannelPlaceholder);
         bindings_[0]=defaultBindingForInput(PhysicalControlId::TimerButton);
         bindings_[0].crsfChannel=16;bindingCount_=1;
-        controlChannelConfig(4,activate);
+        controlDesign(186,activate);controlDesign(190,activate);
+        assignmentBank_=input/5;
+        controlAssignments(input%5,activate);
         assert(activePage_==UiPage::BindingEditor && selectedBindingInput_==PhysicalControlId::TimerButton);
         assert(bindingDraft_.crsfChannel==16);
         selectedChannel_=channelRoleSettings_.throttleChannel;
-        controlChannelConfig(4,activate);assert(activePage_==UiPage::ChannelInput);
+        drawChannelPlaceholder();controlDesign(186,activate);assert(activePage_==UiPage::ChannelInput);
         navigateBack();assert(activePage_==UiPage::ChannelPlaceholder);
         drawMainMenu();assert(assignmentChannelContext_==0);
         bindingCount_=savedCount;memcpy(bindings_,savedBindings,sizeof(savedBindings));
@@ -1729,13 +1738,20 @@ bool TransmitterUi::runSimulatorUiAudit()
     {
         const auto saved=channelModel_.mixing[2];
         const auto selected=selectedChannel_;selectedChannel_=3;
-        controlChannelConfig(5,activate);
+        drawChannelPlaceholder();controlDesign(188,activate);controlDesign(199,activate);
         assert(activePage_==UiPage::ChannelMixing);
+        if (!designPortrait) {
+            // A tap outside the registered draft controls must leave the live
+            // throttle profile alone, including the former legacy hotspot.
+            const bool reversed = throttleProfile().reversed;
+            handleTouch(342,235);
+            assert(activePage_==UiPage::ChannelMixing && throttleProfile().reversed==reversed);
+        }
         controlChannelMixing(0,activate);controlChannelMixing(2,PageControlEvent::Decrease);
         assert(mixingDraft_.rules[0].enabled&&mixingDraft_.rules[0].weight==95);
         assert(memcmp(&saved,&channelModel_.mixing[2],sizeof(saved))==0);
         navigateBack();assert(activePage_==UiPage::MixingOverview);navigateBack();assert(activePage_==UiPage::ChannelPlaceholder); // cancel draft
-        controlChannelConfig(5,activate);
+        controlDesign(188,activate);controlDesign(199,activate);
         assert(memcmp(&saved,&mixingDraft_,sizeof(saved))==0);
         mixingDraft_.rules[0].enabled=1;mixingDraft_.rules[0].weight=-70;mixingDraft_.rules[0].replace=1;
         mixingDraft_.rateEnabled=1;mixingDraft_.lowPositive=50;mixingDraft_.lowNegative=100;
@@ -1976,21 +1992,37 @@ bool TransmitterUi::runSimulatorUiAudit()
             lv_obj_update_layout(lv_scr_act());
             const PageFocusTarget *reset=nullptr;
             for(uint8_t i=0;i<pageFocusCount_;++i)if(pageFocusTargets_[i].handler==&TransmitterUi::controlDesign && pageFocusTargets_[i].argument==148)reset=&pageFocusTargets_[i];
-            assert(reset);
-            lv_area_t panel;lv_obj_get_coords(widgetViews_[0].panel,&panel);
-            assert(reset->activate.x>=panel.x1 && reset->activate.y>=panel.y1);
-            assert(reset->activate.x+reset->activate.width<=panel.x2+1);
-            assert(reset->activate.y+reset->activate.height<=panel.y2+1);
+            if (style == DashboardWidgetStyle::Graph) {
+                assert(!reset && widgetViews_[0].plot);
+            } else {
+                assert(reset);
+                lv_area_t panel;lv_obj_get_coords(widgetViews_[0].panel,&panel);
+                assert(reset->activate.x>=panel.x1 && reset->activate.y>=panel.y1);
+                assert(reset->activate.x+reset->activate.width<=panel.x2+1);
+                assert(reset->activate.y+reset->activate.height<=panel.y2+1);
+            }
             if(const char *prefix=getenv("JR_R1_SPEED_RESET_SCREENSHOTS")){
                 char path[256];snprintf(path,sizeof(path),"%s-%s-%ux%u-%u.bmp",prefix,designPortrait?"portrait":"landscape",width,height,unsigned(style));
                 lv_refr_now(nullptr);simulatorSaveScreenshot(path);
             }
             speedStatistics_.reset(0);speedStatistics_.update(120,1,1,true);speedStatistics_.update(300,1001,1001,true);
-            sensorHistoryValid_[0][29]=true;
+            auto &speedHistory = telemetryHistory_.get()->graphs[0];
+            const auto graphNow = millis();
+            speedHistory.reset(graphNow - 2000);
+            speedHistory.update(300,graphNow - 1000,true,graphNow);
             const auto timerBefore=timers_[activeModelSlot_].display();
-            assert(dispatchPageControlTouch(reset->activate.x+reset->activate.width/2,reset->activate.y+reset->activate.height/2));
-            assert(activePage_==UiPage::Dashboard && !speedStatistics_.available());
-            assert(!sensorHistoryValid_[0][29] && timers_[activeModelSlot_].display()==timerBefore);
+            if (style == DashboardWidgetStyle::Graph) {
+                controlDesign(130,activate);
+                assert(activePage_==UiPage::SensorDetail && sensorSelected_==0);
+                controlDesign(247,activate);
+            } else {
+                assert(dispatchPageControlTouch(reset->activate.x+reset->activate.width/2,reset->activate.y+reset->activate.height/2));
+                assert(activePage_==UiPage::Dashboard);
+            }
+            int32_t samples[SensorHistory::Capacity];bool valid[SensorHistory::Capacity];
+            assert(!speedStatistics_.available());
+            assert(!speedHistory.project(graphNow,samples,valid).available);
+            assert(timers_[activeModelSlot_].display()==timerBefore);
             assert(controlConfigurationSnapshot().throttleChannel==beforeReset.throttleChannel);
         }
     }}
@@ -2625,7 +2657,7 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     armRequested_ = false; startupPreflightComplete_ = true;
     // Measure real LVGL dirty-region rendering, not calls to our update helpers.
     const auto savedLayout = dashboardLayouts_[activeModelSlot_];
-    const auto savedSampleTime = nextSensorSampleMs_;
+    const auto savedSampleTime = nextChannelSampleMs_;
     dashboardLayouts_[activeModelSlot_] = DashboardLayout{};
     auto &powerWidget = dashboardLayouts_[activeModelSlot_].cells[0];
     powerWidget.kind = DashboardWidgetKind::Power;
@@ -2637,7 +2669,7 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     fixedTelemetry.uplinkLinkQuality = 100;
     fixedTelemetry.receiverVoltageValid = true;
     fixedTelemetry.receiverVoltageDecivolts = 66;
-    nextSensorSampleMs_ = millis() + 100000;
+    nextChannelSampleMs_ = millis() + 100000;
     drawDashboard();
     updateDesign(fixedTelemetry, OutputSafetyStatus::Cut, 99, true);
     lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
@@ -2727,7 +2759,7 @@ bool TransmitterUi::runSimulatorPerformanceAudit()
     auditDisplay->driver->monitor_cb = previousMonitor;
     designRequested_[0] = savedChannelValue;
     dashboardLayouts_[activeModelSlot_] = savedLayout;
-    nextSensorSampleMs_ = savedSampleTime;
+    nextChannelSampleMs_ = savedSampleTime;
     // Rebuilt menus render identically. Cache must suppress their transfer,
     // while real navigation still sends changed pixels in both orientations.
     drawDesignPage(UiPage::MainMenu);lv_refr_now(nullptr);

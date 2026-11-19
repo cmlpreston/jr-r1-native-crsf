@@ -354,47 +354,89 @@ function readImagePackage(buffer){const bytes=new Uint8Array(buffer),view=new Da
 }
 
 let live=false,liveRevision=0,liveEpoch=0,liveBusy=false,liveTimer,liveGeneration=0,lastLiveAt=0,liveActiveUntil=0,pendingLiveInput=null,liveSending=false,remoteHoldZone=null,remoteWake=false,webHold=null,lcdGesture=null;
+let liveCursor=0,liveScan=0,liveFrame=null,liveReady=false,liveFailures=0;
 const lcd=$('livecanvas');
 function liveStatus(text){$('livestatus').textContent=text}
 function scheduleLive(delay=0){clearTimeout(liveTimer);if(live)liveTimer=setTimeout(pollLive,delay)}
-function stopLive(){cancelWebHold();lcdGesture=null;live=false;pendingLiveInput=null;++liveGeneration;clearTimeout(liveTimer);$('livestart').textContent='Connect live screen';liveStatus('Disconnected');}
+function stopLive(){cancelWebHold();lcdGesture=null;live=false;liveReady=false;liveFrame=null;pendingLiveInput=null;++liveGeneration;clearTimeout(liveTimer);$('livestart').textContent='Connect live screen';liveStatus('Disconnected');}
+function paintLiveStrip(bytes){
+ const v=new DataView(bytes);
+ if(bytes.byteLength<22||v.getUint32(0)!==0x52315352)throw Error('Invalid LCD response; reload this page');
+ const batch=v.getUint32(4,true),epoch=v.getUint32(8,true);
+ const w=v.getUint16(12,true),h=v.getUint16(14,true),y=v.getUint16(16,true),rows=v.getUint16(18,true),next=v.getUint16(20,true);
+ if(!batch||!epoch||w<1||h<1||w>480||h>480||!rows||rows>4||y+rows>h||
+    (next&&(next<y+rows||next>=h))||bytes.byteLength!==22+w*rows*2)throw Error('Invalid LCD strip');
+ const newPage=epoch!==liveEpoch;
+ const ctx=lcd.getContext('2d');
+ let frame=liveFrame;
+ if(newPage){
+  if(y!==0)throw Error('Incomplete LCD page');
+  frame=ctx.createImageData(w,h);
+ }else if((liveCursor&&(batch!==liveScan||y!==liveCursor))||batch<liveRevision||
+          (frame?(w!==frame.width||h!==frame.height):(w!==lcd.width||h!==lcd.height)))throw Error('Invalid LCD cursor');
+ if(frame&&(next?next!==y+rows:y+rows!==h))throw Error('Missing LCD page rows');
+ const image=frame||ctx.createImageData(w,rows),offset=frame?y*w*4:0;
+ for(let i=0;i<w*rows;i++){
+  const c=v.getUint16(22+i*2,true),j=offset+i*4;
+  image.data[j]=(c>>11)*255/31;image.data[j+1]=((c>>5)&63)*255/63;image.data[j+2]=(c&31)*255/31;image.data[j+3]=255;
+ }
+ if(newPage){liveEpoch=epoch;liveRevision=0;liveReady=false}
+ if(!frame)ctx.putImageData(image,0,y);
+ liveFrame=frame;liveCursor=next;liveScan=next?batch:0;
+ if(!next){
+  if(frame){lcd.width=w;lcd.height=h;lcd.style.width=w+'px';ctx.putImageData(frame,0,0)}
+  liveRevision=batch;liveFrame=null;liveReady=true;lcd.hidden=false;
+ }
+}
 async function pollLive(){
  if(mapBusy){if(live)liveTimer=setTimeout(pollLive,500);return;}
  if(!live)return;if(document.hidden||liveBusy||webHold){liveTimer=setTimeout(pollLive,500);return}
  const generation=liveGeneration,started=Date.now();liveBusy=true;
  const abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),20000);
- try{const r=await fetch('/api/screen?since='+liveRevision+'&epoch='+liveEpoch,{signal:abort.signal,cache:'no-store'});
-  if(r.headers.has('X-R1-Unlocked'))pinLocked=r.headers.get('X-R1-Unlocked')!=='1';if(r.headers.has('X-R1-Control'))setRemoteMode(r.headers.get('X-R1-Control')==='1');if(r.headers.has('X-R1-Wake'))remoteWake=r.headers.get('X-R1-Wake')==='1';if(r.headers.has('X-R1-Hold-Zone')){const z=r.headers.get('X-R1-Hold-Zone').split(',').map(Number);remoteHoldZone=z.length===4&&z.every(Number.isFinite)?z:null}if(!r.ok)throw Error(await r.text());if(generation!==liveGeneration)return;
-  if(r.status===202){liveStatus('Preparing LCD view…');return}
-  if(r.status!==204){liveActiveUntil=Date.now()+2000;const bytes=await r.arrayBuffer();if(generation!==liveGeneration)return;const v=new DataView(bytes);
-   if(bytes.byteLength<20||v.getUint32(0)!==0x52315343)throw Error('Invalid screen response');
-   const w=v.getUint16(12,true),h=v.getUint16(14,true),y=v.getUint16(16,true),rows=v.getUint16(18,true);
-   if(w<1||h<1||w>480||h>480||!rows||y+rows>h||bytes.byteLength!==20+w*rows*2)throw Error('Invalid screen dimensions');
-   if(lcd.width!==w||lcd.height!==h){lcd.width=w;lcd.height=h}
-   lcd.style.width=w+"px";
-   const ctx=lcd.getContext('2d'),image=ctx.createImageData(w,rows);
-   for(let i=0;i<w*rows;i++){const c=v.getUint16(20+i*2,true),j=i*4;image.data[j]=(c>>11)*255/31;image.data[j+1]=((c>>5)&63)*255/63;image.data[j+2]=(c&31)*255/31;image.data[j+3]=255}
-   ctx.putImageData(image,0,y);liveRevision=v.getUint32(4,true);liveEpoch=v.getUint32(8,true);lcd.hidden=false;
+ let retryDelay=null;
+ try{
+  const cursor=new URLSearchParams({since:liveRevision,epoch:liveEpoch,scan:liveScan,row:liveCursor});
+  const r=await fetch('/api/screen?'+cursor,{signal:abort.signal,cache:'no-store'});
+  if(generation!==liveGeneration)return;
+  if(!r.ok)throw Error(await r.text());
+  if(r.headers.has('X-R1-Unlocked'))pinLocked=r.headers.get('X-R1-Unlocked')!=='1';if(r.headers.has('X-R1-Control'))setRemoteMode(r.headers.get('X-R1-Control')==='1');if(r.headers.has('X-R1-Wake'))remoteWake=r.headers.get('X-R1-Wake')==='1';if(r.headers.has('X-R1-Hold-Zone')){const z=r.headers.get('X-R1-Hold-Zone').split(',').map(Number);remoteHoldZone=z.length===4&&z.every(Number.isFinite)?z:null}
+  if(r.status===202){liveFailures=0;liveReady=false;retryDelay=60;liveStatus('Preparing LCD view…');return}
+  if(r.status!==204){
+   const bytes=await r.arrayBuffer();if(generation!==liveGeneration)return;
+   paintLiveStrip(bytes);liveActiveUntil=Date.now()+2000;
+  }else if(liveCursor||!liveReady){
+   throw Error('Missing LCD strip');
   }
+  liveFailures=0;
+  if(liveCursor){retryDelay=0;liveStatus('Updating LCD view…');return}
   lastLiveAt=Date.now();liveStatus(pinLocked?'Live · enter PIN on the keypad below to unlock':webWritable?'Live · CUT · tap to operate':'Live · read-only · transmitter is not CUT');
- }catch(e){if(generation===liveGeneration){stopLive();liveStatus(e.name==='AbortError'?'Live screen transfer timed out after 20 seconds. Check the connection, then reconnect.':'Connection lost: '+e.message+'. Reconnect when the handset is available on Wi-Fi.')}}
+ }catch(e){
+  if(generation!==liveGeneration)return;
+  if(e.name==='TypeError'&&++liveFailures<=2){
+   pendingLiveInput=null;lastLiveAt=0;retryDelay=100*liveFailures;
+   liveStatus('Retrying LCD transfer…');
+  }else{stopLive();liveStatus(e.name==='AbortError'?'Live screen transfer timed out after 20 seconds. Check the connection, then reconnect.':'Connection lost: '+e.message+'. Reconnect when the handset is available on Wi-Fi.')}
+ }
  finally{
   clearTimeout(timeout);liveBusy=false;
   if(live&&generation===liveGeneration){
-   if(pendingLiveInput){const tap=pendingLiveInput;pendingLiveInput=null;
+   if(pendingLiveInput&&liveReady&&retryDelay===null){const tap=pendingLiveInput;pendingLiveInput=null;
     if(tap.epoch===liveEpoch&&Date.now()-tap.at<2000&&!document.hidden&&!mapBusy)liveInput(tap.action,tap.x,tap.y);
     else{liveStatus('Screen changed; please tap again');scheduleLive()}
-   }else scheduleLive(Math.max(0,(Date.now()<liveActiveUntil?200:1000)-(Date.now()-started)));
+   }else{
+    if(!liveReady)pendingLiveInput=null;
+    scheduleLive(retryDelay??Math.max(0,(Date.now()<liveActiveUntil?200:1000)-(Date.now()-started)));
+   }
   }
  }
 }
-$('livestart').onclick=()=>{if(live){stopLive();return}live=true;++liveGeneration;liveRevision=liveEpoch=0;lastLiveAt=0;liveActiveUntil=Date.now()+2000;$('livestart').textContent='Disconnect live screen';pollLive()};
+$('livestart').onclick=()=>{if(live){stopLive();return}live=true;++liveGeneration;liveRevision=liveEpoch=liveCursor=liveScan=liveFailures=0;lastLiveAt=0;liveActiveUntil=Date.now()+2000;$('livestart').textContent='Disconnect live screen';pollLive()};
 async function liveInput(action,x=0,y=0,gesture={}){
  if(action===8&&liveBusy)return;
  if(action===0&&remoteWake)action=7;
 
  if(pinLocked&&action!==0&&action!==7){liveStatus("Enter your PIN on the mirrored keypad first.");return}
- if(!live||!liveEpoch||Date.now()-lastLiveAt>2000||mapBusy||document.hidden){liveStatus('Wait for a fresh screen before tapping');return}
+ if(!live||!liveReady||!liveEpoch||Date.now()-lastLiveAt>2000||mapBusy||document.hidden){liveStatus('Wait for a fresh screen before tapping');return}
  if(liveBusy){
   if(liveSending){liveStatus('Applying previous tap…');return}
   if(!pendingLiveInput){pendingLiveInput={action,x,y,epoch:liveEpoch,at:Date.now()};liveStatus('Tap queued…')}
@@ -435,7 +477,7 @@ async function holdPulse(h){
  catch(e){if(webHold===h){cancelWebHold();liveStatus('Hold cancelled: '+e.message)}}
 }
 async function startWebHold(x,y){
- if(!live||!webWritable||pinLocked||liveBusy||mapBusy||document.hidden||Date.now()-lastLiveAt>2000){liveStatus('Wait for a fresh screen, then hold Drive');return}
+ if(!live||!liveReady||!webWritable||pinLocked||liveBusy||mapBusy||document.hidden||Date.now()-lastLiveAt>2000){liveStatus('Wait for a fresh screen, then hold Drive');return}
  const h={x,y,epoch:liveEpoch,generation:liveGeneration,id:0,ready:false,zone:remoteHoldZone};webHold=h;clearTimeout(liveTimer);liveStatus('Starting hold…');
  try{h.id=Number(await sendHold(h,3));if(!Number.isInteger(h.id)||h.id<1)throw Error('Invalid hold acknowledgement');if(webHold!==h){sendHold(h,5).catch(()=>{});return}h.started=Date.now();holdPulse(h)}
  catch(e){if(webHold===h){cancelWebHold();liveStatus('Hold cancelled: '+e.message)}}
@@ -457,9 +499,9 @@ async function releaseDriveGesture(g,x,y){
 }
 lcd.onclick=null;
 function lcdPoint(e){const r=lcd.getBoundingClientRect();return [Math.floor((e.clientX-r.left)*lcd.width/r.width),Math.floor((e.clientY-r.top)*lcd.height/r.height)]}
-lcd.onpointerdown=e=>{if(e.button!==0||lcdGesture)return;e.preventDefault();const [x,y]=lcdPoint(e);lcdGesture={pointer:e.pointerId,x,y,started:Date.now(),epoch:liveEpoch,generation:liveGeneration,zone:remoteHoldZone,arm:webWritable&&!remoteWake&&!!inHoldZone(x,y)};lcd.setPointerCapture(e.pointerId);if(lcdGesture.arm)startWebHold(x,y)};
+lcd.onpointerdown=e=>{if(!liveReady||e.button!==0||lcdGesture)return;e.preventDefault();const [x,y]=lcdPoint(e);lcdGesture={pointer:e.pointerId,x,y,started:Date.now(),epoch:liveEpoch,generation:liveGeneration,zone:remoteHoldZone,arm:webWritable&&!remoteWake&&!!inHoldZone(x,y)};lcd.setPointerCapture(e.pointerId);if(lcdGesture.arm)startWebHold(x,y)};
 lcd.onpointermove=e=>{if(!lcdGesture||lcdGesture.pointer!==e.pointerId)return;const [x,y]=lcdPoint(e);if(lcdGesture.arm&&(!inHoldZone(x,y,webHold?.zone)||Math.abs(x-lcdGesture.x)>24||Math.abs(y-lcdGesture.y)>24)){lcdGesture.cancelled=true;cancelWebHold()}};
-lcd.onpointerup=e=>{if(!lcdGesture||lcdGesture.pointer!==e.pointerId)return;const g=lcdGesture;lcdGesture=null;if(g.cancelled)return;if(g.arm)releaseDriveGesture(g,...lcdPoint(e));else{const [x,y]=lcdPoint(e);if(Math.abs(x-g.x)<24&&Math.abs(y-g.y)<24){if(Date.now()-g.started>=650&&!remoteWake&&!pinLocked){if(g.epoch===liveEpoch&&g.generation===liveGeneration)liveInput(8,g.x,g.y,{endX:x,endY:y,duration:Math.min(1200,Date.now()-g.started)})}else liveInput(0,x,y)}else if(g.epoch===liveEpoch&&g.generation===liveGeneration&&!remoteWake&&Date.now()-g.started<=1200)liveInput(8,g.x,g.y,{endX:x,endY:y,duration:Date.now()-g.started})}};
+lcd.onpointerup=e=>{if(!lcdGesture||lcdGesture.pointer!==e.pointerId)return;const g=lcdGesture;lcdGesture=null;if(g.cancelled||!liveReady||g.epoch!==liveEpoch||g.generation!==liveGeneration){cancelWebHold();return}if(g.arm)releaseDriveGesture(g,...lcdPoint(e));else{const [x,y]=lcdPoint(e);if(Math.abs(x-g.x)<24&&Math.abs(y-g.y)<24){if(Date.now()-g.started>=650&&!remoteWake&&!pinLocked){liveInput(8,g.x,g.y,{endX:x,endY:y,duration:Math.min(1200,Date.now()-g.started)})}else liveInput(0,x,y)}else if(!remoteWake&&Date.now()-g.started<=1200)liveInput(8,g.x,g.y,{endX:x,endY:y,duration:Date.now()-g.started})}};
 lcd.onpointercancel=()=>{lcdGesture=null;cancelWebHold()};
 window.addEventListener('blur',()=>{lcdGesture=null;cancelWebHold()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){lcdGesture=null;cancelWebHold()}});

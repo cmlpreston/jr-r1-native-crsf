@@ -10,16 +10,24 @@ for(unsigned orientation=0;orientation<2;++orientation){
     graphTelemetry.linkValid=true;graphTelemetry.uplinkLinkQuality=100;
     graphTelemetry.linkUpdatedMs=millis();
     graphTelemetry.rpmValid=true;graphTelemetry.rpm=20000;graphTelemetry.rpmUpdatedMs=millis();
-    nextSensorSampleMs_=millis()+1000000;
-    sensorHistoryCount_=30;
+    const auto graphNow=millis();
+    auto seed=[&](int32_t peak,bool latestValid){
+        auto &history=telemetryHistory_.get()->graphs[2];
+        history.reset(graphNow-31000);
+        for(unsigned i=0;i<30;++i){
+            const auto time=graphNow-(29-i)*1000;
+            history.update(i==12?peak:10000+int(i)*100,time,i!=29||latestValid,time);
+        }
+    };
+    seed(11200,true);
+    nextChannelSampleMs_=millis()+1000000;
+    channelHistoryCount_=30;
     for(unsigned i=0;i<30;++i){
-        sensorHistory_[2][i]=10000+int(i)*100;
-        sensorHistoryValid_[2][i]=true;
         channelHistory_[0][i]=crsfValueFromPermille(-500+int(i)*20);
         channelHistory_[1][i]=crsfValueFromPermille(500-int(i)*20);
     }
     auto fresh=[&](){graphTelemetry.linkUpdatedMs=graphTelemetry.rpmUpdatedMs=millis();};
-    auto detailUpdate=[&](){fresh();updateDesign(graphTelemetry,OutputSafetyStatus::Cut,99,true);lv_refr_now(nullptr);};
+    auto detailUpdate=[&](){updateSensorDetail(graphNow);lv_refr_now(nullptr);};
     auto widgetUpdate=[&](){fresh();updateDashboardWidgets(graphTelemetry,99,true);lv_refr_now(nullptr);};
     unsigned check=0;
     auto unchanged=[&](auto update){
@@ -34,15 +42,16 @@ for(unsigned orientation=0;orientation<2;++orientation){
 
     sensorSelected_=2;v2GraphPaused_=false;drawDesignPage(UiPage::SensorDetail);
     unchanged(detailUpdate);
-    changed([&](){sensorHistory_[2][12]=45000;},detailUpdate); // geometry and axis range
+    changed([&](){seed(45000,true);},detailUpdate); // geometry and axis range
     unchanged(detailUpdate);
-    changed([&](){sensorHistoryValid_[2][29]=false;},detailUpdate); // never join across stale gaps
-    assert(lv_obj_has_flag(designCurve_,LV_OBJ_FLAG_HIDDEN));unchanged(detailUpdate);
-    changed([&](){sensorHistoryValid_[2][29]=true;},detailUpdate);
-    assert(!lv_obj_has_flag(designCurve_,LV_OBJ_FLAG_HIDDEN));
+    changed([&](){seed(45000,false);},detailUpdate); // preserve earlier segments across stale gaps
+    assert(sensorDetailPoints_[59]!=LV_CHART_POINT_NONE&&sensorDetailPoints_[60]==LV_CHART_POINT_NONE);
+    unchanged(detailUpdate);
+    changed([&](){seed(45000,true);},detailUpdate);
+    assert(sensorDetailPoints_[60]!=LV_CHART_POINT_NONE);
     // Pause freezes graph geometry while readings/statistics can continue.
     controlV2(20,PageControlEvent::Activate);detailUpdate();unchanged(detailUpdate);
-    sensorHistory_[2][12]=80000;unchanged(detailUpdate);
+    seed(80000,true);unchanged(detailUpdate);
     if(v2GraphCursorLine_){
         changed([&](){--v2GraphCursor_;},detailUpdate);unchanged(detailUpdate);
     }
@@ -56,24 +65,28 @@ for(unsigned orientation=0;orientation<2;++orientation){
     drawDashboard();unchanged(widgetUpdate);
     changed([&](){channelHistory_[0][15]=crsfValueFromPermille(900);},widgetUpdate);
     unchanged(widgetUpdate);
-    changed([&](){sensorHistoryCount_=29;},widgetUpdate); // point count is part of the key
-    unchanged(widgetUpdate);sensorHistoryCount_=30;
+    changed([&](){channelHistoryCount_=29;},widgetUpdate); // point count is part of the key
+    unchanged(widgetUpdate);channelHistoryCount_=30;
 
     dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
     DashboardWidget sensor;sensor.kind=DashboardWidgetKind::Sensor;sensor.source=2;
     sensor.style=DashboardWidgetStyle::Graph;sensor.width=sensor.height=2;
     placeDashboardWidget(dashboardLayouts_[activeModelSlot_],0,sensor);
-    drawDashboard();unchanged(widgetUpdate);
-    changed([&](){sensorHistory_[2][10]=-1000;},widgetUpdate);unchanged(widgetUpdate);
-    changed([&](){graphTelemetry.rpmValid=false;},widgetUpdate);unchanged(widgetUpdate);
-    changed([&](){graphTelemetry.rpmValid=true;},widgetUpdate);unchanged(widgetUpdate);
-    changed([&](){sensorHistoryValid_[2][29]=false;},widgetUpdate);
-    assert(lv_obj_has_flag(widgetViews_[0].plot,LV_OBJ_FLAG_HIDDEN));unchanged(widgetUpdate);
-    changed([&](){sensorHistoryValid_[2][29]=true;},widgetUpdate);
-    assert(!lv_obj_has_flag(widgetViews_[0].plot,LV_OBJ_FLAG_HIDDEN));unchanged(widgetUpdate);
+    auto sensorUpdate=[&](){updateSensorHistoryWidget(0,sensor,graphTelemetry,graphNow);lv_refr_now(nullptr);};
+    // Fix the graph's projection time so the real minute window does not
+    // scroll between otherwise identical updates on a slower test host.
+    drawDashboard();unchanged(sensorUpdate);
+    changed([&](){seed(-1000,true);},sensorUpdate);unchanged(sensorUpdate);
+    changed([&](){graphTelemetry.rpmValid=false;},sensorUpdate);unchanged(sensorUpdate);
+    changed([&](){graphTelemetry.rpmValid=true;},sensorUpdate);unchanged(sensorUpdate);
+    changed([&](){seed(-1000,false);},sensorUpdate);
+    const auto *points=widgetMetrics_.get()->sensorValues[0];
+    assert(points[59]!=LV_CHART_POINT_NONE&&points[60]==LV_CHART_POINT_NONE);unchanged(sensorUpdate);
+    changed([&](){seed(-1000,true);},sensorUpdate);
+    assert(points[60]!=LV_CHART_POINT_NONE);unchanged(sensorUpdate);
     // Recreate pages/objects so a recycled LVGL address cannot suppress the
     // initial graph, then rotate and repeat at the other panel geometry.
-    drawMainMenu();drawDashboard();widgetUpdate();unchanged(widgetUpdate);
+    drawMainMenu();drawDashboard();unchanged(sensorUpdate);
     assert(requestDisplayRotation());applyDisplayRotation();
 }
 graphAuditDisplay->driver->monitor_cb=savedGraphMonitor;

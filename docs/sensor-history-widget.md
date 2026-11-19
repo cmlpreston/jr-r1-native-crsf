@@ -9,10 +9,18 @@ values are normalized to LVGL's chart coordinate range.
 
 Collection uses at most one actual observation per second in a bounded
 61-sample ring for each sensor, held in PSRAM-preferred UI storage. Collection
-continues away from the dashboard. UI stalls do not fabricate intervening
-samples; missing/invalid telemetry and readings older than three seconds leave
-gaps. Earlier valid sections remain visible until they scroll out. Chart arrays
-stay at stable addresses and refresh only when their contents change.
+continues away from the dashboard. Missing or invalid telemetry leaves gaps,
+as do missed samples during a UI stall. Graph, Number and Dial current readings
+share the same source validity rules. Receiver voltage can remain valid for
+30 seconds and cell telemetry for 20 seconds.
+Faster sources such as GPS speed and RPM expire after three seconds. Earlier
+valid sections remain visible until they scroll out. Chart arrays stay at
+stable addresses and refresh only when their contents change.
+
+Open a sensor's detail to see the same 60-second history with the time axis
+labelled. The landscape Pause and cursor controls hold a snapshot for inspection
+while collection continues. The separate Session / 30s control still chooses
+the time range used for the displayed statistics.
 
 History is live session data, not a power-cycle log. Model changes and sensor
 resets clear it and exclude the cached packet at the reset boundary. Saved run

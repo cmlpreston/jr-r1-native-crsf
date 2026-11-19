@@ -42,10 +42,10 @@ int main(){
     {
         UiColdStorage<UiTelemetryHistory<18>> storage;
         assert(storage.initialize());auto &h=*storage.get();
-        assert(h.sensors[17][29]==0&&!h.valid[17][29]&&h.channels[15][29]==0);
-        UiColdArrayView<int32_t[30],18> readings;readings.attach(h.sensors);
-        assert(readings.bytes()==18*30*sizeof(int32_t));
-        readings[17][29]=321;assert(h.sensors[17][29]==321);
+        assert(!h.frozenRange.available && !h.frozenValid[SensorHistory::Capacity-1]);
+        UiColdArrayView<uint16_t[30],16> channels;channels.attach(h.channels);
+        assert(channels.bytes()==16*30*sizeof(uint16_t));
+        channels[15][29]=321;assert(h.channels[15][29]==321);
         h.statistics[17].update(100,1000,1000,true);
         h.statistics[17].update(300,1100,1100,true);
         assert(h.statistics[17].result(true,1100).average==200);

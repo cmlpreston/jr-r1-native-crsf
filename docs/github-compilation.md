@@ -179,6 +179,21 @@ Pi3. Keep Pi checks to artifact/source identity and hashes, fresh main ancestry,
 approved hardware/profile/pins, guarded PlatformIO upload and read-only postboot
 status. UI/simulator checks remain change-dependent.
 
+On the Pi, check out the tested commit on its named branch. Use the successful
+**R1 firmware and tests** run ID from GitHub Actions:
+
+```sh
+.venv/bin/python tools/flash_cloud.py RUN_ID
+.venv/bin/python tools/flash_cloud.py RUN_ID --flash
+```
+
+The first command downloads and verifies the small firmware artifact. Use the
+second command for an authorized upload. It checks branch and commit identity,
+fetches `origin/main`, confirms ancestry and the installed USB device, checks
+all image and configuration hashes, and invokes PlatformIO's guarded upload.
+The source archive is optional for archival and is separate from this path.
+The old Mac build-and-copy script `tools/flash_via_pi.py` has retired. Its hardware validation remains part of the artifact guard.
+
 Reuse `/home/pi/r1-dev/project/.pio/cloud-upload`, an ignored persistent
 artifact workspace. Do not create a fresh project and reinstall libraries on
 every upload. Download and validate the package before replacing workspace

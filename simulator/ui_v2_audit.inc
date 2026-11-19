@@ -55,12 +55,17 @@ bool TransmitterUi::runSimulatorV2Audit()
     if(!portraitUi){
         sensorSelected_=0;drawDesignPage(UiPage::SensorDetail);tap(30);assert(activePage_==UiPage::WidgetSelect);
         sensorSelected_=6;drawDesignPage(UiPage::SensorDetail);tap(30);assert(activePage_==UiPage::DriveBatterySetup);
-        sensorSelected_=2;nextSensorSampleMs_=millis()+100000;
-        for(unsigned i=0;i<30;++i){sensorHistory_[2][i]=7000+i*200;sensorHistoryValid_[2][i]=true;}
+        sensorSelected_=2;
+        auto &history=*telemetryHistory_.get();
+        const auto now=millis();
+        history.graphs[2].reset(now-31000);
+        for(unsigned i=0;i<30;++i){const auto time=now-(29-i)*1000;history.graphs[2].update(7000+i*200,time,true,time);}
         drawDesignPage(UiPage::SensorDetail);lv_obj_update_layout(lv_scr_act());tap(20);assert(v2GraphPaused_);
-        const auto frozen=v2FrozenHistory_[29];sensorHistory_[2][29]=50000;
-        updateDesign(t,OutputSafetyStatus::Cut,99,true);assert(v2FrozenHistory_[29]==frozen);
-        tap(21);assert(v2GraphCursor_==28);assert(strstr(lv_label_get_text(designDetails_[6]),"-1s:"));shot("graph");
+        assert(history.frozenValid[60] && history.frozen[60]==12800);
+        history.graphs[2].reset(now-31000);
+        history.graphs[2].update(50000,now,true,now);
+        updateDesign(t,OutputSafetyStatus::Cut,99,true);assert(history.frozen[60]==12800);
+        tap(21);assert(v2GraphCursor_==59);assert(strstr(lv_label_get_text(designDetails_[6]),"-1s:"));shot("graph");
         tap(20);assert(!v2GraphPaused_);assert(armRequested_&&!safetyResetRequested_);
     }
     controlDesign(61,activate);assert(activePage_==UiPage::Gps&&designMarker_&&designCurve_);shot("gps");
@@ -78,7 +83,8 @@ bool TransmitterUi::runSimulatorV2Audit()
     assert(armRequested_&&!safetyResetRequested_);
     assert(memcmp(&layout,&dashboardLayouts_[activeModelSlot_],sizeof(layout))==0);
     armRequested_=false;designTelemetry_=CrsfTelemetryState{};v2GraphPaused_=false;
-    nextSensorSampleMs_=0;memset(sensorHistoryValid_.data(),0,sensorHistoryValid_.bytes());
+    nextChannelSampleMs_=0;
+    if (telemetryHistory_) for (auto &history : telemetryHistory_.get()->graphs) history.reset(0);
     drawDashboard();
     Serial.println("V2 native: widget-only Drive, Controls/trim/RF widgets, Data run review, untouched saved layouts, GPS route, sensor shortcuts, graph freeze/cursor, per-model Quick persistence, run review and arm/CUT invariants PASS");
     return true;

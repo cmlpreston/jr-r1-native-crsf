@@ -1,8 +1,17 @@
-"""Verify Mac-tested upload artifacts on a source-free Pi USB flash host."""
+"""Verify tested XIAO landscape artifacts on the Pi USB flash host."""
 import hashlib
 import json
 from pathlib import Path
 import re
+
+
+SOURCE_FILES = ('platformio.ini', 'include/display_profile.h',
+                'tools/upload_preflight.py', 'tools/artifact_preflight.py', 'tools/flash_via_pi.py')
+
+
+def upload_files(environment):
+    build = f'.pio/build/{environment}'
+    return tuple(f'{build}/{name}' for name in ('firmware.bin', 'bootloader.bin', 'partitions.bin')) + SOURCE_FILES
 
 
 def verify(root, environment, board, targets, manifest_name):
@@ -13,14 +22,13 @@ def verify(root, environment, board, targets, manifest_name):
         raise ValueError('Artifacts are only approved for the installed XIAO landscape profile')
     manifest = json.loads((root / manifest_name).read_text())
     if manifest.get('environment') != environment or manifest.get('source_checks_passed') is not True:
-        raise ValueError('Missing matching Mac source/build/test attestation')
+        raise ValueError('Missing matching source/build/test attestation')
     if not manifest.get('branch') or not re.fullmatch('[0-9a-f]{40}', manifest.get('commit', '')):
-        raise ValueError('Missing Mac source identity')
+        raise ValueError('Missing build source identity')
     for key in ('source_snapshot_sha256', 'boot_app0_sha256'):
         if not re.fullmatch('[0-9a-f]{64}', manifest.get(key, '')):
             raise ValueError('Missing source snapshot or bootloader checksum')
-    required = {f'.pio/build/{environment}/{name}' for name in ('firmware.bin','bootloader.bin','partitions.bin')}
-    required.update({'platformio.ini','include/display_profile.h','tools/upload_preflight.py','tools/artifact_preflight.py','tools/flash_via_pi.py'})
+    required = set(upload_files(environment))
     if set(manifest.get('sha256', {})) != required:
         raise ValueError('Unexpected or missing artifact files')
     for name, expected in manifest['sha256'].items():
@@ -31,7 +39,7 @@ def verify(root, environment, board, targets, manifest_name):
     runpy.run_path(str(root / 'tools/flash_via_pi.py'))['validate_hardware'](root, environment)
     boot = Path.home()/'.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin'
     if hashlib.sha256(boot.read_bytes()).hexdigest() != manifest['boot_app0_sha256']:
-        raise ValueError('Pi framework boot_app0 differs from the tested Mac version')
+        raise ValueError('Pi framework boot_app0 differs from the tested build')
     return manifest
 
 

@@ -126,7 +126,7 @@ if "upload" in targets and not er4_upload and not er6g_upload:
                 return 0
             env.AddPreAction("upload", pre_upload_artifacts)
             print("JR R1 ARTIFACT UPLOAD PREFLIGHT: PASSED")
-            print("  Mac source: %s / %s" % (manifest["branch"], manifest["commit"]))
+            print("  Tested source: %s / %s" % (manifest["branch"], manifest["commit"]))
             print("  Pi: verified artifacts only; no source checkout or build")
         else:
             fetched = git(project_dir, "fetch", "--quiet", "origin", "main")

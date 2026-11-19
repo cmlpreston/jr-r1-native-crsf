@@ -163,12 +163,6 @@ constexpr DriveModeSelection kEditableDriveModeSelections[] = {
     DriveModeSelection::CutArm,
 };
 
-constexpr bool mainMenuItemEnabled(uint8_t index)
-{
-    return index == 0 || index == 1 || index == 2 || index == 3 || index == 4 ||
-           index == 5 || index == 6 || index == 7;
-}
-
 const char *modelNamespace(uint8_t slot, const char *legacy,
                            const char *suffix, char *buffer, size_t capacity)
 {
@@ -324,7 +318,7 @@ void flushDisplay(lv_disp_drv_t *driver, const lv_area_t *area,
     const int width = area->x2 - area->x1 + 1;
     const int height = area->y2 - area->y1 + 1;
     auto *rgb = reinterpret_cast<uint16_t *>(pixels);
-    SetupPortal::captureScreen(area->x1,area->y1,width,height,rgb);
+    SetupPortal::captureScreen(area->x1,area->y1,width,height,rgb,lv_disp_flush_is_last(driver));
     uiMetrics.rendered += width * height;
     if (!lcdTransportReady) {
         lv_disp_flush_ready(driver);
@@ -860,6 +854,9 @@ bool TransmitterUi::resetDisplayTransferStats()
 
 #include "transmitter_ui_timer.inc"
 #include "transmitter_ui_ers.inc"
+#include "transmitter_ui_sensor_data.inc"
+#include "transmitter_ui_settings_actions.inc"
+#include "transmitter_ui_binding_actions.inc"
 #include "transmitter_ui_design.inc"
 #include "transmitter_ui_widget_metrics.inc"
 #include "transmitter_ui_gps_widget.inc"
@@ -885,9 +882,8 @@ bool TransmitterUi::initializeTelemetryHistory()
 #endif
     if(!available){Serial.println("UI MEMORY: histories unavailable; live readings retained");return false;}
     auto *history=telemetryHistory_.get();
-    v2FrozenHistory_.attach(history->frozen);v2FrozenValid_.attach(history->frozenValid);
-    channelHistory_.attach(history->channels);sensorHistory_.attach(history->sensors);
-    sensorHistoryValid_.attach(history->valid);sensorStatistics_.attach(history->statistics);
+    channelHistory_.attach(history->channels);
+    sensorStatistics_.attach(history->statistics);
     return true;
 }
 
@@ -1192,7 +1188,7 @@ bool TransmitterUi::captureScreenshot(Stream &output)
 void TransmitterUi::resetLvglObjects()
 {
     standardDetailHeader=false;
-    sectionNavigationVisible_=false;detailContentCompacted_=false;
+    sectionNavigationVisible_=false;
     steeringEndpointButtons_[0]=steeringEndpointButtons_[1]=editorStepButton_=editorValueLabel_=nullptr;
     driveProgress_=driveHint_=driveIcon_=nullptr;
     wifiKeyPreview_ = nullptr;
@@ -1205,7 +1201,7 @@ void TransmitterUi::resetLvglObjects()
     mixingCurve_=mixingCursor_=mixingSentCursor_=mixingSummary_=nullptr;
     memset(mixingCurvePoints_,0,sizeof(mixingCurvePoints_));
     designStatus_ = designLink_ = designCurve_ = designMarker_ = nullptr;
-    v2GraphCursorLine_=nullptr;
+    v2GraphCursorLine_=sensorDetailChart_=nullptr;
     armProgress_=nullptr;
     driveHoldOverlay_=driveHoldLabel_=driveHoldBar_=nullptr;
     adjustmentOverlay_=nullptr;
@@ -1217,7 +1213,6 @@ void TransmitterUi::resetLvglObjects()
     pageFocusIndicator_ = nullptr;
     pageFocusCount_ = 0;
     pageFocusIndex_ = 0;
-    for (lv_obj_t *&button : mainMenuButtons_) button = nullptr;
     for (lv_obj_t *&bar : dashboardChannelBars_) bar = nullptr;
     for (lv_obj_t *&marker : dashboardChannelMarkers_) marker = nullptr;
     for (lv_obj_t *&label : dashboardChannelValueLabels_) label = nullptr;
@@ -1437,13 +1432,12 @@ bool TransmitterUi::selectModelMemory(uint8_t slot, bool discardUnsaved)
         auto &metrics=*widgetMetrics_.get();metrics.controls.reset();
         metrics.controlSessionAfterMs=millis();metrics.controlSessionGuard=true;
     }
-    gpsCount_ = sensorHistoryCount_ = 0;++gpsTrailRevision_;
+    gpsCount_ = channelHistoryCount_ = 0;++gpsTrailRevision_;
+    v2GraphPaused_ = false;
     for(auto &statistics:sensorStatistics_)statistics=SensorStatistics{};
     gpsLastSampleMs_ = designTelemetry_.gpsUpdatedMs;
-    if(telemetryHistory_)memset(sensorHistoryValid_.data(), 0, sensorHistoryValid_.bytes());
     if(telemetryHistory_)for(uint8_t sensor=0;sensor<DashboardSensorCount;++sensor){
-        int32_t value=0;uint32_t stamp=0;sensorReading(designTelemetry_,sensor,value,stamp);
-        telemetryHistory_.get()->graphs[sensor].reset(stamp);
+        telemetryHistory_.get()->graphs[sensor].reset(sensorReading(designTelemetry_,sensor,millis()).stamp);
     }
     activeModelSlot_ = slot;
     timerLastSavedOn_=timers_[slot].settings.onSeconds;
@@ -2938,22 +2932,13 @@ bool TransmitterUi::applyTransmitterFunctionAction(uint16_t targetId, int16_t va
             if (activePage_ == UiPage::Dashboard) drawDashboard();
             return true;
         case TransmitterFunction::MenuPrevious:
-            if (value > 0) {
-                if (activePage_ == UiPage::MainMenu && !designPage()) moveMainMenuFocus(-1);
-                else movePageFocus(-1);
-            }
+            if (value > 0) movePageFocus(-1);
             return true;
         case TransmitterFunction::MenuNext:
-            if (value > 0) {
-                if (activePage_ == UiPage::MainMenu && !designPage()) moveMainMenuFocus(1);
-                else movePageFocus(1);
-            }
+            if (value > 0) movePageFocus(1);
             return true;
         case TransmitterFunction::MenuSelect:
-            if (value > 0) {
-                if (activePage_ == UiPage::MainMenu && !designPage()) activateMainMenuFocus();
-                else activatePageFocus();
-            }
+            if (value > 0) activatePageFocus();
             return true;
         case TransmitterFunction::MenuBack:
             if (value > 0) navigateBack();
@@ -3220,62 +3205,6 @@ void TransmitterUi::drawMainMenu()
     drawDesignPage(UiPage::MainMenu);
 }
 
-void TransmitterUi::refreshMainMenuFocus()
-{
-    for (uint8_t index = 0; index < 8; ++index) {
-        if (mainMenuButtons_[index] == nullptr) continue;
-        const bool focused = index == mainMenuFocusIndex_ &&
-                             mainMenuItemEnabled(index);
-        lv_obj_set_style_border_color(mainMenuButtons_[index],
-            colour(focused ? cCyan : (mainMenuItemEnabled(index) ? cLine : cDim)), 0);
-        lv_obj_set_style_border_width(mainMenuButtons_[index], focused ? 3 : 1, 0);
-    }
-}
-
-void TransmitterUi::moveMainMenuFocus(int8_t direction)
-{
-    if (activePage_ != UiPage::MainMenu) return;
-    uint8_t candidate = mainMenuFocusIndex_;
-    for (uint8_t attempts = 0; attempts < 8; ++attempts) {
-        candidate = static_cast<uint8_t>(
-            (static_cast<int>(candidate) + direction + 8) % 8);
-        if (mainMenuItemEnabled(candidate)) {
-            mainMenuFocusIndex_ = candidate;
-            refreshMainMenuFocus();
-            playKeyClick();
-            return;
-        }
-    }
-}
-
-void TransmitterUi::activateMainMenuFocus()
-{
-    if (activePage_ != UiPage::MainMenu ||
-        !mainMenuItemEnabled(mainMenuFocusIndex_)) return;
-    playKeyClick();
-    switch (mainMenuFocusIndex_) {
-        case 0: drawModelSelectPage(); break;
-        case 1: drawChannelsPage(); break;
-        case 2:
-            selectedChannel_ = channelRoleSettings_.throttleChannel;
-            throttleResponseReturnPage_ = UiPage::MainMenu;
-            drawThrottleResponsePage();
-            break;
-        case 3: drawControlAssignmentsPage(); break;
-        case 4:
-            driveModesReturnPage_ = UiPage::MainMenu;
-            drawDriveModesPage();
-            break;
-        case 5: drawEscProgrammingPage(); break;
-        case 6:
-            txConfig_.start(millis());
-            txConfigFolder_ = txConfigOffset_ = txConfigSelected_ = 0;
-            drawElrsTxConfigPage(); break;
-        case 7: drawSetupPage(); break;
-        default: break;
-    }
-}
-
 void TransmitterUi::drawModelSelectPage()
 {
     drawDesignPage(UiPage::ModelSelect);
@@ -3514,7 +3443,6 @@ void TransmitterUi::finishPageFocus()
                 const int bottom=44+(r.y+r.height-44)*numerator/denominator;
                 r.y=44+(r.y-44)*numerator/denominator;r.height=bottom-r.y;}};
             for(uint8_t i=0;i<pageFocusCount_;++i){auto &t=pageFocusTargets_[i];fit(t.focus);fit(t.activate);fit(t.decrease);fit(t.increase);}
-            detailContentCompacted_=true;
             if(activePage_==UiPage::InputMonitor)
                 drawPageControls(inputMonitorBank_,(kPhysicalControlCount+4)/5);
             drawSectionNavigation(activePage_==UiPage::RadioDiagnostics || (activePage_==UiPage::InputMonitor && inputMonitorReturnPage_==UiPage::Telemetry)?2:3);
@@ -3654,25 +3582,6 @@ void TransmitterUi::controlChannelRoles(uint8_t row,PageControlEvent event)
     channelRolesChanged_=true;requestConfigurationCut();saveChannelRoleSettings();playKeyClick();drawChannelRolesPage();
 }
 
-void TransmitterUi::controlTxBattery(uint8_t row, PageControlEvent event)
-{
-    if (row == 0 && event == PageControlEvent::Decrease) {
-        uint8_t chemistry = static_cast<uint8_t>(txBatterySettings_.chemistry);
-        chemistry = static_cast<uint8_t>((chemistry + 3) % 4);
-        txBatterySettings_.chemistry = static_cast<BatteryChemistry>(chemistry);
-        txBatterySettings_.cellCount = min(txBatterySettings_.cellCount,
-            maximumCellsFor(txBatterySettings_.chemistry));
-        txBatterySettings_.lowAlarmDecivolts = defaultLowAlarmDecivolts(
-            txBatterySettings_.chemistry, txBatterySettings_.cellCount);
-        saveTxBatterySettings();
-        playKeyClick();
-        drawTxBatteryPage();
-        return;
-    }
-    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
-    handleTxBatteryTouch(x, 78 + row * 50);
-}
-
 void TransmitterUi::controlRxBattery(uint8_t row, PageControlEvent event)
 {
     if(row>3)return;
@@ -3692,25 +3601,6 @@ void TransmitterUi::controlRxBattery(uint8_t row, PageControlEvent event)
     saveRxBatterySettings();playKeyClick();drawRxBatteryPage();
 }
 
-void TransmitterUi::controlDisplay(uint8_t row, PageControlEvent event)
-{
-    if (row == 10 && displaySetupBank_ > 0) {
-        --displaySetupBank_;
-        playKeyClick();
-        drawDisplayPage();
-        return;
-    }
-    if (row == 11 && displaySetupBank_ < 1) {
-        ++displaySetupBank_;
-        playKeyClick();
-        drawDisplayPage();
-        return;
-    }
-    if(row==5){requestDisplayRotation();return;}
-    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
-    handleDisplayTouch(x, 78 + (row % 4) * 50);
-}
-
 void TransmitterUi::controlClock(uint8_t row, PageControlEvent event)
 {
     if(activePage_!=UiPage::ClockSetup)return;
@@ -3727,75 +3617,6 @@ void TransmitterUi::controlClock(uint8_t row, PageControlEvent event)
     saveSystemSettings();playKeyClick();drawDesignPage(UiPage::ClockSetup);
 }
 
-void TransmitterUi::controlModels(uint8_t item, PageControlEvent)
-{
-    if (item < 5) {
-        const uint8_t slot = modelSelectBank_ * 5 + item;
-        if (slot == activeModelSlot_) return;
-        playKeyClick();
-        selectModelMemory(slot);
-        drawModelSelectPage();
-    } else if (item == 10 && modelSelectBank_ > 0) {
-        --modelSelectBank_;
-        modelSelectStatus_[0] = '\0';
-        playKeyClick();
-        drawModelSelectPage();
-    } else if (item == 11 && modelSelectBank_ < 1) {
-        ++modelSelectBank_;
-        modelSelectStatus_[0] = '\0';
-        playKeyClick();
-        drawModelSelectPage();
-    }
-}
-
-void TransmitterUi::controlBindingEditor(uint8_t field, PageControlEvent event)
-{
-    if(field>=8&&field<=11){bindingEditorBank_=field-8;playKeyClick();drawBindingEditorPage();return;}
-    if(field>=12&&field<=17){
-        if(bindingDraft_.target!=AssignmentTarget::CrsfChannel&&bindingDraft_.target!=AssignmentTarget::ModelParameter)return;
-        const bool parameter=bindingDraft_.target==AssignmentTarget::ModelParameter;
-        const int limit=parameter?200:1000,delta=event==PageControlEvent::Decrease?-10:10;
-        auto bounded=[](int value,int low,int high){return static_cast<int16_t>(value<low?low:value>high?high:value);};
-        if(field==12)bindingDraft_.minimum=bounded(bindingDraft_.minimum+delta,-limit,bindingDraft_.maximum);
-        if(field==13)bindingDraft_.maximum=bounded(bindingDraft_.maximum+delta,bindingDraft_.minimum,limit);
-        if(field==14)bindingDraft_.step=bounded(bindingDraft_.step+delta,1,2*limit);
-        if(field==15&&!parameter)bindingDraft_.initial=bounded(bindingDraft_.initial+delta,bindingDraft_.minimum,bindingDraft_.maximum);
-        if(field==16&&!parameter)bindingDraft_.failsafe=bounded(bindingDraft_.failsafe+delta,bindingDraft_.minimum,bindingDraft_.maximum);
-        if(field==17)bindingDraft_.inverted=!bindingDraft_.inverted;
-        bindingError_[0]='\0';playKeyClick();drawBindingEditorPage();return;
-    }
-    // Function and drive-mode behaviour is derived from the selected action.
-    if(field==3&&bindingDraft_.target!=AssignmentTarget::CrsfChannel&&
-       bindingDraft_.target!=AssignmentTarget::ModelParameter)return;
-    if (field == 0) {
-        handleBindingEditorTouch(400, 101);
-    } else if (field >= 1 && field <= 4) {
-        const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
-        handleBindingEditorTouch(x, 136 + (field - 1) * 34);
-    } else if (field == 5) {
-        handleBindingEditorTouch(80, 290);
-    } else if (field == 6) {
-        handleBindingEditorTouch(220, 290);
-    } else if (field == 7) {
-        handleBindingEditorTouch(390, 290);
-    }
-}
-
-void TransmitterUi::controlChannels(uint8_t item, PageControlEvent)
-{
-    if (item < 8) {
-        selectedChannel_ = channelsBank_ * 8 + item + 1;
-        playKeyClick();
-        drawChannelPlaceholder();
-    } else if (item == 8 && channelsBank_ > 0) {
-        --channelsBank_; playKeyClick(); drawChannelsPage();
-    } else if (item == 9 && channelsBank_ < 1) {
-        ++channelsBank_; playKeyClick(); drawChannelsPage();
-    } else if (item == 10) {
-        playKeyClick(); drawChannelRolesPage();
-    } else playBuzzer(35);
-}
-
 void TransmitterUi::controlAssignments(uint8_t item, PageControlEvent)
 {
     constexpr uint8_t kRows = 5;
@@ -3810,29 +3631,6 @@ void TransmitterUi::controlAssignments(uint8_t item, PageControlEvent)
         inputMonitorReturnPage_=UiPage::ControlAssignments;inputMonitorBank_ = 0; playKeyClick(); drawInputMonitorPage();
     } else if (item == 8 && assignmentBank_ + 1 < kBanks) {
         ++assignmentBank_; playKeyClick(); drawControlAssignmentsPage();
-    } else playBuzzer(35);
-}
-
-void TransmitterUi::controlDriveMode(uint8_t item, PageControlEvent event)
-{
-    if (item < 2) {
-        handleDriveModesTouch(item == 0 ? 150 : 330, 95);
-        return;
-    }
-    const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
-    handleDriveModesTouch(x, 185);
-}
-
-void TransmitterUi::controlSetup(uint8_t item, PageControlEvent event)
-{
-    if (item < 4) {
-        const int16_t x = event == PageControlEvent::Decrease ? 375 : 430;
-        handleSetupTouch(x, 78 + item * 50);
-    } else if (item < 8) {
-        static const int16_t x[] = {54, 160, 282, 408};
-        handleSetupTouch(x[item - 4], 287);
-    } else if (item == 8) {
-        playKeyClick(); drawFirmwareInfoPage();
     } else playBuzzer(35);
 }
 
@@ -4014,52 +3812,6 @@ void TransmitterUi::controlChannelSpeed(uint8_t row,PageControlEvent event)
     scheduleSettingsSave();
     playKeyClick();
     drawChannelSpeedPage();
-}
-
-void TransmitterUi::controlDashboard(uint8_t item, PageControlEvent)
-{
-    if (item >= 5) return;
-    const int x[5]={portraitUi?295:452,portraitUi?43:62,portraitUi?121:178,portraitUi?199:294,portraitUi?277:414};
-    const int y[5]={portraitUi?22:20,portraitUi?437:280,portraitUi?437:280,portraitUi?437:280,portraitUi?437:280};
-    handleDashboardTouch(x[item], y[item]);
-}
-
-void TransmitterUi::controlChannelConfig(uint8_t item, PageControlEvent event)
-{
-    if(item==5) {
-        mixingDraft_=channelModel_.mixing[selectedChannel_-1];mixingBank_=0;mixingSaveError_=false;mixingLiveInputs_=true;
-        drawChannelMixing();return;
-    }
-    if (item == 4) {
-        assignmentChannelContext_ = selectedChannel_;
-        assignmentBank_ = 0;
-        if (channelHasProportionalControl(selectedChannel_)) {
-            channelInputPage_=0;drawDesignPage(UiPage::ChannelInput); return;
-        }
-        for(size_t i=0;i<bindingCount_;++i) {
-            if(bindings_[i].target==AssignmentTarget::CrsfChannel &&
-               bindings_[i].crsfChannel==selectedChannel_) {
-                selectedBindingInput_=bindings_[i].input;
-                bindingDraft_=bindings_[i];bindingError_[0]='\0';bindingEditorBank_=0;
-                assignmentBank_=static_cast<size_t>(selectedBindingInput_)/5;
-                drawBindingEditorPage();return;
-            }
-        }
-        drawControlAssignmentsPage();return;
-    }
-    if (item < 2) {
-        const int16_t x = event == PageControlEvent::Decrease ? 373 : 427;
-        handleChannelConfigTouch(x, 104 + item * 66);
-    } else if (item == 2) {
-        handleChannelConfigTouch(170, 272);
-    } else if (item == 3) {
-        handleChannelConfigTouch(340, 272);
-    }
-}
-
-void TransmitterUi::controlInputMonitor(uint8_t item, PageControlEvent)
-{
-    handleInputMonitorTouch(item == 0 ? 40 : 440, 291);
 }
 
 void TransmitterUi::controlElrsBinding(uint8_t item,PageControlEvent event)
@@ -4292,6 +4044,8 @@ void TransmitterUi::drawBindingEditorPage()
 
 void TransmitterUi::drawBindingEditorContent()
 {
+    using Action = BindingEditorAction;
+    const auto code = [](Action action) { return static_cast<uint8_t>(action); };
     const auto &control=physicalControlDescriptor(static_cast<size_t>(selectedBindingInput_));
     const bool parameter=bindingDraft_.target==AssignmentTarget::ModelParameter&&isChannelParameterTarget(bindingDraft_.targetId);
     const bool editableMode=parameter||bindingDraft_.target==AssignmentTarget::CrsfChannel;
@@ -4301,26 +4055,27 @@ void TransmitterUi::drawBindingEditorContent()
     const uint8_t banks=editableMode?4:2;
     if(bindingEditorBank_>=banks)bindingEditorBank_=0;
     const char *tabs[]={"Assign","Mode","Range","State"};
-    const uint8_t actions[]={8,9,10,11};
+    const uint8_t actions[]={code(Action::AssignTab),code(Action::ModeTab),code(Action::RangeTab),code(Action::StateTab)};
     drawPageTabs(tabs,actions,banks,bindingEditorBank_,&TransmitterUi::controlBindingEditor,tabsY);
-    auto field=[&](int row,uint8_t id,const char *title,const char *value){
+    auto field=[&](int row,Action action,const char *title,const char *value){
         const int y=(portraitUi?150:126)+row*(portraitUi?64:44),h=(portraitUi?64:44)-kPanelGap;
-        if(id==255)drawMenuRow(title,value,y,h,nullptr,0,false);
-        else drawSettingsRow(title,value,y,h,&TransmitterUi::controlBindingEditor,id,id!=0&&id!=17);
+        if(action==Action::ReadOnly)drawMenuRow(title,value,y,h,nullptr,0,false);
+        else drawSettingsRow(title,value,y,h,&TransmitterUi::controlBindingEditor,code(action),
+            action!=Action::Enable&&action!=Action::Inverted);
     };
     if(!bindingEditorBank_){
-        field(0,0,"Enabled",bindingDraft_.enabled?"On":"Off");
-        field(1,1,"Target",assignmentTargetName(bindingDraft_.target));
+        field(0,Action::Enable,"Enabled",bindingDraft_.enabled?"On":"Off");
+        field(1,Action::Target,"Target",assignmentTargetName(bindingDraft_.target));
         char detail[48];const char *title="Output channel";
         if(bindingDraft_.target==AssignmentTarget::TransmitterFunction){title="Function";snprintf(detail,sizeof(detail),"%s",transmitterFunctionName(static_cast<TransmitterFunction>(bindingDraft_.targetId)));}
         else if(bindingDraft_.target==AssignmentTarget::DriveMode){title="Drive mode";snprintf(detail,sizeof(detail),"%s",driveModeSelectionName(static_cast<DriveModeSelection>(bindingDraft_.targetId)));}
         else snprintf(detail,sizeof(detail),"CH%u",parameter?channelParameterTargetChannel(bindingDraft_.targetId):bindingDraft_.crsfChannel);
-        field(2,2,title,detail);
+        field(2,Action::TargetValue,title,detail);
     }else if(bindingEditorBank_==1){
         int row=0;
-        if(editableMode)field(row++,3,parameter?"Parameter":"Switch / button mode",parameter?
+        if(editableMode)field(row++,Action::Mode,parameter?"Parameter":"Switch / button mode",parameter?
             channelParameterKindName(channelParameterTargetKind(bindingDraft_.targetId)):controlBehaviourName(bindingDraft_.behaviour));
-        field(row++,4,"Active when",controlContextName(bindingDraft_.contexts));
+        field(row++,Action::Context,"Active when",controlContextName(bindingDraft_.contexts));
         const char *help="";
         switch(bindingDraft_.contexts){
             case ContextAlways:help="Available in menus and while driving.";break;
@@ -4335,29 +4090,29 @@ void TransmitterUi::drawBindingEditorContent()
         if(!editableMode)makeLabel(lv_scr_act(),"Mode follows the chosen function / switch.",14,portraitUi?290:216,UiText::Caption,cDim);
     }
     if(bindingEditorBank_>=2){
-        auto percent=[&](int row,uint8_t id,const char *title,int value){char text[32];snprintf(text,sizeof(text),"%+.1f%%",value/10.0);field(row,id,title,text);};
+        auto percent=[&](int row,Action action,const char *title,int value){char text[32];snprintf(text,sizeof(text),"%+.1f%%",value/10.0);field(row,action,title,text);};
         if(bindingEditorBank_==2){
-            percent(0,12,"Minimum / switch low",bindingDraft_.minimum);
-            percent(1,13,"Maximum / switch high",bindingDraft_.maximum);
-            percent(2,14,"Step (stepped controls)",bindingDraft_.step);
+            percent(0,Action::Minimum,"Minimum / switch low",bindingDraft_.minimum);
+            percent(1,Action::Maximum,"Maximum / switch high",bindingDraft_.maximum);
+            percent(2,Action::Step,"Step (stepped controls)",bindingDraft_.step);
         }else{
             if(parameter){
-                field(0,255,"Start / fault","Uses saved trim");
-                field(1,255,"Trim outside range?","Adjust trim before Apply");
+                field(0,Action::ReadOnly,"Start / fault","Uses saved trim");
+                field(1,Action::ReadOnly,"Trim outside range?","Adjust trim before Apply");
             }else{
-                percent(0,15,"Starting value",bindingDraft_.initial);
-                percent(1,16,"Input fault value",bindingDraft_.failsafe);
+                percent(0,Action::Initial,"Starting value",bindingDraft_.initial);
+                percent(1,Action::Failsafe,"Input fault value",bindingDraft_.failsafe);
             }
-            field(2,17,"Reverse control",bindingDraft_.inverted?"On":"Off");
+            field(2,Action::Inverted,"Reverse control",bindingDraft_.inverted?"On":"Off");
         }
     }
     boundedLabel(makeLabel(lv_scr_act(),bindingError_[0]?bindingError_:"Draft only. Apply forces CUT; re-enable at neutral.",
         14,portraitUi?392:259,UiText::Caption,bindingError_[0]?cRed:cAmber),kScreenWidth-28);
     const int bottom=portraitUi?416:274,h=portraitUi?40:34;
-    makePageActionButton(12,bottom,portraitUi?92:138,h,"Cancel",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlBindingEditor,5);
+    makePageActionButton(12,bottom,portraitUi?92:138,h,"Cancel",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlBindingEditor,code(Action::Cancel));
     if(bindingIndexForInput(selectedBindingInput_)>=0)
-        makePageActionButton(portraitUi?110:160,bottom,portraitUi?92:138,h,"Remove",UiText::Secondary,cPanel,cAmber,cLine,&TransmitterUi::controlBindingEditor,6);
-    makePageActionButton(portraitUi?208:308,bottom,portraitUi?100:160,h,"Apply",UiText::Secondary,cGreen,cBlack,cLine,&TransmitterUi::controlBindingEditor,7);
+        makePageActionButton(portraitUi?110:160,bottom,portraitUi?92:138,h,"Remove",UiText::Secondary,cPanel,cAmber,cLine,&TransmitterUi::controlBindingEditor,code(Action::Remove));
+    makePageActionButton(portraitUi?208:308,bottom,portraitUi?100:160,h,"Apply",UiText::Secondary,cGreen,cBlack,cLine,&TransmitterUi::controlBindingEditor,code(Action::Apply));
 }
 
 void TransmitterUi::drawInputMonitorPage()
@@ -4763,19 +4518,6 @@ void TransmitterUi::controlElrsTxConfig(uint8_t item, PageControlEvent)
     playKeyClick(); drawElrsTxConfigPage();
 }
 
-void TransmitterUi::handleElrsTxConfigTouch(int16_t x,int16_t y)
-{
-    if (headerActionTouched(x,y)) { leaveElrsTxConfig(); return; }
-    if (y>=kScreenHeight-40) {
-        if (txConfigSelected_) controlElrsTxConfig(x<kScreenWidth/2 ? 10 : 11,PageControlEvent::Activate);
-        else controlElrsTxConfig(4+constrain((x-8)/((kScreenWidth-16)/4),0,3),PageControlEvent::Activate);
-    } else if (txConfigSelected_ && y>=192 && y<226) {
-        controlElrsTxConfig(x<kScreenWidth/2 ? 8 : 9,PageControlEvent::Activate);
-    } else if (!txConfigSelected_ && y>=100 && y<252) {
-        controlElrsTxConfig((y-100)/38,PageControlEvent::Activate);
-    }
-}
-
 void TransmitterUi::drawElrsBindingPage()
 {
     if(activePage_!=UiPage::ElrsBinding)elrsPhraseEditing_=false;
@@ -5087,159 +4829,6 @@ bool TransmitterUi::readTouch(int16_t &x, int16_t &y, uint16_t &rawX,
 #endif
 }
 
-void TransmitterUi::handleDashboardTouch(int16_t x, int16_t y)
-{
-if(portraitUi) {
-    if (y < 44) {
-        if (x >= 272) {
-            playKeyClick(); drawMainMenu();
-        } else if (lastSafetyStatus_ == OutputSafetyStatus::Armed) {
-            requestConfigurationCut();
-            playBuzzer(180);
-            lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
-        } else if (lastTouchDurationMs_ >= kDashboardArmHoldMs) {
-            armRequested_ = !escProgrammer_.blocksArm();
-            safetyResetRequested_ = true;
-            playBuzzer(80);
-            lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
-        }
-    } else if (y >= 398) {
-        if (x < 82) { playKeyClick(); drawMainMenu(); }
-        else if (x < 160) { playKeyClick(); drawTelemetryPage(); }
-        else {
-            driveModesReturnPage_ = UiPage::Dashboard;
-            playKeyClick(); drawDriveModesPage();
-        }
-    }
-    return;
-}
-    if ((y < 45 && x >= 415) || (y >= 245 && x < 120)) { playKeyClick(); drawMainMenu(); }
-    else if (y >= 245 && x >= 120 && x < 236) { playKeyClick(); drawTelemetryPage(); }
-    else if (y >= 245 && x >= 236 && x < 352) {
-        driveModesReturnPage_ = UiPage::Dashboard;
-        playKeyClick(); drawDriveModesPage();
-    }
-    else if (y >= 245 && x >= 352) {
-        driveModesReturnPage_ = UiPage::Dashboard;
-        playKeyClick(); drawDriveModesPage();
-    }
-    else if (x >= 310 && y >= 45 && y < 140) {
-        if (!channelRoleSettings_.throttleEnabled) {
-            playKeyClick();
-            driveModesReturnPage_ = UiPage::Dashboard;
-            drawDriveModesPage();
-        } else {
-            armRequested_ = !armRequested_ && !escProgrammer_.blocksArm();
-            safetyResetRequested_ = true;
-            playBuzzer(armRequested_ ? 80 : 180);
-            lastSafetyStatus_ = OutputSafetyStatus::ControlStale;
-        }
-    }
-}
-
-void TransmitterUi::handleTelemetryTouch(int16_t x, int16_t y)
-{
-    if (headerActionTouched(x, y)) {
-        playKeyClick();
-        drawDashboard();
-    }
-}
-
-void TransmitterUi::handleMainMenuTouch(int16_t x, int16_t y)
-{
-if(portraitUi) {
-    {
-    if (x < 5 || x >= 315 || y < 52 || y >= 436) return;
-    const int item = (y - 52) / 48;
-    if (item < 0 || item >= 8 || !mainMenuItemEnabled(item)) return;
-    mainMenuFocusIndex_ = static_cast<uint8_t>(item);
-    activateMainMenuFocus();
-    return;
-    }
-}
-    if (x < 5 || x >= 475 || y < 52 || y >= 270) return;
-    const int item = ((y - 52) / 54) * 2 + (x >= 240 ? 1 : 0);
-    if (item < 0 || item >= 8 || !mainMenuItemEnabled(item)) return;
-    mainMenuFocusIndex_ = static_cast<uint8_t>(item);
-    activateMainMenuFocus();
-}
-
-void TransmitterUi::handleModelSelectTouch(int16_t x, int16_t y)
-{
-    if (headerActionTouched(x, y)) {
-        playKeyClick();
-        drawMainMenu();
-        return;
-    }
-    if (y >= 52 && y < 257) {
-        controlModels(static_cast<uint8_t>((y - 52) / 41),
-                      PageControlEvent::Activate);
-    } else if (y >= 270 && x < 80) {
-        controlModels(10, PageControlEvent::Activate);
-    } else if (y >= 270 && x >= 400) {
-        controlModels(11, PageControlEvent::Activate);
-    }
-}
-
-void TransmitterUi::handleChannelsTouch(int16_t x, int16_t y)
-{
-    if (y < 48 && x >= 250 && x < 340) {
-        playKeyClick(); drawChannelRolesPage(); return;
-    }
-    if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
-    if (y >= 270) {
-        if (x < 90 && channelsBank_ > 0) { --channelsBank_; playKeyClick(); drawChannelsPage(); }
-        else if (x >= 390 && channelsBank_ < 1) { ++channelsBank_; playKeyClick(); drawChannelsPage(); }
-        return;
-    }
-    if (y < 52 || y >= 264) return;
-    selectedChannel_ = channelsBank_ * 8 + ((y - 52) / 52) * 2 + (x >= 240 ? 1 : 0) + 1;
-    playKeyClick();
-    drawChannelPlaceholder();
-}
-
-void TransmitterUi::handleChannelConfigTouch(int16_t x, int16_t y)
-{
-    if (headerActionTouched(x, y)) {
-        playKeyClick(); drawChannelsPage(); return;
-    }
-    if (y >= 244 && y < 304) {
-        if (selectedChannel_ == channelRoleSettings_.throttleChannel &&
-            x >= 42 && x < 232) {
-            playKeyClick(); drawPage(); return;
-        }
-        if (selectedChannel_ == channelRoleSettings_.steeringChannel &&
-            x >= 42 && x < 232) {
-            playKeyClick();
-            startCalibration(latestSteeringRawAdc_, true);
-            return;
-        }
-        if (x >= 232 &&
-            x < 438) {
-            throttleResponseReturnPage_ = UiPage::ChannelPlaceholder;
-            playKeyClick(); drawThrottleResponsePage(); return;
-        }
-    }
-    if (x < 340 || y < 72 || y >= 212) return;
-    const uint8_t row = static_cast<uint8_t>((y - 76) / 66);
-    if (row > 1) return;
-    const ChannelParameterKind kind = row == 0
-        ? ChannelParameterKind::Trim : ChannelParameterKind::Subtrim;
-    const PhysicalControlId next = adjacentChannelParameterControl(
-        selectedChannel_, kind, x < 400 ? -1 : 1);
-    if (assignChannelParameterControl(selectedChannel_, kind, next)) {
-        playKeyClick();
-        drawChannelPlaceholder();
-    } else {
-        playBuzzer(180);
-    }
-}
-
-void TransmitterUi::handleControlAssignmentsTouch(int16_t x, int16_t y)
-{
-    dispatchPageControlTouch(x,y);
-}
-
 void TransmitterUi::openControlAssignment(size_t inputIndex)
 {
     if (inputIndex >= kPhysicalControlCount) return;
@@ -5258,261 +4847,6 @@ void TransmitterUi::openControlAssignment(size_t inputIndex)
         bindingDraft_.crsfChannel = assignmentChannelContext_ ? assignmentChannelContext_ : adjacentBindingChannel(2, 1);
     bindingError_[0] = '\0';bindingEditorBank_=0;
     drawBindingEditorPage();
-}
-
-void TransmitterUi::handleBindingEditorTouch(int16_t x, int16_t y)
-{
-    if (headerActionTouched(x, y) || (y >= 270 && x < 150)) {
-        playKeyClick(); drawControlAssignmentsPage(); return;
-    }
-    const PhysicalControlKind kind = physicalControlDescriptor(
-        static_cast<size_t>(selectedBindingInput_)).kind;
-    const bool parameter = bindingDraft_.target == AssignmentTarget::ModelParameter &&
-        isChannelParameterTarget(bindingDraft_.targetId);
-    if (y >= 85 && y < 118 && x >= 330) {
-        bindingDraft_.enabled = !bindingDraft_.enabled;
-    } else if (y >= 119 && y < 152 && x >= 330) {
-        const int8_t direction = x < 400 ? -1 : 1;
-        const AssignmentTarget next = adjacentBindingTarget(
-            kind, bindingDraft_.target, direction);
-        if (next == AssignmentTarget::CrsfChannel) {
-            bindingDraft_.target = AssignmentTarget::CrsfChannel;
-            bindingDraft_.targetId = 0;
-            bindingDraft_.crsfChannel = assignmentChannelContext_ ? assignmentChannelContext_ : adjacentBindingChannel(2, 1);
-            bindingDraft_.behaviour = kind == PhysicalControlKind::MaintainedSwitch
-                ? ControlBehaviour::TwoPosition
-                : kind == PhysicalControlKind::SpringCentredTrim
-                ? ControlBehaviour::SpringReturnThreePosition
-                : ControlBehaviour::Momentary;
-            bindingDraft_.event = kind == PhysicalControlKind::SpringCentredTrim
-                ? InputEvent::PositivePress : InputEvent::Pressed;
-            bindingDraft_.minimum = -1000;
-            bindingDraft_.maximum = 1000;
-            bindingDraft_.step = 50;
-            bindingDraft_.initial = 0;
-            bindingDraft_.failsafe = 0;
-            bindingDraft_.persistent = false;
-        } else if (next == AssignmentTarget::ModelParameter) {
-            const uint8_t channel = selectedBindingInput_ ==
-                    PhysicalControlId::ThrottleTrim
-                ? channelRoleSettings_.throttleChannel
-                : selectedBindingInput_ == PhysicalControlId::Aux3Trim
-                ? static_cast<uint8_t>(3)
-                : channelRoleSettings_.steeringChannel;
-            bindingDraft_.target = AssignmentTarget::ModelParameter;
-            bindingDraft_.targetId = encodeChannelParameterTarget(
-                channel, ChannelParameterKind::Trim);
-            bindingDraft_.crsfChannel = 0;
-            bindingDraft_.behaviour = ControlBehaviour::Stepped;
-            bindingDraft_.event = InputEvent::PositivePress;
-            bindingDraft_.minimum = -kChannelParameterLimitPermille;
-            bindingDraft_.maximum = kChannelParameterLimitPermille;
-            bindingDraft_.step = 10;
-            bindingDraft_.initial = channelParameterValue(
-                channel, ChannelParameterKind::Trim);
-            bindingDraft_.failsafe = bindingDraft_.initial;
-            bindingDraft_.persistent = true;
-        } else if (next == AssignmentTarget::TransmitterFunction) {
-            bindingDraft_.target = next;
-            bindingDraft_.targetId = static_cast<uint16_t>(
-                TransmitterFunction::OpenMenu);
-            bindingDraft_.crsfChannel = 0;
-            bindingDraft_.behaviour = kind == PhysicalControlKind::MaintainedSwitch
-                ? ControlBehaviour::TwoPosition : ControlBehaviour::Momentary;
-            bindingDraft_.event = InputEvent::Pressed;
-            bindingDraft_.minimum = -1000;
-            bindingDraft_.maximum = 1000;
-            bindingDraft_.step = 50;
-            bindingDraft_.initial = -1000;
-            bindingDraft_.failsafe = -1000;
-            bindingDraft_.persistent = false;
-        } else if (next == AssignmentTarget::DriveMode) {
-            bindingDraft_.target = next;
-            bindingDraft_.targetId = static_cast<uint16_t>(
-                DriveModeSelection::WalkNormal);
-            bindingDraft_.crsfChannel = 0;
-            bindingDraft_.behaviour = ControlBehaviour::TwoPosition;
-            bindingDraft_.event = InputEvent::Pressed;
-            bindingDraft_.minimum = -1000;
-            bindingDraft_.maximum = 1000;
-            bindingDraft_.step = 50;
-            bindingDraft_.initial = -1000;
-            bindingDraft_.failsafe = -1000;
-            bindingDraft_.persistent = false;
-        }
-    } else if (y >= 153 && y < 186 && x >= 330) {
-        const int8_t direction = x < 400 ? -1 : 1;
-        if (parameter) {
-            uint8_t channel = channelParameterTargetChannel(bindingDraft_.targetId);
-            channel = static_cast<uint8_t>(
-                ((static_cast<int>(channel) - 1 + direction + 16) % 16) + 1);
-            const ChannelParameterKind parameterKind = channelParameterTargetKind(
-                bindingDraft_.targetId);
-            bindingDraft_.targetId = encodeChannelParameterTarget(channel,
-                                                                   parameterKind);
-            bindingDraft_.initial = channelParameterValue(channel, parameterKind);
-            bindingDraft_.failsafe = bindingDraft_.initial;
-        } else if (bindingDraft_.target == AssignmentTarget::TransmitterFunction) {
-            size_t selected = 0;
-            for (size_t index = 0;
-                 index < sizeof(kEditableTransmitterFunctions) /
-                             sizeof(kEditableTransmitterFunctions[0]); ++index)
-                if (static_cast<uint16_t>(kEditableTransmitterFunctions[index]) ==
-                    bindingDraft_.targetId) selected = index;
-            const size_t count = sizeof(kEditableTransmitterFunctions) /
-                                 sizeof(kEditableTransmitterFunctions[0]);
-            selected = static_cast<size_t>((static_cast<int>(selected) + direction +
-                                            static_cast<int>(count)) %
-                                           static_cast<int>(count));
-            bindingDraft_.targetId = static_cast<uint16_t>(
-                kEditableTransmitterFunctions[selected]);
-            if (kind == PhysicalControlKind::MaintainedSwitch) {
-                bindingDraft_.behaviour = ControlBehaviour::TwoPosition;
-            } else {
-                bindingDraft_.behaviour =
-                    (kEditableTransmitterFunctions[selected] ==
-                         TransmitterFunction::DisplayOnOff ||
-                     kEditableTransmitterFunctions[selected] ==
-                         TransmitterFunction::ArmCut)
-                    ? ControlBehaviour::Toggle : ControlBehaviour::Momentary;
-            }
-        } else if (bindingDraft_.target == AssignmentTarget::DriveMode) {
-            size_t selected = 0;
-            for (size_t index = 0;
-                 index < sizeof(kEditableDriveModeSelections) /
-                             sizeof(kEditableDriveModeSelections[0]); ++index)
-                if (static_cast<uint16_t>(kEditableDriveModeSelections[index]) ==
-                    bindingDraft_.targetId) selected = index;
-            const size_t count = sizeof(kEditableDriveModeSelections) /
-                                 sizeof(kEditableDriveModeSelections[0]);
-            selected = static_cast<size_t>((static_cast<int>(selected) + direction +
-                                            static_cast<int>(count)) %
-                                           static_cast<int>(count));
-            bindingDraft_.targetId = static_cast<uint16_t>(
-                kEditableDriveModeSelections[selected]);
-        } else {
-            bindingDraft_.crsfChannel = adjacentBindingChannel(
-                bindingDraft_.crsfChannel, direction);
-        }
-    } else if (y >= 187 && y < 220 && x >= 330) {
-        if (parameter) {
-            const uint8_t channel = channelParameterTargetChannel(
-                bindingDraft_.targetId);
-            const ChannelParameterKind next =
-                channelParameterTargetKind(bindingDraft_.targetId) ==
-                        ChannelParameterKind::Trim
-                    ? ChannelParameterKind::Subtrim : ChannelParameterKind::Trim;
-            bindingDraft_.targetId = encodeChannelParameterTarget(channel, next);
-            bindingDraft_.initial = channelParameterValue(channel, next);
-            bindingDraft_.failsafe = bindingDraft_.initial;
-        } else {
-            bindingDraft_.behaviour = adjacentBindingBehaviour(
-                kind, bindingDraft_.behaviour, x < 400 ? -1 : 1);
-        }
-    } else if (y >= 221 && y < 254 && x >= 330) {
-        bindingDraft_.contexts = adjacentControlContext(
-            bindingDraft_.contexts, x < 400 ? -1 : 1);
-    } else if (y >= 270 && x >= 160 && x < 300 &&
-               bindingIndexForInput(selectedBindingInput_) >= 0) {
-        if (removeSelectedBinding()) {
-            playBuzzer(80); drawControlAssignmentsPage();
-        }
-        return;
-    } else if (y >= 270 && x >= 300) {
-        if (saveBindingDraft()) {
-            playBuzzer(80); drawControlAssignmentsPage();
-        } else {
-            playBuzzer(180); drawBindingEditorPage();
-        }
-        return;
-    } else return;
-    bindingError_[0] = '\0';
-    playKeyClick();
-    drawBindingEditorPage();
-}
-
-void TransmitterUi::handleInputMonitorTouch(int16_t x, int16_t y)
-{
-    constexpr uint8_t kRowsPerBank = 5;
-    constexpr uint8_t kBankCount =
-        (kPhysicalControlCount + kRowsPerBank - 1) / kRowsPerBank;
-    if (headerActionTouched(x, y)) {
-        playKeyClick(); drawControlAssignmentsPage(); return;
-    }
-    if (y < 270) return;
-    if (x < 90 && inputMonitorBank_ > 0) {
-        --inputMonitorBank_;
-        playKeyClick();
-        drawInputMonitorPage();
-    } else if (x >= 390 && inputMonitorBank_ + 1 < kBankCount) {
-        ++inputMonitorBank_;
-        playKeyClick();
-        drawInputMonitorPage();
-    }
-}
-
-void TransmitterUi::handleDriveModesTouch(int16_t x, int16_t y)
-{
-    if (headerActionTouched(x, y)) {
-        playKeyClick();
-        if (driveModesReturnPage_ == UiPage::Dashboard) drawDashboard();
-        else drawMainMenu();
-        return;
-    }
-    if (y >= 60 && y < 132) {
-        if (x < 70 || x >= 415) return;
-        const uint8_t index = x < 245 ? 0 : 1;
-        if(!requestDriveMode(static_cast<DriveMode>(index)))return;
-        requestConfigurationCut();
-        playBuzzer(80);
-        drawDriveModesPage();
-        return;
-    }
-    if (y >= 150 && y < 220 && x >= 345) {
-        const int16_t direction = x < 405 ? -1 : 1;
-        driveModeSettings_.walkLimitPercent = constrain(
-            static_cast<int>(driveModeSettings_.walkLimitPercent) + direction * 5,
-            10, 80);
-        saveDriveModeSettings();
-        playKeyClick();
-        drawDriveModesPage();
-    }
-}
-
-void TransmitterUi::handleSetupTouch(int16_t x, int16_t y)
-{
-    if (y < 48 && x >= 254 && x < 340) {
-        playKeyClick(); drawFirmwareInfoPage(); return;
-    }
-    if (headerActionTouched(x, y)) { playKeyClick(); drawMainMenu(); return; }
-    if (y >= 265 && y < 315 && x < 102) { playBuzzer(500); return; }
-    if (y >= 265 && y < 315 && x >= 102 && x < 220) {
-        displaySetupBank_ = 0;
-        playKeyClick(); drawDisplayPage(); return;
-    }
-    if (y >= 265 && y < 315 && x >= 220 && x < 344) {
-        playKeyClick(); drawTxBatteryPage(); return;
-    }
-    if (y >= 265 && y < 315 && x >= 344) {
-        playKeyClick(); drawRxBatteryPage(); return;
-    }
-    if (y < 56 || y >= 256) return;
-    const int row = (y - 56) / 50;
-    bool changed = false;
-    if (row < 2 && x >= 340) {
-        if (row == 0) { systemSettings_.buzzerEnabled = !systemSettings_.buzzerEnabled; if (!systemSettings_.buzzerEnabled) stopBuzzer(); }
-        else systemSettings_.keyClicksEnabled = !systemSettings_.keyClicksEnabled;
-        changed = true;
-    } else if (row == 2 && x >= 354 && x < 404 && systemSettings_.buzzerPitchHz > kBuzzerMinimumPitchHz) {
-        systemSettings_.buzzerPitchHz -= kBuzzerPitchStepHz; changed = true;
-    } else if (row == 2 && x >= 408 && systemSettings_.buzzerPitchHz < kBuzzerMaximumPitchHz) {
-        systemSettings_.buzzerPitchHz += kBuzzerPitchStepHz; changed = true;
-    } else if (row == 3 && x >= 354 && x < 404 && systemSettings_.keyClickDurationMs > kBuzzerMinimumDurationMs) {
-        systemSettings_.keyClickDurationMs -= kBuzzerDurationStepMs; changed = true;
-    } else if (row == 3 && x >= 408 && systemSettings_.keyClickDurationMs < kBuzzerMaximumDurationMs) {
-        systemSettings_.keyClickDurationMs += kBuzzerDurationStepMs; changed = true;
-    }
-    if (changed) { saveSystemSettings(); playKeyClick(); drawSetupPage(); }
 }
 
 void TransmitterUi::appendElrsKeyboardCharacter(char character)
@@ -5556,99 +4890,6 @@ void TransmitterUi::queueElrsRequest(ElrsManagementAction action,
              action == ElrsManagementAction::SetBindPhrase ? "Bindphrase" : "UID read");
 }
 
-void TransmitterUi::handleDisplayTouch(int16_t x, int16_t y)
-{
-    if (headerActionTouched(x, y)) { playKeyClick(); drawSetupPage(); return; }
-    if (y >= 270) {
-        if (x < 80) controlDisplay(10, PageControlEvent::Activate);
-        else if (x >= 400) controlDisplay(11, PageControlEvent::Activate);
-        return;
-    }
-    if (y < 56 || y >= 256 || x < 340) return;
-    const uint8_t visibleRow = (y - 56) / 50;
-    const uint8_t row = displaySetupBank_ * 4 + visibleRow;
-    if (row >= 5) return;
-    const int8_t direction = x < 405 ? -1 : 1;
-    if (row == 0) {
-        static const uint16_t values[] = {0, 30, 60, 300};
-        uint8_t index = 0;
-        while (index < 4 && values[index] != systemSettings_.screenTimeoutSeconds) ++index;
-        if (index >= 4) index = 2;
-        index = static_cast<uint8_t>((index + (direction > 0 ? 1 : 3)) % 4);
-        systemSettings_.screenTimeoutSeconds = values[index];
-    } else if (row == 1) {
-        systemSettings_.logoScreensaverEnabled =
-            !systemSettings_.logoScreensaverEnabled;
-    } else if (row == 2) {
-        systemSettings_.displayBrightnessPercent = constrain(
-            static_cast<int>(systemSettings_.displayBrightnessPercent) + direction * 10,
-            20, 100);
-        uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
-        applyBacklight(uiBrightnessPercent);
-    } else if (row == 3) {
-        playKeyClick();
-        drawColourSchemePage();
-        return;
-    } else {
-        playKeyClick();
-        if (systemSettings_.logoScreensaverEnabled) {
-            logoSaverReturnPage_ = UiPage::DisplaySetup;
-            drawLogoSaver();
-        } else {
-            sleepDisplay();
-        }
-        return;
-    }
-    saveSystemSettings();
-    playKeyClick();
-    drawDisplayPage();
-}
-
-void TransmitterUi::handleTxBatteryTouch(int16_t x, int16_t y)
-{
-    if (headerActionTouched(x, y)) { playKeyClick(); drawSetupPage(); return; }
-    if (y < 56 || y >= 256) return;
-    const int row = (y - 56) / 50;
-    bool changed = false;
-
-    if (row == 0 && x >= 340) {
-        uint8_t chemistry = static_cast<uint8_t>(txBatterySettings_.chemistry);
-        chemistry = (chemistry + 1) % 4;
-        txBatterySettings_.chemistry = static_cast<BatteryChemistry>(chemistry);
-        txBatterySettings_.cellCount = min(txBatterySettings_.cellCount,
-            maximumCellsFor(txBatterySettings_.chemistry));
-        txBatterySettings_.lowAlarmDecivolts = defaultLowAlarmDecivolts(
-            txBatterySettings_.chemistry, txBatterySettings_.cellCount);
-        changed = true;
-    } else if (row == 1 && x >= 343 && x < 400 && txBatterySettings_.cellCount > 1) {
-        --txBatterySettings_.cellCount;
-        txBatterySettings_.lowAlarmDecivolts = defaultLowAlarmDecivolts(
-            txBatterySettings_.chemistry, txBatterySettings_.cellCount);
-        changed = true;
-    } else if (row == 1 && x >= 400 &&
-               txBatterySettings_.cellCount < maximumCellsFor(txBatterySettings_.chemistry)) {
-        ++txBatterySettings_.cellCount;
-        txBatterySettings_.lowAlarmDecivolts = defaultLowAlarmDecivolts(
-            txBatterySettings_.chemistry, txBatterySettings_.cellCount);
-        changed = true;
-    } else if (row == 2 && x >= 343 && x < 400 &&
-               txBatterySettings_.lowAlarmDecivolts > kBatteryMinimumAlarmDecivolts) {
-        --txBatterySettings_.lowAlarmDecivolts; changed = true;
-    } else if (row == 2 && x >= 400 &&
-               txBatterySettings_.lowAlarmDecivolts < kBatteryMaximumAlarmDecivolts) {
-        ++txBatterySettings_.lowAlarmDecivolts; changed = true;
-    } else if (row == 3 && x >= 340) {
-        txBatterySettings_.voltageSenseEnabled = !txBatterySettings_.voltageSenseEnabled;
-        changed = true;
-    }
-
-    if (changed) {
-        saveTxBatterySettings();
-        playKeyClick();
-        drawTxBatteryPage();
-    }
-}
-
 void TransmitterUi::handleTouch(int16_t x, int16_t y)
 {
     const int headerHeight=activePage_==UiPage::Dashboard?kDashboardHeaderHeight:44;
@@ -5685,54 +4926,7 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
         if (headerActionTouched(x, y)) cancelCalibration();
         return;
     }
-    if (dispatchPageControlTouch(x, y)) return;
-    if (portraitUi) return;
-    if(detailContentCompacted_ && y>=44){
-        const int numerator=kScreenHeight-40-4-44,denominator=kScreenHeight-44;
-        y=44+(y-44)*denominator/numerator;
-    }
-    if (activePage_ == UiPage::Dashboard) { handleDashboardTouch(x, y); return; }
-    if (activePage_ == UiPage::RadioDiagnostics) { handleTelemetryTouch(x, y); return; }
-    if (activePage_ == UiPage::MainMenu) { handleMainMenuTouch(x, y); return; }
-    if (activePage_ == UiPage::ModelSelect) { handleModelSelectTouch(x, y); return; }
-    if (activePage_ == UiPage::Channels) { handleChannelsTouch(x, y); return; }
-    if (activePage_ == UiPage::ControlAssignments) { handleControlAssignmentsTouch(x, y); return; }
-    if (activePage_ == UiPage::BindingEditor) return; // Registered targets only; no obsolete coordinate hotspots.
-    if (activePage_ == UiPage::InputMonitor) { handleInputMonitorTouch(x, y); return; }
-    if (activePage_ == UiPage::DriveModes) { handleDriveModesTouch(x, y); return; }
-    if (activePage_ == UiPage::ChannelPlaceholder) {
-        handleChannelConfigTouch(x, y); return;
-    }
-    if (activePage_ == UiPage::Setup) { handleSetupTouch(x, y); return; }
-    if (activePage_ == UiPage::TxBatterySetup) { handleTxBatteryTouch(x, y); return; }
-    if (activePage_ == UiPage::DisplaySetup) { handleDisplayTouch(x, y); return; }
-    if (activePage_ == UiPage::ElrsTxConfig) { handleElrsTxConfigTouch(x, y); return; }
-    if (y < 48 && x >= 186 && x < 262) {
-        selectedChannel_ = channelRoleSettings_.throttleChannel;
-        throttleResponseReturnPage_ = UiPage::Channel2;
-        playKeyClick(); drawThrottleResponsePage(); return;
-    }
-    if (y < 48 && x >= 262 && x < 340) { playKeyClick(); drawChannelsPage(); return; }
-    if (headerActionTouched(x, y)) { playKeyClick(); startCalibration(latestRawAdc_); return; }
-    if (y < 56 || y >= 256) return;
-    const int row = (y - 56) / 50;
-    bool changed = false;
-    if (row < 3 && x >= 354 && x < 404) {
-        if (row == 0 && throttleProfile().negativeEndpointPercent > 50) --throttleProfile().negativeEndpointPercent;
-        if (row == 1 && throttleProfile().subtrimPercent > -20) --throttleProfile().subtrimPercent;
-        if (row == 2 && throttleProfile().positiveEndpointPercent > 50) --throttleProfile().positiveEndpointPercent;
-        changed = true;
-    } else if (row < 3 && x >= 408 && x < 470) {
-        if (row == 0 && throttleProfile().negativeEndpointPercent < 100) ++throttleProfile().negativeEndpointPercent;
-        if (row == 1 && throttleProfile().subtrimPercent < 20) ++throttleProfile().subtrimPercent;
-        if (row == 2 && throttleProfile().positiveEndpointPercent < 100) ++throttleProfile().positiveEndpointPercent;
-        changed = true;
-    } else if (row == 3 && x >= 340) { throttleProfile().reversed = !throttleProfile().reversed; changed = true; }
-    if (changed) {
-        playKeyClick();
-        scheduleSettingsSave();
-        refreshSettingRowValue(row);
-    }
+    dispatchPageControlTouch(x, y);
 }
 
 void TransmitterUi::showChannelAdjustment(uint8_t channel,ChannelParameterKind kind)
@@ -6020,8 +5214,9 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     designTelemetry_ = telemetry; designSafety_ = safetyStatus;
     updateGpsWidgetPolicy(telemetry,millis());
     for(uint8_t sensor=0;telemetryHistory_&&sensor<DashboardSensorCount;++sensor){
-        int32_t value=0;uint32_t stamp=0;const bool valid=sensorReading(telemetry,sensor,value,stamp);
-        sensorStatistics_[sensor].update(value,stamp,millis(),valid);
+        const uint32_t now=millis();
+        const auto reading=sensorReading(telemetry,sensor,now);
+        sensorStatistics_[sensor].update(reading.value,reading.stamp,now,reading.valid);
     }
     designTxVoltage_ = txVoltageDecivolts; designTxValid_ = txVoltageValid;
     latestRawAdc_ = rawAdc;

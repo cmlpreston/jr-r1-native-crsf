@@ -40,7 +40,7 @@ bool hasSavedNetwork(const char *ssid);
 void forget();
 bool setAutoConnect(bool enabled);
 bool setHostname(const char *hostname);
-void captureScreen(int x,int y,int width,int height,const uint16_t *pixels);
+void captureScreen(int x,int y,int width,int height,const uint16_t *pixels,bool lastFlush);
 void screenChanged();
 #ifdef JR_R1_SIMULATOR
 uint32_t screenEpochForTesting();

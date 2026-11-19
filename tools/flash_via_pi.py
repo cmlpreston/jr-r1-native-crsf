@@ -1,29 +1,14 @@
 #!/usr/bin/env python3
-"""Build/test locally, copy verified binaries to Pi3, upload using PlatformIO."""
-import argparse
+"""Hardware and checksum helpers for the landscape upload guard."""
 import configparser
 import hashlib
-import json
-import os
 from pathlib import Path
 import re
-import shlex
-import shutil
-import subprocess
-import sys
-import tarfile
-import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 # User instruction 2026-10-26: landscape only for hardware uploads.
 ENVIRONMENTS = ('seeed_xiao_esp32s3-pcb',)
 USB_PORT = '/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_90:70:69:11:DE:70-if00'
-
-
-def run(command, *, cwd=ROOT, capture=False, env=None):
-    print('+', shlex.join(map(str, command)), flush=True)
-    return subprocess.run(command, cwd=cwd, check=True, text=True,
-                          stdout=subprocess.PIPE if capture else None, env=env).stdout
 
 
 def digest(path):
@@ -79,120 +64,5 @@ def verify_manifest(root, manifest):
             raise ValueError('Checksum mismatch: ' + filename)
 
 
-def remote_script(args):
-    q = shlex.quote
-    # The manifest and boot_app0 are independently verified on the Pi before
-    # invoking the uploader. Nothing builds on the Pi and no serial process is killed.
-    return '\n'.join([
-        'set -eu',
-        'unset JR_R1_ALLOW_UNSAFE_UPLOAD',
-        'cd ' + q(args.remote_dir),
-        'tar -xzf ' + q(args.remote_dir + '/r1-upload.tar.gz'),
-        q(args.remote_pio) + ' run -e ' + q(args.environment) + ' -t envdump > /dev/null',
-        'tar -xzf ' + q(args.remote_dir + '/r1-upload.tar.gz'),
-        "python3 - <<'VERIFY'",
-        'import hashlib,json,pathlib,subprocess',
-        'm=json.load(open("r1-upload-manifest.json"))',
-        'for p,h in m["sha256"].items():',
-        '    assert hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()==h, "Checksum mismatch: "+p',
-        'boot=pathlib.Path.home()/".platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin"',
-        'assert hashlib.sha256(boot.read_bytes()).hexdigest()==m["boot_app0_sha256"], "boot_app0 differs between machines"',
-        'print("Pi artifacts and boot_app0 verified; source checks ran on Mac")',
-        'VERIFY',
-        'test -e ' + q(args.usb_port),
-        'command -v fuser >/dev/null',
-        'if fuser ' + q(args.usb_port) + ' >/dev/null 2>&1; then echo "Close the serial monitor before flashing." >&2; exit 1; fi',
-        'JR_R1_ARTIFACT_MANIFEST=r1-upload-manifest.json ' + q(args.remote_pio) + ' run -e ' + q(args.environment) + ' -t nobuild -t upload --upload-port ' + q(args.usb_port),
-    ])
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--environment', choices=ENVIRONMENTS, default=ENVIRONMENTS[0], help='Installed landscape layout (480x320)')
-    parser.add_argument('--host', default='pi@gateway.purplenet.online')
-    parser.add_argument('--ssh-port', type=int, default=10022)
-    parser.add_argument('--remote-dir', default='/home/pi/r1-dev/usb-upload', help='Stable artifacts-only Pi upload directory')
-    parser.add_argument('--remote-pio', default='/home/pi/r1-dev/venv/bin/pio')
-    parser.add_argument('--usb-port', default=USB_PORT)
-    parser.add_argument('--check', action='store_true', help='Check local hardware configuration and tools only; no build, copy or flash')
-    args = parser.parse_args()
-    if os.environ.get('JR_R1_ALLOW_UNSAFE_UPLOAD') == '1':
-        raise ValueError('Remove JR_R1_ALLOW_UNSAFE_UPLOAD; this script never bypasses preflight')
-    validate_hardware(ROOT, args.environment)
-    local_pio = ROOT / '.venv/bin/pio'
-    if not local_pio.is_file():
-        raise ValueError('Local PlatformIO missing: ' + str(local_pio))
-    for tool in ('git', 'ssh', 'scp', 'make', 'node', 'sdl2-config'):
-        if not shutil.which(tool):
-            raise ValueError('Required local tool missing: ' + tool)
-    orientation = 'portrait' if args.environment.endswith('-portrait') else 'landscape'
-    print(f'XIAO ESP32-S3 / Waveshare LCD (F) / schematic (5) / {orientation}', flush=True)
-    if args.check:
-        print('Local checks passed. No firmware uploaded.')
-        return
-    run(['git', 'fetch', 'origin', 'main'])
-    run(['git', 'status', '--short', '--branch'])
-    run(['git', 'merge-base', '--is-ancestor', 'origin/main', 'HEAD'])
-    branch = run(['git', 'branch', '--show-current'], capture=True).strip()
-    if not branch:
-        raise ValueError('Detached HEAD; refusing upload')
-    commit = run(['git', 'rev-parse', 'HEAD'], capture=True).strip()
-    work = Path(tempfile.mkdtemp(prefix='r1-flash-'))
-    print('Local artifacts / source snapshot:', work, flush=True)
-    def source_hashes():
-        names=run(['git','ls-files','-z','--cached','--others','--exclude-standard'],capture=True).split('\0')
-        return {name:digest(ROOT/name) for name in names if name and (ROOT/name).is_file()}
-    tested_sources=source_hashes()
-    run([str(local_pio), 'run', '-e', args.environment])
-    run(['make', '-C', 'test', 'run'])
-    for test in sorted((ROOT / 'test').glob('*test.cjs')):
-        run(['node', str(test)])
-    run(['make', '-C', 'simulator', '-j4'] + (['portrait'] if orientation == 'portrait' else []))
-    simulator = 'simulator/build-portrait/jr-r1-sim-portrait' if orientation == 'portrait' else 'simulator/build/jr-r1-sim'
-    audit_env = dict(os.environ, SDL_VIDEODRIVER='dummy', JR_R1_SIM_STATE=str(work / 'audit-state'))
-    run([str(ROOT / simulator), '--ui-audit'], env=audit_env)
-    if source_hashes()!=tested_sources:
-        raise ValueError('Source files changed during build/testing; rerun with edits paused')
-    # Keep the complete tested source locally; copy only binaries and the
-    # configuration/preflight needed to upload them. The Pi is an artifacts-only flash host, with no Git checkout.
-    sources = run(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], capture=True).split('\0')
-    snapshot = work / 'source.tar.gz'
-    with tarfile.open(snapshot, 'w:gz') as archive:
-        for name in sources:
-            if name and (ROOT / name).is_file():
-                archive.add(ROOT / name, arcname=name, recursive=False)
-    files = [f'.pio/build/{args.environment}/{name}' for name in ('firmware.bin', 'bootloader.bin', 'partitions.bin')]
-    files += ['platformio.ini', 'include/display_profile.h', 'tools/upload_preflight.py', 'tools/artifact_preflight.py', 'tools/flash_via_pi.py']
-    if args.environment == 'seeed_xiao_esp32s3-pcb-lcd-test-portrait':
-        files += ['src/waveshare_lcd_test.cpp', 'src/waveshare_startup.inc']
-    boot = Path.home() / '.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin'
-    manifest = {'branch': branch, 'commit': commit, 'environment': args.environment, 'source_checks_passed': True,
-                'source_snapshot_sha256': digest(snapshot), 'boot_app0_sha256': digest(boot),
-                'sha256': {name: digest(ROOT / name) for name in files}}
-    manifest_path = work / 'r1-upload-manifest.json'
-    manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
-    verify_manifest(ROOT, manifest)
-    package = work / 'r1-upload.tar.gz'
-    with tarfile.open(package, 'w:gz') as archive:
-        for name in files:
-            archive.add(ROOT / name, arcname=name, recursive=False)
-        archive.add(manifest_path, arcname=manifest_path.name)
-    print(f'Uploading branch {branch} ({commit[:8]}), {args.environment}, Waveshare LCD (F).', flush=True)
-    print('Outputs will restart in CUT. Close any Pi serial monitor before upload.', flush=True)
-    ssh = ['ssh', '-p', str(args.ssh_port), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=12', args.host]
-    run(ssh + ['mkdir -p ' + shlex.quote(args.remote_dir) + ' ' + shlex.quote(args.remote_dir + '/src')])
-    destination = args.host + ':' + shlex.quote(args.remote_dir + '/r1-upload.tar.gz')
-    run(['scp', '-P', str(args.ssh_port), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=12', str(package), destination])
-    run(ssh + [remote_script(args)])
-    print('Flash completed and verified by PlatformIO. Local record:', work, flush=True)
-
-
 if __name__ == '__main__':
-    try:
-        main()
-    except (ValueError, OSError, subprocess.CalledProcessError) as error:
-        print('Flash stopped:', error, file=sys.stderr)
-        sys.exit(1)
-    except KeyboardInterrupt:
-        print('Interrupted. If writing had started, rerun to finish the flash.', file=sys.stderr)
-        sys.exit(130)
+    raise SystemExit('The laptop upload workflow has retired. Use tools/flash_cloud.py on the Pi.')

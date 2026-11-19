@@ -12,6 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import artifact_preflight
+import flash_cloud
 import package_ci_firmware as package
 
 
@@ -20,9 +21,7 @@ class CiPackageTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix='r1-ci-package-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        for name in ('platformio.ini', 'include/display_profile.h',
-                     'tools/upload_preflight.py', 'tools/artifact_preflight.py',
-                     'tools/flash_via_pi.py'):
+        for name in artifact_preflight.SOURCE_FILES:
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
@@ -37,6 +36,7 @@ class CiPackageTest(unittest.TestCase):
         build.mkdir(parents=True)
         for name in ('firmware.bin', 'bootloader.bin', 'partitions.bin'):
             (build / name).write_bytes(name.encode())
+        (build / 'firmware.bin').write_bytes(f'{self.commit[:8]} {self.branch}'.encode())
         boot = self.root / '.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin'
         boot.parent.mkdir(parents=True)
         boot.write_bytes(b'boot fixture')
@@ -62,6 +62,11 @@ class CiPackageTest(unittest.TestCase):
             with tarfile.open(output / 'source.tar.gz') as snapshot:
                 self.assertNotIn('.pio', snapshot.getnames())
                 self.assertNotIn('ci-output', snapshot.getnames())
+            with patch.object(flash_cloud, 'ROOT', self.root):
+                extracted = self.root / 'verified'
+                self.assertEqual(flash_cloud.unpack_verified(output, extracted, self.branch, self.commit), manifest)
+                with self.assertRaisesRegex(ValueError, 'source identity differs'):
+                    flash_cloud.unpack_verified(output, self.root / 'wrong', self.branch, '0' * 40)
             (self.root / '.pio/build' / self.environment / 'firmware.bin').write_bytes(b'tampered')
             with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
                 artifact_preflight.verify(self.root, self.environment,
@@ -81,6 +86,15 @@ class CiPackageTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'differs from event commit'):
                 package.main(self.commit, self.branch)
         self.assertFalse((self.root / 'ci-output').exists())
+
+    def test_upload_requires_success_for_current_source(self):
+        run = {'status': 'completed', 'conclusion': 'success', 'headSha': self.commit,
+               'headBranch': self.branch, 'workflowName': 'R1 firmware and tests'}
+        flash_cloud.verify_run(run, self.branch, self.commit)
+        for key, bad in (('status', 'in_progress'), ('conclusion', 'failure'),
+                         ('headSha', '0' * 40), ('headBranch', 'main'), ('workflowName', 'Other')):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                flash_cloud.verify_run(dict(run, **{key: bad}), self.branch, self.commit)
 
     def test_rejects_wrong_branch_identity(self):
         with patch.object(package, 'ROOT', self.root):

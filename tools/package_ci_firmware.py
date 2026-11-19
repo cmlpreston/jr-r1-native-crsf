@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import tarfile
 
+from artifact_preflight import upload_files
 from flash_via_pi import ROOT, digest, validate_hardware, verify_manifest
 
 UI_CHECKS = (
@@ -42,10 +43,7 @@ def main(expected_commit, expected_branch):
     snapshot = output / 'source.tar.gz'
     subprocess.run(['git', 'archive', '--format=tar.gz', '-o', str(snapshot), commit],
                    cwd=ROOT, check=True)
-    files = [f'.pio/build/{environment}/{name}' for name in
-             ('firmware.bin', 'bootloader.bin', 'partitions.bin')]
-    files += ['platformio.ini', 'include/display_profile.h', 'tools/upload_preflight.py',
-              'tools/artifact_preflight.py', 'tools/flash_via_pi.py']
+    files = upload_files(environment)
     boot = Path.home() / '.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin'
     ui_checks = [(name, detail) for key, name, detail in UI_CHECKS
                  if os.environ.get(key) == 'success']

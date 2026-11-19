@@ -345,9 +345,6 @@ private:
     void drawLogoSaver();
     void positionLogoSaver();
     void leaveLogoSaver();
-    void refreshMainMenuFocus();
-    void moveMainMenuFocus(int8_t direction);
-    void activateMainMenuFocus();
     void beginPageFocus(bool registerStandardHeader = true);
     enum class PageControlEvent : int8_t {
         Decrease = -1,
@@ -404,7 +401,6 @@ private:
     bool handlePageSwipe(int16_t x, int16_t y, int16_t endX, int16_t endY, uint32_t duration);
     void controlSectionNavigation(uint8_t section, PageControlEvent event);
     bool sectionNavigationVisible_ = false;
-    bool detailContentCompacted_ = false;
     void refreshPageFocus();
     void movePageFocus(int8_t direction);
     void activatePageFocus();
@@ -412,7 +408,6 @@ private:
     bool dispatchPageControlTouch(int16_t x, int16_t y);
     bool dispatchPageControl(uint8_t index, PageControlEvent event);
     void controlChannelRoles(uint8_t row, PageControlEvent event);
-    void controlModels(uint8_t item, PageControlEvent event);
     void controlTxBattery(uint8_t row, PageControlEvent event);
     void controlRxBattery(uint8_t row, PageControlEvent event);
     uint8_t vehicleBatteryTab_=0;
@@ -422,14 +417,11 @@ private:
     void controlClock(uint8_t row, PageControlEvent event);
     void controlColourScheme(uint8_t choice, PageControlEvent event);
     void controlBindingEditor(uint8_t field, PageControlEvent event);
-    void controlChannels(uint8_t item, PageControlEvent event);
     void controlAssignments(uint8_t item, PageControlEvent event);
-    void controlDriveMode(uint8_t item, PageControlEvent event);
-    void controlSetup(uint8_t item, PageControlEvent event);
+    void controlSound(uint8_t item, PageControlEvent event);
     void controlThrottleSetting(uint8_t row, PageControlEvent event);
     void controlThrottleResponse(uint8_t row, PageControlEvent event);
     void controlChannelSpeed(uint8_t row, PageControlEvent event);
-    void controlDashboard(uint8_t item, PageControlEvent event);
     void drawChannelMixing();
     void drawMixMonitor();
     void refreshChannelMixing();
@@ -453,8 +445,6 @@ private:
     uint32_t mixingLiveUpdatedMs_ = 0;
     lv_obj_t *mixingReadouts_[6] = {}, *mixingLiveBars_[6] = {};
     lv_obj_t *mixingCurve_ = nullptr, *mixingCursor_ = nullptr, *mixingSentCursor_ = nullptr, *mixingSummary_ = nullptr;
-    void controlChannelConfig(uint8_t item, PageControlEvent event);
-    void controlInputMonitor(uint8_t item, PageControlEvent event);
     void controlElrsBinding(uint8_t item, PageControlEvent event);
     void controlEscProgramming(uint8_t item, PageControlEvent event);
     void controlThrottleHeader(uint8_t item, PageControlEvent event);
@@ -523,7 +513,6 @@ private:
     void drawElrsTxConfigPage();
     void drawElrsTxConfigContent();
     void controlElrsTxConfig(uint8_t item, PageControlEvent event);
-    void handleElrsTxConfigTouch(int16_t x, int16_t y);
     void leaveElrsTxConfig();
     void drawEscProgrammingPage();
     void drawCalibrationPage();
@@ -532,19 +521,6 @@ private:
     void scheduleSettingsSave(bool requireCut = true);
     void drawLiveIndicator(int16_t inputPermille);
     void handleTouch(int16_t x, int16_t y);
-    void handleMainMenuTouch(int16_t x, int16_t y);
-    void handleModelSelectTouch(int16_t x, int16_t y);
-    void handleDashboardTouch(int16_t x, int16_t y);
-    void handleTelemetryTouch(int16_t x, int16_t y);
-    void handleChannelsTouch(int16_t x, int16_t y);
-    void handleChannelConfigTouch(int16_t x, int16_t y);
-    void handleControlAssignmentsTouch(int16_t x, int16_t y);
-    void handleBindingEditorTouch(int16_t x, int16_t y);
-    void handleInputMonitorTouch(int16_t x, int16_t y);
-    void handleDriveModesTouch(int16_t x, int16_t y);
-    void handleSetupTouch(int16_t x, int16_t y);
-    void handleTxBatteryTouch(int16_t x, int16_t y);
-    void handleDisplayTouch(int16_t x, int16_t y);
     void appendElrsKeyboardCharacter(char character);
     void queueElrsRequest(ElrsManagementAction action,
                           ElrsManagementTarget target);
@@ -739,28 +715,29 @@ private:
     lv_obj_t *designMarker_ = nullptr;
     // V2 presentation is isolated from persisted V1 dashboard layouts.
     bool v2QuickEditing_=false,v2GraphPaused_=false;
-    uint8_t v2QuickModel_=255,v2QuickSlots_[8]={1,3,6,7,8,5,9,10},v2GraphCursor_=29;
+    uint8_t v2QuickModel_=255,v2QuickSlots_[8]={1,3,6,7,8,5,9,10};
+    uint8_t v2GraphCursor_=SensorHistory::Capacity-1;
     bool v2ReviewConfirm_=false,v2SensorSetupReturn_=false;
-    UiColdArrayView<int32_t,30> v2FrozenHistory_;
-    UiColdArrayView<bool,30> v2FrozenValid_;
     lv_obj_t *v2GraphCursorLine_=nullptr;
     lv_point_t v2GraphCursorPoints_[2]={};
+    lv_obj_t *sensorDetailChart_=nullptr;
+    lv_coord_t sensorDetailPoints_[SensorHistory::Capacity]={};
     void drawV2Quick();
     void loadV2Quick();
     void saveV2Quick();
     void openV2Shortcut(uint8_t id);
     void drawV2RunReview();
     void updateV2RunReview();
-    void updateV2GraphCursor();
+    void drawSensorDetail();
+    void updateSensorDetail(uint32_t now);
+    void updateSensorGraphCursor();
     void controlV2(uint8_t item,PageControlEvent event);
     GpsMapViewport designMapViewport_;
     lv_point_t designPoints_[33] = {};
     UiColdStorage<UiTelemetryHistory<DashboardSensorCount>> telemetryHistory_;
     bool initializeTelemetryHistory();
     UiColdArrayView<uint16_t[30],16> channelHistory_;
-    UiColdArrayView<int32_t[30],DashboardSensorCount> sensorHistory_;
-    UiColdArrayView<bool[30],DashboardSensorCount> sensorHistoryValid_;
-    uint8_t sensorHistoryCount_ = 0;
+    uint8_t channelHistoryCount_ = 0;
     SpeedStatistics speedStatistics_;
     UiColdArrayView<SensorStatistics,DashboardSensorCount> sensorStatistics_;
     bool sensorSessionStats_[DashboardSensorCount]={};
@@ -781,7 +758,7 @@ private:
     void saveRfWarningSettings();
     void controlRfWarning(uint8_t row,PageControlEvent event);
     void updateRfWarning(const CrsfTelemetryState &,uint32_t now);
-    uint32_t nextSensorSampleMs_ = 0;
+    uint32_t nextChannelSampleMs_ = 0;
     int32_t gpsLat_[48] = {}, gpsLon_[48] = {};
     uint8_t gpsCount_ = 0;
     uint32_t gpsTrailRevision_ = 1;
@@ -860,7 +837,6 @@ private:
     EscDriveProgrammer escProgrammer_;
     uint32_t escUiRevision_=0,escRxSequence_=0;
     void updateEscProgrammer(const CrsfTelemetryState &,OutputSafetyStatus);
-    uint8_t channelsBank_ = 0;
     uint8_t selectedChannel_ = 2;
     uint8_t inputMonitorBank_ = 0;
     uint8_t assignmentBank_ = 0;
@@ -937,8 +913,6 @@ private:
     bool logoSaverInputPrimary_[kPhysicalControlCount] = {};
     bool logoSaverInputSecondary_[kPhysicalControlCount] = {};
     bool logoSaverInputFaulted_[kPhysicalControlCount] = {};
-    lv_obj_t *mainMenuButtons_[8] = {};
-    uint8_t mainMenuFocusIndex_ = 1;
     struct PageFocusTarget {
         struct Rectangle {
             int16_t x = 0;

@@ -42,30 +42,44 @@ static void serviceRestart(bool outputsSafe){
 #endif
 }
 static RemoteScreen remoteScreen;
+static RemoteScreenLease remoteView;
 static uint16_t *remotePixels=nullptr;
 static bool usbScreenshotActive=false;
-static uint32_t screenEpoch=1;
+static uint32_t screenEpoch=1,capturedScreenEpoch=0;
 void resizeScreen(int width,int height){if(remotePixels)remoteScreen.attach(remotePixels,width,height);screenChanged();}
-void screenChanged(){if(++screenEpoch==0)screenEpoch=1;}
+void screenChanged(){if(++screenEpoch==0)screenEpoch=1;capturedScreenEpoch=0;}
 #ifdef JR_R1_SIMULATOR
 uint32_t screenEpochForTesting(){return screenEpoch;}
 #endif
-void captureScreen(int x,int y,int width,int height,const uint16_t *pixels){
-    if(info.running||usbScreenshotActive)remoteScreen.capture(x,y,width,height,pixels);
+void captureScreen(int x,int y,int width,int height,const uint16_t *pixels,bool lastFlush){
+    if(!remotePixels||(!usbScreenshotActive&&!remoteView.active(millis())))return;
+    const auto revision=remoteScreen.revision();
+    remoteScreen.capture(x,y,width,height,pixels);
+    if(remoteScreen.revision()<revision)screenChanged();
+    if(lastFlush)capturedScreenEpoch=screenEpoch;
 }
-static void releaseScreen(){free(remotePixels);remotePixels=nullptr;remoteScreen.attach(nullptr,0,0);}
+static void freeIdleScreen(){
+    if(!remotePixels||remoteView.active(millis()))return;
+    remoteView.clear();
+    if(usbScreenshotActive)return;
+    free(remotePixels);remotePixels=nullptr;remoteScreen.attach(nullptr,0,0);
+    screenChanged();
+}
 
 static TransmitterUi *handset = nullptr;
-bool beginUsbScreenshot(){
+static bool allocateScreen(){
+    if(remotePixels)return true;
     if(!handset)return false;
-    if(!remotePixels){
-        const int w=handset->screenWidth(),h=handset->screenHeight();
-        remotePixels=OfflineMap::allocatePixels(w*h);
-        if(!remotePixels)return false;
-        remoteScreen.attach(remotePixels,w,h);
-    }
+    const int w=handset->screenWidth(),h=handset->screenHeight();
+    remotePixels=OfflineMap::allocatePixels(w*h);
+    if(!remotePixels)return false;
+    remoteScreen.attach(remotePixels,w,h);return true;
+}
+bool beginUsbScreenshot(){
+    if(!allocateScreen())return false;
     usbScreenshotActive=true;return true;
 }
+static void endUsbScreenshot(){usbScreenshotActive=false;freeIdleScreen();}
 bool writeUsbScreenshot(Stream &output){
     if(!usbScreenshotActive||!remotePixels)return false;
     const int w=remoteScreen.width(),h=remoteScreen.height();
@@ -78,10 +92,10 @@ bool writeUsbScreenshot(Stream &output){
             const uint8_t r=(v>>11)&31,g=(v>>5)&63,b=v&31;
             row[x*3]=(r<<3)|(r>>2);row[x*3+1]=(g<<2)|(g>>4);row[x*3+2]=(b<<3)|(b>>2);
         }
-        if(output.write(row,w*3)!=size_t(w*3)){usbScreenshotActive=false;return false;}
+        if(output.write(row,w*3)!=size_t(w*3)){endUsbScreenshot();return false;}
         delay(0);
     }
-    output.print("\nTFTSHOT-END\n");output.flush();usbScreenshotActive=false;return true;
+    output.print("\nTFTSHOT-END\n");output.flush();endUsbScreenshot();return true;
 }
 
 static bool passwordRestartPending = false;
@@ -173,9 +187,9 @@ bool changePassword(const char *value) {
 namespace SetupPortal {
 void begin(TransmitterUi *ui) { handset = ui;loadAutoConnect();loadNetwork();loadHostname(); }
 void start() { info.active=true;info.controlAllowed=true;info.hotspot=true;info.running=ensurePassword();strcpy(info.apName,"R-1-EVO-Setup");if(info.running)message("Simulator: Wi-Fi preview"); }
-void stop() {passwordRestartPending=false;info.active=info.hotspot=false;info.running=info.autoConnect&&info.connected;if(!info.running){releaseScreen();info.controlAllowed=false;}message("Setup closed");}
+void stop() {passwordRestartPending=false;info.active=info.hotspot=false;info.running=info.autoConnect&&info.connected;if(!info.running){remoteView.clear();freeIdleScreen();info.controlAllowed=false;}message("Setup closed");}
 void tick(bool outputsSafe, bool allowConnect) {
-    serviceRestart(outputsSafe);info.controlAllowed=outputsSafe;passwordRestartPending=false;if(!info.active){if(!info.autoConnect||!info.ssid[0])info.connected=false;else if(allowConnect)info.connected=true;info.connecting=false;info.running=info.connected&&ensurePassword();}}
+    serviceRestart(outputsSafe);freeIdleScreen();info.controlAllowed=outputsSafe;passwordRestartPending=false;if(!info.active){if(!info.autoConnect||!info.ssid[0])info.connected=false;else if(allowConnect)info.connected=true;info.connecting=false;info.running=info.connected&&ensurePassword();}}
 void scan() { info.networkCount=2;strcpy(info.networks[0].ssid,"Home Wi-Fi");strcpy(info.networks[1].ssid,"Workshop");message("Choose a network"); }
 bool connect(const char *ssid,const char *pass) { if(!ssid||strlen(ssid)>32||!ssid[0]||!pass||strlen(pass)>63||(pass[0]&&strlen(pass)<8))return false;const char *chosen=!*pass&&hasSavedNetwork(ssid)?savedPassword:pass;
     char key[64];strcpy(key,chosen);if(!saveNetwork(ssid,key))return false;info.connected=true;strcpy(info.ip,"192.168.1.42");connectedMessage();return true; }
@@ -195,9 +209,36 @@ void forget() {Preferences p;if(p.begin("r1-wifi",false)){p.putString("ssid","")
 #include <esp_system.h>
 #include "memory_diagnostics.h"
 #include "setup_portal_page.h"
+#include <lwip/sockets.h>
+// Use the lwIP name explicitly so its BSD aliases cannot rewrite portal APIs.
+#undef send
+#undef connect
 
 namespace SetupPortal {
-static WebServer server(80);
+static_assert(RemoteScreen::MaxRowsPerReply * DISPLAY_LANDSCAPE_WIDTH * sizeof(uint16_t) + 512
+              <= CONFIG_LWIP_TCP_SND_BUF_DEFAULT, "A live screen strip must fit the TCP send buffer");
+class PortalWebServer : public WebServer {
+public:
+    using WebServer::WebServer;
+protected:
+    size_t _currentClientWrite(const char *data,size_t size) override {
+        if(_currentMethod!=HTTP_GET||_currentUri!="/api/screen")
+            return WebServer::_currentClientWrite(data,size);
+        const int fd=_currentClient.fd();
+        if(fd<0||!size)return 0;
+        // The normal WiFiClient writer retries with one-second select waits.
+        // A preview should yield this UI iteration if the socket backs up.
+        const auto written=lwip_send(fd,data,size,MSG_DONTWAIT);
+        if(written<0||size_t(written)!=size){
+            // Content-Length lets fetch detect a truncated reply. A browser
+            // retries the same strip and advances only after a complete body.
+            _currentClient.stop();
+            return 0;
+        }
+        return size;
+    }
+};
+static PortalWebServer server(80);
 static bool routesReady=false, mdnsReady=false, connectPending=false, scanPending=false;
 static char pendingSsid[33]={}, pendingPassword[64]={}, token[25]={};
 static uint32_t connectStarted=0;
@@ -320,6 +361,17 @@ static bool number(const char *key,int low,int high,int &out) {
     if(*end||n<low||n>high)return false;
     out=n;return true;
 }
+static bool screenNumber(const char *key,uint32_t &out) {
+    const String text=server.arg(key);
+    if(text.length()==0||text.length()>10)return false;
+    uint64_t value=0;
+    for(size_t i=0;i<text.length();++i){
+        if(text[i]<'0'||text[i]>'9')return false;
+        value=value*10+(text[i]-'0');
+    }
+    if(value>UINT32_MAX)return false;
+    out=static_cast<uint32_t>(value);return true;
+}
 static bool readMap(const char *path, OfflineMap::Package &result, uint16_t *&pixels) {
     pixels=nullptr;auto file=LittleFS.open(path,"r");if(!file||file.size()>MaxUpload)return false;
     uint8_t header[8];if(file.read(header,8)!=8)return false;
@@ -362,38 +414,52 @@ static void routes() {
     server.on("/",HTTP_GET,[]{if(authorized()){server.sendHeader("Content-Security-Policy","default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://photon.komoot.io https://overpass-api.de https://server.arcgisonline.com; img-src 'self' blob: https://tile.openstreetmap.org https://server.arcgisonline.com; frame-ancestors 'none'");server.send_P(200,"text/html",setupPortalPage);}});
     server.on("/api/screen",HTTP_GET,[]{
         if(!authorized())return;
+        uint32_t since,epoch,scan,row;
+        if(!screenNumber("since",since)||!screenNumber("epoch",epoch)||
+           !screenNumber("scan",scan)||!screenNumber("row",row)){
+            server.send(400,"text/plain","Invalid screen cursor; reload this page");return;
+        }
         int hx,hy,hw,hh;char zone[48];
         if(handset->portalDriveHoldBounds(hx,hy,hw,hh))snprintf(zone,sizeof(zone),"%d,%d,%d,%d",hx,hy,hw,hh);else strcpy(zone,"-");
         server.sendHeader("X-R1-Hold-Zone",zone);
         server.sendHeader("X-R1-Wake",handset->portalScreenNeedsWake()?"1":"0");
         if(!remotePixels){
-            const int w=handset->screenWidth(),h=handset->screenHeight();
-            remotePixels=OfflineMap::allocatePixels(w*h);
-            if(!remotePixels){server.send(503,"text/plain","Insufficient PSRAM for live view");return;}
-            remoteScreen.attach(remotePixels,w,h);handset->portalEnableScreen();
+            if(!handset->portalEnableScreen()){server.send(503,"text/plain","LCD view unavailable");return;}
+            if(!allocateScreen()){server.send(503,"text/plain","Insufficient PSRAM for live view");return;}
+        }
+        remoteView.renew(millis());
+        const uint32_t revision=remoteScreen.revision();
+        if(capturedScreenEpoch!=screenEpoch||!revision){
             server.send(202,"text/plain","Preparing screen");return;
         }
-        int since=0;if(server.hasArg("since")&&!number("since",0,INT32_MAX,since)){server.send(400,"text/plain","Invalid revision");return;}
-        int epoch=0;if(!number("epoch",0,INT32_MAX,epoch)){server.send(400,"text/plain","Invalid page epoch");return;}
-        if(uint32_t(epoch)!=screenEpoch)since=0;
-        int first=0,count=0;if(!remoteScreen.region(since,first,count)){server.send(204,"text/plain","");return;}
-        // R1SC / revision / page epoch / width / full height / first row / rows.
-        uint8_t header[20]={'R','1','S','C'};
+        if(epoch!=screenEpoch||since>revision)since=row=0;
+        if(row&&(row>=uint32_t(remoteScreen.height())||scan<since||scan>revision)){
+            server.send(400,"text/plain","Invalid screen cursor");return;
+        }
+        if(!row)scan=revision;
+        const auto strip=remoteScreen.strip(since,static_cast<int>(row));
+        if(!strip.count){server.send(204,"text/plain","");return;}
+        // R1SR / batch revision / page epoch / width / height / first row /
+        // rows / next row. Zero next row completes the revision scan.
+        uint8_t header[22]={'R','1','S','R'};
         auto put16=[&](int at,unsigned v){header[at]=v;header[at+1]=v>>8;};
         auto put32=[&](int at,uint32_t v){put16(at,v);put16(at+2,v>>16);};
-        put32(4,remoteScreen.revision());put32(8,screenEpoch);
-        put16(12,remoteScreen.width());put16(14,remoteScreen.height());put16(16,first);put16(18,count);
-        const size_t bytes=size_t(remoteScreen.width())*count*2;
+        put32(4,scan);put32(8,screenEpoch);
+        put16(12,remoteScreen.width());put16(14,remoteScreen.height());
+        put16(16,strip.first);put16(18,strip.count);put16(20,strip.next);
+        const size_t bytes=size_t(remoteScreen.width())*strip.count*2;
         server.setContentLength(sizeof(header)+bytes);server.send(200,"application/octet-stream","");
         server.sendContent(reinterpret_cast<const char*>(header),sizeof(header));
-        server.sendContent(reinterpret_cast<const char*>(remoteScreen.data()+first*remoteScreen.width()),bytes);
+        server.sendContent(reinterpret_cast<const char*>(remoteScreen.data()+strip.first*remoteScreen.width()),bytes);
     });
     server.on("/api/screen/input",HTTP_POST,[]{
-        int epoch=0,x=0,y=0,action=0,hold=0;
+        uint32_t epoch=0;
+        int x=0,y=0,action=0,hold=0;
         if(!number("action",0,9,action)){server.send(400,"text/plain","Invalid action");return;}
         if(!authorized(action!=7&&action!=9))return;
         if((action==7||action==9)&&server.header("X-R1-Token")!=token){server.send(403,"text/plain","Invalid setup session");return;}
-        if(!remotePixels||!number("epoch",1,INT32_MAX,epoch)||uint32_t(epoch)!=screenEpoch){server.send(409,"text/plain","Screen changed; wait for live view");return;}
+        if(!remotePixels||!remoteView.active(millis())||!screenNumber("epoch",epoch)||
+           epoch!=screenEpoch||capturedScreenEpoch!=screenEpoch){server.send(409,"text/plain","Screen changed; wait for live view");return;}
         if(action==9){const bool ok=handset->portalRequestRemoteControl();server.send(ok?202:409,"text/plain",ok?"CUT requested; wait for control readiness":"Finish the physical interaction first");return;}
         if(action==7){const bool ok=handset->portalWakeScreen();server.send(ok?200:409,"text/plain",ok?"Display awake":"Screen changed; please tap again");return;}
         if(action==8){
@@ -406,7 +472,7 @@ static void routes() {
             server.send(ok?200:409,"text/plain",ok?"Gesture applied":"Gesture unavailable on this screen");return;
         }
         if(!number("action",0,6,action)||((action==0||action==3||action==4||action==6)&&(!number("x",0,479,x)||!number("y",0,479,y)))||((action==4||action==5||action==6)&&!number("hold",1,INT32_MAX,hold))){server.send(400,"text/plain","Invalid tap");return;}
-        Serial.printf("WEB TOUCH: action=%d xy=(%d,%d) epoch=%d\n",action,x,y,epoch);
+        Serial.printf("WEB TOUCH: action=%d xy=(%d,%d) epoch=%lu\n",action,x,y,static_cast<unsigned long>(epoch));
         const bool ok=handset->portalRemoteInput(x,y,action,hold,epoch);
         if(ok&&action==3){server.send(200,"text/plain",String(handset->portalRemoteHoldId()));return;}
         server.send(ok?200:409,"text/plain",ok?(action==4?"Enable requested; neutral and link checks apply":"Input applied"):(action>=3?"Hold cancelled or expired; keep holding Drive until ready, then release":"Finish the current interaction, or use the physical LCD for connection/password changes"));
@@ -771,7 +837,7 @@ static void stationTick(bool outputsSafe) {
     if(info.autoConnect&&info.ssid[0]&&!connected&&!info.connecting&&!connectPending&&outputsSafe&&wifiRetry.ready(now))queueSavedConnection();
 }
 static void stopWeb() {
-    server.stop();info.running=false;releaseScreen();
+    server.stop();info.running=false;remoteView.clear();freeIdleScreen();
     if(mdnsReady)MDNS.end();mdnsReady=false;
 }
 static bool startWeb() {
@@ -790,6 +856,7 @@ static void radioOff() {
 }
 void tick(bool outputsSafe, bool allowConnect) {
     serviceRestart(outputsSafe);
+    freeIdleScreen();
     info.controlAllowed=outputsSafe;
     if(stopping){
         // A password change invalidated the browser session. If closing setup

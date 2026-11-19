@@ -9,10 +9,10 @@ void TransmitterUi::drawDashboardSensorWidget(uint8_t cell,const DashboardWidget
     auto title=gpsAuto?(view.values[3]=makeLabel(parent,"",8,5,UiText::Caption,cDim)):view.title;
     auto &unit=gpsAuto?view.values[2]:view.detail;
     auto &marker=gpsAuto?view.values[5]:view.marker;
-    lv_label_set_text(title,designSensorNames[w.source]);
+    lv_label_set_text(title,sensorDescriptors[w.source].name);
     const bool speed=w.source==0;
     if(!speed){
-        char titleText[64];snprintf(titleText,sizeof(titleText),"%s%s",w.speedValue==SpeedWidgetValue::Maximum?"MAX ":w.speedValue==SpeedWidgetValue::Average?"AVG ":"",designSensorNames[w.source]);
+        char titleText[64];snprintf(titleText,sizeof(titleText),"%s%s",w.speedValue==SpeedWidgetValue::Maximum?"MAX ":w.speedValue==SpeedWidgetValue::Average?"AVG ":"",sensorDescriptors[w.source].name);
         uiSetText(title,titleText);boundedLabel(title,width-72);
     }
     if(speed){
@@ -26,7 +26,7 @@ void TransmitterUi::drawDashboardSensorWidget(uint8_t cell,const DashboardWidget
     }
     const UiText::Style valueStyle=speed?(height>130 && w.style!=DashboardWidgetStyle::Graph?(width>220?UiText::Hero:UiText::Reading):UiText::Heading):UiText::Reading;
     view.values[0]=makeLabel(parent,"--",8,speed?(height>130?40:24):33,valueStyle);
-    unit=makeLabel(parent,designSensorUnits[w.source],speed?width-43:8,speed?5:height-20,UiText::Caption,cDim);
+    unit=makeLabel(parent,sensorDescriptors[w.source].unit,speed?width-43:8,speed?5:height-20,UiText::Caption,cDim);
     if(!speed){
         lv_obj_set_pos(unit,width-62,5);lv_obj_set_width(unit,54);lv_obj_set_style_text_align(unit,LV_TEXT_ALIGN_RIGHT,0);
         view.values[1]=makeLabel(parent,"Max -- / Avg --",8,height-18,UiText::Caption,cDim);
@@ -84,14 +84,14 @@ void TransmitterUi::updateDashboardSensorWidget(uint8_t cell,const DashboardWidg
             uiSetTextFmt(view.satellites,"%u sats",t.satellites);
         else uiSetText(view.satellites,"-- sats");
     }
-    int32_t value=0;uint32_t stamp=0;
-    const bool valid=w.source==0?(value=t.groundSpeedDeciKmh,stamp=t.gpsSpeedUpdatedMs,gpsSpeedAvailable(t,now)):
-        sensorReading(t,w.source,value,stamp);
+    const auto reading=sensorReading(t,w.source,now);
+    const int32_t value=reading.value;
+    const bool valid=reading.valid;
     char text[24];sensorText(w.source,value,text,sizeof(text));
     auto stats=telemetryHistory_?sensorStatistics_[w.source].result(sensorSessionStats_[w.source],now):SensorStatistics::Result{};
     if(w.source==0&&sensorSessionStats_[0])stats={speedStatistics_.available(),speedStatistics_.maximum(),0,speedStatistics_.average()};
     {
-        uiSetText(unit,designSensorUnits[w.source]);
+        uiSetText(unit,sensorDescriptors[w.source].unit);
         char readings[3][16];
         snprintf(readings[0],sizeof(readings[0]),"%s",valid?text:"--");
         for(uint8_t i=1;i<3;++i){

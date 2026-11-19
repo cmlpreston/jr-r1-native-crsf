@@ -14,8 +14,7 @@ void TransmitterUi::loadRunRecords()
     if(!runRecords_.initialize()){snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"Records unavailable: memory");return;}
     auto invalidateLive=[&](){
         if(telemetryHistory_)for(unsigned i=0;i<DashboardSensorCount;++i){
-            int32_t unused=0;uint32_t stamp=0;sensorReading(designTelemetry_,i,unused,stamp);
-            sensorStatistics_[i].resumeAfterPowerCycle(stamp);
+            sensorStatistics_[i].resumeAfterPowerCycle(sensorReading(designTelemetry_,i,millis()).stamp);
         }
         speedStatistics_.resumeAfterPowerCycle(designTelemetry_.gpsSpeedUpdatedMs);
         if(widgetMetrics_){auto &m=*widgetMetrics_.get();

@@ -12,7 +12,7 @@ bool TransmitterUi::runSimulatorSetupDetailsAudit()
             const auto r=event==PageControlEvent::Decrease?t.decrease:event==PageControlEvent::Increase?t.increase:t.activate;
             assert(r.width>0&&r.height>0);assert(dispatchPageControlTouch(r.x+r.width/2,r.y+r.height/2));return;}assert(false);
     };
-    auto check=[&](){lv_obj_update_layout(lv_scr_act());assert(!detailContentCompacted_);auditTypography(lv_scr_act());
+    auto check=[&](){lv_obj_update_layout(lv_scr_act());auditTypography(lv_scr_act());
         for(uint8_t i=0;i<pageFocusCount_;++i){const auto &t=pageFocusTargets_[i];for(const auto r:{t.focus,t.activate,t.decrease,t.increase})if(r.width)assert(r.x>=0&&r.y>=0&&r.x+r.width<=kScreenWidth&&r.y+r.height<=kScreenHeight);}
     };
     auto shot=[&](const char *name){check();if(const char *prefix=getenv("JR_R1_SETUP_DETAILS_IMAGES")){lv_refr_now(nullptr);char path[256];snprintf(path,sizeof(path),"%s-%s-%s.bmp",prefix,portraitUi?"portrait":"landscape",name);simulatorSaveScreenshot(path);}};

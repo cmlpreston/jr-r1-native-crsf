@@ -78,21 +78,6 @@ void TransmitterUi::updateV2RunReview()
         if(i==0){result.valid=speedStatistics_.available();value=speedStatistics_.maximum();}
         sensorText(source[i],value,text,sizeof(text));uiSetText(designValues_[i],result.valid?text:"--");}
 }
-void TransmitterUi::updateV2GraphCursor()
-{
-    if(!v2GraphCursorLine_)return;
-    if(!telemetryHistory_){uiSetHidden(v2GraphCursorLine_,true);return;}
-    uiSetHidden(v2GraphCursorLine_,!v2GraphPaused_);
-    if(!v2GraphPaused_){uiSetText(designDetails_[6],"30 s history");return;}
-    int start=30;while(start>0&&v2FrozenValid_[start-1])--start;
-    if(start==30){uiSetText(designDetails_[6],"No samples");uiSetHidden(v2GraphCursorLine_,true);return;}
-    v2GraphCursor_=constrain(v2GraphCursor_,start,29);
-    const int height=lv_obj_get_height(lv_obj_get_parent(designCurve_));const auto point=designPoints_[v2GraphCursor_-start];
-    const lv_point_t points[]={{point.x,0},{point.x,lv_coord_t(height-1)}};
-    uiSetLinePoints(v2GraphCursorLine_,v2GraphCursorPoints_,points,2);
-    char text[24];sensorText(sensorSelected_,v2FrozenHistory_[v2GraphCursor_],text,sizeof(text));
-    uiSetTextFmt(designDetails_[6],"-%us: %s %s",29-v2GraphCursor_,text,designSensorUnits[sensorSelected_]);
-}
 void TransmitterUi::controlV2(uint8_t item,PageControlEvent event)
 {
     if(event!=PageControlEvent::Activate)return;
@@ -103,9 +88,19 @@ void TransmitterUi::controlV2(uint8_t item,PageControlEvent event)
     else if(item>=10&&item<=13){if(item==13)drawRadioDiagnostics();else{const uint8_t sources[]={0,6,2};sensorSelected_=sources[item-10];drawDesignPage(UiPage::SensorDetail);}}
     else if(item>=20&&item<=22){
         if(activePage_!=UiPage::SensorDetail)return;
-        if(!telemetryHistory_)return;
-        if(item==20){v2GraphPaused_=!v2GraphPaused_;if(v2GraphPaused_){memcpy(v2FrozenHistory_.data(),sensorHistory_[sensorSelected_],v2FrozenHistory_.bytes());memcpy(v2FrozenValid_.data(),sensorHistoryValid_[sensorSelected_],v2FrozenValid_.bytes());v2GraphCursor_=29;}}
-        else if(v2GraphPaused_)v2GraphCursor_=constrain(int(v2GraphCursor_)+(item==21?-1:1),0,29);
+        if (!telemetryHistory_ || !sensorDetailChart_) return;
+        constexpr int newest = SensorHistory::Capacity - 1;
+        if (item == 20) {
+            v2GraphPaused_ = !v2GraphPaused_;
+            if (v2GraphPaused_) {
+                auto &history = *telemetryHistory_.get();
+                history.frozenRange = history.graphs[sensorSelected_].project(millis(), history.frozen, history.frozenValid);
+                v2GraphCursor_ = newest;
+                while (v2GraphCursor_ && !history.frozenValid[v2GraphCursor_]) --v2GraphCursor_;
+            }
+        } else if (v2GraphPaused_) {
+            v2GraphCursor_ = constrain(int(v2GraphCursor_) + (item == 21 ? -1 : 1), 0, newest);
+        }
         drawDesignPage(UiPage::SensorDetail);
     }else if(item==30){
         v2SensorSetupReturn_=true;

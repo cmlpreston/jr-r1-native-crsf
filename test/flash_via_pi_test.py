@@ -1,9 +1,7 @@
-"""Checks for the copy/upload workflow; never opens SSH or writes firmware."""
-import argparse
+"""Checks for the landscape artifact upload guard."""
 import importlib.util
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -93,20 +91,5 @@ class FlashWorkflowTests(unittest.TestCase):
             m['source_checks_passed']=True;manifest.write_text(json.dumps(m))
             (self.root/names[-1]).write_bytes(b'corrupted')
             with self.assertRaises(ValueError):artifact.verify(self.root,environment,'seeed_xiao_esp32s3',{'nobuild','upload'},'manifest.json')
-
-    def test_remote_script_preserves_checks_and_quotes_paths(self):
-        args=argparse.Namespace(remote_dir='/home/pi/my firmware',remote_pio='/home/pi/venv/bin/pio',environment=flash.ENVIRONMENTS[0],usb_port=flash.USB_PORT)
-        script=flash.remote_script(args)
-        self.assertNotIn('git ',script)
-        self.assertIn('JR_R1_ARTIFACT_MANIFEST=r1-upload-manifest.json',script)
-        self.assertIn('unset JR_R1_ALLOW_UNSAFE_UPLOAD',script)
-        self.assertIn('-t nobuild -t upload --upload-port',script)
-        self.assertIn('if fuser ',script)
-        self.assertIn('-t envdump > /dev/null',script)
-        self.assertLess(script.index('-t envdump'),script.rindex('tar -xzf'))
-        self.assertLess(script.rindex('tar -xzf'),script.index("python3 - <<'VERIFY'"))
-        self.assertNotIn('kill ',script)
-        self.assertIn("cd '/home/pi/my firmware'",script)
-        subprocess.run(['bash','-n'],input=script,text=True,check=True)
 
 if __name__=='__main__':unittest.main()

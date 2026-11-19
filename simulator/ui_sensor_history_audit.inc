@@ -36,6 +36,68 @@ for(uint8_t rotation=0;rotation<2;++rotation){
         for(size_t p=0;p<SensorHistory::Capacity;++p)assert(data[p]==LV_CHART_POINT_NONE);
         assert(!armRequested_);
     }
+
+    // The parser owns expiry. Its valid snapshots for slow sources can be
+    // older than three seconds and must agree across chart and number views.
+    for (const uint8_t source : {uint8_t{3}, uint8_t{6}}) {
+        auto &layout = dashboardLayouts_[activeModelSlot_];
+        layout = DashboardLayout{};
+        layout.cells[0].kind = DashboardWidgetKind::Sensor;
+        layout.cells[0].style = DashboardWidgetStyle::Graph;
+        layout.cells[0].source = source;
+        layout.cells[1] = layout.cells[0];
+        layout.cells[1].style = DashboardWidgetStyle::Numbers;
+        drawDashboard();
+        lv_obj_update_layout(lv_scr_act());
+        telemetryHistory_.get()->graphs[source].reset(0);
+
+        const auto observed = millis();
+        CrsfTelemetryState slow{};
+        const char *expected = nullptr;
+        if (source == 3) {
+            slow.receiverVoltageDecivolts = 66;
+            slow.batteryUpdatedMs = observed - 29000;
+            slow.receiverVoltageValid = true;
+            expected = "6.6";
+        } else {
+            slow.vehiclePackMv = 16040;
+            slow.vehicleCellsUpdatedMs = observed - 19000;
+            slow.vehicleCellsValid = true;
+            expected = "16.040";
+        }
+        updateDesign(slow, designSafety_, designTxVoltage_, designTxValid_);
+        assert(!strcmp(lv_label_get_text(widgetViews_[0].values[0]), expected));
+        assert(!strcmp(lv_label_get_text(widgetViews_[1].values[0]), expected));
+        assert(widgetMetrics_.get()->sensorValues[0][60] != LV_CHART_POINT_NONE);
+
+        slow.receiverVoltageValid = slow.vehicleCellsValid = false;
+        updateDesign(slow, designSafety_, designTxVoltage_, designTxValid_);
+        assert(!strcmp(lv_label_get_text(widgetViews_[0].values[0]), "--"));
+        assert(!strcmp(lv_label_get_text(widgetViews_[1].values[0]), "--"));
+    }
+
+    // The detail page sees the exact same minute and gap as its dashboard card.
+    auto &layout=dashboardLayouts_[activeModelSlot_];
+    layout=DashboardLayout{};
+    auto &w=layout.cells[0];
+    w.kind=DashboardWidgetKind::Sensor;
+    w.style=DashboardWidgetStyle::Graph;
+    w.source=2;
+    drawDashboard();
+    const auto graphNow=millis();
+    auto &history=telemetryHistory_.get()->graphs[2];
+    history.reset(graphNow-61000);
+    history.update(10000,graphNow-60000,true,graphNow-60000);
+    history.update(60000,graphNow-1000,true,graphNow-1000);
+    history.update(70000,graphNow,true,graphNow);
+    updateSensorHistoryWidget(0,w,CrsfTelemetryState{},graphNow);
+    controlDesign(130,PageControlEvent::Activate);
+    assert(activePage_==UiPage::SensorDetail && sensorSelected_==2);
+    updateSensorDetail(graphNow);
+    const auto *dashboardPoints=widgetMetrics_.get()->sensorValues[0];
+    assert(sensorDetailPoints_[0]==0 && sensorDetailPoints_[1]==LV_CHART_POINT_NONE);
+    assert(sensorDetailPoints_[59]!=LV_CHART_POINT_NONE && sensorDetailPoints_[60]==1000);
+    for (size_t i=0;i<SensorHistory::Capacity;++i) assert(sensorDetailPoints_[i]==dashboardPoints[i]);
     if(rotation==0){assert(requestDisplayRotation());applyDisplayRotation();}
 }
 dashboardLayouts_[activeModelSlot_]=original;
@@ -50,5 +112,5 @@ assert(!modelHistory.project(now+1000,modelValues,modelValid).available);
 modelHistory.update(80000,now+2000,true,now+2000);
 assert(modelHistory.project(now+2000,modelValues,modelValid).available);
 assert(!armRequested_);
-Serial.println("Sensor history UI: charts, all sizes/rotations, live/stale gaps, RPM range, reset, typography and bounds PASS");
+Serial.println("Sensor history UI: charts, all sizes/rotations, source freshness, live/stale gaps, RPM range, reset, typography and bounds PASS");
 return true;

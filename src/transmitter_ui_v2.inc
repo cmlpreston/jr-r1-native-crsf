@@ -21,7 +21,8 @@ void TransmitterUi::saveV2Quick()
 void TransmitterUi::drawV2Quick()
 {
     loadV2Quick();
-    makePageActionButton(8,5,76,34,"Back",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlKeypadMenu,8);
+    makePageActionButton(kHeaderActionX,headerCenterY(kHeaderButtonHeight),kHeaderActionWidth,kHeaderButtonHeight,
+        "Back",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlKeypadMenu,8);
     makeLabel(lv_scr_act(),"Quick menu",12,49,UiText::Heading,cWhite);
     makePageActionButton(kScreenWidth-85,47,73,30,v2QuickEditing_?"Done":"Edit",UiText::Caption,cPanel2,cCyan,cLine,&TransmitterUi::controlV2,4);
     const int w=(kScreenWidth-30)/2,step=portraitUi?65:39,h=portraitUi?56:35;

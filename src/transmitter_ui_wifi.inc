@@ -75,7 +75,9 @@ void TransmitterUi::drawWifiPage()
         // Viewing status is read-only; starting the hotspot is explicit. Back
         // also closes a session owned by this physical configuration visit.
         lv_obj_set_width(lv_obj_get_child(lv_obj_get_child(lv_scr_act(),0),0),kScreenWidth-250);
-        makePageActionButton(kScreenWidth-146,5,106,34,SetupPortal::active()?"Finish setup":"Start setup",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlWifi,SetupPortal::active()?2:1);
+        makePageActionButton(kScreenWidth-146,headerCenterY(kHeaderButtonHeight),106,kHeaderButtonHeight,
+            SetupPortal::active()?"Finish setup":"Start setup",UiText::Secondary,cPanel,cWhite,cLine,
+            &TransmitterUi::controlWifi,SetupPortal::active()?2:1);
     }
     auto text=[](const char *t,int y,UiText::Style style=UiText::Caption){auto l=makeLabel(lv_scr_act(),t,12,y,style,cWhite);lv_obj_set_width(l,kScreenWidth-24);return l;};
     auto button=[&](int x,int y,int w,const char *label,uint8_t id){return makePageActionButton(x,y,w,32,label,UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlWifi,id);};

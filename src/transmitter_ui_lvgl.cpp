@@ -3152,7 +3152,8 @@ void TransmitterUi::drawRadioDiagnostics()
     telemetryAgeLabel_ = makeLabel(stream, "AGE          ----", portraitUi ? 150 : 245, portraitUi ? 78 : 58, portraitUi ? UiText::Caption : UiText::Menu, cDim);
 
     makeLabel(lv_scr_act(), "Live receiver telemetry via Ranger Nano", 12, portraitUi ? 446 : 293, UiText::Caption, cDim);
-    makePageActionButton(kScreenWidth-100,5,92,34,"Model alarms",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,254);
+    makePageActionButton(kScreenWidth-132,headerCenterY(kHeaderButtonHeight),92,kHeaderButtonHeight,
+        "Model alarms",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,254);
     finishPageFocus();
 }
 

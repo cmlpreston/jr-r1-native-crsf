@@ -31,7 +31,9 @@ auto verifyHeader=[&](bool back){
             assert(area.y2==UiLayout::HeaderHeight-1);
             backdrop=true;
         }
-        if(area.x1==8&&area.x2==83&&area.y1<UiLayout::HeaderHeight){
+        const auto *label=lv_obj_get_child(object,0);
+        if(label&&lv_obj_check_type(label,&lv_label_class)&&!strcmp(lv_label_get_text(label),"Back")){
+            assert(area.x1==8&&area.x2==83);
             assert(area.y1==1&&area.y2==UiLayout::HeaderHeight-2);
             backVisual=true;
         }

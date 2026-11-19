@@ -651,7 +651,7 @@ static void routes() {
             loadMap();
         }
         if(info.storageReady){
-            server.send(409,"text/plain","Storage already ready. Maps and run records were kept.");
+            server.send(200,"text/plain","Storage already ready. Maps and run records were kept.");
             return;
         }
         info.storageReady=LittleFS.format()&&LittleFS.begin(false);

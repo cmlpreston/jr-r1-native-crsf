@@ -101,6 +101,10 @@
     controlDesign(100, activate);
     assert(activeModelSlot_ == 0 && runRecordsReadError_);
     speedStatistics_.update(760, 7000, 7000, true);
+    const auto discardLapNow = millis();
+    timers_[0].settings.onSeconds = 123;
+    timers_[0].resume(discardLapNow - 1500);
+    assert(timers_[0].recordLap(discardLapNow));
     runRecordsNextSaveMs_ = millis();
     updateRunRecords(millis());
     drawDesignPage(UiPage::RunReview);
@@ -109,9 +113,12 @@
     drawModelSelectPage();
     controlDesign(101, activate);
     assert(activeModelSlot_ == 0 && modelSelectPendingSlot_ == 1);
+    assert(timers_[0].lapCount() == 1 && timers_[0].running());
     controlDesign(168, activate); // Explicitly discard unsaved observations.
     assert(activeModelSlot_ == 1 && std::filesystem::file_size(record) == 7);
     controlDesign(100, activate);
+    assert(timers_[0].lapCount() == 0 && timers_[0].elapsed() == 0);
+    assert(timers_[0].settings.onSeconds == 123);
     drawDesignPage(UiPage::RunReview);
     controlV2(50, activate);controlV2(52, activate);
     assert(!runRecordsReadError_ && saveRunRecords());

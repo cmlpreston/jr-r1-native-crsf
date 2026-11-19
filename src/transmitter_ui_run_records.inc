@@ -5,6 +5,12 @@ void TransmitterUi::loadRunRecords()
     runRecordsSavePending_ = false;
     runRecordsReadError_ = nullptr;
     runRecordsGpsStamp_=designTelemetry_.gpsUpdatedMs;
+    // Discard any observations left in this slot's timer after changing models
+    // without saving. A valid checkpoint supplies the previous saved laps.
+    // Reset and clearLaps preserve TimerSettings, including handset on-time.
+    auto &timer = timers_[activeModelSlot_];
+    timer.reset(millis());
+    timer.clearLaps();
     if(!runRecords_.initialize()){snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"Records unavailable: memory");return;}
     auto invalidateLive=[&](){
         if(telemetryHistory_)for(unsigned i=0;i<DashboardSensorCount;++i){
@@ -17,7 +23,7 @@ void TransmitterUi::loadRunRecords()
             m.tripRun.resumeAfterPowerCycle(millis(),designTelemetry_.ersBatteryUpdatedMs,designTelemetry_.gpsSpeedUpdatedMs);
             m.batteryLoad.resumeAfterPowerCycle(designTelemetry_.ersBatteryUpdatedMs,designTelemetry_.vehicleCellsUpdatedMs);
         }
-        timers_[activeModelSlot_].resumeAfterPowerCycle(millis());
+        timer.resumeAfterPowerCycle(millis());
     };
     auto &r=*runRecords_.get();r.clear();
     using RunRecordStore::ReadResult;
@@ -43,8 +49,9 @@ void TransmitterUi::loadRunRecords()
     if(widgetMetrics_){auto &m=*widgetMetrics_.get();m.power=r.power;m.tripRun=r.trip;m.batteryLoad=r.battery;}
     // Current timer settings are authoritative. Only observations are restored;
     // the timer is always paused and auto-start is never resumed.
-    const auto settings=timers_[activeModelSlot_].settings;
-    timers_[activeModelSlot_]=r.timer;timers_[activeModelSlot_].settings=settings;
+    const auto settings = timer.settings;
+    timer = r.timer;
+    timer.settings = settings;
     invalidateLive();
     gpsCount_=min<unsigned>(48,r.gpsCount);
     for(unsigned i=0;i<gpsCount_;++i){const auto index=gpsCount_>1?i*(r.gpsCount-1)/(gpsCount_-1):0;

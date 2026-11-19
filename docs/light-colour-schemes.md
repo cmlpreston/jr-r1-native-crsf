@@ -1,7 +1,9 @@
 # Light colour schemes
 
 Display → Colour scheme now has Light and Dark tabs. The Light tab offers the
-original Light scheme plus Cloud / blue, Sand / bronze and Rose / plum. All
+original palette, now named Sage / teal, plus Cloud / blue, Sand / bronze and
+Mint / forest. Mint / forest replaces the rejected Rose / plum in the same saved
+slot, so an existing Rose selection becomes Mint without changing other slots. All
 three additions use pale surfaces, dark readable text and distinct accents;
 warnings retain their amber/green/red meanings. New light schemes use a darker
 fault red for readable text on pale surfaces.

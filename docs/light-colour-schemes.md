@@ -46,9 +46,26 @@ or a full test rerun. Upload took 41.73 s; application transfer 25.8 s. All flas
 hashes verified. Read-only postboot at uptime 10.4 s shows CUT, both MCPs online
 with zero errors, outputs 992/992 and no RF bench authorization or arm request.
 Theme selection on the actual screen remains the user's next check; flashing
-preserves the saved selection, so old preferences still initially use Light.
+preserves the saved selection. Missing light preferences use the original
+palette when light mode is active.
 
 Logs, downloaded artifacts and status: `/tmp/r1-light-schemes-validated`;
 upload: `/tmp/r1-light-schemes-upload.log`. Local PNG previews are
 `/tmp/r1-light-landscape-1-dashboard.png`, `-2-dashboard.png`, `-3-dashboard.png`
 and `/tmp/r1-light-portrait-3-picker.png`.
+
+### Mint replacement and original-palette name — 19 November
+
+The user rejected Rose / plum; slot 3 now contains Mint / forest. Slot 0 keeps
+its colours and is named Sage / teal. [Revision validation](https://github.com/cmlpreston/jr-r1-native-crsf/actions/runs/44479239706)
+passed the full host/contrast suite and light-scheme UI audit. Mint's dashboard
+and the renamed picker were visually inspected. Cache hits were 390/392
+(99.49%); firmware build took 43.32 s.
+
+Under the user's existing theme flash instruction, guarded upload installed
+`8a85aa06040a4d7335dbd429eebc2b742f50e7a5` using the same approved environment,
+hardware and landscape profile after fresh main/identity/hash checks. Upload
+took 39.98 s (25.8 s application transfer). Postboot at uptime 10.45 s reports
+CUT, both MCPs online with zero errors, safe outputs 992/992 and no arm/RF bench
+request. Logs, manifest/hash and postboot data: `/tmp/r1-mint-sage-validated`;
+upload: `/tmp/r1-mint-sage-upload.log`.

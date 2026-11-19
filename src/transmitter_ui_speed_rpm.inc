@@ -17,7 +17,7 @@ uint32_t speedRpmDialMaximum(uint32_t reading,uint32_t minimum)
 void TransmitterUi::drawSpeedRpmWidget(uint8_t cell,int width,int height)
 {
     auto &view = widgetViews_[cell];
-    uiSetText(view.title,width<200?"Speed / RPM":"Speed / motor RPM");
+    uiSetText(view.title,"Speed / RPM");
     const int inset = UiLayout::WidgetInset;
     const int gap = UiLayout::SmallGap;
     const int bodyY = UiLayout::WidgetBodyY;

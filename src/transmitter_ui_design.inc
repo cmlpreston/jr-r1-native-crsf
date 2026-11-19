@@ -1628,8 +1628,9 @@ void TransmitterUi::drawDashboardWidgets()
             const bool power=w.kind==DashboardWidgetKind::Power;
             const int count=power || w.secondSource<16?2:1;
             const bool tall=w.width==1&&w.height==2;
+            const bool stackLegend=count==2&&(tall||width<170);
             if(w.style==DashboardWidgetStyle::Graph){
-                const int plotTop=channelPlotTop(tall&&count==2);
+                const int plotTop=channelPlotTop(stackLegend);
                 const int plotHeight=height-plotTop-UiLayout::WidgetFooterHeight-2;
                 drawWidgetPercentAxis(view.panel,plotTop,plotHeight);
                 auto zero=lv_obj_create(view.panel);
@@ -1670,8 +1671,8 @@ void TransmitterUi::drawDashboardWidgets()
                     lv_obj_set_style_text_align(view.values[j],LV_TEXT_ALIGN_CENTER,0);
                 } else {
                     if(w.style==DashboardWidgetStyle::Graph){
-                        const int cw=(width-2*pad)/(tall?1:count);
-                        const int xx=pad+(tall?0:j)*cw, yy=bodyY+(tall?j*15:0);
+                        const int cw=(width-2*pad)/(stackLegend?1:count);
+                        const int xx=pad+(stackLegend?0:j)*cw, yy=bodyY+(stackLegend?j*15:0);
                         makeLabel(view.panel,text,xx,yy,UiText::Caption,j?cAmber:cCyan);
                         view.values[j]=makeLabel(view.panel,"--",xx+36,yy,UiText::Caption);
                         continue;
@@ -1683,9 +1684,10 @@ void TransmitterUi::drawDashboardWidgets()
                     const bool bar=w.style==DashboardWidgetStyle::Bars;
                     const int railSpace=bar?UiLayout::SmallGap+UiLayout::WidgetRailHeight:0;
                     const int yy=bodyY+j*rowHeight+(rowHeight-lineHeight-railSpace)/2;
+                    const int valueX=max(pad+42,width/2-2*UiLayout::Gap);
                     makeLabel(view.panel,text,pad,yy+(lineHeight-captionHeight)/2,UiText::Caption,cDim);
-                    view.values[j]=makeLabel(view.panel,"--",width/2,yy,valueStyle);
-                    lv_obj_set_width(view.values[j],width/2-pad);
+                    view.values[j]=makeLabel(view.panel,"--",valueX,yy,valueStyle);
+                    lv_obj_set_width(view.values[j],width-valueX-pad);
                     lv_obj_set_style_text_align(view.values[j],LV_TEXT_ALIGN_RIGHT,0);
                     if(bar){
                         view.bars[j]=makeBar(view.panel,pad,yy+lineHeight+UiLayout::SmallGap,width-2*pad,
@@ -1695,7 +1697,6 @@ void TransmitterUi::drawDashboardWidgets()
                 }
             }
         } else if(w.kind==DashboardWidgetKind::SpeedRpm){
-            uiSetText(title,"Speed / RPM");
             drawSpeedRpmWidget(cell,width,height);
         } else if(dashboardSessionWidget(w.kind) || w.kind==DashboardWidgetKind::PowerEnergy || w.kind==DashboardWidgetKind::DrivePack){
             drawMetricWidget(cell,width,height);
@@ -1870,7 +1871,7 @@ void TransmitterUi::updateDashboardWidgets(const CrsfTelemetryState &t,uint16_t 
                     lv_obj_update_layout(view.panel);
                     lv_point_t points[30];int ch=j?w.secondSource:w.source;
                     int width=lv_obj_get_width(view.panel),height=lv_obj_get_height(view.panel),count=min<int>(30,channelHistoryCount_);
-                    const int plotTop=channelPlotTop(w.width==1&&w.height==2&&w.secondSource<16);
+                    const int plotTop=channelPlotTop(w.secondSource<16&&(width<170||(w.width==1&&w.height==2)));
                     const int plotHeight=max(1,height-plotTop-UiLayout::WidgetFooterHeight-2);
                     const int plotWidth=width-kWidgetPercentPlotLeft-UiLayout::WidgetInset;
                     for(int i=0;i<count;++i)points[i]={static_cast<lv_coord_t>(kWidgetPercentPlotLeft+(30-count+i)*plotWidth/29),static_cast<lv_coord_t>(plotTop+plotHeight/2-permilleFromCrsfValue(channelHistory_[ch][30-count+i])*plotHeight/2000)};

@@ -6,8 +6,9 @@ const ctx={$:id=>el[id],Date:{now:()=>now},document:{hidden:false},setTimeout:()
 vm.createContext(ctx);vm.runInContext(source.slice(source.indexOf('let live=false,'),source.indexOf('\nlcd.onclick=')),ctx);
 const set=s=>vm.runInContext(s,ctx),hold=()=>set('webHold');
 const settle=async()=>{await Promise.resolve();await Promise.resolve();await Promise.resolve()};
-const reset=()=>{ctx.webWritable=true;ctx.pinLocked=false;ctx.document.hidden=false;set('live=true;liveBusy=false;liveEpoch=7;lastLiveAt=Date.now();remoteHoldZone=[0,280,120,40]')};
+const reset=()=>{ctx.webWritable=true;ctx.pinLocked=false;ctx.document.hidden=false;set('live=true;liveReady=true;liveBusy=false;liveEpoch=7;lastLiveAt=Date.now();remoteHoldZone=[0,280,120,40]')};
 (async()=>{
+ reset();set('liveReady=false');await ctx.startWebHold(30,300);assert.equal(posts.length,0);
  reset();await ctx.startWebHold(30,300);await settle();await ctx.finishWebHold();await settle();
  assert.equal(posts.filter(p=>p.action==='4').length,0);assert.ok(posts.some(p=>p.action==='5'));
  reset();await ctx.startWebHold(30,300);await settle();const h=hold();

@@ -32,7 +32,9 @@ for(unsigned orientation=0;orientation<2;++orientation){
     unsigned check=0;
     auto unchanged=[&](auto update){
         ++check;
-        update();lv_obj_update_layout(lv_scr_act());lv_refr_now(nullptr);
+        // Complete layout before setting the baseline. Width-dependent chart
+        // captions choose their final text once panel geometry is resolved.
+        lv_obj_update_layout(lv_scr_act());update();lv_refr_now(nullptr);
         auditRedrawnPixels=0;
         for(unsigned i=0;i<20;++i)update();
         if(auditRedrawnPixels)Serial.printf("Graph unchanged check %u (%dx%d) redrew %llu pixels\n",check,kScreenWidth,kScreenHeight,static_cast<unsigned long long>(auditRedrawnPixels));

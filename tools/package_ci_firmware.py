@@ -12,13 +12,13 @@ from flash_via_pi import ROOT, digest, validate_hardware, verify_manifest
 
 UI_CHECKS = (
     ('JR_R1_SHARED_UI_CHECK', 'shared UI and layout',
-     'full simulator UI audit: navigation, layout and runtime rotation'),
+     'full simulator UI audit: navigation, layout, header/navigation reuse and runtime rotation'),
     ('JR_R1_RUN_RECORDS_UI_CHECK', 'run records',
      'run records focused UI audit: persistence, reset, model isolation and both orientations'),
     ('JR_R1_SENSOR_HISTORY_UI_CHECK', 'sensor history',
-     'sensor history focused UI audit: all sizes, landscape and portrait'),
+     'sensor history focused UI audit: all sizes, stable redraw, landscape and portrait'),
     ('JR_R1_ERS_DISCOVERY_UI_CHECK', 'ERS discovery',
-     'ERS discovery focused UI audit: queued four-sensor burst, settings and CUT, landscape and portrait'),
+     'ERS discovery focused UI audit: queued four-sensor burst, in-place drafts and CUT, landscape and portrait'),
     ('JR_R1_COLOUR_SCHEMES_UI_CHECK', 'light colour schemes',
      'light colour schemes UI audit: persistence, Night toggle, picker bounds and both orientations'),
 )

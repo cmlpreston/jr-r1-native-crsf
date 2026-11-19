@@ -383,7 +383,7 @@ private:
                              PageControlHandler handler, uint8_t argument);
     void finishPageFocus();
     bool navigationIsModal() const;
-    void drawSectionNavigation(uint8_t section);
+    void drawSectionNavigation(uint8_t section, bool retainObjects = false);
     void drawPageTabs(const char *const *labels, const uint8_t *actions, uint8_t count,
                       uint8_t selected, PageControlHandler handler, int16_t y = 44);
     void drawPageControls(uint8_t page, uint8_t count);
@@ -543,7 +543,7 @@ private:
     void emitBuzzerNote(uint16_t pitchHz, uint16_t durationMs);
     void playKeyClick();
     void stopBuzzer();
-    void resetLvglObjects();
+    void resetLvglObjects(bool retainDesignChrome = false);
     void redrawActivePage();
     void sleepDisplay();
     void wakeDisplay();
@@ -578,6 +578,14 @@ private:
 
     static constexpr uint8_t kModelMemoryCount = 10;
     static constexpr uint8_t kModelNameCapacity = 13;
+    struct DesignChrome {
+        lv_obj_t *screen = nullptr;
+        uint32_t paint = 0, accent = 0, base = 0;
+        uint8_t model = 0, image = 0, section = 0, brightness = 0, palette = 0;
+        bool portrait = false, root = false, abs = false, night = false;
+        char modelName[kModelNameCapacity] = {};
+        bool matches(const DesignChrome &other) const;
+    } designChrome_;
     DashboardLayout dashboardLayouts_[kModelMemoryCount];
     uint8_t widgetCell_ = 0;
     int8_t maximizedWidget_ = -1; // Temporary presentation only; never persisted.
@@ -796,6 +804,7 @@ private:
     bool standardBatteryVehicle_=false;
     bool ersUsePackCapacity_=false;
     void drawErsSensorContent();
+    void refreshErsDraft(const ErsDevice &device);
     void controlErsSensor(uint8_t item, PageControlEvent event);
     int8_t ersSelected_=-1;
     uint8_t ersListBank_=0;

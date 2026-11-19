@@ -296,6 +296,13 @@ bool simulatorSaveScreenshot(const char *path)
     return saved;
 }
 
+bool simulatorCopyFramebuffer(uint32_t *pixels, size_t count)
+{
+    if (count != framebuffer.size()) return false;
+    std::copy(framebuffer.begin(), framebuffer.end(), pixels);
+    return true;
+}
+
 bool simulatorConsumeAction(uint16_t &function, int16_t &value)
 {
     if (bridgeActions.empty()) return false;

@@ -16,6 +16,22 @@ void TransmitterUi::consumeErsReplies(CrsfTelemetryParser &parser)
     }
 }
 
+void TransmitterUi::refreshErsDraft(const ErsDevice &device)
+{
+    const bool useGpsMode=device.type==3;
+    const uint8_t knownBit=useGpsMode?1:device.type==8?2:4;
+    const bool known=(device.known&knownBit)!=0;
+    const uint16_t confirmed=useGpsMode?device.gpsMode:device.type==8?device.motorPoles:device.capacityMah;
+    if(ersDraftDirty_&&!ersConfig_.busy()&&known&&confirmed==ersDraft_)ersDraftDirty_=false;
+    if(!ersDraftDirty_)ersDraft_=known?confirmed:device.type==4?5000:2;
+
+    if(useGpsMode)uiSetText(designValues_[0],ersDraft_==2?"Global / position":"Speed only");
+    else uiSetTextFmt(designValues_[0],"%u",unsigned(ersDraft_));
+    uiSetText(designDetails_[0],ersDraftDirty_?"Draft; Apply sends it to the sensor.":
+        known?"Confirmed sensor setting":"Unconfirmed default; read settings first");
+    if(designDetails_[1])uiSetText(designDetails_[1],ersFine_?"Step: 1":"Step: 100");
+}
+
 void TransmitterUi::drawErsSensorContent()
 {
     const bool portrait=portraitUi;
@@ -51,12 +67,6 @@ void TransmitterUi::drawErsSensorContent()
     }
     const auto &d=ersConfig_.device(ersSelected_);
     const bool editable=d.type==3 || d.type==4 || d.type==8;
-    const uint8_t known=d.type==3?1:d.type==8?2:d.type==4?4:0;
-    const uint16_t confirmed=d.type==3?d.gpsMode:d.type==8?d.motorPoles:d.capacityMah;
-    if(ersDraftDirty_ && !ersConfig_.busy() && (d.known&known) && confirmed==ersDraft_)ersDraftDirty_=false;
-    if(!ersDraftDirty_){
-        ersDraft_=d.type==3?(d.known&1?d.gpsMode:2):d.type==8?(d.known&2?d.motorPoles:2):(d.known&4?d.capacityMah:5000);
-    }
     char name[64];snprintf(name,sizeof(name),"%s / ID %u",d.name[0]?d.name:"ERS sensor",d.id);
     text(name,12,portrait?122:108,UiText::Menu,cCyan);
     button(12,portrait?157:137,portrait?184:144,"Read settings",3);
@@ -64,12 +74,13 @@ void TransmitterUi::drawErsSensorContent()
     if(editable){
         const char *title=d.type==3?"GPS mode":d.type==8?"Motor poles (total)":"Battery capacity (mAh)";
         text(title,12,top,UiText::Caption,cDim);
-        char value[48];if(d.type==3)snprintf(value,sizeof(value),"%s",ersDraft_==2?"Global / position":"Speed only");
-        else snprintf(value,sizeof(value),"%u",ersDraft_);
-        auto l=makeLabel(lv_scr_act(),value,12,top+19,UiText::Menu,cWhite);lv_obj_set_width(l,width-112);lv_label_set_long_mode(l,LV_LABEL_LONG_DOT);
+        designValues_[0]=makeLabel(lv_scr_act(),"",12,top+19,UiText::Menu,cWhite);
+        lv_obj_set_width(designValues_[0],width-112);
+        lv_label_set_long_mode(designValues_[0],LV_LABEL_LONG_DOT);
         button(kScreenWidth-108,top+15,44,"-",6);button(kScreenWidth-56,top+15,44,"+",7);
-        if(d.type==4)button(kScreenWidth-146,portrait?158:137,134,ersFine_?"Step: 1":"Step: 100",9);
-        text(ersDraftDirty_?"Draft; Apply sends it to the sensor.":(d.known&known)?"Confirmed sensor setting":"Unconfirmed default; read settings first",12,portrait?286:229,UiText::Caption,cDim);
+        if(d.type==4)designDetails_[1]=lv_obj_get_child(button(kScreenWidth-146,portrait?158:137,134,"",9),0);
+        designDetails_[0]=text("",12,portrait?286:229,UiText::Caption,cDim);
+        refreshErsDraft(d);
         button(kScreenWidth/2+4,footer,kScreenWidth/2-16,"Apply",8);
     }else{
         text("Cell readings appear in Data and\nthe Battery cells widget.",12,top,UiText::Secondary,cDim);
@@ -92,14 +103,21 @@ void TransmitterUi::controlErsSensor(uint8_t item,PageControlEvent event)
         if(ersUsePackCapacity_ && ersConfig_.device(index).type==4){ersDraft_=driveBatterySettings_.capacityMah;ersDraftDirty_=true;ersUsePackCapacity_=false;}
         drawDesignPage(UiPage::ErsSensors);return;
     }
-    if(item==9){ersFine_=!ersFine_;drawDesignPage(UiPage::ErsSensors);return;}
-    if((item==6 || item==7) && ersSelected_>=0){
-        if(ersConfig_.busy())return;
+    if(item==6||item==7||item==9){
+        if(ersSelected_<0||ersSelected_>=ersConfig_.count()||!designValues_[0])return;
         const auto &d=ersConfig_.device(ersSelected_);
-        const int step=d.type==4&&!ersFine_?100:1;
-        const int direction=event==PageControlEvent::Decrease?-1:event==PageControlEvent::Increase?1:item==6?-1:1;
-        ersDraft_=constrain(int(ersDraft_)+direction*step,1,d.type==3?2:d.type==8?100:65535);
-        ersDraftDirty_=true;drawDesignPage(UiPage::ErsSensors);return;
+        if(item==9){
+            if(!designDetails_[1])return;
+            ersFine_=!ersFine_;
+        }else{
+            if(ersConfig_.busy())return;
+            const int step=d.type==4&&!ersFine_?100:1;
+            const int direction=event==PageControlEvent::Decrease?-1:event==PageControlEvent::Increase?1:item==6?-1:1;
+            ersDraft_=constrain(int(ersDraft_)+direction*step,1,d.type==3?2:d.type==8?100:65535);
+            ersDraftDirty_=true;
+        }
+        refreshErsDraft(d);
+        return;
     }
     ErsRequest request;
     if(item==0){request.type=255;request.id=1;request.command=0;request.value=255;ersSelected_=-1;ersListBank_=0;}

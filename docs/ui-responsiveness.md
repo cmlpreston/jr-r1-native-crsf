@@ -291,3 +291,30 @@ lease timeout, page changes and retry after a truncated response. The original
 timings above predate this change. The next handset test should measure the
 effect on touch response and input, control and radio timing with live viewing,
 including slow Wi-Fi, full page changes, reconnect and USB capture.
+
+## Shared navigation and ERS draft reuse — 19 November 2026
+
+Compatible pages retain their header and bottom navigation while replacing the
+page body. Each transition still advances the mirrored screen epoch and registers
+fresh focus targets. Changes in orientation, theme, model, header layout or
+navigation selection rebuild the shared objects. Tune uses a full rebuild to
+keep its chevron edges identical across display flush boundaries.
+
+The Pi's native SDL simulator compared 49 transitions per orientation through
+Display, TX Battery, Clock, Data and Channel Monitor. The two paths produced
+identical framebuffer pixels at every step. Times are totals for that sequence
+with forced full rebuild first and retained objects second.
+
+| Orientation | Objects rebuilt | Pixels drawn | Construction (ms) | Layout (ms) | Flush (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Landscape | 2,674 → 1,953 | 7,526,400 → 7,119,651 | 459 → 361 | 450 → 361 | 8,747 → 8,666 |
+| Portrait | 2,919 → 2,198 | 7,526,400 → 7,250,628 | 486 → 385 | 494 → 402 | 13,211 → 12,840 |
+
+Changing a local ERS draft now updates the existing value, state and capacity
+step labels. An equivalent forced redraw test across 26 GPS, RPM and capacity
+actions created 1,099 objects and drew 3,993,600 pixels. In-place edits created
+zero objects and drew 263,804 pixels, a 93.4% reduction. Both routes produced
+identical frames. The in-place edits retain focus and epoch for the current page.
+
+These measurements compare simulator rendering and SDL flushes. Handset touch
+latency and SPI transfer times need separate measurements on hardware.

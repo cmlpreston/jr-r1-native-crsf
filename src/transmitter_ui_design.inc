@@ -370,6 +370,15 @@ lv_obj_t *TransmitterUi::drawSettingsRow(const char *title,const char *value,int
     return valueLabel;
 }
 
+bool TransmitterUi::DesignChrome::matches(const DesignChrome &other) const
+{
+    return screen && screen == other.screen && portrait == other.portrait &&
+        root == other.root && abs == other.abs && section == other.section &&
+        brightness == other.brightness && palette == other.palette && night == other.night &&
+        model == other.model && image == other.image && paint == other.paint &&
+        accent == other.accent && base == other.base && strcmp(modelName, other.modelName) == 0;
+}
+
 void TransmitterUi::drawDesignPage(UiPage page)
 {
     if (page != UiPage::ModelSelect && modelSelectPendingSlot_ < kModelMemoryCount) {
@@ -384,7 +393,51 @@ void TransmitterUi::drawDesignPage(UiPage page)
     if(page!=UiPage::Dashboard)maximizedWidget_=-1;
     if(page==UiPage::Gps&&activePage_!=UiPage::Gps){gpsFullScreen_=false;lastInteractionMs_=millis();}
     activePage_ = page;
-    startScreen(); resetLvglObjects(); beginPageFocus(false);
+    const bool fullScreenGps = page == UiPage::Gps && gpsFullScreen_;
+    const bool compactHeader = page == UiPage::Dashboard;
+    const bool modal = navigationIsModal();
+    const bool rootPage = compactHeader || page == UiPage::Tune || page == UiPage::Telemetry ||
+        page == UiPage::Gps || page == UiPage::ChannelMonitor || page == UiPage::MainMenu;
+    const UiPage sectionPage = page == UiPage::TimerControl ? UiPage::Dashboard
+        : page == UiPage::OutputStatus ? statusReturnPage_ : page;
+    const bool dataSection = sectionPage == UiPage::Telemetry || sectionPage == UiPage::Gps ||
+        sectionPage == UiPage::ChannelMonitor || sectionPage == UiPage::SensorDetail ||
+        sectionPage == UiPage::RunReview ||
+        (sectionPage == UiPage::InputMonitor && inputMonitorReturnPage_ == UiPage::Telemetry);
+    uint8_t section = 3;
+    if (sectionPage == UiPage::Dashboard || sectionPage == UiPage::ModeChooser) section = 0;
+    else if (sectionPage == UiPage::Tune || sectionPage == UiPage::ValueEditor ||
+             sectionPage == UiPage::BrakeAbs) section = 1;
+    else if (dataSection) section = 2;
+
+    // Keep the exact chrome only when its geometry, appearance and selected
+    // section match. Keep full redraws for Tune, where partial refresh strips
+    // change a few anti-aliased chevron edge pixels.
+    DesignChrome chrome;
+    if (!compactHeader && !modal && !fullScreenGps && page != UiPage::Tune) {
+        chrome.screen = lv_scr_act();
+        chrome.portrait = portraitUi;
+        chrome.root = rootPage;
+        chrome.abs = brakeAbs_.enabled;
+        chrome.section = section;
+        chrome.brightness = uiBrightnessPercent;
+        chrome.night = uiNightMode;
+        chrome.palette = uiNightMode ? uiDarkColourScheme : uiLightColourScheme;
+        chrome.model = activeModelSlot_;
+        chrome.image = modelImages_[activeModelSlot_];
+        chrome.paint = modelColours_[activeModelSlot_];
+        chrome.accent = modelAccents_[activeModelSlot_];
+        chrome.base = modelBases_[activeModelSlot_];
+        snprintf(chrome.modelName, sizeof(chrome.modelName), "%s", modelNames_[activeModelSlot_]);
+    }
+    const bool retainChrome = chrome.matches(designChrome_)
+#ifdef JR_R1_SIMULATOR
+        && !auditForceChromeRebuild
+#endif
+        ;
+    startScreen(retainChrome);
+    resetLvglObjects(retainChrome);
+    beginPageFocus(false);
     auto button = [this](int x, int y, int w, int h, const char *label, uint8_t action, bool selected = false) {
         return makePageActionButton(x,y,w,h,label,UiText::Menu, selected ? cPanel2 : cPanel,
             selected ? cCyan : cWhite,cLine,&TransmitterUi::controlDesign,action);
@@ -395,38 +448,60 @@ void TransmitterUi::drawDesignPage(UiPage page)
     auto row = [&](int y, const char *title, const char *value, uint8_t action, int height = 39) {
         return drawMenuRow(title,value,y,height,&TransmitterUi::controlDesign,action);
     };
-    if(page==UiPage::Gps&&gpsFullScreen_){
-        drawGpsMapView(true);finishPageFocus();
-        updateDesign(designTelemetry_,designSafety_,designTxVoltage_,designTxValid_);return;
+    if (fullScreenGps) {
+        drawGpsMapView(true);
+        finishPageFocus();
+        updateDesign(designTelemetry_,designSafety_,designTxVoltage_,designTxValid_);
+        finishUiConstruction();
+        return;
     }
-    const bool compactHeader=page==UiPage::Dashboard;
-    const int headerHeight=compactHeader?kDashboardHeaderHeight:44;
-    makePanel(0,0,kScreenWidth,headerHeight,cHeader,cHeader,0);
-    const bool rootPage=page==UiPage::Dashboard||page==UiPage::Tune||page==UiPage::Telemetry||page==UiPage::Gps||page==UiPage::ChannelMonitor||page==UiPage::MainMenu;
-    if(!rootPage && (!navigationIsModal()||page==UiPage::ElrsBinding||page==UiPage::Calibration)){
-        makePageActionButton(8,5,76,34,page==UiPage::Calibration?"Cancel":"Back",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlNavigation,0);
-    }
-    const int modelX=rootPage?47:94;
-    if(rootPage){
-        if (const auto *art=modelImage(modelImages_[activeModelSlot_],modelColours_[activeModelSlot_],modelAccents_[activeModelSlot_],modelBases_[activeModelSlot_])) {
-            auto logo=lv_img_create(lv_scr_act());lv_img_set_src(logo,art);lv_img_set_zoom(logo,min(36*256/int(art->header.w),min(30,headerHeight-8)*256/int(art->header.h)));
-            lv_img_set_pivot(logo,0,0);lv_obj_set_pos(logo,5,4);
+    const int headerHeight = compactHeader ? kDashboardHeaderHeight : 44;
+    const bool backButton = !rootPage && (!modal || page == UiPage::ElrsBinding || page == UiPage::Calibration);
+    if (!retainChrome) {
+        makePanel(0,0,kScreenWidth,headerHeight,cHeader,cHeader,0);
+        if (backButton) {
+            makeButton(8,5,76,34,page==UiPage::Calibration?"Cancel":"Back",
+                       UiText::Secondary,cPanel,cWhite,cLine);
         }
+        const int modelX = rootPage ? 47 : 94;
+        if (rootPage) {
+            if (const auto *art = modelImage(modelImages_[activeModelSlot_], modelColours_[activeModelSlot_],
+                                            modelAccents_[activeModelSlot_], modelBases_[activeModelSlot_])) {
+                auto *logo = lv_img_create(lv_scr_act());
+                lv_img_set_src(logo,art);
+                lv_img_set_zoom(logo,min(36*256/int(art->header.w),min(30,headerHeight-8)*256/int(art->header.h)));
+                lv_img_set_pivot(logo,0,0);
+                lv_obj_set_pos(logo,5,4);
+            }
+        }
+        auto *modelLabel = label(modelNames_[activeModelSlot_],modelX,10,UiText::Secondary,0xe7edef);
+        boundedLabel(modelLabel,kScreenWidth-modelX-192-(compactHeader&&brakeAbs_.enabled?28:0));
+        lv_obj_set_height(modelLabel,UiText::font(UiText::Secondary)->line_height);
+        makeHeaderTxVoltage(kScreenWidth-184,12);
+        makeHeaderGpsTime(kScreenWidth-76,12);
+        if (brakeAbs_.enabled) {
+            label("ABS",kScreenWidth-(compactHeader?214:116),compactHeader?12:26,UiText::Caption,cAmber);
+        }
+        designLink_=label("LQ --",kScreenWidth-136,12,UiText::Caption,cDim);
+        boundedLabel(designLink_,52);
+        makeWifiStatusIcon(kScreenWidth-33,11);
     }
-    auto modelLabel=label(modelNames_[activeModelSlot_],modelX,10,UiText::Secondary,0xe7edef);
-    boundedLabel(modelLabel,kScreenWidth-modelX-192-(compactHeader&&brakeAbs_.enabled?28:0));
-    lv_obj_set_height(modelLabel,UiText::font(UiText::Secondary)->line_height);
-    makeHeaderTxVoltage(kScreenWidth-184,12);
-    makeHeaderGpsTime(kScreenWidth-76,12);
-    if(brakeAbs_.enabled)label("ABS",kScreenWidth-(compactHeader?214:116),compactHeader?12:26,UiText::Caption,cAmber);
-    designLink_=label("LQ --",kScreenWidth-136,12,UiText::Caption,cDim);boundedLabel(designLink_,52);
-    makeWifiStatusIcon(kScreenWidth-33,11);
-    if(!navigationIsModal())addPageActionTarget(kScreenWidth-kHeaderLinkTargetRight,0,kHeaderLinkTargetWidth,min(38,headerHeight),&TransmitterUi::controlDesign,63);
-    const bool data = page == UiPage::Telemetry || page == UiPage::Gps || page == UiPage::ChannelMonitor || page == UiPage::SensorDetail;
-    const UiPage sectionPage=page==UiPage::TimerControl?UiPage::Dashboard:page==UiPage::OutputStatus?statusReturnPage_:page;
-    const bool dataSection=sectionPage==UiPage::Telemetry||sectionPage==UiPage::Gps||sectionPage==UiPage::ChannelMonitor||sectionPage==UiPage::SensorDetail||sectionPage==UiPage::RunReview||(sectionPage==UiPage::InputMonitor&&inputMonitorReturnPage_==UiPage::Telemetry);
-    const uint8_t nav=(sectionPage==UiPage::Dashboard||sectionPage==UiPage::ModeChooser)?0:(sectionPage==UiPage::Tune||sectionPage==UiPage::ValueEditor||sectionPage==UiPage::BrakeAbs)?1:dataSection?2:3;
-    if(!navigationIsModal())drawSectionNavigation(nav);
+    if (backButton) addPageActionTarget(8,5,76,34,&TransmitterUi::controlNavigation,0);
+    if (!modal) {
+        addPageActionTarget(kScreenWidth-kHeaderLinkTargetRight,0,kHeaderLinkTargetWidth,
+                            min(38,headerHeight),&TransmitterUi::controlDesign,63);
+        drawSectionNavigation(section,retainChrome);
+    }
+    if (chrome.screen && !retainChrome) {
+        // Only these shared roots survive. Body objects and the keypad focus
+        // indicator are appended afterwards and discarded on every transition.
+        for (uint32_t i = 0; i < lv_obj_get_child_cnt(chrome.screen); ++i) {
+            lv_obj_add_flag(lv_obj_get_child(chrome.screen,i),kDesignChrome);
+        }
+        designChrome_ = chrome;
+    }
+    const bool data = page == UiPage::Telemetry || page == UiPage::Gps ||
+        page == UiPage::ChannelMonitor || page == UiPage::SensorDetail;
     if(page==UiPage::QuickNavigation||page==UiPage::FieldResetConfirmation||page==UiPage::TimerControl){drawKeypadPage();}
     else if(page==UiPage::WidgetMetricsReset){
         const bool trip=widgetMetricsResetKind_==DashboardWidgetKind::TripComputer || widgetMetricsResetKind_==DashboardWidgetKind::RunSummary;
@@ -802,7 +877,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
             button(paintX,designFooterY-38,paintW,32,"Done",160);
             finishPageFocus();
             updateDesign(designTelemetry_,designSafety_,designTxVoltage_,designTxValid_);
-            uiMetrics.buildUs = uint32_t(micros()) - uiMetrics.pageStartedUs;
+            finishUiConstruction();
             return;
         } else {
             for(int i=0;i<5;++i){int slot=modelSelectBank_*5+i;row(78+i*(designPortrait?56:29),modelNames_[slot],slot==activeModelSlot_?"Active":"Load",100+i,designPortrait?48:29);}
@@ -895,9 +970,9 @@ void TransmitterUi::drawDesignPage(UiPage page)
     finishPageFocus();
     // Resolve the width of initially empty status labels before LONG_DOT sees
     // their first live text; otherwise it can replace the entire reason with dots.
-    if(page==UiPage::OutputStatus || page==UiPage::Tune || page==UiPage::Gps || page==UiPage::SensorDetail)lv_obj_update_layout(lv_scr_act());
+    if(page==UiPage::OutputStatus || page==UiPage::Tune || page==UiPage::Gps || page==UiPage::SensorDetail)updateUiLayout(lv_scr_act());
     updateDesign(designTelemetry_,designSafety_,designTxVoltage_,designTxValid_);
-    uiMetrics.buildUs = uint32_t(micros()) - uiMetrics.pageStartedUs;
+    finishUiConstruction();
 }
 
 void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)

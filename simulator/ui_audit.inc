@@ -30,6 +30,11 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+#ifndef __EMSCRIPTEN__
+    if (getenv("JR_R1_CHROME_REUSE_AUDIT_ONLY")) {
+#include "ui_chrome_reuse_audit.inc"
+    }
+#endif
     if(getenv("JR_R1_COLOUR_SCHEMES_AUDIT_ONLY")){
 #include "ui_colour_schemes_audit.inc"
     }
@@ -719,6 +724,79 @@ bool TransmitterUi::runSimulatorUiAudit()
     }
     if(getenv("JR_R1_ERS_NATIVE_AUDIT_ONLY")) {
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;designSafety_=OutputSafetyStatus::Cut;moduleLinkManaged_=false;
+        auto auditDraftRefresh=[&](uint8_t select,const char *sensor,std::initializer_list<uint8_t> actions){
+            struct Frame : Stream {
+                std::vector<uint8_t> bytes;
+                size_t write(const uint8_t *p,size_t n)override{bytes.insert(bytes.end(),p,p+n);return n;}
+            } expectedFrame, actualFrame;
+            expectedFrame.bytes.reserve(kScreenWidth*kScreenHeight*3);
+            actualFrame.bytes.reserve(kScreenWidth*kScreenHeight*3);
+            struct Churn { uint32_t created=0; } churn;
+            auto objectCreated=[](lv_event_t *event){
+                ++static_cast<Churn *>(lv_event_get_user_data(event))->created;
+            };
+            auto *screen=lv_scr_act();
+            auto *driver=lv_disp_get_default()->driver;
+            const auto previousMonitor=driver->monitor_cb;
+            driver->monitor_cb=auditRefreshMonitor;
+            lv_obj_add_event_cb(screen,objectCreated,LV_EVENT_CHILD_CREATED,&churn);
+            uint32_t rebuiltObjects=0;
+            uint64_t rebuiltPixels=0;
+            const bool previousForceRebuild=auditForceChromeRebuild;
+            for(bool forceRebuild:{true,false}){
+                auditForceChromeRebuild=forceRebuild;
+                controlErsSensor(select,activate);
+                lv_obj_update_layout(screen);lv_refr_now(nullptr);
+                auto *const value=designValues_[0];
+                auto *const note=designDetails_[0];
+                auto *const step=designDetails_[1];
+                auto *const header=lv_obj_get_child(screen,0);
+                const auto focusCount=pageFocusCount_;
+                const auto epoch=SetupPortal::screenEpochForTesting();
+                const auto revision=ersConfig_.revision();
+                const auto safetyReset=safetyResetRequested_;
+                PageFocusTarget targets[kMaximumPageFocusTargets];
+                memcpy(targets,pageFocusTargets_,sizeof(targets));
+                churn.created=0;auditRedrawnPixels=0;
+                for(uint8_t action:actions){
+                    uint8_t target=0;
+                    while(target<pageFocusCount_&&(pageFocusTargets_[target].handler!=&TransmitterUi::controlErsSensor||
+                          pageFocusTargets_[target].argument!=action))++target;
+                    assert(target<pageFocusCount_);
+                    const auto hit=pageFocusTargets_[target].activate;
+                    handleTouch(hit.x+hit.width/2,hit.y+hit.height/2);
+                    // Replay the draw that the old controller performed after a
+                    // local edit, using the same values and current page layout.
+                    if(forceRebuild)drawDesignPage(UiPage::ErsSensors);
+                    lv_obj_update_layout(screen);lv_refr_now(nullptr);
+                    assert(activePage_==UiPage::ErsSensors&&!armRequested_&&safetyResetRequested_==safetyReset);
+                    assert(!ersConfig_.busy()&&ersConfig_.revision()==revision);
+                    if(!forceRebuild){
+                        assert(header==lv_obj_get_child(screen,0)&&value==designValues_[0]&&note==designDetails_[0]&&step==designDetails_[1]);
+                        assert(pageFocusIndex_==target&&pageFocusCount_==focusCount&&memcmp(targets,pageFocusTargets_,sizeof(targets))==0);
+                        assert(SetupPortal::screenEpochForTesting()==epoch);
+                    }
+                }
+                if(forceRebuild){
+                    rebuiltObjects=churn.created;rebuiltPixels=auditRedrawnPixels;
+                    assert(rebuiltObjects&&rebuiltPixels);
+                    simulatorWriteScreenshot(expectedFrame);
+                }else{
+                    assert(!churn.created&&auditRedrawnPixels<rebuiltPixels);
+                    simulatorWriteScreenshot(actualFrame);
+                    assert(!actualFrame.bytes.empty()&&actualFrame.bytes==expectedFrame.bytes);
+                    Serial.printf("ERS draft refresh %s %s: %u actions, objects %lu -> %lu, pixels %llu -> %llu; identical screenshot\n",
+                        portraitUi?"portrait":"landscape",sensor,static_cast<unsigned>(actions.size()),
+                        (unsigned long)rebuiltObjects,(unsigned long)churn.created,
+                        (unsigned long long)rebuiltPixels,(unsigned long long)auditRedrawnPixels);
+                }
+                controlErsSensor(4,activate);
+                assert(ersSelected_<0&&SetupPortal::screenEpochForTesting()!=epoch);
+            }
+            auditForceChromeRebuild=previousForceRebuild;
+            lv_obj_remove_event_cb(screen,objectCreated);
+            driver->monitor_cb=previousMonitor;
+        };
         for(unsigned orientation=0;orientation<2;++orientation){
             setupBank_=setupPage_=0;drawMainMenu();controlDesign(244,activate);
             assert(activePage_==UiPage::ErsSensors && ersSelected_==-1);
@@ -734,6 +812,9 @@ bool TransmitterUi::runSimulatorUiAudit()
             assert(ersConfig_.count()==0&&ersParser.state().ersSequence==4);
             consumeErsReplies(ersParser);assert(ersConfig_.count()==4);
             ersConfig_.update(millis()+8000);drawDesignPage(UiPage::ErsSensors);assert(ersConfig_.count()==4);
+            auditDraftRefresh(10,"GPS",{7,6,7,6});
+            auditDraftRefresh(11,"RPM",{6,6,7,7});
+            auditDraftRefresh(12,"capacity",{7,9,6,7,6});
             controlErsSensor(10,activate);assert(ersSelected_==0 && ersDraft_==2);
             controlErsSensor(6,activate);assert(ersDraft_==1 && ersDraftDirty_);
             controlErsSensor(8,activate);assert(ersConfig_.busy() && ersDraft_==1 && ersDraftDirty_);

@@ -32,6 +32,9 @@ uint32_t simulatorBeepCount();
 void simulatorStopBeep();
 void simulatorWriteScreenshot(Stream &output);
 bool simulatorSaveScreenshot(const char *path);
+#ifndef __EMSCRIPTEN__
+bool simulatorCopyFramebuffer(uint32_t *pixels, size_t count);
+#endif
 // Optional local browser bridge; inactive unless JR_R1_SIM_BRIDGE is set.
 void simulatorServiceBridge();
 bool simulatorConsumeAction(uint16_t &function, int16_t &value);

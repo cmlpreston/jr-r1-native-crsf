@@ -311,6 +311,23 @@ struct UiFrameMetrics {
     bool pagePending = false, touchPending = false;
 } uiMetrics;
 
+void updateUiLayout(lv_obj_t *object)
+{
+    if (!uiMetrics.pagePending) {
+        lv_obj_update_layout(object);
+        return;
+    }
+    const uint32_t started = micros();
+    lv_obj_update_layout(object);
+    uiMetrics.layoutUs += uint32_t(micros()) - started;
+}
+
+void finishUiConstruction()
+{
+    const uint32_t elapsed = uint32_t(micros()) - uiMetrics.pageStartedUs;
+    uiMetrics.buildUs = elapsed >= uiMetrics.layoutUs ? elapsed - uiMetrics.layoutUs : 0;
+}
+
 void flushDisplay(lv_disp_drv_t *driver, const lv_area_t *area,
                   lv_color_t *pixels)
 {
@@ -506,11 +523,14 @@ void makeWifiStatusIcon(int x,int y) {
     wifiIconState=-1;updateWifiStatusIcon();
 }
 
-void startScreen()
+// Reserved for the unchanged root children of compatible design pages.
+constexpr lv_obj_flag_t kDesignChrome = LV_OBJ_FLAG_USER_1;
+#ifdef JR_R1_SIMULATOR
+bool auditForceChromeRebuild = false;
+#endif
+
+void startScreen(bool retainDesignChrome = false)
 {
-    wifiStatusIcon=nullptr;
-    headerTxVoltageLabel=nullptr;
-    headerGpsTimeLabel=nullptr;
     SetupPortal::screenChanged();
     const auto touchUs = uiMetrics.touchAcceptedUs;
     const bool touchPending = uiMetrics.touchPending;
@@ -519,10 +539,21 @@ void startScreen()
     uiMetrics.touchPending = touchPending;
     uiMetrics.pageStartedUs = micros();
     uiMetrics.pagePending = true;
-    lv_obj_clean(lv_scr_act());
-    lv_obj_set_style_bg_color(lv_scr_act(), colour(cBlack), 0);
-    lv_obj_set_style_bg_opa(lv_scr_act(), LV_OPA_COVER, 0);
-    lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
+    auto *screen = lv_scr_act();
+    if (retainDesignChrome) {
+        for (uint32_t i = lv_obj_get_child_cnt(screen); i > 0; --i) {
+            auto *child = lv_obj_get_child(screen, i - 1);
+            if (!lv_obj_has_flag(child, kDesignChrome)) lv_obj_del(child);
+        }
+    } else {
+        wifiStatusIcon = nullptr;
+        headerTxVoltageLabel = nullptr;
+        headerGpsTimeLabel = nullptr;
+        lv_obj_clean(screen);
+        lv_obj_set_style_bg_color(screen, colour(cBlack), 0);
+        lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+        lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    }
 }
 
 
@@ -804,6 +835,7 @@ const char *uiPageName(UiPage page)
 void TransmitterUi::setDisplayCacheEnabled(bool enabled)
 {
     pixelCache.setEnabled(enabled);
+    if (displayReady_) lv_obj_invalidate(lv_scr_act());
     uiMetrics = UiFrameMetrics{};
     Serial.printf("UI CACHE: %s (temporary; reboot restores on). Repeat the same navigation sequence.\n",
                   pixelCache.enabled() ? "on" : "off");
@@ -1185,12 +1217,16 @@ bool TransmitterUi::captureScreenshot(Stream &output)
     return true;
 }
 
-void TransmitterUi::resetLvglObjects()
+void TransmitterUi::resetLvglObjects(bool retainDesignChrome)
 {
     standardDetailHeader=false;
-    sectionNavigationVisible_=false;
+    if (!retainDesignChrome) {
+        designChrome_ = DesignChrome{};
+        sectionNavigationVisible_ = false;
+        designStatus_ = designLink_ = driveProgress_ = driveIcon_ = nullptr;
+    }
     steeringEndpointButtons_[0]=steeringEndpointButtons_[1]=editorStepButton_=editorValueLabel_=nullptr;
-    driveProgress_=driveHint_=driveIcon_=nullptr;
+    driveHint_=nullptr;
     wifiKeyPreview_ = nullptr;
     for (auto &view : widgetViews_) view = DashboardWidgetView{};
     for (auto &value : designValues_) value = nullptr;
@@ -1200,7 +1236,7 @@ void TransmitterUi::resetLvglObjects()
     for(auto &value:mixingLiveBars_)value=nullptr;
     mixingCurve_=mixingCursor_=mixingSentCursor_=mixingSummary_=nullptr;
     memset(mixingCurvePoints_,0,sizeof(mixingCurvePoints_));
-    designStatus_ = designLink_ = designCurve_ = designMarker_ = nullptr;
+    designCurve_ = designMarker_ = nullptr;
     v2GraphCursorLine_=sensorDetailChart_=nullptr;
     armProgress_=nullptr;
     driveHoldOverlay_=driveHoldLabel_=driveHoldBar_=nullptr;
@@ -3385,12 +3421,16 @@ bool TransmitterUi::handlePageSwipe(int16_t x,int16_t y,int16_t endX,int16_t end
     return true;
 }
 
-void TransmitterUi::drawSectionNavigation(uint8_t section)
+void TransmitterUi::drawSectionNavigation(uint8_t section, bool retainObjects)
 {
     sectionNavigationVisible_=true;
     const int y=kScreenHeight-(portraitUi?60:40);
     const char *names[]={"Drive","Tune","Data","Setup"};
     for(uint8_t i=0;i<4;++i){
+        if (retainObjects) {
+            addPageActionTarget(i*kScreenWidth/4,y,kScreenWidth/4,40,&TransmitterUi::controlSectionNavigation,i);
+            continue;
+        }
         auto tab=makePageActionButton(i*kScreenWidth/4,y,kScreenWidth/4,40,
             names[i],UiText::Menu,i==section?cPanel2:cPanel,i==section?cCyan:cWhite,cLine,
             &TransmitterUi::controlSectionNavigation,i);
@@ -3435,7 +3475,7 @@ void TransmitterUi::finishPageFocus()
 {
     if(standardDetailHeader){
         if(!navigationIsModal()){
-            lv_obj_update_layout(lv_scr_act());
+            updateUiLayout(lv_scr_act());
             const int numerator=kScreenHeight-(portraitUi?60:40)-4-44;
             const int denominator=kScreenHeight-(portraitUi?20:0)-44;
             fitDetailChildren(lv_scr_act(),numerator,denominator,true);
@@ -5378,11 +5418,7 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     const uint32_t renderedBefore = uiMetrics.rendered;
     // Make layout cost explicit for page transitions. LVGL would otherwise
     // perform pending layout inside its refresh handler. Do not force refresh.
-    if (uiMetrics.pagePending) {
-        const uint32_t layoutStarted = micros();
-        lv_obj_update_layout(lv_scr_act());
-        uiMetrics.layoutUs += uint32_t(micros()) - layoutStarted;
-    }
+    if (uiMetrics.pagePending) updateUiLayout(lv_scr_act());
     const uint32_t handlerStarted = micros();
     lv_timer_handler();
     uiMetrics.handlerUs += uint32_t(micros()) - handlerStarted;

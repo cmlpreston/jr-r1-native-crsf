@@ -9,6 +9,7 @@ ARDUINOJSON_DIR := $(firstword $(wildcard \
   $(ROOT)/.pio/libdeps/seeed_xiao_esp32s3-pcb-portrait/ArduinoJson/src))
 
 TESTS := \
+  ui_colour_schemes_test \
   ers_discovery_transport_test \
   sensor_history_test \
   run_records_test \
@@ -75,6 +76,10 @@ TESTS := \
 .PHONY: all run clean
 
 all: $(addprefix $(BUILD)/,$(TESTS))
+
+$(BUILD)/ui_colour_schemes_test: ui_colour_schemes_test.cpp $(ROOT)/include/ui_colour_schemes.h
+	@mkdir -p $(@D)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
 $(BUILD)/sensor_history_test: sensor_history_test.cpp $(ROOT)/include/sensor_history.h
 	@mkdir -p $(@D)

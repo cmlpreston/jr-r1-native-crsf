@@ -1,5 +1,6 @@
 #include "channel_settings_repository.h"
 #include "transmitter_ui.h"
+#include "ui_colour_schemes.h"
 #include "ui_refresh.h"
 #include "model_image.h"
 #include "setup_portal.h"
@@ -126,21 +127,11 @@ constexpr uint32_t cSafetyFault = 0x421416;
 uint8_t uiBrightnessPercent = 100;
 bool uiNightMode = false;
 uint8_t uiDarkColourScheme = 0;
-
-struct DarkColourScheme {
-    const char *name;
-    uint32_t background, surface, header, selection, accent, text, muted, line;
-};
-constexpr DarkColourScheme darkColourSchemes[] = {
-    {"Graphite / teal", 0x151b20, 0x202a30, 0x10191d, 0x28433f, 0x58d2c3, 0xedf3f2, 0xaab7bd, 0x3b4a52},
-    {"Midnight / ice blue", 0x111827, 0x1d2a3b, 0x0b1220, 0x293e56, 0x82c5ff, 0xeef5ff, 0xb1bfd0, 0x3c4e64},
-    {"Warm charcoal / ivory", 0x1c1a18, 0x2c2925, 0x141311, 0x433c30, 0xe1cfab, 0xf3eee6, 0xbfb6a9, 0x4e4840},
-    {"Slate / soft lilac", 0x1b1b26, 0x292a39, 0x14151e, 0x413a55, 0xc4b1f6, 0xf0eef8, 0xb9b7ca, 0x48495f},
-};
-constexpr uint8_t darkColourSchemeCount = sizeof(darkColourSchemes) / sizeof(darkColourSchemes[0]);
-const char *colourSchemeName(bool night, uint8_t scheme)
+uint8_t uiLightColourScheme = 0;
+const char *colourSchemeName(bool night, uint8_t scheme,uint8_t light=0)
 {
-    return night ? darkColourSchemes[scheme < darkColourSchemeCount ? scheme : 0].name : "Light";
+    return night ? darkColourSchemes[scheme < darkColourSchemeCount ? scheme : 0].name :
+        lightColourSchemes[light < lightColourSchemeCount ? light : 0].name;
 }
 
 constexpr TransmitterFunction kEditableTransmitterFunctions[] = {
@@ -280,14 +271,16 @@ lv_color_t lineBuffer[DISPLAY_LANDSCAPE_WIDTH * 16];
 lv_color_t colour(uint32_t rgb)
 {
     if (!uiNightMode) {
-        if (rgb == cBlack) rgb = 0xf3f5f1;
-        else if (rgb == cHeader) rgb = 0x203739;
-        else if (rgb == cPanel) rgb = 0xffffff;
-        else if (rgb == cPanel2) rgb = 0xe0e9df;
-        else if (rgb == cLine) rgb = 0xd0ddd3;
-        else if (rgb == cWhite) rgb = 0x213a3c;
-        else if (rgb == cDim) rgb = 0x60776d;
-        else if (rgb == cCyan) rgb = 0x007e6c;
+        const auto &scheme=lightColourSchemes[uiLightColourScheme<lightColourSchemeCount?uiLightColourScheme:0];
+        if (rgb == cBlack) rgb = scheme.background;
+        else if (rgb == cHeader) rgb = scheme.header;
+        else if (rgb == cPanel) rgb = scheme.surface;
+        else if (rgb == cPanel2) rgb = scheme.selection;
+        else if (rgb == cLine) rgb = scheme.line;
+        else if (rgb == cWhite) rgb = scheme.text;
+        else if (rgb == cDim) rgb = scheme.muted;
+        else if (rgb == cCyan) rgb = scheme.accent;
+        else if (rgb == cRed && uiLightColourScheme) rgb = 0xb42332;
         else if (rgb == cGreen) rgb = 0x176b50;
         else if (rgb == cAmber) rgb = 0x875b0b;
         else if (rgb == cSafetyCut) rgb = 0xf1dca9;
@@ -1772,12 +1765,15 @@ void TransmitterUi::loadSystemSettings()
     systemSettings_.displayBrightnessPercent = preferences.getUChar("brightness", 100);
     systemSettings_.nightMode = preferences.getBool("night", false);
     systemSettings_.darkColourScheme = preferences.getUChar("dark_scheme", 0);
+    systemSettings_.lightColourScheme = preferences.getUChar("light_scheme", 0);
     systemSettings_.timeZone.zone = static_cast<GpsLocalTime::Zone>(preferences.getUChar("tz_zone", 0));
     systemSettings_.timeZone.customOffsetMinutes = int16_t(preferences.getChar("tz_q15", 40)) * 15;
     systemSettings_.timeZone = GpsLocalTime::sanitize(systemSettings_.timeZone);
     if (systemSettings_.darkColourScheme >= darkColourSchemeCount) systemSettings_.darkColourScheme = 0;
+    if (systemSettings_.lightColourScheme >= lightColourSchemeCount) systemSettings_.lightColourScheme = 0;
     uiNightMode = systemSettings_.nightMode;
     uiDarkColourScheme = systemSettings_.darkColourScheme;
+    uiLightColourScheme = systemSettings_.lightColourScheme;
     preferences.end();
     systemSettings_.buzzerPitchHz = constrain(systemSettings_.buzzerPitchHz,
                                                kBuzzerMinimumPitchHz,
@@ -1809,6 +1805,7 @@ void TransmitterUi::saveSystemSettings()
     preferences.putUChar("brightness", systemSettings_.displayBrightnessPercent);
     preferences.putBool("night", systemSettings_.nightMode);
     preferences.putUChar("dark_scheme", systemSettings_.darkColourScheme);
+    preferences.putUChar("light_scheme", systemSettings_.lightColourScheme);
     preferences.putUChar("tz_zone", static_cast<uint8_t>(systemSettings_.timeZone.zone));
     preferences.putChar("tz_q15", static_cast<int8_t>(systemSettings_.timeZone.customOffsetMinutes / 15));
     preferences.end();
@@ -4776,11 +4773,15 @@ void TransmitterUi::drawEscProgrammingPage(){drawDesignPage(UiPage::EscProgrammi
 
 void TransmitterUi::controlColourScheme(uint8_t choice, PageControlEvent event)
 {
-    if (event != PageControlEvent::Activate || choice > darkColourSchemeCount) return;
-    systemSettings_.nightMode = choice != 0;
-    if (choice) systemSettings_.darkColourScheme = choice - 1;
+    if(event!=PageControlEvent::Activate)return;
+    if(choice==250||choice==251){colourSchemeBank_=choice==251;drawDesignPage(UiPage::ColourScheme);return;}
+    if(choice>=colourSchemeChoiceCount)return;
+    systemSettings_.nightMode = darkColourChoice(choice);
+    if(systemSettings_.nightMode)systemSettings_.darkColourScheme=choice-1;
+    else systemSettings_.lightColourScheme=lightColourChoice(choice);
     uiNightMode = systemSettings_.nightMode;
     uiDarkColourScheme = systemSettings_.darkColourScheme;
+    uiLightColourScheme = systemSettings_.lightColourScheme;
     saveSystemSettings();
     playKeyClick();
     drawColourSchemePage();
@@ -4788,16 +4789,24 @@ void TransmitterUi::controlColourScheme(uint8_t choice, PageControlEvent event)
 
 void TransmitterUi::drawColourSchemePage()
 {
+    colourSchemeBank_=systemSettings_.nightMode?1:0;
     drawDesignPage(UiPage::ColourScheme);
 }
 
 void TransmitterUi::drawColourSchemeContent()
 {
     makeLabel(lv_scr_act(),"Colour scheme",12,48,UiText::Heading,cWhite);
-    const uint8_t selected=systemSettings_.nightMode?systemSettings_.darkColourScheme+1:0;
-    for(uint8_t choice=0;choice<=darkColourSchemeCount;++choice){
-        drawMenuRow(colourSchemeName(choice!=0,choice?choice-1:0),choice==selected?LV_SYMBOL_OK:"",
-            86+choice*(portraitUi?56:32),portraitUi?56:32,&TransmitterUi::controlColourScheme,choice,false,10);
+    const uint8_t selected=systemSettings_.nightMode?systemSettings_.darkColourScheme+1:
+        systemSettings_.lightColourScheme?darkColourSchemeCount+systemSettings_.lightColourScheme:0;
+    const int tabWidth=(kScreenWidth-32)/2;
+    for(uint8_t bank=0;bank<2;++bank)makePageActionButton(12+bank*(tabWidth+8),80,tabWidth,28,
+        bank?"Dark":"Light",UiText::Secondary,bank==colourSchemeBank_?cPanel2:cPanel,
+        bank==colourSchemeBank_?cCyan:cWhite,cLine,&TransmitterUi::controlColourScheme,250+bank);
+    const uint8_t count=colourSchemeBank_?darkColourSchemeCount:lightColourSchemeCount;
+    for(uint8_t row=0;row<count;++row){
+        const uint8_t choice=colourSchemeBank_?row+1:row?darkColourSchemeCount+row:0;
+        drawMenuRow(colourSchemeName(colourSchemeBank_!=0,row,row),choice==selected?LV_SYMBOL_OK:"",
+            116+row*(portraitUi?56:32),portraitUi?56:32,&TransmitterUi::controlColourScheme,choice,false,10);
     }
     boundedLabel(makeLabel(lv_scr_act(),"Saved automatically",12,kScreenHeight-(portraitUi?60:40)-22,UiText::Caption,cDim),kScreenWidth-24);
 }

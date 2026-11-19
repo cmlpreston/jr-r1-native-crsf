@@ -48,6 +48,10 @@ def main():
         manifest['ui_audit_run'] = manifest['ui_audit_passed'] = True
         manifest['ui_audit_scope'] = (manifest.get('ui_audit_scope', '') + '; ERS discovery').lstrip('; ')
     manifest_path = output / 'r1-upload-manifest.json'
+    if os.environ.get('JR_R1_COLOUR_SCHEMES_UI_CHECK') == 'success':
+        manifest['checks'].append('light colour schemes UI audit: persistence, Night toggle, picker bounds and both orientations')
+        manifest['ui_audit_run'] = manifest['ui_audit_passed'] = True
+        manifest['ui_audit_scope'] = (manifest.get('ui_audit_scope', '') + '; light colour schemes').lstrip('; ')
     manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
     verify_manifest(ROOT, manifest)
     with tarfile.open(output / 'r1-upload.tar.gz', 'w:gz') as archive:

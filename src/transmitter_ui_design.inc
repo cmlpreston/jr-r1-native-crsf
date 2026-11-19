@@ -550,7 +550,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
             if(i==0){if(systemSettings_.screenTimeoutSeconds)snprintf(value,sizeof(value),"%u sec",systemSettings_.screenTimeoutSeconds);else strcpy(value,"Never");}
             else if(i==1)snprintf(value,sizeof(value),"%s >",systemSettings_.logoScreensaverEnabled?"Logo saver":"Display off");
             else if(i==2)snprintf(value,sizeof(value),"%u%%",systemSettings_.displayBrightnessPercent);
-            else if(i==3)snprintf(value,sizeof(value),"%s >",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme));
+            else if(i==3)snprintf(value,sizeof(value),"%s >",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme,systemSettings_.lightColourScheme));
             else if(i==4)snprintf(value,sizeof(value),"%s >",systemSettings_.logoScreensaverEnabled?"Show logo":"Display off");
             else snprintf(value,sizeof(value),"%s >",designPortrait?"Portrait":"Landscape");
             drawSettingsRow(names[i],value,80+(i-first)*step,step-2,&TransmitterUi::controlDisplay,i,i==0||i==2);

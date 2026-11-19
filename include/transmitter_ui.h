@@ -43,6 +43,7 @@ struct SystemSettings {
     uint8_t displayBrightnessPercent = 100;
     bool nightMode = false;
     uint8_t darkColourScheme = 0; // Retained when switching to Light.
+    uint8_t lightColourScheme = 0; // Retained when switching to Night mode.
     GpsLocalTime::Settings timeZone;
 };
 
@@ -516,6 +517,7 @@ private:
     void drawDisplayPage();
     void drawColourSchemePage();
     void drawColourSchemeContent();
+    uint8_t colourSchemeBank_=0;
     void drawFirmwareInfoPage();
     void drawElrsBindingPage();
     void drawElrsTxConfigPage();

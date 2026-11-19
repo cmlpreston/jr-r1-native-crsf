@@ -26,6 +26,9 @@ bool TransmitterUi::runSimulatorUiAudit()
 {
     if(!getenv("JR_R1_SIM_STATE")){Serial.println("UI audit requires disposable JR_R1_SIM_STATE");return false;}
     const auto activate=PageControlEvent::Activate;
+    if(getenv("JR_R1_COLOUR_SCHEMES_AUDIT_ONLY")){
+#include "ui_colour_schemes_audit.inc"
+    }
     if(getenv("JR_R1_SENSOR_HISTORY_AUDIT_ONLY")){
 #include "ui_sensor_history_audit.inc"
     }

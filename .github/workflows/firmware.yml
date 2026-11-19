@@ -110,8 +110,13 @@ jobs:
           else
             echo 'ers=true' >> "$GITHUB_OUTPUT"
           fi
+          if git diff --quiet "$base" HEAD -- include/ui_colour_schemes.h simulator/ui_colour_schemes_audit.inc; then
+            echo 'colours=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'colours=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Build simulator for focused UI checks
-        if: steps.history-changes.outputs.changed == 'true' || steps.history-changes.outputs.ers == 'true'
+        if: steps.history-changes.outputs.changed == 'true' || steps.history-changes.outputs.ers == 'true' || steps.history-changes.outputs.colours == 'true'
         run: |
           sudo apt-get install --no-install-recommends -y libsdl2-dev
           make -C simulator -j1 bootstrap
@@ -131,6 +136,15 @@ jobs:
           set -o pipefail
           audit_state=$(mktemp -d)
           SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_ERS_NATIVE_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/ers-discovery-ui.log
+      # Colour previews exercise the same picker callbacks and persisted keys
+      # used on the handset, with disposable preferences in both orientations.
+      - name: Validate light colour schemes
+        id: colours-ui
+        if: steps.history-changes.outputs.colours == 'true'
+        run: |
+          set -o pipefail
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_COLOUR_SCHEMES_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/colour-schemes-ui.log
       - name: Report compiler cache statistics
         if: always()
         run: |
@@ -146,6 +160,7 @@ jobs:
         env:
           JR_R1_SENSOR_HISTORY_UI_CHECK: ${{ steps.sensor-ui.outcome }}
           JR_R1_ERS_DISCOVERY_UI_CHECK: ${{ steps.ers-ui.outcome }}
+          JR_R1_COLOUR_SCHEMES_UI_CHECK: ${{ steps.colours-ui.outcome }}
         run: python tools/package_ci_firmware.py
       - name: Save tested firmware
         uses: actions/upload-artifact@v6
@@ -189,5 +204,13 @@ jobs:
         with:
           name: r1-ers-ui-${{ github.sha }}
           path: /tmp/r1-ers-native-*.bmp
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Save light colour scheme previews
+        if: always() && steps.history-changes.outputs.colours == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: r1-light-schemes-ui-${{ github.sha }}
+          path: /tmp/r1-light-scheme-*.bmp
           if-no-files-found: ignore
           retention-days: 3

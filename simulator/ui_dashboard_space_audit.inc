@@ -1,4 +1,4 @@
-// Dashboard-only compact header: use synthetic data and disposable preferences.
+// Shared header and dashboard geometry use synthetic data and disposable preferences.
 bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;
 startupPreflightComplete_=true;hardwareRecovery_=false;
 armRequested_=false;safetyResetRequested_=false;designSafety_=OutputSafetyStatus::Cut;
@@ -38,8 +38,8 @@ auto spaceBounds=[&](uint8_t cell){
     const auto target=spaceTarget(130+cell);
     assert(target.x==x&&target.y==y&&target.width<=width&&target.height<=height);
     const auto link=spaceTarget(63),wifi=spaceTarget(205);
-    assert(link.y>=0&&link.y+link.height<=kDashboardHeaderHeight);
-    assert(wifi.y==0&&wifi.y+wifi.height<=kDashboardHeaderHeight);
+    assert(link.y>=0&&link.y+link.height==UiLayout::HeaderHeight);
+    assert(wifi.y==0&&wifi.y+wifi.height==UiLayout::HeaderHeight);
     assert(link.y+link.height<y&&wifi.y+wifi.height<y);
     if(dashboardWidgetForView(cell).kind==DashboardWidgetKind::Map){
         const auto &view=widgetViews_[cell];assert(view.basemap);
@@ -68,7 +68,7 @@ for(unsigned orientation=0;orientation<2;++orientation){
             drawDashboard();spaceBounds(cell);++spaceCases;
             assert(!memcmp(&saved,&dashboardLayouts_[activeModelSlot_],sizeof(saved)));
             if(cell/2==0)assert(lv_obj_get_y(widgetViews_[cell].panel)==kDashboardWidgetTop);
-            if(!portraitUi)assert(lv_obj_get_height(widgetViews_[cell].panel)==(height==1?115:238));
+            if(!portraitUi)assert(lv_obj_get_height(widgetViews_[cell].panel)==(height==1?113:234));
             if(widgetKind==DashboardWidgetKind::Map&&width==2&&height==2)spaceShot("map-full-grid");
             // Cycle the maximized origin across kinds while keeping all original
             // size/anchor combinations above under the same geometry checks.
@@ -89,20 +89,28 @@ for(unsigned orientation=0;orientation<2;++orientation){
             }
         }
     }
-    // The top-right widget now occupies y36..43, where the old header's
-    // Wi-Fi and LQ hitboxes used to win. Test each former hotspot explicitly.
+    // The top-right widget begins at y40, inside the former 44 px header region.
+    // Test the columns shared with the Wi-Fi and link touch targets above it.
     dashboardLayouts_[activeModelSlot_]=DashboardLayout{};
     DashboardWidget channels;channels.kind=DashboardWidgetKind::Channels;channels.style=DashboardWidgetStyle::Bars;
     placeDashboardWidget(dashboardLayouts_[activeModelSlot_],1,channels);
     const auto routingLayout=dashboardLayouts_[activeModelSlot_];
-    for(int x:{kScreenWidth-28,kScreenWidth-110}){
+    drawDashboard();
+    const auto widgetTarget=spaceTarget(131);
+    const int reclaimedY=widgetTarget.y+1;
+    assert(reclaimedY>=UiLayout::HeaderHeight&&reclaimedY<44);
+    for(const auto &shortcut:{spaceTarget(205),spaceTarget(63)}){
+        const int left=max(shortcut.x,widgetTarget.x);
+        const int right=min(shortcut.x+shortcut.width,widgetTarget.x+widgetTarget.width);
+        assert(left<right);
+        const int x=(left+right)/2;
         for(uint32_t duration:{100U,900U}){
-            drawDashboard();lastTouchDurationMs_=duration;touchStartX_=x;touchStartY_=38;
-            handleTouch(x,38);assert(activePage_==UiPage::ChannelMonitor);
+            drawDashboard();lastTouchDurationMs_=duration;touchStartX_=x;touchStartY_=reclaimedY;
+            handleTouch(x,reclaimedY);assert(activePage_==UiPage::ChannelMonitor);
             assert(!memcmp(&routingLayout,&dashboardLayouts_[activeModelSlot_],sizeof(routingLayout)));
             spaceGuards();
         }
-        drawDashboard();assert(handleDashboardWidgetHold(x,38,x,38,700)&&maximizedWidget_==1);
+        drawDashboard();assert(handleDashboardWidgetHold(x,reclaimedY,x,reclaimedY,700)&&maximizedWidget_==1);
         navigateBack();assert(activePage_==UiPage::Dashboard&&maximizedWidget_==-1);
         spaceGuards();
     }

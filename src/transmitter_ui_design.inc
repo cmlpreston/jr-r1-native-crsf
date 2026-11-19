@@ -415,9 +415,9 @@ void TransmitterUi::drawDesignPage(UiPage page)
     if(page==UiPage::Gps&&activePage_!=UiPage::Gps){gpsFullScreen_=false;lastInteractionMs_=millis();}
     activePage_ = page;
     const bool fullScreenGps = page == UiPage::Gps && gpsFullScreen_;
-    const bool compactHeader = page == UiPage::Dashboard;
+    const bool dashboard = page == UiPage::Dashboard;
     const bool modal = navigationIsModal();
-    const bool rootPage = compactHeader || page == UiPage::Tune || page == UiPage::Telemetry ||
+    const bool rootPage = dashboard || page == UiPage::Tune || page == UiPage::Telemetry ||
         page == UiPage::Gps || page == UiPage::ChannelMonitor || page == UiPage::MainMenu;
     const UiPage sectionPage = page == UiPage::TimerControl ? UiPage::Dashboard
         : page == UiPage::OutputStatus ? statusReturnPage_ : page;
@@ -435,7 +435,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
     // section match. Keep full redraws for Tune, where partial refresh strips
     // change a few anti-aliased chevron edge pixels.
     DesignChrome chrome;
-    if (!compactHeader && !modal && !fullScreenGps && page != UiPage::Tune) {
+    if (!dashboard && !modal && !fullScreenGps && page != UiPage::Tune) {
         chrome.screen = lv_scr_act();
         chrome.portrait = portraitUi;
         chrome.root = rootPage;
@@ -481,16 +481,13 @@ void TransmitterUi::drawDesignPage(UiPage page)
         finishUiConstruction();
         return;
     }
-    const int headerHeight = compactHeader ? kDashboardHeaderHeight : 44;
+    constexpr int headerHeight = UiLayout::HeaderHeight;
     const bool backButton = !rootPage && (!modal || page == UiPage::ElrsBinding || page == UiPage::Calibration);
     const int statusX=kScreenWidth-(portraitUi?96:247);
     const int statusWidth=portraitUi?54:58;
     if (!retainChrome) {
         makePanel(0,0,kScreenWidth,headerHeight,cHeader,cHeader,0);
-        if (backButton) {
-            makeButton(8,5,76,34,page==UiPage::Calibration?"Cancel":"Back",
-                       UiText::Secondary,cPanel,cWhite,cLine);
-        }
+        if (backButton) makeHeaderAction(page==UiPage::Calibration?"Cancel":"Back",cPanel);
         const int modelX = rootPage ? 47 : 94;
         if (rootPage) {
             if (const auto *art = modelImage(modelImages_[activeModelSlot_], modelColours_[activeModelSlot_],
@@ -502,8 +499,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
                 lv_obj_set_pos(logo,5,4);
             }
         }
-        const int metadataY=portraitUi?designHeaderLinkY(headerHeight):12;
-        const int modelY=portraitUi?(compactHeader?1:5):10;
+        const int metadataY=portraitUi?designHeaderLinkY():headerCenterY(UiText::font(UiText::Caption)->line_height);
+        const int modelY=portraitUi?5:headerCenterY(UiText::font(UiText::Secondary)->line_height);
         const int modelRight=statusX-(brakeAbs_.enabled?32:UiLayout::SmallGap);
         auto *modelLabel = label(modelNames_[activeModelSlot_],modelX,modelY,UiText::Secondary,0xe7edef);
         boundedLabel(modelLabel,modelRight-modelX);
@@ -515,19 +512,19 @@ void TransmitterUi::drawDesignPage(UiPage page)
         }
         if (!modal) {
             const int statusHeight=min(28,headerHeight-2*UiLayout::SmallGap);
-            auto status=makePanel(statusX,(headerHeight-statusHeight)/2,statusWidth,statusHeight,cPanel2,cAmber);
+            auto status=makePanel(statusX,headerCenterY(statusHeight),statusWidth,statusHeight,cPanel2,cAmber);
             designHeaderOutput_=makeLabel(status,"CUT",0,0,UiText::Caption,cWhite);
             lv_obj_center(designHeaderOutput_);
         }
         designLink_=label("LQ --",portraitUi?designHeaderLinkX()+2:kScreenWidth-136,metadataY,UiText::Caption,cDim);
         boundedLabel(designLink_,52);
-        makeWifiStatusIcon(kScreenWidth-33,11);
+        makeWifiStatusIcon(kScreenWidth-33,headerCenterY(UiText::font(UiText::Menu)->line_height));
     }
-    if (backButton) addPageActionTarget(8,5,76,34,&TransmitterUi::controlNavigation,0);
+    if (backButton) addPageActionTarget(kHeaderActionX,0,kHeaderActionWidth,headerHeight,&TransmitterUi::controlNavigation,0);
     if (!modal) {
         if(page!=UiPage::OutputStatus)
             addPageActionTarget(statusX,0,statusWidth,headerHeight,&TransmitterUi::controlDesign,5);
-        const int linkY=designHeaderLinkY(headerHeight);
+        const int linkY=designHeaderLinkY();
         addPageActionTarget(designHeaderLinkX(),linkY,designHeaderLinkWidth(),
                             headerHeight-linkY,&TransmitterUi::controlDesign,63);
         drawSectionNavigation(section,retainChrome);

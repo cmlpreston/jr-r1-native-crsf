@@ -127,6 +127,8 @@ jobs:
           audit_state=$(mktemp -d)
           SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_GPS_TIME_HEADER_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/handset-header.log
           audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_DASHBOARD_SPACE_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/dashboard-space.log
+          audit_state=$(mktemp -d)
           SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_POWER_CONTROL_WIDGET_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/dashboard-instruments.log
       - name: Validate saved records UI
         id: records-ui

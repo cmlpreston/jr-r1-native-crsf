@@ -5,6 +5,7 @@ constexpr int SmallGap = 4;
 constexpr int Gap = 8;
 constexpr int LargeGap = 12;
 constexpr int PageInset = 12;
+constexpr int HeaderHeight = 36;
 
 constexpr int WidgetInset = 8;
 constexpr int WidgetTitleY = 5;

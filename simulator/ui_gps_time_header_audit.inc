@@ -18,9 +18,36 @@ auto timeObjectEvent=[](lv_event_t *event){
         ++static_cast<TimeObjectChurn *>(lv_event_get_user_data(event))->created;
 };
 lv_obj_add_event_cb(lv_scr_act(),timeObjectEvent,LV_EVENT_ALL,&timeChurn);
+auto verifyHeader=[&](bool back){
+    lv_obj_update_layout(lv_scr_act());
+    bool backdrop=false,backVisual=false,backTarget=false;
+    auto screen=lv_scr_act();
+    for(uint32_t n=0;n<lv_obj_get_child_cnt(screen);++n){
+        auto object=lv_obj_get_child(screen,n);
+        lv_area_t area;lv_obj_get_coords(object,&area);
+        if(area.x1==0&&area.x2==kScreenWidth-1&&area.y1==0&&
+           lv_obj_get_style_bg_color(object,0).full==colour(cHeader).full&&
+           lv_obj_get_style_bg_opa(object,0)==LV_OPA_COVER){
+            assert(area.y2==UiLayout::HeaderHeight-1);
+            backdrop=true;
+        }
+        if(area.x1==8&&area.x2==83&&area.y1<UiLayout::HeaderHeight){
+            assert(area.y1==1&&area.y2==UiLayout::HeaderHeight-2);
+            backVisual=true;
+        }
+    }
+    for(uint8_t n=0;n<pageFocusCount_;++n){
+        const auto &target=pageFocusTargets_[n];
+        if(target.handler!=&TransmitterUi::controlNavigation||target.argument!=0)continue;
+        const auto &area=target.activate;
+        assert(area.x==8&&area.width==76&&area.y==0&&area.height==UiLayout::HeaderHeight);
+        backTarget=true;
+    }
+    assert(backdrop&&backVisual==back&&backTarget==back);
+};
 auto timeFit=[&]{
     lv_obj_update_layout(lv_scr_act());
-    const int headerHeight=activePage_==UiPage::Dashboard?kDashboardHeaderHeight:44;
+    const int headerHeight=UiLayout::HeaderHeight;
     assert(designHeaderOutput_);
     lv_area_t clock,voltage,link,wifi,output;lv_obj_get_coords(headerGpsTimeLabel,&clock);
     lv_obj_get_coords(headerTxVoltageLabel,&voltage);lv_obj_get_coords(designLink_,&link);
@@ -102,6 +129,7 @@ for(unsigned orientation=0;orientation<2;++orientation){
             if(theme==0&&abs)timeShot("detail-utc-abs");
             // Legacy detail headers clear the clock pointer before deleting it.
             drawWifiPage();assert(!headerGpsTimeLabel);updateHeaderGpsTime(telemetry,millis());
+            verifyHeader(true);
             drawDashboard();assert(headerGpsTimeLabel&&!lv_obj_has_flag(headerGpsTimeLabel,LV_OBJ_FLAG_HIDDEN));
             if(theme==0&&!abs){
                 moduleLinkManaged_=true;drawDashboard();
@@ -125,8 +153,21 @@ for(unsigned orientation=0;orientation<2;++orientation){
     const auto originalBank=setupBank_,originalPage=setupPage_;
     const auto originalDuration=lastTouchDurationMs_;
     const auto originalGesture=armGestureValid_;
+    drawDashboard();
+    const int tabY=kScreenHeight-(portraitUi?60:40)+20;
+    constexpr UiPage sections[]={UiPage::Dashboard,UiPage::Tune,UiPage::Telemetry,UiPage::MainMenu};
+    for(uint8_t tab=0;tab<4;++tab){
+        designTelemetry_.gpsTimeUpdatedMs=millis();
+        lastTouchDurationMs_=100;
+        handleTouch((2*tab+1)*kScreenWidth/8,tabY);
+        assert(activePage_==sections[tab]);
+        verifyHeader(false);
+        timeFit();
+    }
     setupBank_=setupPage_=1;
     drawDisplayPage();lv_obj_update_layout(lv_scr_act());
+    verifyHeader(true);
+    timeFit();
     auto *output=designHeaderOutput_;
     assert(output&&!strcmp(lv_label_get_text(output),"CUT"));
     updateDesign(designTelemetry_,OutputSafetyStatus::Armed,123,true);
@@ -158,5 +199,5 @@ timeDisplay->driver->monitor_cb=timePriorMonitor;safetyCutHandler_=timeCutHandle
 memcpy(modelNames_[activeModelSlot_],timeOriginalName,sizeof(timeOriginalName));
 brakeAbs_.enabled=timeOriginalAbs;uiNightMode=timeOriginalNight;uiDarkColourScheme=timeOriginalScheme;
 systemSettings_.timeZone=timeOriginalZone;
-Serial.println("Handset header: GPS time and metadata fit, both orientations/palettes, stable objects, status entry and Back, output guards PASS");
+Serial.println("Handset header: shared section/detail bounds, GPS time fit, both orientations/palettes, stable objects, status entry and Back PASS");
 return true;

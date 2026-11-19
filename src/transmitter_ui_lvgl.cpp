@@ -65,8 +65,10 @@ constexpr uint16_t kCrsfMinimum = 172;
 constexpr uint16_t kCrsfMaximum = 1811;
 constexpr int16_t kExtendedTravelPermille = 1200;
 constexpr uint32_t kUiUpdateMs = 80;
-constexpr int kDashboardHeaderHeight = 32;
-constexpr int kDashboardWidgetTop = kDashboardHeaderHeight + 4;
+constexpr int kDashboardWidgetTop = UiLayout::HeaderHeight + UiLayout::SmallGap;
+constexpr int kHeaderActionX = 8;
+constexpr int kHeaderActionWidth = 76;
+constexpr int kHeaderButtonHeight = 34;
 constexpr uint32_t kBootSplashDurationMs = 3000;
 constexpr uint32_t kLogoSaverMoveMs = 15000;
 constexpr uint8_t kLogoSaverBrightnessPercent = 25;
@@ -473,11 +475,12 @@ lv_obj_t *wifiStatusIcon=nullptr;
 int wifiIconState=-1;
 lv_obj_t *headerTxVoltageLabel=nullptr;
 lv_obj_t *headerGpsTimeLabel=nullptr;
+constexpr int headerCenterY(int height){return (UiLayout::HeaderHeight-height)/2;}
 int designHeaderLinkX(){return portraitUi?128:kScreenWidth-142;}
 int designHeaderLinkWidth(){return portraitUi?56:64;}
-int designHeaderLinkY(int headerHeight)
+int designHeaderLinkY()
 {
-    return portraitUi?headerHeight-UiText::font(UiText::Caption)->line_height-2:0;
+    return portraitUi?UiLayout::HeaderHeight-UiText::font(UiText::Caption)->line_height-2:0;
 }
 uint16_t headerTxVoltageDecivolts=0,headerTxLowDecivolts=0;
 bool headerTxVoltageValid=false;
@@ -598,22 +601,29 @@ void updateDriveIcon(lv_obj_t *icon, bool live, bool fault)
 // Every detail screen has one escape in the same place. Section navigation
 // is appended by finishPageFocus; modal editors retain Cancel/Apply instead.
 bool standardDetailHeader = false;
+void makeHeaderAction(const char *text,uint32_t fill=cPanel2)
+{
+    makeButton(kHeaderActionX,headerCenterY(kHeaderButtonHeight),kHeaderActionWidth,
+               kHeaderButtonHeight,text,UiText::Secondary,fill);
+}
+
 void makeHeader(const char *title, const char *action = nullptr)
 {
     standardDetailHeader = true;
-    auto header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
+    auto header = makePanel(0, 0, kScreenWidth, UiLayout::HeaderHeight, cHeader, cHeader, 0);
     const bool cancel = action && (!strcmp(action,"CANCEL") || !strcmp(action,"Cancel"));
     const bool done = action && !strcmp(action,"Done");
-    makeButton(8, 5, 76, 34, cancel ? "Cancel" : done ? "Done" : "Back", UiText::Secondary);
-    auto titleLabel = makeLabel(header, title, 96, 9, UiText::Heading, 0xe7edef);
+    makeHeaderAction(cancel ? "Cancel" : done ? "Done" : "Back");
+    const int titleY=headerCenterY(UiText::font(UiText::Heading)->line_height);
+    auto titleLabel = makeLabel(header, title, 96, titleY, UiText::Heading, 0xe7edef);
     lv_obj_set_width(titleLabel, kScreenWidth - 140);
     lv_label_set_long_mode(titleLabel, LV_LABEL_LONG_DOT);
-    makeWifiStatusIcon(kScreenWidth - 33, 14);
+    makeWifiStatusIcon(kScreenWidth - 33, headerCenterY(UiText::font(UiText::Menu)->line_height));
 }
 
 bool headerActionTouched(int16_t x, int16_t y)
 {
-    return y >= 5 && y < 39 && x >= 8 && x < 84;
+    return y >= 0 && y < UiLayout::HeaderHeight && x >= kHeaderActionX && x < kHeaderActionX+kHeaderActionWidth;
 }
 
 lv_obj_t *makeBar(lv_obj_t *parent, int16_t x, int16_t y, int16_t width,
@@ -3067,8 +3077,9 @@ void TransmitterUi::drawStartupWarningPage()
     activePage_ = UiPage::StartupWarning;
     startScreen();
     resetLvglObjects();
-    lv_obj_t *header = makePanel(0, 0, kScreenWidth, 44, cHeader, cHeader, 0);
-    makeLabel(header, "STARTUP SAFETY CHECK", 14, 12, portraitUi ? UiText::Menu : UiText::Heading, 0xe7edef);
+    lv_obj_t *header = makePanel(0, 0, kScreenWidth, UiLayout::HeaderHeight, cHeader, cHeader, 0);
+    const auto titleStyle=portraitUi ? UiText::Menu : UiText::Heading;
+    makeLabel(header, "STARTUP SAFETY CHECK", 14, headerCenterY(UiText::font(titleStyle)->line_height),titleStyle,0xe7edef);
     beginPageFocus(false);
 
     lv_obj_t *banner = makePanel(12, 54, kScreenWidth-24, portraitUi ? 90 : 58, cSafetyFault, cRed);
@@ -3497,9 +3508,8 @@ void TransmitterUi::controlSectionNavigation(uint8_t section, PageControlEvent e
     controlDesign(section,event);
 }
 
-// The older detail layouts occupied the full height. Fit their content and
-// matching touch/keypad rectangles into the shared content area, keeping the
-// header and footer fixed and using the same mapping for every detail screen.
+// Legacy detail bodies start at y=44. Fit their content and touch/keypad
+// rectangles above the section navigation, using that original body origin.
 static void fitDetailChildren(lv_obj_t *parent, int numerator, int denominator, bool root)
 {
     for(uint32_t i=0;i<lv_obj_get_child_cnt(parent);++i){
@@ -3531,11 +3541,11 @@ void TransmitterUi::finishPageFocus()
         }
         // Wi-Fi edits have explicit Done/Cancel behaviour; all other details
         // use the normal parent navigation (including keypad activation).
-        addPageActionTarget(8,5,76,34,&TransmitterUi::controlNavigation,0);
+        addPageActionTarget(kHeaderActionX,0,kHeaderActionWidth,UiLayout::HeaderHeight,&TransmitterUi::controlNavigation,0);
         pageStandardHeaderPending_=false;
     }
     if(wifiStatusIcon&&!navigationIsModal())
-        addPageActionTarget(kScreenWidth-40,0,40,activePage_==UiPage::Dashboard?kDashboardHeaderHeight:44,&TransmitterUi::controlDesign,205);
+        addPageActionTarget(kScreenWidth-40,0,40,UiLayout::HeaderHeight,&TransmitterUi::controlDesign,205);
     if (portraitUi && !(activePage_==UiPage::Gps && gpsFullScreen_)) {
         auto strip=makePanel(0,460,320,20,cHeader,cHeader,0);
         makeLabel(strip,"JR",8,3,UiText::Caption,cRed);
@@ -4994,21 +5004,20 @@ void TransmitterUi::queueElrsRequest(ElrsManagementAction action,
 
 void TransmitterUi::handleTouch(int16_t x, int16_t y)
 {
-    const int headerHeight=activePage_==UiPage::Dashboard?kDashboardHeaderHeight:44;
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None){
         if(activePage_==UiPage::BootPin)dispatchPageControlTouch(x,y);
         return;
     }
-    if(wifiStatusIcon&&!navigationIsModal()&&x>=kScreenWidth-40&&x<kScreenWidth&&y>=0&&y<headerHeight){
+    if(wifiStatusIcon&&!navigationIsModal()&&x>=kScreenWidth-40&&x<kScreenWidth&&y>=0&&y<UiLayout::HeaderHeight){
         controlDesign(205,PageControlEvent::Activate);return;
     }
     if(activePage_==UiPage::Gps&&gpsFullScreen_){
         gpsFullScreen_=false;lastInteractionMs_=millis();armGestureValid_=false;drawDesignPage(UiPage::Gps);return;
     }
-    const auto linkTouched=[headerHeight](int px,int py){
+    const auto linkTouched=[](int px,int py){
         const int left=designHeaderLinkX();
         return px>=left && px<left+designHeaderLinkWidth() &&
-            py>=designHeaderLinkY(headerHeight) && py<headerHeight;
+            py>=designHeaderLinkY() && py<UiLayout::HeaderHeight;
     };
     if(!navigationIsModal() && designLink_ && moduleLinkManaged_ && lastTouchDurationMs_>=800 &&
        linkTouched(touchStartX_,touchStartY_) && linkTouched(x,y)){

@@ -416,6 +416,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
     activePage_ = page;
     const bool fullScreenGps = page == UiPage::Gps && gpsFullScreen_;
     const bool dashboard = page == UiPage::Dashboard;
+    const bool showHeader = !dashboard || !dashboardHeaderHidden_;
     const bool modal = navigationIsModal();
     const bool rootPage = dashboard || page == UiPage::Tune || page == UiPage::Telemetry ||
         page == UiPage::Gps || page == UiPage::ChannelMonitor || page == UiPage::MainMenu;
@@ -485,7 +486,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
     const bool backButton = !rootPage && (!modal || page == UiPage::ElrsBinding || page == UiPage::Calibration);
     const int statusX=kScreenWidth-(portraitUi?96:247);
     const int statusWidth=portraitUi?54:58;
-    if (!retainChrome) {
+    if (showHeader && !retainChrome) {
         makePanel(0,0,kScreenWidth,headerHeight,cHeader,cHeader,0);
         if (backButton) makeHeaderAction(page==UiPage::Calibration?"Cancel":"Back",cPanel);
         const int modelX = rootPage ? 47 : 94;
@@ -522,11 +523,13 @@ void TransmitterUi::drawDesignPage(UiPage page)
     }
     if (backButton) addPageActionTarget(kHeaderActionX,0,kHeaderActionWidth,headerHeight,&TransmitterUi::controlNavigation,0);
     if (!modal) {
-        if(page!=UiPage::OutputStatus)
-            addPageActionTarget(statusX,0,statusWidth,headerHeight,&TransmitterUi::controlDesign,5);
-        const int linkY=designHeaderLinkY();
-        addPageActionTarget(designHeaderLinkX(),linkY,designHeaderLinkWidth(),
-                            headerHeight-linkY,&TransmitterUi::controlDesign,63);
+        if(showHeader){
+            if(page!=UiPage::OutputStatus)
+                addPageActionTarget(statusX,0,statusWidth,headerHeight,&TransmitterUi::controlDesign,5);
+            const int linkY=designHeaderLinkY();
+            addPageActionTarget(designHeaderLinkX(),linkY,designHeaderLinkWidth(),
+                                headerHeight-linkY,&TransmitterUi::controlDesign,63);
+        }
         drawSectionNavigation(section,retainChrome);
     }
     if (chrome.screen && !retainChrome) {
@@ -564,7 +567,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         if(maximizedWidget_>=0){
             // Register before the widget's broad touch target, then raise the
             // overlay after drawing so taps reach the visible chevron.
-            minimize=button(kScreenWidth/2-20,kDashboardWidgetTop+2,40,22,LV_SYMBOL_DOWN,243);
+            minimize=button(kScreenWidth/2-20,dashboardWidgetTop()+2,40,22,LV_SYMBOL_DOWN,243);
             lv_obj_set_style_bg_opa(minimize,LV_OPA_80,0);
             lv_obj_set_style_border_width(minimize,0,0);
             lv_obj_set_style_radius(minimize,11,0);
@@ -1394,14 +1397,16 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
             if(armProgress_)uiSetText(lv_obj_get_child(lv_obj_get_parent(armProgress_),0),armRequested_?"Hold to cut (0.8 s)":"Enable output");
         }
         if(hardwareRecovery_&&!rfBenchMode_)col=cRed;
+        const char *outputState=col==cRed?"FAULT":safety==OutputSafetyStatus::Armed?"LIVE":"CUT";
         if(designHeaderOutput_){
-            uiSetText(designHeaderOutput_,col==cRed?"FAULT":safety==OutputSafetyStatus::Armed?"LIVE":"CUT");
+            uiSetText(designHeaderOutput_,outputState);
             auto status=lv_obj_get_parent(designHeaderOutput_);
             const auto tint=colour(col);
             if(lv_obj_get_style_border_color(status,0).full!=tint.full)
                 lv_obj_set_style_border_color(status,tint,0);
         }
-        if(designStatus_)uiSetText(designStatus_,"Drive");
+        if(designStatus_&&activePage_==UiPage::Dashboard&&dashboardHeaderHidden_)
+            uiSetTextFmt(designStatus_,"Drive\n%s",outputState);
         updateDriveIcon(driveIcon_,safety==OutputSafetyStatus::Armed,col==cRed);
     }
 
@@ -1529,6 +1534,11 @@ void drawWidgetPercentAxis(lv_obj_t *parent,int top,int height)
 }
 }
 
+int TransmitterUi::dashboardWidgetTop() const
+{
+    return dashboardHeaderHidden_?UiLayout::SmallGap:kDashboardWidgetTop;
+}
+
 void TransmitterUi::drawDashboardWidgets()
 {
     const auto &layout=dashboardLayouts_[activeModelSlot_];
@@ -1536,7 +1546,7 @@ void TransmitterUi::drawDashboardWidgets()
     constexpr int inset=UiLayout::PageInset;
     constexpr int pad=UiLayout::WidgetInset;
     constexpr int bodyY=UiLayout::WidgetBodyY;
-    const int top=kDashboardWidgetTop;
+    const int top=dashboardWidgetTop();
     const int cellW=(kScreenWidth-2*inset-gap)/2, cellH=(designFooterY-top-gap-6)/2;
     const uint8_t visible=maximizedWidget_>=0?uint8_t(1<<maximizedWidget_):visibleDashboardWidgets(layout);
     uint8_t occupied=0;
@@ -1577,12 +1587,16 @@ void TransmitterUi::drawDashboardWidgets()
             makePageActionButton(x+width-60,y+height-21,54,19,"Reset",UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,154+cell);
         }
         if(w.kind==DashboardWidgetKind::Timer){
-            view.values[0]=makeLabel(view.panel,"00:00",pad,bodyY,height>130?UiText::Reading:UiText::Heading);
-            view.values[1]=makeLabel(view.panel,"",pad,height>130?76:49,UiText::Caption,cDim);
-            if(height>130){view.values[2]=makeLabel(view.panel,"",pad,100,UiText::Caption,cDim);}
+            const int buttonTop=height-(designPortrait?45:31);
+            const int captionHeight=UiText::font(UiText::Caption)->line_height;
+            const bool largeTime=buttonTop>=76+captionHeight+UiLayout::SmallGap;
+            view.values[0]=makeLabel(view.panel,"00:00",pad,bodyY,largeTime?UiText::Reading:UiText::Heading);
+            view.values[1]=makeLabel(view.panel,"",pad,largeTime?76:49,UiText::Caption,cDim);
+            if(buttonTop>=100+2*captionHeight+UiLayout::SmallGap)
+                view.values[2]=makeLabel(view.panel,"",pad,100,UiText::Caption,cDim);
 
-            makePageActionButton(x+8,y+height-(designPortrait?45:31),width/2-12,designPortrait?40:26,timerPrimaryLabel(),UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,7);
-            makePageActionButton(x+width/2+4,y+height-(designPortrait?45:31),width/2-12,designPortrait?40:26,"Reset",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,8);
+            makePageActionButton(x+8,y+buttonTop,width/2-12,designPortrait?40:26,timerPrimaryLabel(),UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,7);
+            makePageActionButton(x+width/2+4,y+buttonTop,width/2-12,designPortrait?40:26,"Reset",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,8);
         } else if(w.kind==DashboardWidgetKind::AllChannels){
             uint8_t channels[DashboardMonitorMaxEntries];const int total=dashboardMonitorEntries(dashboardEnabledChannelMask_,w.source,channels,dashboardHidden_[activeModelSlot_][cell]);
             const bool vertical=w.style==DashboardWidgetStyle::VerticalBars;

@@ -203,12 +203,16 @@ style and source. Apply the change. The grid has two columns and two rows:
 widget covers neighbouring positions without deleting their saved widgets;
 reducing it reveals them again.
 
+On the handset, tap **Drive** briefly while already on the dashboard to hide or
+show the title bar. When hidden, **CUT**, **LIVE** or **FAULT** appears in the
+Drive tab. The title bar returns after a restart. Holding **Drive** still
+controls output.
+
 Hold the widget body for about 0.65 seconds and release to maximise it across the
-dashboard. The title bar and bottom navigation remain available. Use the small down-chevron overlaid at the top centre,
-Back, or another long press to return to the grid. Short taps still open details
-or page through entries. Timer Start/Reset buttons keep their own actions; hold
-the timer body above them to enlarge it. The saved layout is unchanged. The web
-mirror supports the same gesture. The expanded widget omits its own title and extra Restore row to leave more room for data.
+dashboard. Use the small down-chevron at the top centre, Back, or another long
+press to return to the saved grid. Short taps still open details or page through
+entries. Hold the timer body above Start and Reset to enlarge it. The web mirror
+supports the same widget hold gesture.
 
 ![Simulator example: saved dashboard before expansion; simulated inputs, not a physical LCD capture.](../assets/ui-captures/widget-focus/dashboard.png)
 

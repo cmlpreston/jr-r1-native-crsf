@@ -57,7 +57,8 @@ void TransmitterUi::drawDashboardSensorWidget(uint8_t cell,const DashboardWidget
     const int caption = UiText::font(UiText::Caption)->line_height;
     const bool speed = w.source==0;
     const bool dial = speed&&w.style==DashboardWidgetStyle::Dials;
-    const bool compactDial = dial&&height<130;
+    // Keep the side-by-side dial and statistics in either one-row landscape layout.
+    const bool compactDial = dial&&height<140;
     const bool narrow = width<180;
     const auto primary = static_cast<uint8_t>(w.speedValue);
     auto title = view.title;

@@ -119,12 +119,14 @@ source and **Apply**. The resulting widgets appear on **Drive**. Sizes are 1×1,
 covers neighbouring widgets without deleting their saved configuration; reducing
 it reveals them again. Use **Empty** to leave a position unused.
 
+Tap **Drive** again on the handset to hide or show the dashboard title bar. The
+Drive tab shows the output state when the bar is hidden. Hold **Drive** to arm or
+CUT as usual.
+
 Hold a widget body for about 0.65 seconds, then release to expand it across the
 dashboard. An overlaid **down-chevron**, Back, or another long press returns to
-the saved grid.
-The title bar and bottom navigation stay available; expansion is temporary and
-does not change the stored layout. Short taps retain their usual action, and
-the live web mirror supports the same hold gesture.
+the saved grid. Widget taps still open details or page through entries. The
+live web mirror supports the same widget hold gesture.
 
 | Widget | What it shows and how it can be configured |
 | --- | --- |

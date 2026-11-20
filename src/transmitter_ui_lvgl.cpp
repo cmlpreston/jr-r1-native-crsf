@@ -76,6 +76,7 @@ constexpr int16_t kLogoSaverProportionalWakePermille = 40;
 constexpr uint16_t kTouchPressureThreshold = 40;
 constexpr uint32_t kTouchReleaseDebounceMs = 25;
 constexpr uint32_t kTouchRetriggerGuardMs = 100;
+constexpr uint32_t kDriveTitleTapMaxMs = 350;
 constexpr uint32_t kDashboardArmHoldMs = 800;
 constexpr uint32_t kDriveHoldFeedbackDelayMs = 1000;
 constexpr PhysicalControlId kParameterControls[] = {
@@ -3488,7 +3489,12 @@ void TransmitterUi::drawSectionNavigation(uint8_t section, bool retainObjects)
         lv_obj_set_style_radius(tab,0,0);
         lv_obj_set_style_border_side(tab,LV_BORDER_SIDE_TOP,0);
         if(i==0){
-            designStatus_=lv_obj_get_child(tab,0);lv_obj_align(designStatus_,LV_ALIGN_CENTER,0,0);
+            designStatus_=lv_obj_get_child(tab,0);
+            if(activePage_==UiPage::Dashboard&&dashboardHeaderHidden_){
+                lv_obj_set_style_text_font(designStatus_,UiText::font(UiText::Secondary),0);
+                lv_obj_set_style_text_align(designStatus_,LV_TEXT_ALIGN_CENTER,0);
+                lv_obj_align(designStatus_,LV_ALIGN_TOP_MID,0,1);
+            }
             driveIcon_=makeDriveIcon(tab,0,0);lv_obj_align(driveIcon_,LV_ALIGN_LEFT_MID,4,0);
             driveProgress_=makeBar(tab,0,37,kScreenWidth/4,3,0,800);
         }
@@ -5025,7 +5031,16 @@ void TransmitterUi::handleTouch(int16_t x, int16_t y)
         moduleLinkReturnPage_=activePage_;drawDesignPage(UiPage::ModuleLink);return;
     }
     if(sectionNavigationVisible_ && y>=kScreenHeight-(portraitUi?60:40) && y<kScreenHeight-(portraitUi?20:0)){
-        designTouchDispatch_=true;controlSectionNavigation(min<int>(3,x/(kScreenWidth/4)),PageControlEvent::Activate);designTouchDispatch_=false;return;
+        const uint8_t section=min<int>(3,x/(kScreenWidth/4));
+        // The physical gesture latch proves that the press stayed inside Drive.
+        if(section==0&&activePage_==UiPage::Dashboard&&touchStartPage_==UiPage::Dashboard&&
+           !remoteTouchActive_&&armGestureValid_&&lastTouchDurationMs_>0&&lastTouchDurationMs_<=kDriveTitleTapMaxMs&&
+           abs(touchGestureX_-touchStartX_)<24&&abs(touchGestureY_-touchStartY_)<24){
+            dashboardHeaderHidden_=!dashboardHeaderHidden_;
+            drawDashboard();
+            return;
+        }
+        designTouchDispatch_=true;controlSectionNavigation(section,PageControlEvent::Activate);designTouchDispatch_=false;return;
     }
     if(activePage_==UiPage::WifiSetup){
         if(headerActionTouched(x,y))navigateBack();else dispatchPageControlTouch(x,y);

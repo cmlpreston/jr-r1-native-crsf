@@ -115,36 +115,51 @@ void TransmitterUi::updateSensorHistoryWidget(uint8_t cell,const DashboardWidget
 void TransmitterUi::drawSensorDetail()
 {
     const auto &sensor = sensorDescriptors[sensorSelected_];
-    boundedLabel(makeLabel(lv_scr_act(), sensor.name, 12, designPortrait ? 90 : 49, UiText::Menu, cDim),
-                 kScreenWidth - 156);
-    designValues_[0] = makeLabel(lv_scr_act(), "--", 12, designPortrait ? 110 : 77, UiText::Heading);
-    designDetails_[0] = makeLabel(lv_scr_act(), "No data", designPortrait ? kScreenWidth - 140 : 140,
-                                  designPortrait ? 118 : 82, UiText::Caption, cDim);
-    makePageActionButton(kScreenWidth-140,designPortrait?85:47,70,30,
-        sensorSessionStats_[sensorSelected_]?"Session":"30s",UiText::Caption,cPanel,cCyan,cLine,&TransmitterUi::controlDesign,248);
-    makePageActionButton(kScreenWidth-66,designPortrait?85:47,54,30,
-        "Reset",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,247);
-    designDetails_[2] = makeLabel(lv_scr_act(), "Max -- / Avg --", designPortrait ? 12 : 200,
-                                  designPortrait ? 137 : 82, UiText::Caption, cDim);
-    lv_obj_set_size(designDetails_[2], designPortrait ? kScreenWidth - 24 : 268,
-                    UiText::font(UiText::Caption)->line_height);
-    lv_label_set_long_mode(designDetails_[2],LV_LABEL_LONG_CLIP);
+    auto screen = lv_scr_act();
+    constexpr int inset = UiLayout::PageInset;
+    constexpr int gap = UiLayout::Gap;
+    constexpr int buttonHeight = 40;
+    constexpr int resetWidth = 68;
+    constexpr int sessionWidth = 80;
+    const int caption = UiText::font(UiText::Caption)->line_height;
+    const int resetX = kScreenWidth-inset-resetWidth;
+    const int sessionX = resetX-gap-sessionWidth;
+    const int actionsY = designPortrait?84:UiLayout::HeaderHeight+gap;
+    const int titleY = actionsY+5;
+    const int readingWidth = designPortrait?sessionX-inset-gap:168;
+    const int statusX = designPortrait?sessionX:inset+readingWidth+gap;
+    const int statusY = designPortrait?actionsY+buttonHeight+UiLayout::SmallGap:titleY+2;
+    const int statsX = designPortrait?inset:statusX;
+    const int graphTop = designPortrait?157:111;
+    const int statsY = designPortrait?graphTop-caption-UiLayout::SmallGap:
+        actionsY+buttonHeight+UiLayout::SmallGap;
+    const int width = kScreenWidth-2*inset;
+
+    boundedLabel(makeLabel(screen,sensor.name,inset,titleY,UiText::Menu,cDim),readingWidth);
+    designValues_[0] = makeSensorWidgetLabel(screen,"--",inset,titleY+22,readingWidth,
+        UiText::font(UiText::Heading)->line_height,UiText::Heading,cWhite);
+    designDetails_[0] = makeSensorWidgetLabel(screen,"No data",statusX,statusY,72,caption);
+    makePageActionButton(sessionX,actionsY,sessionWidth,buttonHeight,
+        sensorSessionStats_[sensorSelected_]?"Session":"30s",UiText::Secondary,cPanel,cCyan,cLine,
+        &TransmitterUi::controlDesign,248);
+    makePageActionButton(resetX,actionsY,resetWidth,buttonHeight,"Reset",
+        UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,247);
+    designDetails_[2] = makeSensorWidgetLabel(screen,"Max -- / Avg --",statsX,statsY,
+        kScreenWidth-inset-statsX,caption);
 
     if (sensorSelected_ == 17) {
-        boundedLabel(makeLabel(lv_scr_act(),"Reported by CU01, not voltage-derived.",12,184,
-                               UiText::Caption,cDim),kScreenWidth-24);
-        makePageActionButton(12,211,kScreenWidth-24,32,"Set CU01 capacity",
+        constexpr int noteY = 184;
+        boundedLabel(makeLabel(screen,"Reported by CU01, not voltage-derived.",inset,noteY,
+                               UiText::Caption,cDim),width);
+        makePageActionButton(inset,noteY+caption+gap,width,buttonHeight,"Set CU01 capacity",
                              UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlDesign,249);
-        designDetails_[1] = makeLabel(lv_scr_act(),"Discover CU01, read, set mAh, then Apply.",12,
+        designDetails_[1] = makeLabel(screen,"Discover CU01, read, set mAh, then Apply.",inset,
                                      designFooterY-31,UiText::Caption,cDim);
-        boundedLabel(designDetails_[1],kScreenWidth-24);
+        boundedLabel(designDetails_[1],width);
         return;
     }
-    const int graphTop = designPortrait ? 157 : 111;
-    const int width = kScreenWidth-24;
     const int height = designFooterY-graphTop-(designPortrait?8:48);
-    auto panel = makePanel(12,graphTop,width,height,cPanel,cLine);
-    const int caption = UiText::font(UiText::Caption)->line_height;
+    auto panel = makePanel(inset,graphTop,width,height,cPanel,cLine);
     constexpr int plotTop = 7;
     const int axisWidth = sensorPlotAxisWidth(sensorSelected_);
     const int plotX = UiLayout::WidgetInset+axisWidth+UiLayout::SmallGap;
@@ -166,12 +181,22 @@ void TransmitterUi::drawSensorDetail()
     lv_label_set_long_mode(designDetails_[1],LV_LABEL_LONG_CLIP);
     if (designPortrait) return;
 
+    const int controlsY = designFooterY-buttonHeight-UiLayout::SmallGap;
+    constexpr int pauseWidth = 68;
+    constexpr int setupWidth = 132;
+    const int previousX = inset+pauseWidth+gap;
+    const int nextX = previousX+buttonHeight+gap;
+    const int cursorX = nextX+buttonHeight+gap;
+    const int setupX = kScreenWidth-inset-setupWidth;
     if (telemetryHistory_) {
-        makePageActionButton(12,238,68,30,v2GraphPaused_?"Live":"Pause",UiText::Caption,cPanel,cCyan,cLine,&TransmitterUi::controlV2,20);
-        makePageActionButton(84,238,30,30,"<",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlV2,21);
-        makePageActionButton(118,238,30,30,">",UiText::Caption,cPanel,cWhite,cLine,&TransmitterUi::controlV2,22);
-        designDetails_[6] = makeLabel(lv_scr_act(),"60 s history",154,245,UiText::Caption,cDim);
-        boundedLabel(designDetails_[6],143);
+        makePageActionButton(inset,controlsY,pauseWidth,buttonHeight,v2GraphPaused_?"Live":"Pause",
+            UiText::Secondary,cPanel,cCyan,cLine,&TransmitterUi::controlV2,20);
+        makePageActionButton(previousX,controlsY,buttonHeight,buttonHeight,"<",
+            UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlV2,21);
+        makePageActionButton(nextX,controlsY,buttonHeight,buttonHeight,">",
+            UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlV2,22);
+        designDetails_[6] = makeSensorWidgetLabel(screen,"60 s history",cursorX,
+            controlsY+(buttonHeight-caption)/2,setupX-gap-cursorX,caption);
         v2GraphCursorLine_ = lv_line_create(panel);
         lv_obj_set_style_line_color(v2GraphCursorLine_,colour(cAmber),0);
         lv_obj_set_style_line_width(v2GraphCursorLine_,1,0);
@@ -179,11 +204,17 @@ void TransmitterUi::drawSensorDetail()
     const char *setup=sensorSelected_==0?"Dashboard setup":sensorSelected_==2?"ERS / motor poles":
         sensorSelected_==4?"RF warnings":sensorSelected_>=6&&sensorSelected_<=11?"Battery alarms":
         sensorSelected_>=14?"ERS sensor setup":"Sensor settings";
-    makePageActionButton(300,238,168,30,setup,UiText::Caption,cPanel2,cCyan,cLine,&TransmitterUi::controlV2,30);
+    makePageActionButton(setupX,controlsY,setupWidth,buttonHeight,setup,
+        UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlV2,30);
 }
 
 void TransmitterUi::updateSensorDetail(uint32_t now)
 {
+    auto valueLabel = designValues_[0];
+    const auto *reading = lv_label_get_text(valueLabel);
+    uiSetTextFont(valueLabel,drivePackReadingFont(reading,lv_obj_get_style_width(valueLabel,0),
+        lv_obj_get_style_height(valueLabel,0)),0);
+
     if (!telemetryHistory_) {
         uiSetText(designDetails_[2],"Statistics unavailable: memory");
         if (sensorSelected_ != 17) uiSetText(designDetails_[1],"History unavailable: memory");

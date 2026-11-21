@@ -3120,6 +3120,33 @@ void TransmitterUi::drawStartupWarningPage()
     finishPageFocus();
 }
 
+void TransmitterUi::openRadioDiagnostics()
+{
+    const bool fromQuickMenu=activePage_==UiPage::QuickNavigation;
+    const UiPage origin=fromQuickMenu?keypadReturnPage_:activePage_;
+    const UiPage warningOrigin=rfWarningReturnPage_==UiPage::QuickNavigation
+        ? keypadReturnPage_ : rfWarningReturnPage_;
+    const bool returningToDiagnostics=origin==UiPage::RadioDiagnostics ||
+        (origin==UiPage::RfWarningSetup && warningOrigin==UiPage::RadioDiagnostics);
+    if(!returningToDiagnostics){
+        radioDiagnosticsReturnPage_=origin;
+        radioDiagnosticsReturnMaximized_=origin==UiPage::Dashboard?maximizedWidget_:-1;
+        radioDiagnosticsReturnFocus_=fromQuickMenu?0:pageFocusIndex_;
+    }
+    drawRadioDiagnostics();
+}
+
+void TransmitterUi::returnFromRadioDiagnostics()
+{
+    activePage_=radioDiagnosticsReturnPage_;
+    maximizedWidget_=radioDiagnosticsReturnMaximized_;
+    redrawActivePage();
+    if(radioDiagnosticsReturnFocus_<pageFocusCount_){
+        pageFocusIndex_=radioDiagnosticsReturnFocus_;
+        refreshPageFocus();
+    }
+}
+
 void TransmitterUi::drawRadioDiagnostics()
 {
     if (!displayReady_) return;
@@ -3637,9 +3664,10 @@ bool TransmitterUi::dispatchPageControl(uint8_t index, PageControlEvent event)
     const PageFocusTarget target = pageFocusTargets_[index];
     if (target.handler == nullptr || !target.enabled) return false;
     const uint8_t focused = pageFocusIndex_;
+    const UiPage page = activePage_;
     (this->*target.handler)(target.argument, event);
     if (pageFocusCount_ != 0) {
-        pageFocusIndex_ = min<uint8_t>(focused, pageFocusCount_ - 1);
+        if (activePage_ == page) pageFocusIndex_ = min<uint8_t>(focused, pageFocusCount_ - 1);
         refreshPageFocus();
     }
     return true;
@@ -4017,7 +4045,8 @@ void TransmitterUi::navigateBack()
     switch (activePage_) {
         case UiPage::Tune: case UiPage::ValueEditor: case UiPage::Gps:
         case UiPage::ChannelMonitor: case UiPage::SensorDetail: case UiPage::WidgetSelect: case UiPage::WidgetEditor: case UiPage::BatteryMenu:
-        case UiPage::RadioDiagnostics: drawTelemetryPage(); break;
+            drawTelemetryPage(); break;
+        case UiPage::RadioDiagnostics: returnFromRadioDiagnostics(); break;
         case UiPage::WifiSetup: return;
         case UiPage::BootSplash: break;
         case UiPage::BootPin: break;

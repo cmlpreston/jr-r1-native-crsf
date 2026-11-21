@@ -4,6 +4,7 @@ void TransmitterUi::loadRunRecords()
     runRecordsLoaded_=true;runRecordsHadLive_=false;runRecordsNextSaveMs_=millis()+30000;
     runRecordsSavePending_ = false;
     runRecordsReadError_ = nullptr;
+    runRecordsCheckpoint_ = RunRecordsCheckpoint::None;
     runRecordsGpsStamp_=designTelemetry_.gpsUpdatedMs;
     // Discard any observations left in this slot's timer after changing models
     // without saving. A valid checkpoint supplies the previous saved laps.
@@ -56,6 +57,7 @@ void TransmitterUi::loadRunRecords()
     for(unsigned i=0;i<gpsCount_;++i){const auto index=gpsCount_>1?i*(r.gpsCount-1)/(gpsCount_-1):0;
         gpsLat_[i]=r.gps[index].latitude;gpsLon_[i]=r.gps[index].longitude;}
     ++gpsTrailRevision_;
+    runRecordsCheckpoint_ = RunRecordsCheckpoint::Restored;
     snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"Saved records restored; timer paused");
 }
 bool TransmitterUi::saveRunRecords()
@@ -85,6 +87,17 @@ bool TransmitterUi::saveRunRecords()
     r.timer.pause(now);
     const bool saved=RunRecordStore::write(activeModelSlot_,&r,sizeof(r));
     runRecordsSavePending_ = !saved;
+    if (saved) {
+        // This timestamp belongs to the current model load and is never stored
+        // in the checkpoint. An unsuccessful save keeps the previous stamp.
+        runRecordsCheckpoint_ = RunRecordsCheckpoint::Saved;
+        runRecordsSavedAtMs_ = millis();
+        const auto &t = designTelemetry_;
+        runRecordsSavedAtLocal_ = gpsTimeAvailable(t, runRecordsSavedAtMs_)
+            ? GpsLocalTime::convert(systemSettings_.timeZone, t.gpsUtcYear, t.gpsUtcMonth, t.gpsUtcDay,
+                                    t.gpsUtcHour, t.gpsUtcMinute, t.gpsUtcSecond)
+            : GpsLocalTime::Time{};
+    }
     snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),saved?"Saved / %u GPS points; 30s checkpoints in CUT":"Save failed; check handset storage",unsigned(r.gpsCount));
     return saved;
 }
@@ -140,6 +153,7 @@ bool TransmitterUi::deleteRunRecords()
     if(runRecords_)runRecords_.get()->clear();
     runRecordsReadError_ = nullptr;
     runRecordsSavePending_ = false;
+    runRecordsCheckpoint_ = RunRecordsCheckpoint::None;
     runRecordsNextSaveMs_=millis()+30000;
     snprintf(runRecordsNotice_,sizeof(runRecordsNotice_),"This model's records deleted");return true;
 }

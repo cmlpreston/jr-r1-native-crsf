@@ -121,7 +121,13 @@ auto autoGpsMode=[&](uint8_t cell,bool speed){
     lv_area_t bounds;lv_obj_get_coords(view.panel,&bounds);
     assert(card.enabled&&card.activate.x==bounds.x1&&card.activate.y==bounds.y1);
     assert(card.activate.width==lv_obj_get_width(view.panel));
-    assert(card.activate.height==lv_obj_get_height(view.panel)-(speed?34:0));
+    const int footerHeight=speed?2+UiLayout::WidgetSensorFooterHeight:0;
+    assert(card.activate.height==lv_obj_get_height(view.panel)-footerHeight);
+    if(speed){
+        const auto &resetTarget=pageFocusTargets_[reset].activate;
+        assert(resetTarget.height==UiLayout::WidgetSensorResetHeight);
+        assert(card.activate.y+card.activate.height<=resetTarget.y);
+    }
 };
 auto autoGpsNoChurn=[&](const CrsfTelemetryState &state,uint32_t now,uint8_t cell=0){
     autoGpsRender(state,now,cell);const auto panel=widgetViews_[cell].panel;

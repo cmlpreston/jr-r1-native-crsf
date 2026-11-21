@@ -68,6 +68,7 @@ auto metricsTap=[&](uint8_t argument){
     lv_obj_update_layout(lv_scr_act());
     for(uint8_t n=0;n<pageFocusCount_;++n){const auto target=pageFocusTargets_[n];
         if(target.handler==&TransmitterUi::controlDesign&&target.argument==argument){
+            if(argument>=154&&argument<=157)assert(target.activate.height==UiLayout::WidgetMetricFooterHeight-2);
             handleTouch(target.activate.x+target.activate.width/2,target.activate.y+target.activate.height/2);return true;
         }
     }

@@ -161,8 +161,10 @@ void TransmitterUi::drawMetricWidget(uint8_t cell,int width,int height)
     const int rows = (fields+columns-1)/columns;
     const int inset = UiLayout::WidgetInset;
     const int columnWidth = (width-2*inset-(columns-1)*UiLayout::Gap)/columns;
-    const int footerY = height-UiLayout::WidgetFooterHeight;
-    const int rowHeight = (footerY-UiLayout::SmallGap-UiLayout::WidgetBodyY)/rows;
+    const bool resettable = dashboardMetricsResettable(kind);
+    const int footerHeight = resettable?UiLayout::WidgetMetricFooterHeight:UiLayout::WidgetFooterHeight;
+    const int footerY = height-footerHeight;
+    const int rowHeight = (footerY-UiLayout::WidgetBodyY)/rows;
     const auto *captionFont = UiText::font(UiText::Caption);
     const int captionHeight = captionFont->line_height;
     const bool inlineReading = rowHeight<2*captionHeight+UiLayout::SmallGap;
@@ -192,9 +194,9 @@ void TransmitterUi::drawMetricWidget(uint8_t cell,int width,int height)
         uiSetTextFont(value,drivePackReadingFont("--",columnWidth-readX,readHeight),0);
         view.values[n] = value;
     }
-    const int footerTextY = footerY+(UiLayout::WidgetFooterHeight-captionHeight)/2;
+    const int footerTextY = footerY+(footerHeight-captionHeight)/2;
     view.detail = makeLabel(view.panel,"",inset,footerTextY,UiText::Caption,cDim);
-    boundedLabel(view.detail,width-2*inset-(dashboardMetricsResettable(kind)?60:0));
+    boundedLabel(view.detail,width-2*inset-(resettable?UiLayout::WidgetMetricResetWidth:0));
 }
 
 void TransmitterUi::updateTripRunBatteryWidget(uint8_t cell,uint32_t now)

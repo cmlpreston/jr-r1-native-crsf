@@ -121,8 +121,8 @@ void TransmitterUi::drawDashboardSensorWidget(uint8_t cell,const DashboardWidget
     }
     view.values[1] = makeSensorWidgetLabel(parent,"Max --\nAvg --",statsX,statsY,statsWidth,statsHeight);
     lv_obj_set_style_text_line_space(view.values[1],0,0);
-    const int resetY = height-(compactDial?26:30);
-    auto reset = makePageActionButton(x+width-76,y+resetY,68,compactDial?24:28,"Reset",
+    const int resetY = height-UiLayout::WidgetSensorFooterHeight;
+    auto reset = makePageActionButton(x+width-76,y+resetY,68,UiLayout::WidgetSensorResetHeight,"Reset",
         UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,speed&&!gpsAuto?148:250+cell);
     if(gpsAuto){
         view.speedReset = reset;
@@ -207,7 +207,8 @@ void TransmitterUi::updateGpsAutoWidget(uint8_t cell,const CrsfTelemetryState &t
         lv_obj_update_layout(view.panel);
         if(view.gpsCardTarget<pageFocusCount_){
             auto &card=pageFocusTargets_[view.gpsCardTarget];
-            card.focus.height=card.activate.height=lv_obj_get_height(view.panel)-(speed?34:0);
+            card.focus.height=card.activate.height=lv_obj_get_height(view.panel)-
+                (speed?2+UiLayout::WidgetSensorFooterHeight:0);
         }
         for(auto index:{view.gpsFooterTarget,view.gpsResetTarget})
             if(index<pageFocusCount_)pageFocusTargets_[index].enabled=speed;

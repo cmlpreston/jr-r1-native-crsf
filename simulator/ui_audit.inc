@@ -724,6 +724,24 @@ bool TransmitterUi::runSimulatorUiAudit()
     }
     if(getenv("JR_R1_ERS_NATIVE_AUDIT_ONLY")) {
         bootPinUnlocked_=true;pinPurpose_=PinPurpose::None;armRequested_=false;designSafety_=OutputSafetyStatus::Cut;moduleLinkManaged_=false;
+        auto auditErsTargets=[&]{
+            std::vector<PageFocusTarget::Rectangle> taps;
+            for(uint8_t i=0;i<pageFocusCount_;++i){
+                const auto &target=pageFocusTargets_[i];
+                if(target.handler!=&TransmitterUi::controlErsSensor&&
+                   !(target.handler==&TransmitterUi::controlDesign&&target.argument==239))continue;
+                const auto &area=target.activate;
+                const bool deviceRow=target.argument>=10&&target.argument<14;
+                assert(area.height>=(deviceRow?34:40));
+                assert(area.x>=0&&area.x+area.width<=kScreenWidth);
+                assert(area.y>=UiLayout::HeaderHeight&&area.y+area.height<=designFooterY);
+                for(const auto &other:taps)
+                    assert(area.x+area.width<=other.x||other.x+other.width<=area.x||
+                           area.y+area.height<=other.y||other.y+other.height<=area.y);
+                taps.push_back(area);
+            }
+            assert(!taps.empty());
+        };
         auto auditDraftRefresh=[&](uint8_t select,const char *sensor,std::initializer_list<uint8_t> actions){
             struct Frame : Stream {
                 std::vector<uint8_t> bytes;
@@ -746,6 +764,7 @@ bool TransmitterUi::runSimulatorUiAudit()
             for(bool forceRebuild:{true,false}){
                 auditForceChromeRebuild=forceRebuild;
                 controlErsSensor(select,activate);
+                auditErsTargets();
                 lv_obj_update_layout(screen);lv_refr_now(nullptr);
                 auto *const value=designValues_[0];
                 auto *const note=designDetails_[0];
@@ -812,6 +831,7 @@ bool TransmitterUi::runSimulatorUiAudit()
             assert(ersConfig_.count()==0&&ersParser.state().ersSequence==4);
             consumeErsReplies(ersParser);assert(ersConfig_.count()==4);
             ersConfig_.update(millis()+8000);drawDesignPage(UiPage::ErsSensors);assert(ersConfig_.count()==4);
+            auditErsTargets();
             auditDraftRefresh(10,"GPS",{7,6,7,6});
             auditDraftRefresh(11,"RPM",{6,6,7,7});
             auditDraftRefresh(12,"capacity",{7,9,6,7,6});
@@ -2088,6 +2108,7 @@ bool TransmitterUi::runSimulatorUiAudit()
                 assert(!reset && widgetViews_[0].plot);
             } else {
                 assert(reset);
+                assert(reset->activate.height==UiLayout::WidgetSensorResetHeight);
                 lv_area_t panel;lv_obj_get_coords(widgetViews_[0].panel,&panel);
                 assert(reset->activate.x>=panel.x1 && reset->activate.y>=panel.y1);
                 assert(reset->activate.x+reset->activate.width<=panel.x2+1);

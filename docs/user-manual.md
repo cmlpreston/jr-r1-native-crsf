@@ -1,7 +1,9 @@
 # JR R-1 EVO User Manual
 
-**Prototype edition 1.3 · 1 November 2026**
-Current development firmware **4fa0968**, installed by verified Pi USB upload on 15 November 2026, XIAO ESP32-S3 / Waveshare LCD (F), landscape. The printable PDF remains the earlier edition.
+**V3 prototype guide · 21 November 2026**
+
+This guide covers the landscape XIAO ESP32-S3 / Waveshare LCD (F) handset.
+The printable PDF reflects an earlier edition.
 
 R-1 EVO retains the original JR wheel, trigger and controls, with a new computer,
 colour touchscreen and an ExpressLRS radio link. This guide describes the current
@@ -64,8 +66,10 @@ the RF module is powered.
 
 Hold Drive to return to CUT and check its state indicator. Secure/power down the
 vehicle before handling it. Switch off module power when RF silence is required.
-Lap records are held in RAM: export any records you want to keep before turning
-off or restarting the handset.
+Before turning off or restarting the handset, open **Data → Run review**, choose
+**Save records** and check the save status. The last successful save keeps this
+model's laps, timer elapsed time, sensor statistics, trip totals and GPS route.
+Use the web timer panel to download a lap CSV if you want a separate copy.
 
 ![Native handset Drive screen](../assets/handset-captures/drive.png)
 
@@ -82,13 +86,14 @@ widget layout. Neither capture method reads back the physical LCD.*
 | --- | --- |
 | Drive | Widgets, operating mode and deliberate CUT/output-enable action. |
 | Tune | Quick steering, throttle and brake response adjustments. |
-| Data | Sensors, GPS map, channels and physical input monitoring. |
+| Data | Sensors, GPS map, channel and input monitors, radio diagnostics and run review. |
 | Setup | Model configuration and handset-wide settings. |
 
-Tap the bottom navigation control to change section. An ordinary navigation tap
-does not enable output. Detail pages provide Back navigation; use their displayed
-controls to return to the parent page. Apply/Save and Cancel matter in editors:
-leaving an editor is not a substitute for applying its draft.
+Tap the bottom navigation control to change section. On Drive, tap **Drive**
+again to hide or show its title bar and give the widgets more space. Hold
+**Drive** for output control. Use **Back** in the title bar of a detail page.
+Back from Radio diagnostics returns to the page where you opened it. In editors,
+use **Apply** or **Save** to keep a draft, or **Cancel** to discard it.
 
 Where page dots are shown, tap a dot or swipe horizontally to change page. Tabs
 select a category within the current section. Paging and tab selection are
@@ -96,9 +101,10 @@ separate operations.
 
 The title bar identifies the current model and link/network status, with measured
 TX pack voltage immediately left of LQ. Voltage is red at or below the configured
-TX warning threshold; `--V` means unavailable. When GPS date/time telemetry is
-available, `HH:MMZ` appears beneath TX voltage. `Z` means UTC; it is not converted
-to local time. The time hides after three seconds without valid updates.
+TX warning threshold. `--V` means unavailable. Fresh GPS date/time telemetry
+shows the time below TX voltage in the zone selected under
+**Setup → Handset → Clock / timezone**. The time hides after three seconds
+without valid updates.
 Tap the model
 area to reach model selection. Tap the Wi-Fi icon for network status and setup. Hold
 the LQ/status area for the module-communication dialog.
@@ -253,9 +259,10 @@ short spikes between reports may be missed. Wh is estimated between fresh sample
 stale or invalid intervals are excluded and indicated as gaps. Wh/km is an estimate from
 matched power/GPS-speed coverage, unavailable until at least 100 m is covered.
 A `~` prefix marks totals that omit telemetry gaps.
-These measurements start with fresh data after power-up, model selection or
-confirmed Reset. Reset changes local statistics only. Used energy is meaningful
-with a partly charged pack; this widget does not estimate its starting charge.
+Saved peaks and totals are restored after power-up or model selection. Integration
+resumes with fresh measurements and leaves a gap where telemetry was missing.
+Confirmed Reset clears this widget's observations. Used energy is meaningful
+with a partly charged pack. This widget does not estimate its starting charge.
 
 **Control history** shows input commands before expo, trim, channel reversal and
 mixing. Positive/negative throttle indicates trigger intent, not whether the
@@ -264,14 +271,13 @@ invalid input intervals leave gaps. The graph does not prove that a servo or
 motor followed the command. Both new widgets support the normal dashboard sizes
 and hold-to-maximise gesture; a wide Control history card gives more graph space.
 
-**Trip computer** and **Run summary** share one session. It begins at the first
-fresh GPS-speed or CU01 reading after power-up, model selection or confirmed
-Reset. Either card's Reset clears both cards; it leaves the separate Power /
-energy card and sensor counters unchanged. Elapsed time continues while stopped
-or telemetry is missing. Moving time and distance use fresh GPS speed, excluding
-speed below 1 km/h to reduce standstill jitter. Moving average uses those same
-observed moving intervals; it is unavailable until movement is recorded. This
-is a resettable trip, not a saved lifetime odometer or an automatic lap detector.
+**Trip computer** and **Run summary** share one trip. A new trip begins at the
+first fresh GPS-speed or CU01 reading. The last saved trip is restored after a
+restart or model change. Either card's Reset clears both cards and leaves the
+separate Power / energy card and sensor counters unchanged. Elapsed time
+continues while stopped or telemetry is missing. Moving time, distance and
+average use fresh GPS speed, excluding speed below 1 km/h to reduce standstill
+jitter. The moving average appears once movement is recorded.
 
 Run capacity is the increase in the CU01's consumed-mAh counter since the first
 new reading, so it also works for a partly charged pack. It does not estimate
@@ -558,14 +564,15 @@ requires confirmation, and is allowed only when paused and not Ready.
 2. Set Race / countdown duration, Race-end alarm and optional Target lap alarm.
 3. Start from Controls or the timer's assigned physical button.
 4. Press Lap on each crossing. Accepted laps beep; too-short laps are ignored.
-5. Pause after the session, review Laps and export before power-off if needed.
+5. Pause after the session, review Laps, then use **Data → Run review → Save
+   records** in CUT before powering off. Download a lap CSV for a separate copy.
 
-Up to **100 laps per model per power session** are held in RAM. Laps shows records
-and marks the best; summaries include last/best/average/total. At capacity, further
-laps are not stored until you pause and clear. Settings and accumulated on-time
-are saved; lap records and running clock are not restored after reboot. On-time
-is checkpointed about once a minute, so abrupt power loss can lose the latest
-fraction of that accumulated figure.
+Each model holds up to **100 laps**. Laps shows records and marks the best.
+Summaries include last, best, average and total. At capacity, pause and clear
+before recording more laps. The last saved laps and elapsed time return after a
+restart with the timer paused and Ready cleared. Timer settings and accumulated
+handset on-time are saved separately. Abrupt power loss can lose changes made
+since the last save.
 
 ### Ready: throttle auto-start
 
@@ -585,6 +592,26 @@ provides settings/actions and lap CSV download; web writes require CUT access.
 Use **Data → Sensors** for values and histories, **GPS** for location/trail,
 **Channels** for requested/sent outputs and **Inputs** for physical controls.
 No data or stale values mean no usable fresh measurement; they are not zero.
+
+### Saved run records
+
+Open **Data → Run review** to review the selected model's observations and save
+status. Records include sensor peaks and averages, trip and energy totals, battery
+extremes, elapsed timer time, laps and a route of up to 2,048 GPS points. The route
+starts at up to one point per second. As it fills, the handset keeps points spaced
+farther apart to retain an overview of the whole route. The handset saves
+records about every 30 seconds while in CUT with data to save, when leaving LIVE
+and before switching models. A sudden power loss while driving can lose
+observations collected after the last save.
+
+In CUT, use **Save records** to save immediately and check the status. The last
+successful save shows the handset's local GPS time when available or the time
+since boot. After loading a saved checkpoint, its original save time is
+unavailable until a new successful save. To clear the current model's saved and
+current records, pause the timer, keep CUT and use **Delete records...**.
+Check the model named in the confirmation. Model settings and other models'
+records are kept. An unreadable record is protected from automatic and manual
+saves. Read the message before choosing whether to delete it.
 
 Link data can include LQ, RSSI and SNR. Other supported readings include receiver
 voltage, speed, GPS/satellites, RPM, temperature, pack/cell values and FAS
@@ -621,9 +648,10 @@ uploaded to the ER6G on 1 November 2026; live GPS delivery still needs confirmat
 an S.Port sensor; match its protocol and receiver firmware rather than selecting
 by brand. Receiver wiring/output mapping remains separate from transmitter mixing.
 
-A map can be viewed without GPS; a live position/trail requires valid position
-telemetry. The GPS page keeps its title bar, navigation and controls visible
-while idle; automatic fullscreen is disabled for this trial.
+A map and its last saved trail can be viewed without a new GPS fix. New trail
+points and a live position require valid position telemetry. The GPS page keeps
+its title bar, navigation and controls visible while idle. Automatic fullscreen
+is disabled for this trial.
 Use Zoom -/+, Trail and Reset trail as needed. Attribution remains part of the map.
 Dashboard GPS widgets crop saved satellite imagery to fill their area, including
 when maximized. While the location is inside the saved map, following stops at
@@ -696,8 +724,9 @@ continuous map-streaming service to the LCD.
    preview; it has not yet saved to the handset.
 4. Review the preview, name and attribution. Current image packages are limited
    to 512×512 pixels.
-5. If storage is unavailable, use **Prepare map storage** and its confirmation;
-   wait for an explicit result. Storage preparation is not map upload.
+5. If storage is unavailable, use **Storage recovery…** and read the confirmation.
+   The handset retries opening storage first. If formatting is required, it
+   erases the uploaded map and saved run records for every model.
 6. Choose **Save map to handset**. Wait for a success message, not just upload
    progress or “waiting for handset to validate and save”.
 7. Open the handset GPS page/widget to check the installed map.
@@ -719,12 +748,15 @@ the package's actual source attribution when exporting/sharing.
 ## 14. Handset settings
 
 Open **Setup → Handset** and page for additional entries.
+Settings marked **Model** apply to the named model. Settings marked **Handset**
+apply across model memories.
 
 | Area | Main settings |
 | --- | --- |
 | Display | Screen timeout, idle action (logo saver/display off), brightness, colour scheme and activate now. |
 | Sounds / alerts | Available sound and alarm options. |
 | TX battery | Chemistry, cell count, low alarm and voltage sensing. The installed pack is 3S LiFe. |
+| Clock / timezone | Time zone for the GPS-derived clock. Presets for Australian regions that observe daylight saving adjust automatically. |
 | Network / web | Home Wi-Fi, auto-connect, setup access, web address/credentials and hostname. |
 | System | Input diagnostics, firmware information, PIN and restart. |
 
@@ -737,8 +769,10 @@ itself runs from USB or a separate 5V regulator. If that feed is absent, no TX
 battery reading can be inferred from the power source. Choose appropriate alarm
 settings for the actual chemistry rather than copying LiPo values into LiFe.
 
-Restart reboots in CUT and clears RAM session data such as lap records. It does
-not deliberately erase saved models, maps or Wi-Fi. Export lap records first.
+Restart reboots in CUT. Saved models, maps, Wi-Fi settings and run records are
+retained. Laps and elapsed time return from the last successful save with the
+timer paused. Use **Data → Run review → Save records** in CUT before restarting
+to keep recent observations. Live sensor graph history starts afresh.
 
 ## 15. ExpressLRS module settings
 
@@ -911,7 +945,7 @@ back display glass, so a good capture cannot rule out LCD wiring or panel faults
 | Battery cells missing | Check actual sensor protocol/receiver forwarding and freshness. Expected cell count does not synthesise cells. |
 | No GPS trail | Confirm receiver GPS forwarding, valid location/fix and fresh telemetry; a saved map alone provides none of these. |
 | Timer press ignored | Check assignment/context, mode, minimum-lap interval and 100-lap capacity. |
-| Laps disappeared after restart | Expected: lap history is session RAM. Export CSV before restarting. |
+| Recent laps missing after restart | Check the selected model and the Run review status. Only the last successful save is restored. Use Save records in CUT before powering off or restarting. |
 | Blank LCD but web/serial works | Separate backlight from graphics. Check LCD power, CS, reset, DC, clock and MOSI connections; touch uses I2C separately. Use the installed pinout guide. |
 | Cannot exit Walk | Enter the correct PIN within the prompt; otherwise it times out back to Drive. Use USB recovery if the PIN is forgotten. |
 

@@ -191,6 +191,54 @@ for(unsigned orientation=0;orientation<2;++orientation){
     updateDesign(designTelemetry_,designSafety_,123,true);
     navigateBack();
     assert(activePage_==UiPage::MainMenu&&setupBank_==1&&setupPage_==1);
+
+    auto focusedAction=[&](PageControlHandler handler,uint8_t argument){
+        for(uint8_t i=0;i<pageFocusCount_;++i)
+            if(pageFocusTargets_[i].handler==handler&&pageFocusTargets_[i].argument==argument){
+                pageFocusIndex_=i;
+                activatePageFocus();
+                return i;
+            }
+        assert(false&&"Expected navigation action");return uint8_t{0};
+    };
+    auto diagnostics=[&]{return focusedAction(&TransmitterUi::controlDesign,63);};
+    auto modelAlarms=[&]{focusedAction(&TransmitterUi::controlDesign,254);};
+    auto keypadBack=[&]{focusedAction(&TransmitterUi::controlNavigation,0);};
+    const auto setupFocus=diagnostics();
+    assert(activePage_==UiPage::RadioDiagnostics);
+    modelAlarms();assert(activePage_==UiPage::RfWarningSetup);
+    diagnostics();assert(activePage_==UiPage::RadioDiagnostics);
+    keypadBack();
+    assert(activePage_==UiPage::MainMenu&&setupBank_==1&&setupPage_==1);
+    assert(pageFocusIndex_==setupFocus&&pageFocusVisible_);
+
+    controlDesign(254,activate);assert(activePage_==UiPage::RfWarningSetup);
+    diagnostics();modelAlarms();
+    assert(activePage_==UiPage::RfWarningSetup);
+    keypadBack();assert(activePage_==UiPage::MainMenu&&setupBank_==1&&setupPage_==1);
+    controlV2(3,activate);assert(activePage_==UiPage::QuickNavigation);
+    controlV2(13,activate);assert(activePage_==UiPage::RadioDiagnostics);
+    controlV2(3,activate);controlV2(13,activate);
+    keypadBack();assert(activePage_==UiPage::MainMenu);
+
+    maximizedWidget_=0;drawDashboard();diagnostics();
+    assert(activePage_==UiPage::RadioDiagnostics);
+    handleTouch(kHeaderActionX+kHeaderActionWidth/2,UiLayout::HeaderHeight/2);
+    assert(activePage_==UiPage::Dashboard&&maximizedWidget_==0);
+    maximizedWidget_=-1;
+    for(const auto page:{UiPage::TxBatterySetup,UiPage::ClockSetup,UiPage::DriveBatterySetup,UiPage::BrakeAbs}){
+        drawDesignPage(page);
+        lv_obj_update_layout(lv_scr_act());
+        const char *scope=page==UiPage::TxBatterySetup||page==UiPage::ClockSetup?"Handset":"Model / ";
+        bool shown=false;
+        for(uint32_t i=0;i<lv_obj_get_child_cnt(lv_scr_act());++i){
+            auto object=lv_obj_get_child(lv_scr_act(),i);
+            shown|=lv_obj_check_type(object,&lv_label_class)&&!strncmp(lv_label_get_text(object),scope,strlen(scope));
+        }
+        assert(shown);
+    }
+    assert(!armRequested_&&!safetyResetRequested_&&auditCutRequests==timeCuts);
+    pageFocusVisible_=false;
     setupBank_=originalBank;setupPage_=originalPage;
     lastTouchDurationMs_=originalDuration;
     armGestureValid_=originalGesture;
@@ -201,5 +249,5 @@ timeDisplay->driver->monitor_cb=timePriorMonitor;safetyCutHandler_=timeCutHandle
 memcpy(modelNames_[activeModelSlot_],timeOriginalName,sizeof(timeOriginalName));
 brakeAbs_.enabled=timeOriginalAbs;uiNightMode=timeOriginalNight;uiDarkColourScheme=timeOriginalScheme;
 systemSettings_.timeZone=timeOriginalZone;
-Serial.println("Handset header: shared section/detail bounds, GPS time fit, both orientations/palettes, stable objects, status entry and Back PASS");
+Serial.println("Handset header: shared section/detail bounds, GPS time fit, both orientations/palettes, status entry, scope and diagnostics Back PASS");
 return true;

@@ -44,7 +44,11 @@ void TransmitterUi::openV2Shortcut(uint8_t id)
     else if(id==8){v2ReviewConfirm_=false;drawDesignPage(UiPage::RunReview);}
     else if(id==9)drawDesignPage(UiPage::TimerControl);
     else if(id==10){assignmentChannelContext_=0;drawControlAssignmentsPage();}
-    else if(id==11){rfWarningReturnPage_=UiPage::QuickNavigation;drawDesignPage(UiPage::RfWarningSetup);}
+    else if(id==11){
+        if(keypadReturnPage_==UiPage::RadioDiagnostics&&radioDiagnosticsReturnPage_==UiPage::RfWarningSetup)
+            returnFromRadioDiagnostics();
+        else{rfWarningReturnPage_=UiPage::QuickNavigation;drawDesignPage(UiPage::RfWarningSetup);}
+    }
     else if(id==12)drawModelSelectPage();
     else if(id==13)drawDashboard();
 }
@@ -52,11 +56,27 @@ void TransmitterUi::openV2Shortcut(uint8_t id)
 void TransmitterUi::drawV2RunReview()
 {
     makeLabel(lv_scr_act(),"Run review",12,49,UiText::Heading,cWhite);
-    if(!telemetryHistory_)makeLabel(lv_scr_act(),"History unavailable: memory",12,72,UiText::Caption,cAmber);
-    if(v2ReviewConfirm_){
-        auto text=makeLabel(lv_scr_act(),"Delete this model's saved and current data?\nPeaks, totals, laps and GPS log are cleared.\nPause timer and CUT first. Settings retained.",12,100,UiText::Menu,cWhite);boundedLabel(text,kScreenWidth-24);
+    if (v2ReviewConfirm_) {
+        char title[64];
+        snprintf(title, sizeof(title), "Delete records for %s?", modelNames_[activeModelSlot_]);
+        designDetails_[0] = makeLabel(lv_scr_act(),title,12,100,UiText::Menu,cWhite);
+        lv_obj_set_width(designDetails_[0],kScreenWidth-24);
+        lv_label_set_long_mode(designDetails_[0],LV_LABEL_LONG_WRAP);
+        auto *help = makeLabel(lv_scr_act(),
+            "Clears saved and current peaks, totals, laps and GPS. Pause the timer and keep CUT. Model settings are kept.",
+            12,144,UiText::Secondary,cDim);
+        lv_obj_set_width(help,kScreenWidth-24);
+        lv_label_set_long_mode(help,LV_LABEL_LONG_WRAP);
         makePageActionButton(12,210,kScreenWidth/2-18,40,"Keep records",UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlV2,51);
-        makePageActionButton(kScreenWidth/2+6,210,kScreenWidth/2-18,40,"Reset records",UiText::Menu,cPanel2,cAmber,cLine,&TransmitterUi::controlV2,52);return;
+        makePageActionButton(kScreenWidth/2+6,210,kScreenWidth/2-18,40,"Delete records",UiText::Menu,cPanel2,cAmber,cLine,&TransmitterUi::controlV2,52);
+        return;
+    }
+    if (telemetryHistory_) {
+        designDetails_[1] = makeLabel(lv_scr_act(),"",12,72,UiText::Caption,cDim);
+        lv_obj_set_width(designDetails_[1],kScreenWidth-24);
+        lv_label_set_long_mode(designDetails_[1],LV_LABEL_LONG_CLIP);
+    } else {
+        makeLabel(lv_scr_act(),"History unavailable: memory",12,72,UiText::Caption,cAmber);
     }
     const char *names[]={"MAX SPEED","PEAK RPM","MIN PACK","MIN CELL","USED CHARGE","LOWEST LQ"};
     const char *units[]={"km/h","rpm","V","V","mAh","%"};
@@ -67,12 +87,30 @@ void TransmitterUi::drawV2RunReview()
     makePageActionButton(12,y,kScreenWidth/2-18,30,"Save records",UiText::Caption,cPanel,cCyan,cLine,&TransmitterUi::controlV2,53);
     makePageActionButton(kScreenWidth/2+6,y,kScreenWidth/2-18,30,"Delete records...",UiText::Caption,cPanel,cAmber,cLine,&TransmitterUi::controlV2,50);
     designDetails_[0]=makeLabel(lv_scr_act(),runRecordsNotice_,12,y+31,UiText::Caption,cDim);
-    boundedLabel(designDetails_[0],kScreenWidth-24);
+    lv_obj_set_width(designDetails_[0],kScreenWidth-24);
+    lv_label_set_long_mode(designDetails_[0],portraitUi?LV_LABEL_LONG_WRAP:LV_LABEL_LONG_CLIP);
 }
 void TransmitterUi::updateV2RunReview()
 {
     if(v2ReviewConfirm_)return;
     uiSetText(designDetails_[0],runRecordsNotice_);
+    if (auto *label = designDetails_[1]) {
+        if (runRecordsCheckpoint_ == RunRecordsCheckpoint::Saved) {
+            const auto &time = runRecordsSavedAtLocal_;
+            if (time.valid) {
+                uiSetTextFmt(label,"Last save: %04u-%02u-%02u %02u:%02u:%02u local",
+                    unsigned(time.year),unsigned(time.month),unsigned(time.day),
+                    unsigned(time.hour),unsigned(time.minute),unsigned(time.second));
+            } else {
+                const auto seconds = static_cast<unsigned long>(runRecordsSavedAtMs_ / 1000);
+                uiSetTextFmt(label,"Last save: %lu:%02lu:%02lu after boot",seconds/3600,seconds/60%60,seconds%60);
+            }
+        } else if (runRecordsCheckpoint_ == RunRecordsCheckpoint::Restored) {
+            uiSetText(label,"Restored checkpoint. Save time unavailable.");
+        } else {
+            uiSetText(label,"No save this session");
+        }
+    }
     const uint8_t source[]={0,2,6,7,16,4};const uint32_t now=millis();
     for(unsigned i=0;i<6;++i){auto result=telemetryHistory_?sensorStatistics_[source[i]].result(true,now):SensorStatistics::Result{};char text[24];
         int32_t value=(i==2||i==3||i==5)?result.minimum:result.maximum;
@@ -86,7 +124,7 @@ void TransmitterUi::controlV2(uint8_t item,PageControlEvent event)
     else if(item==2){v2ReviewConfirm_=false;drawDesignPage(UiPage::RunReview);}
     else if(item==3){keypadReturnPage_=activePage_;drawDesignPage(UiPage::QuickNavigation);}
     else if(item==4){v2QuickEditing_=!v2QuickEditing_;drawDesignPage(UiPage::QuickNavigation);}
-    else if(item>=10&&item<=13){if(item==13)drawRadioDiagnostics();else{const uint8_t sources[]={0,6,2};sensorSelected_=sources[item-10];drawDesignPage(UiPage::SensorDetail);}}
+    else if(item>=10&&item<=13){if(item==13)openRadioDiagnostics();else{const uint8_t sources[]={0,6,2};sensorSelected_=sources[item-10];drawDesignPage(UiPage::SensorDetail);}}
     else if(item>=20&&item<=22){
         if(activePage_!=UiPage::SensorDetail)return;
         if (!telemetryHistory_ || !sensorDetailChart_) return;

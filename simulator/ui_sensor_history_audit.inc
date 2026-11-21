@@ -5,6 +5,23 @@ startupPreflightComplete_=true;hardwareRecovery_=false;armRequested_=false;
 designSafety_=OutputSafetyStatus::Cut;
 const auto original=dashboardLayouts_[activeModelSlot_];
 const uint32_t now=100000;
+auto checkDetailAction = [&](PageControlHandler handler,uint8_t argument){
+    const PageFocusTarget::Rectangle *target = nullptr;
+    for(uint8_t i=0;i<pageFocusCount_;++i){
+        const auto &action = pageFocusTargets_[i];
+        if(action.handler==handler&&action.argument==argument) target = &action.activate;
+    }
+    assert(target&&target->width>=40&&target->height>=40);
+    assert(target->x>=0&&target->x+target->width<=kScreenWidth);
+    assert(target->y>=UiLayout::HeaderHeight&&target->y+target->height<=designFooterY);
+    for(auto object:{designValues_[0],designDetails_[0],designDetails_[2],
+                     sensorDetailChart_?lv_obj_get_parent(sensorDetailChart_):designDetails_[1]}){
+        lv_area_t bounds;
+        lv_obj_get_coords(object,&bounds);
+        assert(target->x+target->width<=bounds.x1||target->x>bounds.x2||
+               target->y+target->height<=bounds.y1||target->y>bounds.y2);
+    }
+};
 for(uint8_t rotation=0;rotation<2;++rotation){
     for(uint8_t size=0;size<4;++size){
         auto &layout=dashboardLayouts_[activeModelSlot_];layout=DashboardLayout{};
@@ -98,6 +115,17 @@ for(uint8_t rotation=0;rotation<2;++rotation){
     assert(sensorDetailPoints_[0]==0 && sensorDetailPoints_[1]==LV_CHART_POINT_NONE);
     assert(sensorDetailPoints_[59]!=LV_CHART_POINT_NONE && sensorDetailPoints_[60]==1000);
     for (size_t i=0;i<SensorHistory::Capacity;++i) assert(sensorDetailPoints_[i]==dashboardPoints[i]);
+
+    lv_obj_update_layout(lv_scr_act());
+    checkDetailAction(&TransmitterUi::controlDesign,248);
+    checkDetailAction(&TransmitterUi::controlDesign,247);
+    if(!designPortrait){
+        for(uint8_t action:{20,21,22,30}) checkDetailAction(&TransmitterUi::controlV2,action);
+    }
+    sensorSelected_=17;
+    drawDesignPage(UiPage::SensorDetail);
+    lv_obj_update_layout(lv_scr_act());
+    checkDetailAction(&TransmitterUi::controlDesign,249);
 
     // The number card and its separate Reset hit area must dispatch different
     // actions. Previously the full-card tap target intercepted Reset.

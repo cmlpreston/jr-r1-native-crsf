@@ -460,7 +460,9 @@ private:
                            uint16_t txVoltageDecivolts,
                            bool txVoltageValid);
     void drawTelemetryPage();
+    void openRadioDiagnostics();
     void drawRadioDiagnostics();
+    void returnFromRadioDiagnostics();
     void drawTelemetryLive(const CrsfTelemetryState &telemetry,
                            uint16_t txVoltageDecivolts,
                            bool txVoltageValid);
@@ -658,6 +660,9 @@ private:
     uint8_t setupPage_ = 0, channelInputPage_ = 0;
     UiPage statusReturnPage_ = UiPage::Dashboard;
     int8_t statusReturnMaximized_ = -1;
+    UiPage radioDiagnosticsReturnPage_ = UiPage::Telemetry;
+    int8_t radioDiagnosticsReturnMaximized_ = -1;
+    uint8_t radioDiagnosticsReturnFocus_ = 0;
     UiPage inputMonitorReturnPage_ = UiPage::ControlAssignments;
     bool channelRoleConflict_ = false;
     lv_obj_t *armProgress_ = nullptr;
@@ -702,6 +707,10 @@ private:
     bool runRecordsSavePending_=false;
     const char *runRecordsReadError_=nullptr;
     char runRecordsNotice_[64]={};
+    enum class RunRecordsCheckpoint { None, Restored, Saved };
+    RunRecordsCheckpoint runRecordsCheckpoint_ = RunRecordsCheckpoint::None;
+    uint32_t runRecordsSavedAtMs_ = 0;
+    GpsLocalTime::Time runRecordsSavedAtLocal_;
     void loadRunRecords();
     bool saveRunRecords();
     bool hasRunRecordData(uint32_t now) const;

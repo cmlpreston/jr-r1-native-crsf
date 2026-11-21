@@ -561,7 +561,12 @@ void TransmitterUi::drawDesignPage(UiPage page)
     else if(page==UiPage::InputMonitor){drawInputMonitorContent();}
     else if(page==UiPage::ColourScheme){drawColourSchemeContent();}
     else if(page==UiPage::ElrsTxConfig){drawElrsTxConfigContent();}
-    else if(page==UiPage::BrakeAbs||page==UiPage::ChannelRoles||page==UiPage::Channel2||page==UiPage::ThrottleResponse||page==UiPage::ChannelSpeed||page==UiPage::FirmwareInfo||page==UiPage::ElrsBinding||page==UiPage::EscProgramming||page==UiPage::Calibration){drawSetupDetailsContent();}
+    else if(page==UiPage::BrakeAbs||page==UiPage::ChannelRoles||page==UiPage::Channel2||page==UiPage::ThrottleResponse||page==UiPage::ChannelSpeed||page==UiPage::FirmwareInfo||page==UiPage::ElrsBinding||page==UiPage::EscProgramming||page==UiPage::Calibration){
+        drawSetupDetailsContent();
+        if(page==UiPage::BrakeAbs||page==UiPage::ChannelRoles||page==UiPage::ChannelSpeed||
+           (page==UiPage::Channel2&&!designPortrait)) modelScope();
+        else if(page==UiPage::FirmwareInfo&&!designPortrait) drawSettingsScope("Handset");
+    }
     else if (page == UiPage::Dashboard) {
         lv_obj_t *minimize=nullptr;
         if(maximizedWidget_>=0){
@@ -589,8 +594,10 @@ void TransmitterUi::drawDesignPage(UiPage page)
         boundedLabel(label("1s dwell; unknown mode uses LQ only.",12,designPortrait?378:252,UiText::Caption,cDim),kScreenWidth-24);
     } else if(page==UiPage::DriveBatterySetup || page==UiPage::RxBatterySetup){
         drawVehicleBatteryContent();
+        modelScope();
     } else if(page==UiPage::TxBatterySetup) {
         label("TX battery",12,48,UiText::Heading);
+        drawSettingsScope("Handset");
         const char *names[]={"Chemistry","Cell count","Low alarm","Voltage sensing"};
         const int step=designPortrait?70:40;
         for(uint8_t i=0;i<4;++i){
@@ -604,6 +611,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         boundedLabel(label("Voltage sensing reads the TX battery feed.",20,designPortrait?378:252,UiText::Caption,cDim),kScreenWidth-40);
     } else if(page==UiPage::ClockSetup) {
         label("Clock / timezone",12,48,UiText::Heading);
+        drawSettingsScope("Handset");
         const auto &settings=systemSettings_.timeZone;
         const bool custom=settings.zone==GpsLocalTime::Zone::Custom;
         const int rowHeight=designPortrait?66:44,first=82,second=first+rowHeight+6;
@@ -663,6 +671,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
 
     } else if(page==UiPage::ModeChooser || page==UiPage::DriveModes) {
         label(page==UiPage::ModeChooser?"Choose mode":"Drive modes",12,48,UiText::Heading);
+        modelScope();
         const char *modes[]={"Normal","Walk"};const uint8_t actions[]={183,182};
         drawPageTabs(modes,actions,2,driveModeSettings_.activeMode==DriveMode::Walk?1:0,&TransmitterUi::controlDesign,96);
         label("Mode changes CUT output. Re-arm at neutral.",12,designPortrait?174:154,UiText::Caption,cAmber);
@@ -924,6 +933,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         }
     } else if(page==UiPage::WidgetSelect) {
         label("Drive layout",12,48,UiText::Heading);
+        modelScope();
         const char *positions[]={"Top left","Top right","Bottom left","Bottom right"};
         for(int i=0;i<4;++i){
             const auto &w=dashboardLayouts_[activeModelSlot_].cells[i];
@@ -1257,13 +1267,21 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         case 47:drawSetupPage();return;
         case 48:inputMonitorReturnPage_=UiPage::SystemMenu;inputMonitorBank_=0;drawInputMonitorPage();return;
         case 49:designBank_=0;drawDesignPage(UiPage::WidgetSelect);return;
-        case 63:drawRadioDiagnostics();return;
+        case 63:if(event==PageControlEvent::Activate)openRadioDiagnostics();return;
         case 60:drawTelemetryPage();return;
         case 61:drawDesignPage(UiPage::Gps);return;
         case 62:designBank_=0;drawDesignPage(UiPage::ChannelMonitor);return;
     }
     if(item==246){vehicleBatteryTab_=0;v2SensorSetupReturn_=false;drawDesignPage(UiPage::DriveBatterySetup);return;}
-    if(item==254){if(activePage_!=UiPage::RfWarningSetup)rfWarningReturnPage_=activePage_;drawDesignPage(UiPage::RfWarningSetup);return;}
+    if(item==254){
+        if(activePage_==UiPage::RadioDiagnostics&&radioDiagnosticsReturnPage_==UiPage::RfWarningSetup){
+            returnFromRadioDiagnostics();
+            return;
+        }
+        if(activePage_!=UiPage::RfWarningSetup)rfWarningReturnPage_=activePage_;
+        drawDesignPage(UiPage::RfWarningSetup);
+        return;
+    }
     if(item>=250&&item<=253){
         const uint8_t cell=item-250;const auto &w=dashboardLayouts_[activeModelSlot_].cells[cell];
         if(w.kind==DashboardWidgetKind::Sensor)resetSensorStatistics(w.source);
@@ -1339,7 +1357,7 @@ void TransmitterUi::controlDesign(uint8_t item, PageControlEvent event)
         }
         else if(w.kind==DashboardWidgetKind::Channels){designBank_=w.source/4;drawDesignPage(UiPage::ChannelMonitor);}
         else if(w.kind==DashboardWidgetKind::Sensor){sensorSelected_=w.source;drawDesignPage(UiPage::SensorDetail);}
-        else if(w.kind==DashboardWidgetKind::Power||w.kind==DashboardWidgetKind::RfMargin)drawRadioDiagnostics();
+        else if(w.kind==DashboardWidgetKind::Power||w.kind==DashboardWidgetKind::RfMargin)openRadioDiagnostics();
         else if(w.kind==DashboardWidgetKind::Model)drawModelSelectPage();
         return;
     }
@@ -1575,19 +1593,25 @@ void TransmitterUi::drawDashboardWidgets()
             if(dashboardOutputsLive_)lv_obj_add_flag(view.heldOutputIcon,LV_OBJ_FLAG_HIDDEN);
         }
         const bool sensorReset=w.kind==DashboardWidgetKind::Sensor && w.style!=DashboardWidgetStyle::Graph;
-        const int actionHeight=w.kind==DashboardWidgetKind::Timer?height-(designPortrait?45:31):sensorReset?height-32:dashboardMetricsResettable(w.kind)?height-22:height;
+        const bool metricReset=dashboardMetricsResettable(w.kind);
+        const int timerFooter=designPortrait?45:35;
+        const int actionHeight=height-(w.kind==DashboardWidgetKind::Timer?timerFooter:
+            sensorReset?UiLayout::WidgetSensorFooterHeight:metricReset?UiLayout::WidgetMetricFooterHeight:0);
         const bool interactive=w.kind==DashboardWidgetKind::Controls||w.kind==DashboardWidgetKind::Trims;
         if(!interactive){
             if(w.kind==DashboardWidgetKind::Map)view.gpsCardTarget=pageFocusCount_;
             addPageActionTarget(x,y,width,actionHeight,&TransmitterUi::controlDesign,130+cell);
         }
-        if(sensorReset)addPageActionTarget(x,y+height-32,width-80,32,&TransmitterUi::controlDesign,130+cell);
-        if(dashboardMetricsResettable(w.kind)){
-            addPageActionTarget(x,y+height-22,width-64,22,&TransmitterUi::controlDesign,130+cell);
-            makePageActionButton(x+width-60,y+height-21,54,19,"Reset",UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,154+cell);
+        if(sensorReset)addPageActionTarget(x,y+actionHeight,width-80,UiLayout::WidgetSensorFooterHeight,&TransmitterUi::controlDesign,130+cell);
+        if(metricReset){
+            constexpr int resetWidth=UiLayout::WidgetMetricResetWidth;
+            constexpr int resetHeight=UiLayout::WidgetMetricFooterHeight-2;
+            addPageActionTarget(x,y+actionHeight,width-resetWidth-pad,UiLayout::WidgetMetricFooterHeight,&TransmitterUi::controlDesign,130+cell);
+            makePageActionButton(x+width-resetWidth-6,y+actionHeight+1,resetWidth,resetHeight,"Reset",
+                UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,154+cell);
         }
         if(w.kind==DashboardWidgetKind::Timer){
-            const int buttonTop=height-(designPortrait?45:31);
+            const int buttonTop=height-timerFooter;
             const int captionHeight=UiText::font(UiText::Caption)->line_height;
             const bool largeTime=buttonTop>=76+captionHeight+UiLayout::SmallGap;
             view.values[0]=makeLabel(view.panel,"00:00",pad,bodyY,largeTime?UiText::Reading:UiText::Heading);
@@ -1595,8 +1619,8 @@ void TransmitterUi::drawDashboardWidgets()
             if(buttonTop>=100+2*captionHeight+UiLayout::SmallGap)
                 view.values[2]=makeLabel(view.panel,"",pad,100,UiText::Caption,cDim);
 
-            makePageActionButton(x+8,y+buttonTop,width/2-12,designPortrait?40:26,timerPrimaryLabel(),UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,7);
-            makePageActionButton(x+width/2+4,y+buttonTop,width/2-12,designPortrait?40:26,"Reset",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,8);
+            makePageActionButton(x+8,y+buttonTop,width/2-12,timerFooter-5,timerPrimaryLabel(),UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,7);
+            makePageActionButton(x+width/2+4,y+buttonTop,width/2-12,timerFooter-5,"Reset",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,8);
         } else if(w.kind==DashboardWidgetKind::AllChannels){
             uint8_t channels[DashboardMonitorMaxEntries];const int total=dashboardMonitorEntries(dashboardEnabledChannelMask_,w.source,channels,dashboardHidden_[activeModelSlot_][cell]);
             const bool vertical=w.style==DashboardWidgetStyle::VerticalBars;
@@ -1773,7 +1797,8 @@ void TransmitterUi::drawDashboardWidgets()
             lv_obj_set_parent(view.speedPanel,view.panel);
             lv_obj_set_style_border_width(view.speedPanel,0,0);
             view.gpsFooterTarget=pageFocusCount_;
-            addPageActionTarget(x,y+height-34,width-82,32,&TransmitterUi::controlDesign,130+cell);
+            addPageActionTarget(x,y+height-2-UiLayout::WidgetSensorFooterHeight,width-82,
+                UiLayout::WidgetSensorFooterHeight,&TransmitterUi::controlDesign,130+cell);
             DashboardWidget speed=w;speed.kind=DashboardWidgetKind::Sensor;speed.source=0;
             speed.style=DashboardWidgetStyle::Numbers;speed.speedValue=SpeedWidgetValue::Current;
             drawDashboardSensorWidget(cell,speed,x,y,width-2,height-2,true);

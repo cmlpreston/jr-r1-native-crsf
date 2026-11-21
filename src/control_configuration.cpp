@@ -416,11 +416,13 @@ ConfiguredMixInspection inspectConfiguredMixInputs(const ControlConfigurationSna
         if ((plan.requiredMask & (1U << n)) && !e.valid[n]) result.inputsValid = false;
     if (c.throttleChannel < 1 || c.throttleChannel > CRSF_CHANNEL_COUNT) return result;
     const auto &m = c.mixing[c.throttleChannel-1];
-    const bool unchanged = !m.constantPercent && m.includeBase &&
-                           !m.rules[0].enabled && !m.rules[1].enabled;
-    const int16_t throttle = e.raw[c.throttleChannel-1];
-    result.throttleNeutral = e.valid[c.throttleChannel-1] &&
-                            (unchanged || (throttle >= -50 && throttle <= 50));
+    const uint8_t throttleIndex = c.throttleChannel-1;
+    result.throttleHasMix = m.constantPercent || !m.includeBase ||
+                           m.rules[0].enabled || m.rules[1].enabled;
+    result.throttlePermille = e.raw[throttleIndex];
+    result.throttleValid = e.valid[throttleIndex];
+    result.throttleNeutral = result.throttleValid &&
+        (!result.throttleHasMix || (result.throttlePermille >= -50 && result.throttlePermille <= 50));
     return result;
 }
 bool configuredMixInputsValid(const ControlConfigurationSnapshot &c, const MixInputSnapshot &inputs,

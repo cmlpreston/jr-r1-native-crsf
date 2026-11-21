@@ -29,6 +29,7 @@ struct ControlCycleResult {
     OutputSafetyStatus safety = OutputSafetyStatus::Cut;
     bool inputsValid = false;
     uint32_t neutralSinceMs = 0;
+    OutputReadiness readiness;
 };
 
 // No Arduino, LVGL, locks, allocation, persistence or logging in the engine.
@@ -43,8 +44,7 @@ public:
 private:
     void reset(uint32_t nowMs);
     OutputSafetyStatus qualify(const ControlConfigurationSnapshot &configuration,
-        const ControlCycleInput &input, const ProportionalInputState &throttle,
-        bool inputsValid, bool mixedNeutral);
+        uint32_t nowMs, const OutputReadiness &readiness);
     ControlSafetyPolicy policy_;
     ProportionalInputRuntime throttle_, steering_;
     ChannelSlewRuntime slew_;

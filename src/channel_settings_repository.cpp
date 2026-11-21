@@ -1,7 +1,10 @@
 #include "channel_settings_repository.h"
+#include "model_backup.h"
 #include <Preferences.h>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <new>
 
 namespace {
 void storageNamespace(uint8_t slot, char (&name)[16]) {
@@ -41,6 +44,41 @@ bool ChannelSettingsRepository::save(uint8_t slot, const ChannelModelController 
         p.getBytesLength("record-v1") == sizeof(check) &&
         p.getBytes("record-v1",check,sizeof(check)) == sizeof(check) && !memcmp(data,check,sizeof(data));
     p.end(); return ok;
+}
+
+bool ChannelSettingsRepository::hasModelBackup(uint8_t slot)
+{
+    Preferences p; char name[16]; storageNamespace(slot,name);
+    if (!p.begin(name, true)) return false;
+    const bool present = p.getBytesLength("record-v1") == kStoredModelBackupSize;
+    p.end();
+    return present;
+}
+
+bool ChannelSettingsRepository::readModelBackup(uint8_t slot, uint8_t *data, size_t size)
+{
+    if (!data || size != kStoredModelBackupSize) return false;
+    Preferences p; char name[16]; storageNamespace(slot,name);
+    if (!p.begin(name, true)) return false;
+    const bool read = p.getBytesLength("record-v1") == size && p.getBytes("record-v1", data, size) == size;
+    p.end();
+    return read;
+}
+
+bool ChannelSettingsRepository::writeModelBackup(uint8_t slot, const uint8_t *data, size_t size)
+{
+    if (!data || size != kStoredModelBackupSize) return false;
+    std::unique_ptr<uint8_t[]> check(new(std::nothrow) uint8_t[size]);
+    Preferences p; char name[16]; storageNamespace(slot,name);
+    if (!check || !p.begin(name, false)) return false;
+    const auto matches = [&] {
+        return p.getBytesLength("record-v1") == size &&
+            p.getBytes("record-v1", check.get(), size) == size && !memcmp(check.get(), data, size);
+    };
+    // Replace the existing channel record atomically to keep one copy per slot.
+    const bool saved = matches() || (p.putBytes("record-v1", data, size) == size && matches());
+    p.end();
+    return saved;
 }
 
 ChannelSettingsLoad ChannelSettingsRepository::loadResponses(uint8_t slot, ChannelModelController &model) {

@@ -1,4 +1,5 @@
 #include "channel_settings_repository.h"
+#include "model_backup.h"
 #include <Preferences.h>
 #include <cassert>
 #include <cstdio>
@@ -54,6 +55,56 @@ static void testCodec() {
     ChannelResponseProfile unsanitized; unsanitized.positiveRatePercent = 200;
     assert(bad.setResponse(2,unsanitized) && bad.responses[1].positiveRatePercent == 100);
 }
+static ModelBackup backupFixture() {
+    ModelBackup source;
+    strcpy(source.name,"Track R1");
+    source.roles.steeringChannel=3;
+    source.roles.throttleChannel=5;
+    source.roles.steeringEnabled=false;
+    source.walkLimitPercent=40;
+    source.channels.responses[2].reversed=true;
+    source.channels.parameters[2].trimPermille=80;
+    source.channels.mixing[6].rules[0].enabled=true;
+    source.channels.mixing[6].rules[0].weight=-40;
+    auto &b=source.bindings[source.bindingCount++];
+    b.input=PhysicalControlId::SteeringTrim;
+    b.target=AssignmentTarget::ModelParameter;
+    b.behaviour=ControlBehaviour::Stepped;
+    b.targetId=encodeChannelParameterTarget(3, ChannelParameterKind::Trim);
+    b.minimum=-100; b.maximum=60; b.step=10;
+    b.initial=b.failsafe=-80;
+    b.persistent=true;
+    return source;
+}
+static void testBackupCodec() {
+    const ModelBackup source=backupFixture();
+    ModelBackup restored;
+    uint8_t bytes[kModelBackupSize], encodedAgain[kModelBackupSize];
+    assert(encodeModelBackup(source,bytes,sizeof(bytes)));
+    assert(decodeModelBackup(bytes,sizeof(bytes),restored));
+    assert(!strcmp(restored.name,"Track R1"));
+    assert(restored.roles.steeringChannel==3 && !restored.roles.steeringEnabled && restored.walkLimitPercent==40);
+    assert(restored.bindings[0].minimum==-100 && restored.bindings[0].initial==-80);
+    same(source.channels,restored.channels);
+    assert(encodeModelBackup(restored,encodedAgain,sizeof(encodedAgain)));
+    assert(!memcmp(bytes,encodedAgain,sizeof(bytes)));
+    bytes[sizeof(bytes)-20]^=1;
+    assert(!decodeModelBackup(bytes,sizeof(bytes),restored));
+    assert(!strcmp(restored.name,source.name));
+    auto bad=source;
+    bad.channels.parameters[2].trimPermille=-80;
+    assert(!encodeModelBackup(bad,bytes,sizeof(bytes))); // Rebased +80 exceeds max.
+    bad=source;
+    bad.bindings[0].targetId|=0x4000;
+    assert(!encodeModelBackup(bad,bytes,sizeof(bytes)));
+    bad=source;
+    bad.channels.mixing[2].cutOverride=1;
+    assert(!encodeModelBackup(bad,bytes,sizeof(bytes)));
+    bad=source;
+    bad.bindings[0].target=AssignmentTarget::CrsfChannel;
+    bad.bindings[0].crsfChannel=5;
+    assert(!encodeModelBackup(bad,bytes,sizeof(bytes))); // Throttle channel stays reserved.
+}
 static void testStorageAndMigration() {
     const auto path = (std::filesystem::temp_directory_path() /
         ("r1-channel-model-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))).string();
@@ -102,9 +153,21 @@ static void testStorageAndMigration() {
     p.begin("r1m4-mix",false); p.putBytes("v1",v1,sizeof(v1)); p.end();
     ChannelSettingsRepository::loadMixing(3,loaded);
     assert(loaded.mixing[3].rules[0].negativeWeight == -40 && loaded.mixing[3].includeBase);
+    assert(ChannelSettingsRepository::save(2,original));
+    uint8_t profile[kStoredModelBackupSize], readback[kStoredModelBackupSize];
+    const auto backup=backupFixture();
+    assert(encodeModelBackup(backup,profile,kModelBackupSize));
+    assert(encodeBrakeAbs({},profile+kModelBackupSize,kBrakeAbsRecordSize));
+    assert(!ChannelSettingsRepository::hasModelBackup(2));
+    assert(ChannelSettingsRepository::writeModelBackup(2,profile,sizeof(profile)));
+    assert(ChannelSettingsRepository::hasModelBackup(2) && !ChannelSettingsRepository::hasModelBackup(1));
+    assert(ChannelSettingsRepository::readModelBackup(2,readback,sizeof(readback)));
+    assert(!memcmp(profile,readback,sizeof(profile)));
+    assert(ChannelSettingsRepository::load(2,loaded)==ChannelSettingsLoad::Invalid);
+    assert(ChannelSettingsRepository::load(1,loaded)==ChannelSettingsLoad::Missing);
     std::filesystem::remove_all(path);
 }
 int main() {
-    testCodec(); testStorageAndMigration();
-    puts("Channel model: explicit encoding, corruption, legacy migration, atomic loads and model isolation PASS");
+    testCodec(); testBackupCodec(); testStorageAndMigration();
+    puts("Channel model and model backup: encoding, corruption, legacy migration, atomic loads and model isolation PASS");
 }

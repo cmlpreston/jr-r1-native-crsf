@@ -34,6 +34,12 @@ bool TransmitterUi::runSimulatorUiAudit()
     if (getenv("JR_R1_CHROME_REUSE_AUDIT_ONLY")) {
 #include "ui_chrome_reuse_audit.inc"
     }
+    if (getenv("JR_R1_TOUCH_LOCK_AUDIT_ONLY")) {
+#include "ui_touch_lock_audit.inc"
+    }
+    if (getenv("JR_R1_MODEL_BACKUP_AUDIT_ONLY")) {
+#include "ui_model_backup_audit.inc"
+    }
 #endif
     if(getenv("JR_R1_COLOUR_SCHEMES_AUDIT_ONLY")){
 #include "ui_colour_schemes_audit.inc"

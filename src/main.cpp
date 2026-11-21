@@ -70,6 +70,7 @@ struct ControlStateSnapshot {
     uint32_t neutralSinceMs = 0;
     uint32_t sampledMs = 0;
     uint32_t maximumTaskGapUs = 0;
+    OutputReadiness readiness;
 };
 
 struct CrsfRuntimeSnapshot {
@@ -606,6 +607,7 @@ void controlTask(void *)
         snapshot.neutralSinceMs = result.neutralSinceMs;
         snapshot.sampledMs = input.nowMs;
         snapshot.maximumTaskGapUs = maximumTaskGapUs;
+        snapshot.readiness = result.readiness;
         publishControlState(snapshot);
 
         vTaskDelayUntil(&nextWake, pdMS_TO_TICKS(CONTROL_TASK_PERIOD_MS));
@@ -1185,6 +1187,7 @@ void loop()
     bindingResolver.applyChannelOutputs(monitorBindings,configuredRoleOwnedChannels(lastPublishedControlConfiguration));
     portEXIT_CRITICAL(&bindingResolverMux);
     transmitterUi.setMixMonitorInputs(monitorInputs,monitorBindings,control.sampledMs);
+    transmitterUi.setOutputReadiness(control.readiness, control.sampledMs);
     transmitterUi.update(control.adc, control.steeringAdc, control.rawPermille,
                       control.outputPermille,
                       control.transmittedCrsf,

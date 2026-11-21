@@ -34,6 +34,7 @@ void simulatorWriteScreenshot(Stream &output);
 bool simulatorSaveScreenshot(const char *path);
 #ifndef __EMSCRIPTEN__
 bool simulatorCopyFramebuffer(uint32_t *pixels, size_t count);
+void simulatorSetTouchForTesting(int16_t x,int16_t y,bool down);
 #endif
 // Optional local browser bridge; inactive unless JR_R1_SIM_BRIDGE is set.
 void simulatorServiceBridge();

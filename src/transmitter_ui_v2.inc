@@ -34,6 +34,9 @@ void TransmitterUi::drawV2Quick()
         if(v2QuickEditing_)makePageActionButton(x+w-31,y,31,h,"^",UiText::Caption,cPanel2,cCyan,cLine,&TransmitterUi::controlV2,60+i);
     }
     makeLabel(lv_scr_act(),v2QuickEditing_?"Tap slot: next page | ^: move earlier | Empty: remove":"Per-model shortcuts | MODE key opens this menu",12,portraitUi?358:250,UiText::Caption,cDim);
+    if (!touchLocked_ && !v2QuickEditing_)
+        makePageActionButton(kScreenWidth-136,kScreenHeight-(portraitUi?80:48),124,40,"Lock touch",
+            UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlTouchLock,0);
 }
 void TransmitterUi::openV2Shortcut(uint8_t id)
 {

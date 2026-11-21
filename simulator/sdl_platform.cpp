@@ -219,6 +219,13 @@ bool simulatorQuitRequested() { return quitRequested; }
 const SimulatorControls &simulatorControls() { return controls; }
 bool simulatorTouchDown() { return touchDown; }
 
+void simulatorSetTouchForTesting(int16_t x,int16_t y,bool down)
+{
+    touchX = x;
+    touchY = y;
+    touchDown = down;
+}
+
 void simulatorFlush(const lv_area_t *area, const lv_color_t *pixels)
 {
     frameDirty = true;

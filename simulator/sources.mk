@@ -8,6 +8,7 @@ SHARED_APP_CPP := \
   $(ROOT)/src/control_engine.cpp \
   $(ROOT)/src/channel_model.cpp \
   $(ROOT)/src/channel_settings_repository.cpp \
+  $(ROOT)/src/model_backup.cpp \
   $(ROOT)/src/proportional_input.cpp \
   $(ROOT)/src/control_assignment.cpp \
   $(ROOT)/src/binding_resolver.cpp \

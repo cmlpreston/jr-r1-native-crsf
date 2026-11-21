@@ -26,7 +26,8 @@ bool TransmitterUi::saveMixing(uint8_t ch,const ChannelMixSettings &settings)
     if(!validConfiguredMixing(configuration))return false;
     auto model = channelModel_;
     memcpy(model.mixing, candidate, sizeof(candidate));
-    const bool ok = ChannelSettingsRepository::save(activeModelSlot_, model);
+    const bool ok = modelBackupInstalled_[activeModelSlot_] ? persistModelBackup(model) :
+        ChannelSettingsRepository::save(activeModelSlot_, model);
     if (ok) { channelModel_ = model; modelStorageFault_ = false; }
     return ok;
 }

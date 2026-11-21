@@ -1,11 +1,22 @@
 // Remote actions share the model/controller and CUT policy with local edits.
 bool TransmitterUi::portalRenameModel(const char *name)
 {
-    if(!SetupPortal::canControl()||armRequested_||!name||!*name||strlen(name)>=kModelNameCapacity)return false;
-    for(const char *c=name;*c;++c)if(*c<32||*c>126)return false;
+    if(!SetupPortal::canControl()||armRequested_||!validModelBackupName(name))return false;
+    if(modelBackupInstalled_[activeModelSlot_]){
+        char previous[kModelNameCapacity];
+        memcpy(previous,modelNames_[activeModelSlot_],sizeof(previous));
+        snprintf(modelNames_[activeModelSlot_],kModelNameCapacity,"%s",name);
+        if(!persistModelBackup(channelModel_)){
+            memcpy(modelNames_[activeModelSlot_],previous,sizeof(previous));
+            return false;
+        }
+        ++modelRevision_;
+        return true;
+    }
+    ++modelRevision_;
     snprintf(modelNames_[activeModelSlot_],kModelNameCapacity,"%s",name);saveModelMemorySettings();
     Preferences p;if(!p.begin("jr-r1-models",true))return false;
-    char names[kModelMemoryCount][kModelNameCapacity];const bool ok=p.getBytes("names",names,sizeof(names))==sizeof(names)&&memcmp(names,modelNames_,sizeof(names))==0;p.end();return ok;
+    char names[kModelMemoryCount][kModelNameCapacity];const bool ok=p.getBytes("names",names,sizeof(names))==sizeof(names)&&memcmp(names[activeModelSlot_],modelNames_[activeModelSlot_],kModelNameCapacity)==0;p.end();return ok;
 }
 bool TransmitterUi::portalSetChannel(uint8_t ch,const ChannelResponseProfile &profile,int trim,int subtrim)
 {
@@ -69,6 +80,7 @@ bool TransmitterUi::portalSetBinding(uint8_t input,uint8_t target,uint16_t selec
     }
     selectedBindingInput_=static_cast<PhysicalControlId>(input);bindingDraft_=b;
     if(!saveBindingDraft())return false;
+    if(modelBackupInstalled_[activeModelSlot_])return true;
     Preferences p;char name[16];ControlBinding check[kPhysicalControlCount];
     if(!p.begin(modelNamespace(activeModelSlot_,"jr-r1-bind","bind",name,sizeof(name)),true))return fail("Could not verify saved assignments");
     const size_t bytes=bindingCount_*sizeof(ControlBinding);
@@ -82,7 +94,9 @@ bool TransmitterUi::portalSetRole(uint8_t input,uint8_t channel,bool enabled)
     if(channel==(steering?channelRoleSettings_.throttleChannel:channelRoleSettings_.steeringChannel)||bindingUsesChannel(channel,PhysicalControlId::Count))return false;
     if(steering){channelRoleSettings_.steeringChannel=channel;channelRoleSettings_.steeringEnabled=enabled;}
     else{channelRoleSettings_.throttleChannel=channel;channelRoleSettings_.throttleEnabled=enabled;}
-    requestConfigurationCut();channelRolesChanged_=true;saveChannelRoleSettings();
+    requestConfigurationCut();channelRolesChanged_=true;
+    if(!saveChannelRoleSettings())return false;
+    if(modelBackupInstalled_[activeModelSlot_])return true;
     Preferences p;char name[16];if(!p.begin(modelNamespace(activeModelSlot_,"jr-r1-model1","roles",name,sizeof(name)),true))return false;
     bool ok=p.getUChar(steering?"steer_ch":"throt_ch",0)==channel&&p.getBool(steering?"steer_en":"throt_en",!enabled)==enabled;p.end();return ok;
 }
@@ -107,6 +121,7 @@ bool TransmitterUi::portalRequestRemoteControl() {
     lastInteractionMs_=millis();return true;
 }
 bool TransmitterUi::portalDriveHoldBounds(int &x,int &y,int &w,int &h) const {
+    if(touchLocked_)return false;
     if(portalScreenNeedsWake() || (moduleLinkManaged_&&!moduleLink_.enabled()))return false;
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None||hardwareRecovery_||rfBenchMode_||calibrationActive())return false;
     if(SetupPortal::active()&&(!SetupPortal::state().connected||!SetupPortal::state().autoConnect))return false;
@@ -117,7 +132,7 @@ bool TransmitterUi::portalDriveHoldBounds(int &x,int &y,int &w,int &h) const {
 
 bool TransmitterUi::portalPageSwipe(int x,int y,int endX,int endY,uint32_t duration)
 {
-    if(!SetupPortal::canControl()||armRequested_||touchWasDown_||!bootPinUnlocked_||
+    if(touchLocked_||!SetupPortal::canControl()||armRequested_||touchWasDown_||!bootPinUnlocked_||
        pinPurpose_!=PinPurpose::None||x<0||endX<0||y<0||endY<0||
        x>=kScreenWidth||endX>=kScreenWidth||y>=kScreenHeight||endY>=kScreenHeight)return false;
     remoteArmHold_.cancel();lastInteractionMs_=millis();
@@ -132,7 +147,7 @@ bool TransmitterUi::portalPageSwipe(int x,int y,int endX,int endY,uint32_t durat
 
 bool TransmitterUi::portalRemoteInput(int x,int y,int action,uint32_t hold,uint32_t pageEpoch) {
     if(action==5){if(hold!=remoteArmHold_.id())return false;remoteArmHold_.cancel();return true;}
-    if(!SetupPortal::canControl()||armRequested_||touchWasDown_){remoteArmHold_.cancel();return false;}
+    if(touchLocked_||!SetupPortal::canControl()||armRequested_||touchWasDown_){remoteArmHold_.cancel();return false;}
     if(action==3||action==4||action==6){
         int left,top,width,height;
         if(!portalDriveHoldBounds(left,top,width,height)||x<left||x>=left+width||y<top||y>=top+height){remoteArmHold_.cancel();return false;}

@@ -109,6 +109,15 @@ Tap the model
 area to reach model selection. Tap the Wi-Fi icon for network status and setup. Hold
 the LQ/status area for the module-communication dialog.
 
+### Touch lock
+
+Choose **Touch lock** under **Setup → Handset → Display**, or press the physical
+**MODE** key and choose **Lock touch** in Quick menu. The handset returns to
+Drive with a **Touch locked** strip. The keypad stays available. While locked,
+touch **CUT output** to cut immediately, or press and hold **Hold to unlock**
+and release to restore touch controls. Unlocking restores the controls without
+changing output state. The browser mirror also blocks screen gestures while locked.
+
 ### Original programming keypad
 
 | Key | Current navigation action |
@@ -152,10 +161,17 @@ it is not remembered for the next power session. TX voltage sensing must be On.
 
 ### Releasing CUT
 
-Hold Drive, or open **Setup → Model → Drive modes → Output status** and hold
-**Enable output**. The readiness explanation is authoritative. Typical blockers
-are neutral required, Link wait, invalid inputs/configuration, startup recovery,
-a paused module link or an active setup session.
+Hold Drive, or tap the **CUT** status in the title bar to open **Output status**
+and hold **Enable output**. Output status is also under
+**Setup → Model → Drive modes**.
+
+The checklist shows the trigger position, throttle mix, receiver link quality
+and required minimum, model settings, control inputs, startup check and
+assigned throttle channel. A centred trigger can still show a throttle mix
+outside its neutral range. The **Idle Up / Drive** row reports the current
+switch positions. Use **Input monitor** to inspect the original controls.
+Link and neutral must remain stable during the arming attempt, so a passing
+reading can still be followed by a brief wait.
 
 If the message says **Setup session active: close it on the handset to arm**, use
 **Finish Wi-Fi setup** on Output status. Leaving the Wi-Fi page also closes a
@@ -712,6 +728,21 @@ settings/actions/export, maps, network options, restart and firmware update.
 Use each section's Save/Apply action and read its response; changing a field
 alone is not proof it was saved. Finish an explicit setup session on the handset
 before attempting to enable live output.
+
+### Model templates and backups
+
+In the browser portal, open **Model templates and backups** and choose
+**Download control profile** to save the current model’s name, channel tuning,
+mixes, assignments and Walk limit as an `.r1model` file.
+
+In CUT, select the file and an inactive model slot, then choose **Preview import**.
+Check the destination and the steering, throttle and reversal summary before
+applying. The current model stays selected. Load the imported model on the
+handset when ready.
+
+Appearance, dashboard, alarms, timer settings and saved records stay with the
+destination slot. Handset calibration stays with the handset. An imported
+profile requires fresh ESC verification before ABS can be enabled.
 
 ## 13. Offline maps
 

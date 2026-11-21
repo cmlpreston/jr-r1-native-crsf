@@ -33,6 +33,8 @@
 #include "physical_input.h"
 #include "proportional_input.h"
 
+struct ModelBackup;
+
 struct SystemSettings {
     bool buzzerEnabled = true;
     bool keyClicksEnabled = true;
@@ -161,6 +163,10 @@ public:
     bool portalRequestRemoteControl();
     const char *portalModelName() const { return modelNames_[activeModelSlot_]; }
     uint8_t portalModelSlot() const { return activeModelSlot_; }
+    const char *portalModelName(uint8_t slot) const { return slot < kModelMemoryCount ? modelNames_[slot] : nullptr; }
+    uint32_t portalModelRevision() const { return modelRevision_; }
+    bool portalExportModel(uint8_t *data, size_t size) const;
+    bool portalImportModel(uint8_t slot, const uint8_t *data, size_t size);
     bool portalRenameModel(const char *name);
     uint8_t portalModelImage() const { return modelImages_[activeModelSlot_]; }
     uint32_t portalModelColour() const { return modelColours_[activeModelSlot_]; }
@@ -184,6 +190,10 @@ public:
                 uint16_t txVoltageDecivolts, bool txVoltageValid,
                 const CrsfChannelOutputModel &channelOutputs,
                 bool channelOutputsLive,CrsfTelemetryParser *ersReplies=nullptr);
+    void setOutputReadiness(const OutputReadiness &readiness, uint32_t sampledMs) {
+        outputReadiness_ = readiness;
+        outputReadinessSampledMs_ = sampledMs;
+    }
     int16_t mapAdcToPermille(uint16_t adc) const;
     ProportionalInputProfile throttleInputProfile() const;
     ProportionalInputProfile steeringInputProfile() const;
@@ -301,11 +311,15 @@ private:
     void saveSettings();
     void loadModelMemorySettings();
     void saveModelMemorySettings();
-    void saveCurrentModelMemory();
+    void loadModelBackupNames();
+    void loadActiveModelControls();
+    void collectModelBackup(ModelBackup &model, const ChannelModelController &channels) const;
+    bool persistModelBackup(const ChannelModelController &channels);
+    bool saveCurrentModelMemory();
     bool selectModelMemory(uint8_t slot, bool discardUnsaved = false);
     bool saveCalibration();
     void loadChannelRoleSettings();
-    void saveChannelRoleSettings();
+    bool saveChannelRoleSettings();
     void loadSystemSettings();
     void saveSystemSettings();
     void loadTxBatterySettings();
@@ -454,6 +468,9 @@ private:
     bool navigateDashboardPage(int8_t direction);
     void drawDashboard();
     void drawStartupWarningPage();
+    void drawOutputReadiness();
+    void updateOutputReadiness(OutputSafetyStatus safety, uint32_t now);
+    void openOutputInputMonitor(uint8_t item, PageControlEvent event);
     void drawDashboardLive(uint16_t crsfValue,
                            OutputSafetyStatus safetyStatus,
                            const CrsfTelemetryState &telemetry,
@@ -524,6 +541,9 @@ private:
     void scheduleSettingsSave(bool requireCut = true);
     void drawLiveIndicator(int16_t inputPermille);
     void handleTouch(int16_t x, int16_t y);
+    void controlTouchLock(uint8_t item, PageControlEvent event);
+    void setTouchLocked(bool locked);
+    void refreshTouchLockStrip();
     void appendElrsKeyboardCharacter(char character);
     void queueElrsRequest(ElrsManagementAction action,
                           ElrsManagementTarget target);
@@ -551,7 +571,7 @@ private:
     void sleepDisplay();
     void wakeDisplay();
     void loadBindings();
-    void saveBindings();
+    bool saveBindings();
     void loadChannelParameters();
     void saveChannelParameters();
     void scheduleChannelParameterSave();
@@ -724,6 +744,8 @@ private:
     const char *timerPrimaryLabel()const;
 
     OutputSafetyStatus designSafety_ = OutputSafetyStatus::Cut;
+    OutputReadiness outputReadiness_;
+    uint32_t outputReadinessSampledMs_ = 0;
     CrsfTelemetryState designTelemetry_;
     uint16_t designTxVoltage_ = 0;
     bool designTxValid_ = false;
@@ -801,6 +823,9 @@ private:
     uint8_t modelPaintEditing_ = 0;
     uint8_t modelSelectBank_ = 0;
     char modelNames_[kModelMemoryCount][kModelNameCapacity] = {};
+    bool modelBackupInstalled_[kModelMemoryCount] = {};
+    bool modelBackupReadFailed_ = false;
+    uint32_t modelRevision_ = 0;
     char modelSelectStatus_[64] = {};
     uint8_t modelSelectPendingSlot_ = kModelMemoryCount;
     ChannelRoleSettings channelRoleSettings_;
@@ -899,6 +924,10 @@ private:
     uint16_t latestRawAdc_ = 0;
     uint16_t latestSteeringRawAdc_ = 0;
     bool touchWasDown_ = false;
+    bool touchLocked_ = false;
+    bool touchUnlockGesture_ = false;
+    lv_obj_t *touchLockStrip_ = nullptr;
+    lv_obj_t *touchLockOutput_ = nullptr;
     uint32_t touchDownStartedMs_ = 0;
     int16_t touchStartX_ = 0, touchStartY_ = 0;
     int16_t touchGestureX_ = 0, touchGestureY_ = 0;

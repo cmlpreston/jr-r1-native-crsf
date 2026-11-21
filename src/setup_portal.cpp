@@ -209,6 +209,7 @@ void forget() {Preferences p;if(p.begin("r1-wifi",false)){p.putString("ssid","")
 #include <esp_system.h>
 #include "memory_diagnostics.h"
 #include "setup_portal_page.h"
+#include "model_backup.h"
 #include <lwip/sockets.h>
 // Use the lwIP name explicitly so its BSD aliases cannot rewrite portal APIs.
 #undef send
@@ -371,6 +372,118 @@ static bool screenNumber(const char *key,uint32_t &out) {
     }
     if(value>UINT32_MAX)return false;
     out=static_cast<uint32_t>(value);return true;
+}
+struct ModelBackupPreview {
+    uint8_t bytes[kModelBackupSize] = {};
+    size_t received = 0;
+    uint32_t nonce = 0, issuedAt = 0, modelRevision = 0;
+    uint8_t slot = 0;
+    char session[sizeof(token)] = {};
+    bool uploading = false, complete = false;
+};
+static ModelBackupPreview modelBackupPreview;
+
+static void receiveModelBackup()
+{
+    auto &preview = modelBackupPreview;
+    auto &upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+        preview.uploading = canControl() && !restartPending && !updateInProgress &&
+            authenticated() && server.header("X-R1-Token") == token;
+        preview.complete = false;
+        if (preview.uploading) {
+            preview.nonce = 0;
+            preview.received = 0;
+        }
+    } else if (upload.status == UPLOAD_FILE_WRITE && preview.uploading) {
+        if (upload.currentSize > sizeof(preview.bytes) - preview.received) {
+            preview.uploading = false;
+        } else {
+            memcpy(preview.bytes + preview.received, upload.buf, upload.currentSize);
+            preview.received += upload.currentSize;
+        }
+    } else if (upload.status == UPLOAD_FILE_END) {
+        preview.complete = preview.uploading && preview.received == sizeof(preview.bytes);
+        preview.uploading = false;
+    } else if (upload.status == UPLOAD_FILE_ABORTED) {
+        preview.uploading = preview.complete = false;
+    }
+}
+
+static void registerModelBackupRoutes()
+{
+    server.on("/api/model-backup", HTTP_GET, [] {
+        if (!authorized()) return;
+        std::unique_ptr<uint8_t[]> data(new(std::nothrow) uint8_t[kModelBackupSize]);
+        if (!data || !handset->portalExportModel(data.get(), kModelBackupSize)) {
+            server.send(409, "text/plain", "Current model could not be exported. Check model storage and configuration.");
+            return;
+        }
+        server.setContentLength(kModelBackupSize);
+        server.send(200, "application/octet-stream", "");
+        server.sendContent(reinterpret_cast<const char *>(data.get()), kModelBackupSize);
+    });
+    server.on("/api/model-backup/preview", HTTP_POST, [] {
+        auto &preview = modelBackupPreview;
+        const bool uploadComplete = preview.complete;
+        preview.complete = false;
+        if (!authorized(true)) return;
+        if (!uploadComplete) {
+            server.send(400, "text/plain", "Choose a complete R-1 model backup file");
+            return;
+        }
+        int slot = 0;
+        if (!number("slot", 1, 255, slot) || !handset->portalModelName(slot - 1) ||
+            slot - 1 == handset->portalModelSlot()) {
+            server.send(409, "text/plain", "Choose an inactive model slot");
+            return;
+        }
+        std::unique_ptr<ModelBackup> candidate(new(std::nothrow) ModelBackup);
+        if (!candidate || !decodeModelBackup(preview.bytes, sizeof(preview.bytes), *candidate)) {
+            server.send(400, "text/plain", "Invalid or unsupported R-1 model backup");
+            return;
+        }
+        preview.slot = slot - 1;
+        preview.nonce = esp_random();
+        if (!preview.nonce) preview.nonce = 1;
+        preview.issuedAt = millis();
+        preview.modelRevision = handset->portalModelRevision();
+        strcpy(preview.session, token);
+        DynamicJsonDocument d(1024);
+        d["id"] = preview.nonce;
+        d["version"] = kModelBackupVersion;
+        d["name"] = candidate->name;
+        d["slot"] = slot;
+        d["previous"] = handset->portalModelName(preview.slot);
+        d["steering"] = candidate->roles.steeringEnabled ? candidate->roles.steeringChannel : 0;
+        d["throttle"] = candidate->roles.throttleEnabled ? candidate->roles.throttleChannel : 0;
+        d["assignments"] = candidate->bindingCount;
+        d["walkLimit"] = candidate->walkLimitPercent;
+        auto reversed = d.createNestedArray("reversed");
+        for (uint8_t channel = 0; channel < CRSF_CHANNEL_COUNT; ++channel)
+            if (candidate->channels.responses[channel].reversed) reversed.add(channel + 1);
+        String body;
+        serializeJson(d, body);
+        server.send(200, "application/json", body);
+    }, receiveModelBackup);
+    server.on("/api/model-backup/apply", HTTP_POST, [] {
+        if (!authorized(true)) return;
+        auto &preview = modelBackupPreview;
+        uint32_t id = 0;
+        if (!screenNumber("id", id) || !preview.nonce || id != preview.nonce ||
+            strcmp(preview.session, token) || uint32_t(millis() - preview.issuedAt) > 120000 ||
+            preview.modelRevision != handset->portalModelRevision() || preview.slot == handset->portalModelSlot() ||
+            restartPending || updateInProgress) {
+            server.send(409, "text/plain", "Model preview expired or slot changed. Preview the file again.");
+            return;
+        }
+        preview.nonce = 0;
+        if (!handset->portalImportModel(preview.slot, preview.bytes, sizeof(preview.bytes))) {
+            server.send(500, "text/plain", "Could not save the model profile. Check handset storage and retry the preview.");
+            return;
+        }
+        server.send(200, "text/plain", "Control profile saved. Load the model from the handset when ready.");
+    });
 }
 static bool readMap(const char *path, OfflineMap::Package &result, uint16_t *&pixels) {
     pixels=nullptr;auto file=LittleFS.open(path,"r");if(!file||file.size()>MaxUpload)return false;
@@ -558,6 +671,8 @@ static void routes() {
         d["wifiAttempts"]=wifiAttemptCount;d["lastDisconnectReason"]=lastDisconnectReason.load();
         d["ipReadyMs"]=ipReadyMs;d["webReadyMs"]=webReadyMs;d["uptimeMs"]=millis();
         d["hostname"]=info.hostname;d["activeHostname"]=info.activeHostname;d["ssid"]=info.ssid;d["ip"]=info.ip;d["storage"]=info.storageReady;d["map"]=OfflineMap::current().name;
+        auto models=d.createNestedArray("modelSlots");
+        for (uint8_t slot=0;const char *name=handset->portalModelName(slot);++slot) models.add(name);
         auto config=handset->controlConfigurationSnapshot();auto profiles=d.createNestedArray("channels");
         for(unsigned i=0;i<16;++i){auto c=profiles.createNestedObject();auto &p=config.channelProfiles[i];
             c["channel"]=i+1;c["negativeEndpoint"]=p.negativeEndpointPercent;c["positiveEndpoint"]=p.positiveEndpointPercent;
@@ -622,6 +737,7 @@ static void routes() {
         server.send(ok?200:400,"text/plain",ok?"Model appearance saved":"Could not save model appearance; outputs must be CUT");
     });
     server.on("/api/model",HTTP_POST,[]{if(!authorized(true))return;const bool ok=handset->portalRenameModel(server.arg("name").c_str());server.send(ok?200:400,"text/plain",ok?"Model name saved":"Use 1-12 printable ASCII characters");});
+    registerModelBackupRoutes();
     server.on("/api/mixing",HTTP_GET,[]{
         if(!authorized())return;
         int ch;if(!number("channel",1,16,ch)){server.send(400,"text/plain","Invalid channel");return;}

@@ -633,17 +633,22 @@ void TransmitterUi::drawDesignPage(UiPage page)
     } else if(page==UiPage::DisplaySetup) {
         label("Display",12,48,UiText::Heading);
         drawSettingsScope("Handset");
-        const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme","Activate now"};
+        const char *names[]={"Screen timeout","Idle action","Brightness","Colour scheme"};
         const int step=designPortrait?64:40,height=designPortrait?60:38;
         for(uint8_t i=0;i<sizeof(names)/sizeof(*names);++i){
             char value[40];
             if(i==0){if(systemSettings_.screenTimeoutSeconds)snprintf(value,sizeof(value),"%u sec",systemSettings_.screenTimeoutSeconds);else strcpy(value,"Never");}
             else if(i==1)snprintf(value,sizeof(value),"%s",systemSettings_.logoScreensaverEnabled?"Logo saver":"Display off");
             else if(i==2)snprintf(value,sizeof(value),"%u%%",systemSettings_.displayBrightnessPercent);
-            else if(i==3)snprintf(value,sizeof(value),"%s",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme,systemSettings_.lightColourScheme));
-            else snprintf(value,sizeof(value),"%s",systemSettings_.logoScreensaverEnabled?"Show logo":"Display off");
+            else snprintf(value,sizeof(value),"%s",colourSchemeName(systemSettings_.nightMode,systemSettings_.darkColourScheme,systemSettings_.lightColourScheme));
             drawSettingsRow(names[i],value,76+i*step,height,&TransmitterUi::controlDisplay,i,i==0||i==2,i==3);
         }
+        const int actionY=76+4*step, actionWidth=kScreenWidth/2-16;
+        makePageActionButton(12,actionY,actionWidth,40,
+            systemSettings_.logoScreensaverEnabled?"Show logo":"Display off",
+            UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlDisplay,4);
+        makePageActionButton(kScreenWidth/2+4,actionY,actionWidth,40,"Touch lock",
+            UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlTouchLock,0);
     } else if(page==UiPage::ErsSensors) {
         drawErsSensorContent();
     } else if(page==UiPage::ModuleLink) {
@@ -658,16 +663,18 @@ void TransmitterUi::drawDesignPage(UiPage page)
         if(moduleLink_.enabled()&&!live)button(kScreenWidth/2+4,by,(kScreenWidth-32)/2,36,"Pause",242);
         else if(!moduleLink_.enabled()&&moduleLink_.present())button(kScreenWidth/2+4,by,(kScreenWidth-32)/2,36,"Enable",240);
     } else if(page==UiPage::OutputStatus) {
-        label("Output status",12,48,UiText::Heading);
-        designDetails_[0]=label("",12,94,UiText::Menu,cCyan);boundedLabel(designDetails_[0],kScreenWidth-24);
-        designDetails_[1]=label("",12,designPortrait?138:126,UiText::Secondary,cWhite);
-        lv_obj_set_width(designDetails_[1],kScreenWidth-24);
-        lv_label_set_long_mode(designDetails_[1],LV_LABEL_LONG_WRAP);
-        label("Physical handset only. Unlocking never arms.",12,designPortrait?190:158,UiText::Caption,cDim);
+        drawOutputReadiness();
         auto arm=button(12,designPortrait?238:184,kScreenWidth-24,48,"Enable output",181);
         armProgress_=makeBar(arm,4,41,kScreenWidth-32,4,0,800);
-        if(SetupPortal::active())button(12,designPortrait?296:238,kScreenWidth-24,32,"Finish Wi-Fi setup",238);
-        else if(moduleLinkManaged_)button(12,designPortrait?296:238,kScreenWidth-24,32,"Module link",239);
+        const int actionY=designPortrait?296:238;
+        const int actionWidth=(kScreenWidth-32)/2;
+        const bool setup=SetupPortal::active();
+        const bool showLinkAction=setup||moduleLinkManaged_;
+        if(showLinkAction)
+            button(12,actionY,actionWidth,36,setup?"Finish Wi-Fi setup":"Module link",setup?238:239);
+        makePageActionButton(showLinkAction?kScreenWidth/2+4:12,actionY,
+            showLinkAction?actionWidth:kScreenWidth-24,36,"Input monitor",UiText::Secondary,
+            cPanel,cWhite,cLine,&TransmitterUi::openOutputInputMonitor,0);
 
     } else if(page==UiPage::ModeChooser || page==UiPage::DriveModes) {
         label(page==UiPage::ModeChooser?"Choose mode":"Drive modes",12,48,UiText::Heading);
@@ -1388,17 +1395,16 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
     updateHeaderTxVoltage(tx,txValid,txBatterySettings_.lowAlarmDecivolts);
     updateHeaderGpsTime(t,now,systemSettings_.timeZone);
     {
-        uint32_t col=safety==OutputSafetyStatus::Armed?cGreen:cAmber;
         const char *reason="Outputs inhibited. Hold Drive to enable when ready.";
         switch(safety){
             case OutputSafetyStatus::Armed:reason="Outputs LIVE. Hold Drive to CUT.";break;
-            case OutputSafetyStatus::StartupWarning:reason="Return controls to their safe positions.";col=cRed;break;
+            case OutputSafetyStatus::StartupWarning:reason="Return controls to their safe positions.";break;
             case OutputSafetyStatus::LinkRequired:reason="Waiting for receiver link.";break;
             case OutputSafetyStatus::NeutralRequired:reason="Release throttle to neutral before arming.";break;
             case OutputSafetyStatus::Calibration:reason="Calibration active; output remains CUT.";break;
-            case OutputSafetyStatus::InputFault:reason="Input fault. Check connections and assignments.";col=cRed;break;
-            case OutputSafetyStatus::ConfigurationFault:reason="Model settings invalid. Review channels and save before enabling output.";col=cRed;break;
-            case OutputSafetyStatus::ControlStale:reason="Input data stale; output remains CUT.";col=cRed;break;
+            case OutputSafetyStatus::InputFault:reason="Input fault. Check connections and assignments.";break;
+            case OutputSafetyStatus::ConfigurationFault:reason="Model settings invalid. Review channel setup.";break;
+            case OutputSafetyStatus::ControlStale:reason="Input data stale; output remains CUT.";break;
             case OutputSafetyStatus::ChannelDisabled:reason="Required channel disabled; output remains CUT.";break;
             case OutputSafetyStatus::Cut:break;
         }
@@ -1411,21 +1417,26 @@ void TransmitterUi::updateDesign(const CrsfTelemetryState &t, OutputSafetyStatus
                 safety==OutputSafetyStatus::Armed?"LIVE - output enabled":
                 safety==OutputSafetyStatus::LinkRequired?"LINK WAIT":
                 safety==OutputSafetyStatus::NeutralRequired?"NEUTRAL WAIT":"CUT - output inhibited");
-            uiSetText(designDetails_[1],hardwareRecovery_?"Hardware fault; arming inhibited.":SetupPortal::active()?"Finish Wi-Fi setup before enabling output.":moduleLinkManaged_&&!moduleLink_.enabled()?"Module link paused; enable it before arming.":reason);
+            if(safety==OutputSafetyStatus::NeutralRequired && outputReadiness_.triggerCentred)
+                reason=outputReadiness_.throttleMixNeutral?"Waiting for steady neutral.":"Bring the throttle mix back to neutral.";
+            uiSetText(designDetails_[1],hardwareRecovery_?"Hardware fault; arming inhibited.":
+                SetupPortal::active()?"Finish Wi-Fi setup before enabling output.":
+                moduleLinkManaged_&&!moduleLink_.enabled()?"Module link paused; enable it before arming.":
+                escProgrammer_.blocksArm()?"Finish ESC setup before enabling output.":reason);
+            updateOutputReadiness(safety,now);
             if(armProgress_)uiSetText(lv_obj_get_child(lv_obj_get_parent(armProgress_),0),armRequested_?"Hold to cut (0.8 s)":"Enable output");
         }
-        if(hardwareRecovery_&&!rfBenchMode_)col=cRed;
-        const char *outputState=col==cRed?"FAULT":safety==OutputSafetyStatus::Armed?"LIVE":"CUT";
+        const auto badge=outputBadge(safety,hardwareRecovery_&&!rfBenchMode_);
         if(designHeaderOutput_){
-            uiSetText(designHeaderOutput_,outputState);
+            uiSetText(designHeaderOutput_,badge.text);
             auto status=lv_obj_get_parent(designHeaderOutput_);
-            const auto tint=colour(col);
+            const auto tint=colour(badge.accent);
             if(lv_obj_get_style_border_color(status,0).full!=tint.full)
                 lv_obj_set_style_border_color(status,tint,0);
         }
         if(designStatus_&&activePage_==UiPage::Dashboard&&dashboardHeaderHidden_)
-            uiSetTextFmt(designStatus_,"Drive\n%s",outputState);
-        updateDriveIcon(driveIcon_,safety==OutputSafetyStatus::Armed,col==cRed);
+            uiSetTextFmt(designStatus_,"Drive\n%s",badge.text);
+        updateDriveIcon(driveIcon_,safety==OutputSafetyStatus::Armed,badge.accent==cRed);
     }
 
     if(designLink_){

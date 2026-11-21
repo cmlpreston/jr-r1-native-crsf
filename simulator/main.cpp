@@ -259,6 +259,7 @@ int main(int argc, char **argv)
         mixInputs.values[0]=result.steering.normalisedPermille;mixInputs.values[1]=result.throttle.normalisedPermille;
         mixInputs.valid=(mixInputs.valid&~uint64_t{3})|(result.steering.valid?1:0)|(result.throttle.valid?2:0);
         ui.setMixMonitorInputs(mixInputs,input.bindings);
+        ui.setOutputReadiness(result.readiness, now);
         ui.update(rawAdc, steeringAdc, rawPermille, output, crsf, safety, telemetry,
                   controls.transmitterVoltageDecivolts, true,
                   channelOutputs, safety == OutputSafetyStatus::Armed);

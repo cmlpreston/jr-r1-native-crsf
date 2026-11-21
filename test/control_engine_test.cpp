@@ -26,6 +26,49 @@ static void qualify(ControlEngine &engine, ControlConfigurationSnapshot &c, uint
     assert(engine.update(c, input(start+1499)).safety == OutputSafetyStatus::NeutralRequired);
     assert(engine.update(c, input(start+1500)).safety == OutputSafetyStatus::Armed);
 }
+static void testReadinessWhileCut() {
+    auto c = configuration();
+    c.armRequested = false;
+    ControlEngine engine;
+    auto sample = input(10);
+    sample.throttleAdc = 2081;
+    sample.linkQuality = 49;
+    auto result = engine.update(c, sample);
+    assert(result.safety == OutputSafetyStatus::Cut && result.neutralSinceMs == 0);
+    assert(result.readiness.triggerValid && !result.readiness.triggerCentred);
+    assert(result.readiness.linkValid && !result.readiness.linkMeetsMinimum);
+    assert(result.readiness.configurationValid && result.readiness.inputsValid);
+    assert(!result.readiness.throttleMixActive && result.readiness.throttleMixNeutral);
+
+    sample.throttleAdc = 2080;
+    sample.linkQuality = 50;
+    ++sample.nowMs;
+    result = engine.update(c, sample);
+    assert(result.safety == OutputSafetyStatus::Cut);
+    assert(result.readiness.linkMeetsMinimum && result.readiness.triggerCentred);
+
+    c.mixing[1].constantPercent = 6;
+    ++c.revision;
+    sample.throttleAdc = 2000;
+    ++sample.nowMs;
+    result = engine.update(c, sample);
+    assert(result.safety == OutputSafetyStatus::Cut && result.readiness.triggerCentred);
+    assert(result.readiness.throttleMixValid && result.readiness.throttleMixActive);
+    assert(result.readiness.throttleMixPermille == 60 && !result.readiness.throttleMixNeutral);
+    sample.physicalInputsHealthy = false;
+    ++sample.nowMs;
+    result = engine.update(c, sample);
+    assert(result.safety == OutputSafetyStatus::InputFault && !result.readiness.inputsValid);
+
+    c.mixing[1].constantPercent = 5;
+    ++c.revision;
+    sample.physicalInputsHealthy = true;
+    ++sample.nowMs;
+    result = engine.update(c, sample);
+    assert(result.safety == OutputSafetyStatus::Cut && result.readiness.throttleMixNeutral);
+    c.armRequested = true;
+    qualify(engine,c,2000);
+}
 static void testSafety() {
     auto c = configuration(); ControlEngine e;
     qualify(e, c, 0); // zero timestamps are valid, not unset sentinels
@@ -549,6 +592,7 @@ static void testEscSelectionSurvivesCutAndVetoesEveryArmRequest() {
     c.throttleChannel=12;++c.revision;assert(engine.update(c,i).safety==OutputSafetyStatus::ConfigurationFault);
 }
 int main() {
+    testReadinessWhileCut();
     testEscSelectionSurvivesCutAndVetoesEveryArmRequest();
     testAppliedSteeringEndpointReachesOutputAfterRearm();
     testLiveSteeringEndpoints();

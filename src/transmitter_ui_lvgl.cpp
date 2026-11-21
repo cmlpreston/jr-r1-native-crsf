@@ -4,6 +4,7 @@
 #include "ui_layout.h"
 #include "ui_refresh.h"
 #include "model_image.h"
+#include "model_backup.h"
 #include "setup_portal.h"
 #include "offline_map.h"
 #include "ui_pixel_cache.h"
@@ -17,6 +18,7 @@
 #include "boot_diagnostics.h"
 #include <cmath>
 #include <memory>
+#include <new>
 #ifndef JR_R1_SIMULATOR
 #include <Arduino_GFX_Library.h>
 #include <esp_heap_caps.h>
@@ -76,6 +78,22 @@ constexpr int16_t kLogoSaverProportionalWakePermille = 40;
 constexpr uint16_t kTouchPressureThreshold = 40;
 constexpr uint32_t kTouchReleaseDebounceMs = 25;
 constexpr uint32_t kTouchRetriggerGuardMs = 100;
+constexpr uint32_t kTouchUnlockHoldMs = 800;
+constexpr int kTouchLockStripHeight = 40;
+enum class TouchLockControl { None, Cut, Unlock };
+
+int touchLockStripY() { return kScreenHeight-(portraitUi?60:40); }
+int touchLockSideWidth() { return kScreenWidth/3; }
+
+TouchLockControl touchLockControlAt(int x,int y)
+{
+    if (x<0 || x>=kScreenWidth || y<touchLockStripY() ||
+        y>=touchLockStripY()+kTouchLockStripHeight) return TouchLockControl::None;
+    if (x<touchLockSideWidth()) return TouchLockControl::Cut;
+    if (x>=kScreenWidth-touchLockSideWidth()) return TouchLockControl::Unlock;
+    return TouchLockControl::None;
+}
+
 constexpr uint32_t kDriveTitleTapMaxMs = 350;
 constexpr uint32_t kDashboardArmHoldMs = 800;
 constexpr uint32_t kDriveHoldFeedbackDelayMs = 1000;
@@ -127,6 +145,20 @@ constexpr uint32_t cSafetyCut = 0x402608;
 constexpr uint32_t cSafetyArmed = 0x103b20;
 constexpr uint32_t cSafetyWaiting = 0x3b3309;
 constexpr uint32_t cSafetyFault = 0x421416;
+
+struct OutputBadge {
+    const char *text;
+    uint32_t accent;
+};
+
+OutputBadge outputBadge(OutputSafetyStatus status,bool hardwareFault)
+{
+    if (hardwareFault || status==OutputSafetyStatus::StartupWarning ||
+        status==OutputSafetyStatus::InputFault || status==OutputSafetyStatus::ConfigurationFault ||
+        status==OutputSafetyStatus::ControlStale) return {"FAULT",cRed};
+    if (status==OutputSafetyStatus::Armed) return {"LIVE",cGreen};
+    return {"CUT",cAmber};
+}
 
 uint8_t uiBrightnessPercent = 100;
 bool uiNightMode = false;
@@ -937,6 +969,7 @@ bool TransmitterUi::resetDisplayTransferStats()
 #include "transmitter_ui_settings_actions.inc"
 #include "transmitter_ui_binding_actions.inc"
 #include "transmitter_ui_design.inc"
+#include "transmitter_ui_output_status.inc"
 #include "transmitter_ui_widget_metrics.inc"
 #include "transmitter_ui_gps_widget.inc"
 #include "transmitter_ui_sensor_history.inc"
@@ -989,15 +1022,12 @@ bool TransmitterUi::begin()
     loadModelMemorySettings();
     loadTimerSettings();
     loadRunRecords();
-    loadChannelRoleSettings();
-    loadSettings();
+    loadActiveModelControls();
     loadSystemSettings();
     loadTxBatterySettings();
     loadRxBatterySettings();
     loadDriveModeSettings();
     loadElrsSettings();
-    loadChannelParameters();
-    loadBindings();
     uiBrightnessPercent = systemSettings_.displayBrightnessPercent;
     uiNightMode = systemSettings_.nightMode;
 #ifndef JR_R1_SIMULATOR
@@ -1459,6 +1489,7 @@ void TransmitterUi::loadModelMemorySettings()
     if (activeModelSlot_ >= kModelMemoryCount) activeModelSlot_ = 0;
     for (uint8_t slot = 0; slot < kModelMemoryCount; ++slot)
         modelNames_[slot][kModelNameCapacity - 1] = '\0';
+    loadModelBackupNames();
 }
 
 void TransmitterUi::saveModelMemorySettings()
@@ -1466,7 +1497,15 @@ void TransmitterUi::saveModelMemorySettings()
     Preferences preferences;
     preferences.begin("jr-r1-models", false);
     preferences.putUChar("active", activeModelSlot_);
-    preferences.putBytes("names", modelNames_, sizeof(modelNames_));
+    // Imported profiles keep their name with their controls in the slot's
+    // atomic record. Preserve its previous name in the legacy registry.
+    char legacyNames[kModelMemoryCount][kModelNameCapacity] = {};
+    preferences.getBytes("names", legacyNames, sizeof(legacyNames));
+    for (uint8_t slot = 0; slot < kModelMemoryCount; ++slot) {
+        if (!modelBackupInstalled_[slot]) memcpy(legacyNames[slot], modelNames_[slot], kModelNameCapacity);
+        else if (!legacyNames[slot][0]) snprintf(legacyNames[slot], kModelNameCapacity, "MODEL %u", unsigned(slot + 1));
+    }
+    preferences.putBytes("names", legacyNames, sizeof(legacyNames));
     preferences.putBytes("images-v1",modelImages_,sizeof(modelImages_));
     preferences.putBytes("colours-v1",modelColours_,sizeof(modelColours_));
     preferences.putBytes("accents-v1",modelAccents_,sizeof(modelAccents_));
@@ -1476,14 +1515,26 @@ void TransmitterUi::saveModelMemorySettings()
     preferences.end();
 }
 
-void TransmitterUi::saveCurrentModelMemory()
+bool TransmitterUi::saveCurrentModelMemory()
 {
-    saveChannelRoleSettings();
-    saveSettings();
-    saveRxBatterySettings();
-    saveDriveModeSettings();
-    saveChannelParameters();
-    saveBindings();
+    if (modelBackupInstalled_[activeModelSlot_]) {
+        // A damaged profile can be replaced once the user selects another slot.
+        if (!modelBackupReadFailed_) {
+            saveSettings();
+            if (settingsSavePending_) return false;
+        }
+        settingsSavePending_ = false;
+        channelParameterSavePending_ = false;
+        saveRxBatterySettings();
+    } else {
+        saveChannelRoleSettings();
+        saveSettings();
+        saveRxBatterySettings();
+        saveDriveModeSettings();
+        saveChannelParameters();
+        saveBindings();
+    }
+    return true;
 }
 
 bool TransmitterUi::selectModelMemory(uint8_t slot, bool discardUnsaved)
@@ -1507,7 +1558,11 @@ bool TransmitterUi::selectModelMemory(uint8_t slot, bool discardUnsaved)
         playBuzzer(180);
         return false;
     }
-    saveCurrentModelMemory();
+    if (!saveCurrentModelMemory()) {
+        snprintf(modelSelectStatus_, sizeof(modelSelectStatus_), "Model settings could not be saved");
+        playBuzzer(180);
+        return false;
+    }
     timers_[activeModelSlot_].pause(millis());saveTimerSettings();
     timerOnRemainder_=0;timerConfirmation_=0;timerBank_=timerLapPage_=0;
     resetSpeedStatistics();
@@ -1527,16 +1582,14 @@ bool TransmitterUi::selectModelMemory(uint8_t slot, bool discardUnsaved)
         telemetryHistory_.get()->graphs[sensor].reset(sensorReading(designTelemetry_,sensor,millis()).stamp);
     }
     activeModelSlot_ = slot;
+    ++modelRevision_;
     timerLastSavedOn_=timers_[slot].settings.onSeconds;
     timers_[slot].tick(millis());
     loadRunRecords();
     saveModelMemorySettings();
-    loadChannelRoleSettings();
-    loadSettings();
+    loadActiveModelControls();
     loadRxBatterySettings();
     loadDriveModeSettings();
-    loadChannelParameters();
-    loadBindings();
     selectedChannel_ = channelRoleSettings_.throttleChannel;
     bindingsChanged_ = true;
     channelRolesChanged_ = true;
@@ -1550,24 +1603,28 @@ bool TransmitterUi::selectModelMemory(uint8_t slot, bool discardUnsaved)
 void TransmitterUi::loadSettings()
 {
     modelStorageFault_ = false;
-    loadMixing();
-    for (ChannelResponseProfile &profile : channelModel_.responses)
-        profile = ChannelResponseProfile{};
+    const bool legacyModel = !modelBackupInstalled_[activeModelSlot_];
+    if (legacyModel) {
+        loadMixing();
+        for (auto &profile : channelModel_.responses) profile = ChannelResponseProfile{};
+    }
     Preferences preferences;
     ProportionalCalibration legacyCalibration {
         THROTTLE_ADC_MIN, THROTTLE_ADC_CENTER, THROTTLE_ADC_MAX};
     if (activeModelSlot_ == 0) {
         preferences.begin("jr-r1-ch2", true);
-        throttleProfile().negativeEndpointPercent = preferences.getUChar("brake_ep", 100);
-        throttleProfile().positiveEndpointPercent = preferences.getUChar("throt_ep", 100);
-        throttleProfile().negativeRatePercent = preferences.getUChar("brk_rate", 100);
-        throttleProfile().positiveRatePercent = preferences.getUChar("fwd_rate", 100);
-        throttleProfile().negativeExpoPercent = preferences.getChar("brk_expo", 0);
-        throttleProfile().positiveExpoPercent = preferences.getChar("fwd_expo", 0);
-        throttleProfile().negativeRampMs = preferences.getUShort("brk_speed", 0);
-        throttleProfile().positiveRampMs = preferences.getUShort("fwd_speed", 0);
-        throttleProfile().subtrimPercent = preferences.getChar("trim", 0);
-        throttleProfile().reversed = preferences.getBool("reverse", false);
+        if (legacyModel) {
+            throttleProfile().negativeEndpointPercent = preferences.getUChar("brake_ep", 100);
+            throttleProfile().positiveEndpointPercent = preferences.getUChar("throt_ep", 100);
+            throttleProfile().negativeRatePercent = preferences.getUChar("brk_rate", 100);
+            throttleProfile().positiveRatePercent = preferences.getUChar("fwd_rate", 100);
+            throttleProfile().negativeExpoPercent = preferences.getChar("brk_expo", 0);
+            throttleProfile().positiveExpoPercent = preferences.getChar("fwd_expo", 0);
+            throttleProfile().negativeRampMs = preferences.getUShort("brk_speed", 0);
+            throttleProfile().positiveRampMs = preferences.getUShort("fwd_speed", 0);
+            throttleProfile().subtrimPercent = preferences.getChar("trim", 0);
+            throttleProfile().reversed = preferences.getBool("reverse", false);
+        }
         legacyCalibration = {
             preferences.getUShort("adc_min", THROTTLE_ADC_MIN),
             preferences.getUShort("adc_ctr", THROTTLE_ADC_CENTER),
@@ -1581,11 +1638,13 @@ void TransmitterUi::loadSettings()
     // profile block exists, the legacy CH2 settings above become the profile
     // for the currently assigned throttle channel and every other channel
     // starts linear at full travel.
-    const auto record = ChannelSettingsRepository::loadResponses(activeModelSlot_, channelModel_);
-    if (record == ChannelSettingsLoad::Invalid) {
-        modelStorageFault_ = true;
-        for (auto &profile : channelModel_.responses) profile = ChannelResponseProfile{};
-        Serial.println("MODEL STORAGE: invalid channel record; live outputs inhibited");
+    if (legacyModel) {
+        const auto record = ChannelSettingsRepository::loadResponses(activeModelSlot_, channelModel_);
+        if (record == ChannelSettingsLoad::Invalid) {
+            modelStorageFault_ = true;
+            for (auto &profile : channelModel_.responses) profile = ChannelResponseProfile{};
+            Serial.println("MODEL STORAGE: invalid channel record; live outputs inhibited");
+        }
     }
 
     preferences.begin("jr-r1-trigger", true);
@@ -1629,7 +1688,8 @@ void TransmitterUi::loadSettings()
 
 bool TransmitterUi::persistChannelModel()
 {
-    const bool ok = ChannelSettingsRepository::save(activeModelSlot_, channelModel_);
+    const bool ok = modelBackupInstalled_[activeModelSlot_] ? persistModelBackup(channelModel_) :
+        ChannelSettingsRepository::save(activeModelSlot_, channelModel_);
     modelStorageFault_ = !ok;
     if (!ok) {
         requestConfigurationCut();
@@ -1710,8 +1770,9 @@ void TransmitterUi::loadChannelRoleSettings()
     }
 }
 
-void TransmitterUi::saveChannelRoleSettings()
+bool TransmitterUi::saveChannelRoleSettings()
 {
+    if (modelBackupInstalled_[activeModelSlot_]) return persistChannelModel();
     Preferences preferences;
     char name[16];
     preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-model1",
@@ -1721,6 +1782,7 @@ void TransmitterUi::saveChannelRoleSettings()
     preferences.putBool("steer_en", channelRoleSettings_.steeringEnabled);
     preferences.putBool("throt_en", channelRoleSettings_.throttleEnabled);
     preferences.end();
+    return true;
 }
 
 bool TransmitterUi::consumeChannelRolesChanged()
@@ -1982,6 +2044,10 @@ void TransmitterUi::loadBrakeAbs()
 }
 bool TransmitterUi::saveBrakeAbs()
 {
+    if (modelBackupInstalled_[activeModelSlot_]) {
+        brakeAbsStorageValid_ = persistChannelModel();
+        return brakeAbsStorageValid_;
+    }
     uint8_t data[kBrakeAbsRecordSize],check[kBrakeAbsRecordSize];Preferences p;char name[16];
     bool ok=encodeBrakeAbs(brakeAbs_,data,sizeof(data))&&
         p.begin(modelNamespace(activeModelSlot_,"jr-r1-abs","abs",name,sizeof(name)),false);
@@ -2008,21 +2074,27 @@ void TransmitterUi::controlBrakeAbs(uint8_t item,PageControlEvent event)
 
 void TransmitterUi::loadDriveModeSettings()
 {
-    loadBrakeAbs();
-    Preferences preferences;
-    char name[16];
-    preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-drive",
-                                     "drive", name, sizeof(name)), true);
-    driveModeSettings_.walkLimitPercent = preferences.getUChar("walk_limit", 35);
-    preferences.end();
-    driveModeSettings_.walkLimitPercent = constrain(
-        driveModeSettings_.walkLimitPercent, 10, 80);
+    if (!modelBackupInstalled_[activeModelSlot_]) {
+        loadBrakeAbs();
+        Preferences preferences;
+        char name[16];
+        preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-drive",
+                                         "drive", name, sizeof(name)), true);
+        driveModeSettings_.walkLimitPercent = preferences.getUChar("walk_limit", 35);
+        preferences.end();
+        driveModeSettings_.walkLimitPercent = constrain(
+            driveModeSettings_.walkLimitPercent, 10, 80);
+    }
     // Walk is handset-owned: rebooting or changing models must not bypass it.
     driveModeSettings_.activeMode = walkRetained_ ? DriveMode::Walk : DriveMode::Normal;
 }
 
 void TransmitterUi::saveDriveModeSettings()
 {
+    if (modelBackupInstalled_[activeModelSlot_]) {
+        persistChannelModel();
+        return;
+    }
     Preferences preferences;
     char name[16];
     preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-drive",
@@ -2090,8 +2162,9 @@ void TransmitterUi::loadBindings()
     }
 }
 
-void TransmitterUi::saveBindings()
+bool TransmitterUi::saveBindings()
 {
+    if (modelBackupInstalled_[activeModelSlot_]) return persistChannelModel();
     Preferences preferences;
     char name[16];
     preferences.begin(modelNamespace(activeModelSlot_, "jr-r1-bind",
@@ -2100,6 +2173,7 @@ void TransmitterUi::saveBindings()
     preferences.putUChar("count", static_cast<uint8_t>(bindingCount_));
     preferences.putBytes("items", bindings_, bindingCount_ * sizeof(ControlBinding));
     preferences.end();
+    return true;
 }
 
 void TransmitterUi::loadChannelParameters()
@@ -2201,10 +2275,10 @@ bool TransmitterUi::assignChannelParameterControl(
     requestConfigurationCut();
     bindingCount_ = count;
     for (size_t index = 0; index < count; ++index) bindings_[index] = candidate[index];
-    saveBindings();
+    const bool saved = saveBindings();
     bindingsChanged_ = true;
     requestConfigurationCut();
-    return true;
+    return saved;
 }
 
 ControlBinding TransmitterUi::defaultBindingForInput(PhysicalControlId input) const
@@ -2385,10 +2459,11 @@ bool TransmitterUi::saveBindingDraft()
     requestConfigurationCut();
     bindingCount_ = count;
     for (size_t index = 0; index < count; ++index) bindings_[index] = candidate[index];
-    saveBindings();
+    const bool saved = saveBindings();
     bindingsChanged_ = true;
     requestConfigurationCut();
-    return true;
+    if (!saved) snprintf(bindingError_, sizeof(bindingError_), "Could not save model assignments");
+    return saved;
 }
 
 bool TransmitterUi::removeSelectedBinding()
@@ -2400,10 +2475,10 @@ bool TransmitterUi::removeSelectedBinding()
         bindings_[index] = bindings_[index + 1];
     requestConfigurationCut();
     --bindingCount_;
-    saveBindings();
+    const bool saved = saveBindings();
     bindingsChanged_ = true;
     requestConfigurationCut();
-    return true;
+    return saved;
 }
 
 void TransmitterUi::playBuzzer(uint16_t durationMs)
@@ -2457,6 +2532,7 @@ void TransmitterUi::stopBuzzer()
 void TransmitterUi::sleepDisplay()
 {
     if (!displayReady_ || displaySleeping_) return;
+    if (touchLocked_ && (armRequested_ || designSafety_==OutputSafetyStatus::Armed)) return;
 #ifdef JR_R1_SIMULATOR
     simulatorSetDisplayEnabled(false);
 #else
@@ -2742,7 +2818,9 @@ void TransmitterUi::positionLogoSaver()
 void TransmitterUi::drawLogoSaver()
 {
     if (!displayReady_) return;
+    if (touchLocked_ && (armRequested_ || designSafety_==OutputSafetyStatus::Armed)) return;
     activePage_ = UiPage::LogoSaver;
+    refreshTouchLockStrip();
     startScreen();
     resetLvglObjects();
     lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), 0);
@@ -2777,6 +2855,7 @@ void TransmitterUi::leaveLogoSaver()
         ? UiPage::Dashboard : logoSaverReturnPage_;
     lastInteractionMs_ = millis();
     redrawActivePage();
+    refreshTouchLockStrip();
     Serial.println("DISPLAY: logo saver dismissed");
 }
 
@@ -5038,8 +5117,72 @@ void TransmitterUi::queueElrsRequest(ElrsManagementAction action,
              action == ElrsManagementAction::SetBindPhrase ? "Bindphrase" : "UID read");
 }
 
+void TransmitterUi::refreshTouchLockStrip()
+{
+    if (touchLockStrip_) {
+        lv_obj_del(touchLockStrip_);
+        touchLockStrip_ = touchLockOutput_ = nullptr;
+    }
+    if (!touchLocked_ || activePage_==UiPage::LogoSaver) return;
+    // The overlay is independent of page content and remains visible during
+    // keypad navigation. The header's separate CUT/LIVE/FAULT badge remains.
+    touchLockStrip_ = makePanel(0,0,kScreenWidth,kTouchLockStripHeight,cHeader,cHeader,0);
+    lv_obj_set_parent(touchLockStrip_,lv_layer_top());
+    lv_obj_set_style_border_width(touchLockStrip_,0,0);
+    lv_obj_set_pos(touchLockStrip_,0,touchLockStripY());
+    const int side = touchLockSideWidth();
+    constexpr int inset = UiLayout::SmallGap;
+    constexpr int buttonHeight = kTouchLockStripHeight-2*inset;
+    auto button = [&](int x,const char *text,uint32_t accent) {
+        auto *panel = makeButton(0,0,side-2*inset,buttonHeight,text,UiText::Caption,cPanel,accent,cLine);
+        lv_obj_set_parent(panel,touchLockStrip_);
+        lv_obj_set_pos(panel,x+inset,inset);
+    };
+    button(0,"CUT output",cAmber);
+    auto *label = makeLabel(touchLockStrip_,"Touch locked",0,0,UiText::Secondary,0xe7edef);
+    lv_obj_align(label,LV_ALIGN_TOP_MID,0,4);
+    const auto badge = outputBadge(designSafety_,hardwareRecovery_&&!rfBenchMode_);
+    touchLockOutput_ = makeLabel(touchLockStrip_,badge.text,0,0,UiText::Caption,badge.accent);
+    lv_obj_align(touchLockOutput_,LV_ALIGN_BOTTOM_MID,0,-4);
+    button(kScreenWidth-side,"Hold to unlock",cCyan);
+}
+
+void TransmitterUi::setTouchLocked(bool locked)
+{
+    if (touchLocked_==locked) return;
+    touchLocked_ = locked;
+    // A request waiting for an interlock must not turn LIVE after locking.
+    if (locked && armRequested_ && designSafety_!=OutputSafetyStatus::Armed)
+        requestConfigurationCut();
+    remoteArmHold_.cancel();
+    // Also discard a touch not yet sampled when the keypad changed the lock.
+    discardTouchUntilRelease_ = true;
+    touchWasDown_ = touchUnlockGesture_ = armGestureValid_ = false;
+    touchReleaseSinceMs_ = lastTouchDurationMs_ = 0;
+    if (driveProgress_) lv_bar_set_value(driveProgress_,0,LV_ANIM_OFF);
+    if (armProgress_) lv_bar_set_value(armProgress_,0,LV_ANIM_OFF);
+    updateWifiKeyPreview(-1,-1);
+    SetupPortal::screenChanged();
+    lastInteractionMs_ = millis();
+    refreshTouchLockStrip();
+}
+
+void TransmitterUi::controlTouchLock(uint8_t, PageControlEvent event)
+{
+    if (event!=PageControlEvent::Activate || !bootPinUnlocked_ ||
+        pinPurpose_!=PinPurpose::None || !startupPreflightComplete_ || hardwareRecovery_) return;
+    if (remoteTouchActive_) {
+        remoteTouchRejected_ = true;
+        return;
+    }
+    playKeyClick();
+    setTouchLocked(!touchLocked_);
+    if (touchLocked_) drawDashboard();
+}
+
 void TransmitterUi::handleTouch(int16_t x, int16_t y)
 {
+    if (touchLocked_) return;
     if(!bootPinUnlocked_||pinPurpose_!=PinPurpose::None){
         if(activePage_==UiPage::BootPin)dispatchPageControlTouch(x,y);
         return;
@@ -5266,11 +5409,17 @@ void TransmitterUi::updateTouch()
             touchWasDown_ = true;
             touchDownStartedMs_ = now;
             touchStartX_=x;touchStartY_=y;touchStartPage_=activePage_;
+            const auto lockedControl = touchLockStrip_?touchLockControlAt(x,y):TouchLockControl::None;
+            touchUnlockGesture_ = touchLocked_ && lockedControl==TouchLockControl::Unlock;
+            if (touchLocked_ && lockedControl==TouchLockControl::Cut &&
+                (armRequested_ || designSafety_==OutputSafetyStatus::Armed)) {
+                requestConfigurationCut();
+            }
             // Arming must begin inside its target and remain there throughout
             // the hold; dragging into it after a long press cannot arm.
             const bool headerHold=driveProgress_&&x>=0&&x<kScreenWidth/4&&y>=kScreenHeight-(portraitUi?60:40)&&y<kScreenHeight-(portraitUi?20:0);
             const bool panelHold=activePage_==UiPage::OutputStatus&&x>=12&&x<kScreenWidth-12&&y>=(portraitUi?238:184)&&y<(portraitUi?286:232);
-            armGestureValid_=headerHold||panelHold;
+            armGestureValid_=!touchLocked_&&(headerHold||panelHold);
             lastTouchX_ = x;
             lastTouchY_ = y;
             Serial.printf("TOUCH down page=%s raw=(%u,%u,%u) screen=(%d,%d)\n",
@@ -5281,6 +5430,11 @@ void TransmitterUi::updateTouch()
             // instead of blindly using the final, least reliable sample.
             lastTouchX_ = static_cast<int16_t>((lastTouchX_ * 3 + x) / 4);
             lastTouchY_ = static_cast<int16_t>((lastTouchY_ * 3 + y) / 4);
+        }
+        if (touchLocked_) {
+            touchUnlockGesture_ = touchUnlockGesture_ && touchLockStrip_ &&
+                touchStartPage_==activePage_ && touchLockControlAt(x,y)==TouchLockControl::Unlock;
+            return;
         }
         if(armGestureValid_){
             const bool headerHold=driveProgress_&&x>=0&&x<kScreenWidth/4&&y>=kScreenHeight-(portraitUi?60:40)&&y<kScreenHeight-(portraitUi?20:0);
@@ -5323,6 +5477,17 @@ void TransmitterUi::updateTouch()
     lastInteractionMs_ = now;
     Serial.printf("TOUCH up page=%s screen=(%d,%d)\n",
                   uiPageName(activePage_), releasedX, releasedY);
+    if (touchLocked_) {
+        if (touchStartPage_==activePage_ && activePage_==UiPage::LogoSaver)
+            leaveLogoSaver();
+        else if (touchUnlockGesture_ && touchStartPage_==activePage_ &&
+                 lastTouchDurationMs_>=kTouchUnlockHoldMs) {
+            playKeyClick();
+            setTouchLocked(false);
+        }
+        touchUnlockGesture_ = false;
+        return;
+    }
     uiMetrics.touchAcceptedUs = micros();
     uiMetrics.touchPending = true;
     updateWifiKeyPreview(-1, -1);
@@ -5477,6 +5642,10 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     if(SetupPortal::active())armRequested_=false;
     updateWifiPage();
     updateWifiStatusIcon();
+    if (touchLocked_ && (armRequested_ || designSafety_==OutputSafetyStatus::Armed)) {
+        if (displaySleeping_) wakeDisplay();
+        if (activePage_==UiPage::LogoSaver) leaveLogoSaver();
+    }
     updateTouch();
     updateDriveBatteryWarning(telemetry,millis());
     updateRfWarning(telemetry,millis());
@@ -5518,6 +5687,11 @@ void TransmitterUi::update(uint16_t rawAdc, uint16_t steeringRawAdc,
     updateGpsPresentation(now);
     if (static_cast<int32_t>(now - nextDisplayUpdateMs_) >= 0) {
         nextDisplayUpdateMs_ = now + kUiUpdateMs;
+        if (touchLockOutput_) {
+            const auto badge = outputBadge(safetyStatus,hardwareRecovery_&&!rfBenchMode_);
+            uiSetText(touchLockOutput_,badge.text);
+            uiSetTextColor(touchLockOutput_,colour(badge.accent),0);
+        }
         if(driveIcon_)updateDriveIcon(driveIcon_,safetyStatus==OutputSafetyStatus::Armed,
             hardwareRecovery_||safetyStatus==OutputSafetyStatus::InputFault||safetyStatus==OutputSafetyStatus::ConfigurationFault||safetyStatus==OutputSafetyStatus::ControlStale);
         if (calibrationActive()) drawCalibrationValues(
@@ -5586,6 +5760,7 @@ void TransmitterUi::applyDisplayRotation() {
     lv_disp_drv_update(registeredDisplay,&displayDriver);
     SetupPortal::resizeScreen(kScreenWidth,kScreenHeight);
     lastInteractionMs_=millis();redrawActivePage();
+    refreshTouchLockStrip();
     Serial.printf("DISPLAY: rotated to %dx%d; reused framebuffer and draw buffer\n",kScreenWidth,kScreenHeight);
 }
 #endif
@@ -5595,5 +5770,6 @@ void TransmitterUi::applyDisplayRotation() {
 #include "transmitter_ui_mixing.inc"
 
 #include "transmitter_ui_remote.inc"
+#include "transmitter_ui_model_backup.inc"
 
 #include "transmitter_ui_keypad.inc"

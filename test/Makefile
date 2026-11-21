@@ -171,7 +171,8 @@ $(BUILD)/control_engine_test: control_engine_test.cpp $(ROOT)/src/control_engine
 
 $(BUILD)/channel_model_test: channel_model_test.cpp $(ROOT)/src/channel_model.cpp \
     $(ROOT)/src/channel_settings_repository.cpp $(ROOT)/simulator/preferences.cpp \
-    $(ROOT)/src/control_configuration.cpp $(ROOT)/src/channel_response.cpp $(ROOT)/src/crsf_channel_output.cpp
+    $(ROOT)/src/control_configuration.cpp $(ROOT)/src/channel_response.cpp $(ROOT)/src/crsf_channel_output.cpp \
+    $(ROOT)/src/model_backup.cpp $(ROOT)/src/control_assignment.cpp $(ROOT)/src/binding_resolver.cpp
 	@mkdir -p $(@D)
 	$(CXX) -I$(ROOT)/simulator/include $(CPPFLAGS) $(CXXFLAGS) $(filter %.cpp,$^) -o $@
 

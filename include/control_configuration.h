@@ -128,6 +128,9 @@ CompiledMixPlan compileConfiguredMixing(const ControlConfigurationSnapshot &conf
 struct ConfiguredMixInspection {
     bool inputsValid = false;
     bool throttleNeutral = false;
+    bool throttleValid = false;
+    bool throttleHasMix = false;
+    int16_t throttlePermille = 0;
 };
 ConfiguredMixInspection inspectConfiguredMixInputs(
     const ControlConfigurationSnapshot &configuration, const MixInputSnapshot &inputs,

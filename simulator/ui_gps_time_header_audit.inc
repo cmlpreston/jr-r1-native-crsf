@@ -187,6 +187,45 @@ for(unsigned orientation=0;orientation<2;++orientation){
         navigateBack();
         assert(activePage_==UiPage::DisplaySetup&&auditCutRequests==timeCuts);
     }
+    OutputReadiness checks;
+    checks.triggerValid=checks.linkValid=true;
+    checks.configurationValid=checks.physicalInputsHealthy=checks.startupComplete=true;
+    checks.throttleMixValid=checks.throttleMixActive=checks.throttleEnabled=true;
+    checks.linkQuality=49;checks.minimumLinkQuality=50;
+    checks.triggerPermille=-160;checks.throttleMixPermille=90;checks.throttleChannel=2;
+    const auto idleUp=static_cast<size_t>(PhysicalControlId::IdleUpSwitch);
+    const auto oldIdle=physicalInputStates_[idleUp];
+    physicalInputStates_[idleUp].mapped=true;physicalInputStates_[idleUp].faulted=true;
+    setOutputReadiness(checks,millis());
+    statusReturnPage_=UiPage::DisplaySetup;
+    drawDesignPage(UiPage::OutputStatus);
+    lv_obj_update_layout(lv_scr_act());
+    assert(!strcmp(lv_label_get_text(designValues_[0]),"-16.0% / centre"));
+    assert(!strcmp(lv_label_get_text(designValues_[1]),"+9.0% / +/-5%"));
+    assert(!strcmp(lv_label_get_text(designValues_[2]),"LQ 49 / min 50"));
+    assert(strstr(lv_label_get_text(designValues_[3]),"fault"));
+    assert(!strcmp(lv_label_get_text(designValues_[5]),"Check inputs"));
+    assert(!strcmp(lv_label_get_text(designValues_[7]),"CH2 enabled"));
+    lv_area_t reasonBounds;lv_obj_get_coords(designDetails_[1],&reasonBounds);
+    for(size_t i=0;i<8;++i){
+        const auto *font=lv_obj_get_style_text_font(designValues_[i],0);
+        const char *text=lv_label_get_text(designValues_[i]);
+        assert(lv_txt_get_width(text,strlen(text),font,0,LV_TEXT_FLAG_NONE)<=lv_obj_get_width(designValues_[i]));
+        lv_area_t bounds;lv_obj_get_coords(designValues_[i],&bounds);
+        assert(bounds.y1>reasonBounds.y2&&bounds.y2<(portraitUi?238:184));
+    }
+    updateOutputReadiness(OutputSafetyStatus::ControlStale,millis());
+    for(size_t i=0;i<8;++i)assert(!strcmp(lv_label_get_text(designValues_[i]),"--"));
+    setOutputReadiness(checks,millis()-1-CONTROL_STALE_TIMEOUT_US/1000);
+    updateOutputReadiness(OutputSafetyStatus::Cut,millis());
+    assert(!strcmp(lv_label_get_text(designValues_[2]),"--"));
+    openOutputInputMonitor(0,PageControlEvent::Activate);
+    assert(activePage_==UiPage::InputMonitor&&inputMonitorBank_==idleUp/5);
+    navigateBack();assert(activePage_==UiPage::OutputStatus);
+    navigateBack();assert(activePage_==UiPage::DisplaySetup);
+    assert(!armRequested_&&!safetyResetRequested_&&auditCutRequests==timeCuts);
+    physicalInputStates_[idleUp]=oldIdle;
+    setOutputReadiness(OutputReadiness{},0);
     designSafety_=OutputSafetyStatus::Cut;
     updateDesign(designTelemetry_,designSafety_,123,true);
     navigateBack();

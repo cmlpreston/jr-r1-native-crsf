@@ -52,7 +52,8 @@ void TransmitterUi::focusEditorExit()
     pageFocusVisible_=true;
     for(uint8_t i=0;i<pageFocusCount_;++i){const auto &t=pageFocusTargets_[i];
         if((activePage_==UiPage::ValueEditor&&t.handler==&TransmitterUi::controlDesign&&t.argument==34)||
-           (activePage_==UiPage::BindingEditor&&t.handler==&TransmitterUi::controlBindingEditor&&t.argument==5)){
+           (activePage_==UiPage::BindingEditor&&t.handler==&TransmitterUi::controlBindingEditor&&t.argument==5)||
+           (activePage_==UiPage::ModelManagement&&t.handler==&TransmitterUi::controlNavigation&&t.argument==0)){
             pageFocusIndex_=i;break;
         }
     }

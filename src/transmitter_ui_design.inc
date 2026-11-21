@@ -96,7 +96,7 @@ bool TransmitterUi::designPage() const
 {
     switch (activePage_) {
         case UiPage::RfWarningSetup: case UiPage::DriveBatterySetup: case UiPage::ErsSensors: case UiPage::TimerControl: case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation: case UiPage::WidgetMetricsReset:
-        case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor: case UiPage::RunReview: case UiPage::BrakeAbs: case UiPage::ClockSetup:
+        case UiPage::Dashboard: case UiPage::Tune: case UiPage::ValueEditor: case UiPage::RunReview: case UiPage::BrakeAbs: case UiPage::ClockSetup: case UiPage::ModelManagement:
         case UiPage::Telemetry: case UiPage::Gps: case UiPage::ChannelMonitor:
         case UiPage::SensorDetail: case UiPage::MainMenu: case UiPage::Channels:
         case UiPage::ChannelRoles: case UiPage::Channel2: case UiPage::ThrottleResponse: case UiPage::ChannelSpeed:
@@ -483,7 +483,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
         return;
     }
     constexpr int headerHeight = UiLayout::HeaderHeight;
-    const bool backButton = !rootPage && (!modal || page == UiPage::ElrsBinding || page == UiPage::Calibration);
+    const bool backButton = !rootPage && (!modal || page == UiPage::ElrsBinding ||
+        page == UiPage::Calibration || page == UiPage::ModelManagement);
     const int statusX=kScreenWidth-(portraitUi?96:247);
     const int statusWidth=portraitUi?54:58;
     if (showHeader && !retainChrome) {
@@ -511,7 +512,7 @@ void TransmitterUi::drawDesignPage(UiPage page)
         if (brakeAbs_.enabled) {
             label("ABS",statusX-29,portraitUi?modelY+1:metadataY,UiText::Caption,cAmber);
         }
-        if (!modal) {
+        if (!modal || page == UiPage::ModelManagement) {
             const int statusHeight=min(28,headerHeight-2*UiLayout::SmallGap);
             auto status=makePanel(statusX,headerCenterY(statusHeight),statusWidth,statusHeight,cPanel2,cAmber);
             designHeaderOutput_=makeLabel(status,"CUT",0,0,UiText::Caption,cWhite);
@@ -897,6 +898,8 @@ void TransmitterUi::drawDesignPage(UiPage page)
         modelScope();
         for(int i=0;i<4;++i){int ch=designBank_*4+i+1;char name[36];snprintf(name,sizeof(name),"CH%u  %s",ch,ch==channelRoleSettings_.steeringChannel?"Steering":ch==channelRoleSettings_.throttleChannel?"Throttle":"Auxiliary");row(86+i*(designPortrait?67:40),name,"Configure",90+i,designPortrait?56:37);}
         button(10,designFooterY-34,60,28,"<",80);button(kScreenWidth-70,designFooterY-34,60,28,">",81);
+    } else if(page==UiPage::ModelManagement) {
+        drawModelManagement();
     } else if(page==UiPage::ModelSelect) {
         label("Models",12,48,UiText::Heading);
         if (modelSelectPendingSlot_ < kModelMemoryCount) {
@@ -935,8 +938,13 @@ void TransmitterUi::drawDesignPage(UiPage page)
             return;
         } else {
             for(int i=0;i<5;++i){int slot=modelSelectBank_*5+i;row(78+i*(designPortrait?56:29),modelNames_[slot],slot==activeModelSlot_?"Active":"Load",100+i,designPortrait?48:29);}
-            boundedLabel(label(modelSelectStatus_[0]?modelSelectStatus_:"Change model in CUT with throttle centred",12,designFooterY-49,UiText::Caption,cDim),kScreenWidth-24);
-            button(10,designFooterY-32,60,27,"<",80);button(78,designFooterY-32,kScreenWidth-156,27,"Appearance",160);button(kScreenWidth-70,designFooterY-32,60,27,">",81);
+            boundedLabel(label(modelSelectStatus_[0]?modelSelectStatus_:"Change model in CUT with throttle centred",12,designFooterY-54,UiText::Caption,cDim),kScreenWidth-24);
+            const int y=designFooterY-40,width=(kScreenWidth-116)/2;
+            button(12,y,40,40,"<",80);
+            button(60,y,width-4,40,"Appearance",160);
+            makePageActionButton(kScreenWidth/2+4,y,width-4,40,"Manage",UiText::Menu,
+                cPanel,cWhite,cLine,&TransmitterUi::controlModelManagement,uint8_t(ModelManagementControl::Open));
+            button(kScreenWidth-52,y,40,40,">",81);
         }
     } else if(page==UiPage::WidgetSelect) {
         label("Drive layout",12,48,UiText::Heading);

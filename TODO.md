@@ -160,7 +160,8 @@ See the detailed roadmap for individual binding features.
 - [ ] Add restore-default-control-profile.
 - [x] Select among ten model memories with CUT/neutral guards and isolated
   bindings, response settings and widget layouts.
-- [ ] Add model rename, copy and reset editors.
+- [x] Add handset actions to name a new control profile, rename a model,
+  copy controls and reset controls, with a separate confirmation for replacement.
 - [x] Persist bindings and response settings per model.
 - [ ] Finish explicit versioned model serialisation and migration beyond the
   current per-model namespaces/blobs.

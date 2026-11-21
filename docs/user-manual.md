@@ -200,12 +200,26 @@ path, not a security boundary against someone with access to the handset.
 
 ## 4. Models
 
-Tap the title-bar model area to open the model list. A row marked Load selects
-that memory; the active row is marked Active. Load a model in CUT with throttle
-centred, then verify the active name. Use the separate **Appearance** control to
-change the active model's image and paint. Rename the active model in the web UI
-(1-12 printable ASCII characters). Do not identify a vehicle by image alone:
-multiple memories can use the same artwork.
+Tap the title-bar model area to open **Models**. A row marked **Load** selects
+that slot. The active slot is marked **Active**. Load a model in CUT with the
+throttle centred, then verify the active name. **Appearance** changes the active
+model's image and paint. Multiple models can use the same artwork.
+
+Open **Manage** in Models to edit slots directly on the handset. Leave the
+outputs in CUT with the throttle centred.
+
+| Action | What it does |
+| --- | --- |
+| New | Names an inactive slot and starts its control setup from defaults. |
+| Rename | Changes the selected slot's name. Use up to 12 characters. |
+| Copy | Copies the active model's control setup to an inactive slot under a new name. |
+| Reset controls | Restores default controls for the selected slot and keeps its name. |
+
+New, Copy and Reset controls ask you to confirm the destination before replacing
+its channel tuning, roles, mixes, control assignments and Walk limit. Its
+appearance, dashboard, alarms, timer settings and saved runs stay with that slot.
+Verify the ESC again before enabling ABS after replacing the controls. Use
+**Load** to select an inactive slot after New or Copy.
 
 Artwork choices include Hyper 7, buggy, truggy, short-course truck, monster truck,
 crawler, touring car and Formula/F1. Primary, accent and base paint affect

@@ -130,6 +130,7 @@ enum class UiPage : uint8_t {
     BrakeAbs,
     WidgetMetricsReset,
     ClockSetup,
+    ModelManagement,
 };
 
 class TransmitterUi {
@@ -313,8 +314,15 @@ private:
     void saveModelMemorySettings();
     void loadModelBackupNames();
     void loadActiveModelControls();
+    void applyModelBackupControls(const ModelBackup &model);
     void collectModelBackup(ModelBackup &model, const ChannelModelController &channels) const;
     bool persistModelBackup(const ChannelModelController &channels);
+    bool installModelBackup(uint8_t slot, const uint8_t *bytes, const char *name);
+    enum class ModelManagementAction : uint8_t { New, Rename, Copy, Reset };
+    bool modelManagementAllowed() const;
+    bool manageModelMemory(ModelManagementAction action, uint8_t slot, const char *name = nullptr);
+    bool renameModelMemory(uint8_t slot, const char *name);
+    ControlBinding defaultTimerBinding() const;
     bool saveCurrentModelMemory();
     bool selectModelMemory(uint8_t slot, bool discardUnsaved = false);
     bool saveCalibration();
@@ -367,6 +375,10 @@ private:
     };
     void controlBootPin(uint8_t item, PageControlEvent event);
     void controlDesign(uint8_t item, PageControlEvent event);
+    void drawModelManagement();
+    void controlModelManagement(uint8_t item, PageControlEvent event);
+    void backModelManagement();
+    void applyModelManagement();
     void drawSetupDetailsContent();
     void controlBrakeAbs(uint8_t item,PageControlEvent event);
     void controlResponseTab(uint8_t item,PageControlEvent event);
@@ -828,6 +840,17 @@ private:
     uint32_t modelRevision_ = 0;
     char modelSelectStatus_[64] = {};
     uint8_t modelSelectPendingSlot_ = kModelMemoryCount;
+    enum class ModelManagementStage : uint8_t { Actions, Slot, Name, Confirm };
+    enum class ModelManagementControl : uint8_t {
+        Open, New, Rename, Copy, Reset, Cancel, Apply, NameContinue,
+        CycleKeyboard, Space, Delete, Clear, FirstSlot = 12, FirstKey = 30,
+    };
+    ModelManagementStage modelManagementStage_ = ModelManagementStage::Actions;
+    ModelManagementAction modelManagementAction_ = ModelManagementAction::New;
+    uint8_t modelManagementSlot_ = kModelMemoryCount;
+    uint8_t modelManagementKeyboard_ = 1;
+    uint32_t modelManagementRevision_ = 0;
+    char modelManagementName_[kModelNameCapacity] = {};
     ChannelRoleSettings channelRoleSettings_;
     ProportionalInput triggerInput_;
     ProportionalInput steeringInput_;

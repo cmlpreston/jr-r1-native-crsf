@@ -866,6 +866,7 @@ const char *uiPageName(UiPage page)
         case UiPage::FieldResetConfirmation:return "reset-field";
         case UiPage::WidgetMetricsReset:return "reset-widget-metrics";
         case UiPage::ClockSetup:return "clock-timezone";
+        case UiPage::ModelManagement:return "model-management";
         case UiPage::Tune: return "tune";
         case UiPage::ValueEditor: return "value-editor";
         case UiPage::Gps: return "gps";
@@ -2123,14 +2124,18 @@ void TransmitterUi::saveElrsSettings()
 void TransmitterUi::restoreDefaultBindings()
 {
     bindingCount_ = 1;
-    bindings_[0] = defaultBindingForInput(PhysicalControlId::TimerButton);
-    bindings_[0].target = AssignmentTarget::TransmitterFunction;
-    bindings_[0].targetId = static_cast<uint16_t>(TransmitterFunction::TimerStartStop);
-    bindings_[0].contexts = ContextAlways;
-    bindings_[0].event = InputEvent::Pressed;
-    bindings_[0].behaviour = ControlBehaviour::Momentary;
-    bindings_[0].crsfChannel = 0;
-    bindings_[0].enabled = true;
+    bindings_[0] = defaultTimerBinding();
+}
+
+ControlBinding TransmitterUi::defaultTimerBinding() const
+{
+    auto binding = defaultBindingForInput(PhysicalControlId::TimerButton);
+    binding.target = AssignmentTarget::TransmitterFunction;
+    binding.targetId = static_cast<uint16_t>(TransmitterFunction::TimerStartStop);
+    binding.contexts = ContextAlways;
+    binding.crsfChannel = 0;
+    binding.enabled = true;
+    return binding;
 }
 
 void TransmitterUi::loadBindings()
@@ -2579,7 +2584,7 @@ void TransmitterUi::redrawActivePage()
     if (designPage()) { drawDesignPage(activePage_); return; }
     switch (activePage_) {
         case UiPage::Tune: case UiPage::ValueEditor: case UiPage::Gps:
-        case UiPage::ChannelMonitor: case UiPage::SensorDetail: case UiPage::WidgetSelect: case UiPage::WidgetEditor: case UiPage::BatteryMenu:
+        case UiPage::ChannelMonitor: case UiPage::SensorDetail: case UiPage::WidgetSelect: case UiPage::WidgetEditor: case UiPage::BatteryMenu: case UiPage::ModelManagement:
             drawDesignPage(activePage_); break;
         case UiPage::RadioDiagnostics: drawRadioDiagnostics(); break;
         case UiPage::WifiSetup: drawWifiPage(); break;
@@ -3477,7 +3482,7 @@ bool TransmitterUi::navigationIsModal() const
         case UiPage::BootSplash: case UiPage::BootPin: case UiPage::LogoSaver:
         case UiPage::StartupWarning: case UiPage::Calibration:
         case UiPage::QuickNavigation: case UiPage::FieldResetConfirmation: case UiPage::WidgetMetricsReset:
-        case UiPage::ValueEditor: case UiPage::WidgetEditor:
+        case UiPage::ValueEditor: case UiPage::WidgetEditor: case UiPage::ModelManagement:
         case UiPage::ParameterControlPicker: case UiPage::MixingOverview:
         case UiPage::ChannelMixing: case UiPage::BindingEditor:
         case UiPage::ElrsBinding: case UiPage::ModuleLink: return true;
@@ -3744,9 +3749,11 @@ bool TransmitterUi::dispatchPageControl(uint8_t index, PageControlEvent event)
     if (target.handler == nullptr || !target.enabled) return false;
     const uint8_t focused = pageFocusIndex_;
     const UiPage page = activePage_;
+    const auto modelStage = modelManagementStage_;
     (this->*target.handler)(target.argument, event);
     if (pageFocusCount_ != 0) {
-        if (activePage_ == page) pageFocusIndex_ = min<uint8_t>(focused, pageFocusCount_ - 1);
+        if (activePage_ == page && (page != UiPage::ModelManagement || modelStage == modelManagementStage_))
+            pageFocusIndex_ = min<uint8_t>(focused, pageFocusCount_ - 1);
         refreshPageFocus();
     }
     return true;
@@ -4070,6 +4077,10 @@ void TransmitterUi::controlNavigation(uint8_t item, PageControlEvent)
 
 void TransmitterUi::navigateBack()
 {
+    if (activePage_ == UiPage::ModelManagement) {
+        backModelManagement();
+        return;
+    }
     if (activePage_ == UiPage::ModelSelect && modelSelectPendingSlot_ < kModelMemoryCount) {
         modelSelectPendingSlot_ = kModelMemoryCount;
         modelSelectStatus_[0] = '\0';
@@ -5766,6 +5777,8 @@ void TransmitterUi::applyDisplayRotation() {
 #endif
 
 #include "transmitter_ui_wifi.inc"
+
+#include "transmitter_ui_model_management.inc"
 
 #include "transmitter_ui_mixing.inc"
 

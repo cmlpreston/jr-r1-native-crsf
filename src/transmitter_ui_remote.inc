@@ -1,22 +1,7 @@
 // Remote actions share the model/controller and CUT policy with local edits.
 bool TransmitterUi::portalRenameModel(const char *name)
 {
-    if(!SetupPortal::canControl()||armRequested_||!validModelBackupName(name))return false;
-    if(modelBackupInstalled_[activeModelSlot_]){
-        char previous[kModelNameCapacity];
-        memcpy(previous,modelNames_[activeModelSlot_],sizeof(previous));
-        snprintf(modelNames_[activeModelSlot_],kModelNameCapacity,"%s",name);
-        if(!persistModelBackup(channelModel_)){
-            memcpy(modelNames_[activeModelSlot_],previous,sizeof(previous));
-            return false;
-        }
-        ++modelRevision_;
-        return true;
-    }
-    ++modelRevision_;
-    snprintf(modelNames_[activeModelSlot_],kModelNameCapacity,"%s",name);saveModelMemorySettings();
-    Preferences p;if(!p.begin("jr-r1-models",true))return false;
-    char names[kModelMemoryCount][kModelNameCapacity];const bool ok=p.getBytes("names",names,sizeof(names))==sizeof(names)&&memcmp(names[activeModelSlot_],modelNames_[activeModelSlot_],kModelNameCapacity)==0;p.end();return ok;
+    return SetupPortal::canControl() && !armRequested_ && renameModelMemory(activeModelSlot_, name);
 }
 bool TransmitterUi::portalSetChannel(uint8_t ch,const ChannelResponseProfile &profile,int trim,int subtrim)
 {

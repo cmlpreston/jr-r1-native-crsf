@@ -2118,7 +2118,7 @@ bool TransmitterUi::runSimulatorUiAudit()
                 lv_area_t panel;lv_obj_get_coords(widgetViews_[0].panel,&panel);
                 assert(reset->activate.x>=panel.x1 && reset->activate.y>=panel.y1);
                 assert(reset->activate.x+reset->activate.width<=panel.x2+1);
-                assert(reset->activate.y+reset->activate.height<=panel.y2+1);
+                assert(reset->activate.y+reset->activate.height==panel.y2+1-UiLayout::WidgetActionBottomInset);
             }
             if(const char *prefix=getenv("JR_R1_SPEED_RESET_SCREENSHOTS")){
                 char path[256];snprintf(path,sizeof(path),"%s-%s-%ux%u-%u.bmp",prefix,designPortrait?"portrait":"landscape",width,height,unsigned(style));

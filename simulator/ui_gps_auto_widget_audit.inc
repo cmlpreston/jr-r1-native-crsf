@@ -127,6 +127,8 @@ auto autoGpsMode=[&](uint8_t cell,bool speed){
         const auto &resetTarget=pageFocusTargets_[reset].activate;
         assert(resetTarget.height==UiLayout::WidgetSensorResetHeight);
         assert(card.activate.y+card.activate.height<=resetTarget.y);
+        lv_area_t resetArea;lv_obj_get_coords(view.speedReset,&resetArea);
+        assert(bounds.y2-resetArea.y2>=UiLayout::WidgetActionBottomInset);
     }
 };
 auto autoGpsNoChurn=[&](const CrsfTelemetryState &state,uint32_t now,uint8_t cell=0){

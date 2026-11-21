@@ -1624,9 +1624,10 @@ void TransmitterUi::drawDashboardWidgets()
         if(sensorReset)addPageActionTarget(x,y+actionHeight,width-80,UiLayout::WidgetSensorFooterHeight,&TransmitterUi::controlDesign,130+cell);
         if(metricReset){
             constexpr int resetWidth=UiLayout::WidgetMetricResetWidth;
-            constexpr int resetHeight=UiLayout::WidgetMetricFooterHeight-2;
+            constexpr int resetHeight=UiLayout::WidgetMetricResetHeight;
+            const int resetY=y+height-UiLayout::WidgetActionBottomInset-resetHeight;
             addPageActionTarget(x,y+actionHeight,width-resetWidth-pad,UiLayout::WidgetMetricFooterHeight,&TransmitterUi::controlDesign,130+cell);
-            makePageActionButton(x+width-resetWidth-6,y+actionHeight+1,resetWidth,resetHeight,"Reset",
+            makePageActionButton(x+width-resetWidth-6,resetY,resetWidth,resetHeight,"Reset",
                 UiText::Caption,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,154+cell);
         }
         if(w.kind==DashboardWidgetKind::Timer){
@@ -1638,8 +1639,9 @@ void TransmitterUi::drawDashboardWidgets()
             if(buttonTop>=100+2*captionHeight+UiLayout::SmallGap)
                 view.values[2]=makeLabel(view.panel,"",pad,100,UiText::Caption,cDim);
 
-            makePageActionButton(x+8,y+buttonTop,width/2-12,timerFooter-5,timerPrimaryLabel(),UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,7);
-            makePageActionButton(x+width/2+4,y+buttonTop,width/2-12,timerFooter-5,"Reset",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,8);
+            const int buttonHeight=timerFooter-UiLayout::WidgetActionBottomInset;
+            makePageActionButton(x+8,y+buttonTop,width/2-12,buttonHeight,timerPrimaryLabel(),UiText::Secondary,cPanel2,cCyan,cLine,&TransmitterUi::controlDesign,7);
+            makePageActionButton(x+width/2+4,y+buttonTop,width/2-12,buttonHeight,"Reset",UiText::Secondary,cPanel2,cWhite,cLine,&TransmitterUi::controlDesign,8);
         } else if(w.kind==DashboardWidgetKind::AllChannels){
             uint8_t channels[DashboardMonitorMaxEntries];const int total=dashboardMonitorEntries(dashboardEnabledChannelMask_,w.source,channels,dashboardHidden_[activeModelSlot_][cell]);
             const bool vertical=w.style==DashboardWidgetStyle::VerticalBars;

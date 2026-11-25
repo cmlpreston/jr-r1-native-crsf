@@ -348,7 +348,7 @@ lv_obj_t *TransmitterUi::drawMenuRow(const char *title,const char *value,int y,i
     const int line=UiText::font(UiText::Menu)->line_height;
     const int inset=UiLayout::Gap;
     const int valueRight=chevron?max(trailing,2*UiLayout::LargeGap):trailing;
-    auto panel=makePanel(UiLayout::PageInset,y,width,height,cBlack,cLine,0);
+    auto panel=makePanel(UiLayout::PageInset,y,width,height,uiNightMode?cBlack:cPanel,cLine,0);
     lv_obj_set_style_border_side(panel,LV_BORDER_SIDE_BOTTOM,0);
     const int nameY=subtitle?0:designPortrait&&*value?UiLayout::SmallGap:(height-line)/2;
     auto name=makeLabel(panel,title,inset,nameY,UiText::Menu,cWhite);

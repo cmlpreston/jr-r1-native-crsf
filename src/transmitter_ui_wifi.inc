@@ -1,16 +1,83 @@
 static const char *kWifiKeys[3][4]={{"1234567890","qwertyuiop","asdfghjkl","zxcvbnm-_"},{"1234567890","QWERTYUIOP","ASDFGHJKL","ZXCVBNM-_"},{"!@#$%^&*()","[]{}<>/=+",";:'\"\\|,.","`~?-_"}};
 // Setup runs on the normal UI/Arduino loop; network callbacks never touch LVGL
 // from another task. Input gestures are dispatched through existing hit targets.
+void TransmitterUi::openWifiPage(bool webAccess,uint8_t editor)
+{
+    if(activePage_!=UiPage::WifiSetup)wifiSetupSessionOwned_=false;
+    wifiWebAccess_=webAccess;wifiEdit_=editor;wifiSetupPasswordError_=false;wifiScanPending_=false;
+    snprintf(wifiSsid_,sizeof(wifiSsid_),"%s",SetupPortal::state().ssid);
+    wifiPassword_[0]=wifiSetupPassword_[0]=0;
+    // Merely checking the IP or saved network is read-only. Restart is an
+    // explicit operation, but its confirmation does not need a setup hotspot.
+    if(editor==5)requestConfigurationCut();
+    drawWifiPage();
+}
+
+bool TransmitterUi::ensureWifiSetupSession()
+{
+    if(SetupPortal::firmwareUpdating())return false;
+    requestConfigurationCut();
+    if(!SetupPortal::active()){
+        SetupPortal::start();
+        wifiSetupSessionOwned_=!remoteTouchActive_;
+    }
+    return SetupPortal::active();
+}
+
+void TransmitterUi::leaveWifiPage(bool remote)
+{
+    // Preserving another session's transport must not preserve a latent arm
+    // request. An inactive read-only visit has no such interlock to change.
+    // Ownership also forces CUT before stopping our session. After ownership
+    // and arm are cleared, a second navigation hook is a no-op even while the
+    // asynchronous portal stop still reports active.
+    if((SetupPortal::active()||SetupPortal::firmwareUpdating()||hardwareRecovery_)&&
+       (armRequested_||wifiSetupSessionOwned_))requestConfigurationCut();
+    // A status visit never owns a pre-existing hotspot/browser/recovery session.
+    // Browser navigation must also preserve its own transport; an OTA that
+    // took over while this page was open retains the setup/arming interlock.
+    if(wifiSetupSessionOwned_&&!remote&&!remoteTouchActive_&&!hardwareRecovery_&&
+       !SetupPortal::firmwareUpdating()&&SetupPortal::active()){
+        SetupPortal::stop();
+    }
+    wifiSetupSessionOwned_=false;
+    wifiScanPending_=false;
+    wifiPassword_[0]=wifiSetupPassword_[0]=0;
+    wifiEdit_=0;wifiSetupPasswordError_=false;
+}
+
+void TransmitterUi::backWifiPage()
+{
+    if(wifiEdit_&&(SetupPortal::active()||SetupPortal::firmwareUpdating()||hardwareRecovery_)&&
+       (armRequested_||wifiSetupSessionOwned_))requestConfigurationCut();
+    if(wifiEdit_==4||wifiEdit_==6){
+        wifiSetupPassword_[0]=0;wifiSetupPasswordError_=false;wifiEdit_=0;drawWifiPage();
+    }else if(wifiEdit_)controlWifi(13,PageControlEvent::Activate);
+    else{leaveWifiPage();drawDesignPage(UiPage::NetworkOptions);}
+}
+
+void TransmitterUi::updateWifiPage()
+{
+    if(activePage_!=UiPage::WifiSetup)return;
+    if(wifiScanPending_){
+        if(!SetupPortal::active())wifiScanPending_=false;
+        else if(SetupPortal::state().running){wifiScanPending_=false;SetupPortal::scan();}
+    }
+    if(wifiRevision_!=SetupPortal::state().revision&&wifiEdit_!=1&&wifiEdit_!=2&&wifiEdit_!=4&&wifiEdit_!=6)drawWifiPage();
+}
+
 void TransmitterUi::drawWifiPage()
 {
     activePage_=UiPage::WifiSetup;startScreen();resetLvglObjects();beginPageFocus(false);
     const auto &s=SetupPortal::state();wifiRevision_=s.revision;
     makeHeader(wifiWebAccess_?"Web access":"Home Wi-Fi", (wifiEdit_==4||wifiEdit_==6)?"Cancel":wifiEdit_?"Done":"Close");
-    if(!wifiEdit_ && SetupPortal::active()){
-        // Navigation is independent of ending a manual setup session. Keep an
-        // explicit finish action so physical arming is not trapped in setup.
+    if(!wifiEdit_){
+        // Viewing status is read-only; starting the hotspot is explicit. Back
+        // also closes a session owned by this physical configuration visit.
         lv_obj_set_width(lv_obj_get_child(lv_obj_get_child(lv_scr_act(),0),0),kScreenWidth-250);
-        makePageActionButton(kScreenWidth-146,5,106,34,"Finish setup",UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlWifi,2);
+        makePageActionButton(kScreenWidth-146,headerCenterY(kHeaderButtonHeight),106,kHeaderButtonHeight,
+            SetupPortal::active()?"Finish setup":"Start setup",UiText::Secondary,cPanel,cWhite,cLine,
+            &TransmitterUi::controlWifi,SetupPortal::active()?2:1);
     }
     auto text=[](const char *t,int y,UiText::Style style=UiText::Caption){auto l=makeLabel(lv_scr_act(),t,12,y,style,cWhite);lv_obj_set_width(l,kScreenWidth-24);return l;};
     auto button=[&](int x,int y,int w,const char *label,uint8_t id){return makePageActionButton(x,y,w,32,label,UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlWifi,id);};
@@ -51,7 +118,7 @@ void TransmitterUi::drawWifiPage()
         button(12,190,(kScreenWidth-28)/2,"Cancel",13);
         button(kScreenWidth/2,190,(kScreenWidth-28)/2,"Restart now",18);
     }else if(wifiEdit_==3){
-        text(s.scanning?"Scanning...":"Choose a 2.4 GHz network",52,UiText::Secondary);
+        text(wifiScanPending_?"Starting Wi-Fi...":s.scanning?"Scanning...":"Choose a 2.4 GHz network",52,UiText::Secondary);
         const int rows=portraitUi?8:4;
         for(int i=0;i<rows;++i){int n=wifiNetworkPage_*rows+i;if(n>=s.networkCount)break;button(12,80+i*36,kScreenWidth-24,s.networks[n].ssid,70+n);}
         button(12,portraitUi?382:232,(kScreenWidth-28)/2,"More",14);button(kScreenWidth/2,portraitUi?382:232,(kScreenWidth-28)/2,"Back",13);
@@ -112,23 +179,39 @@ void TransmitterUi::controlWifi(uint8_t item, PageControlEvent event)
     if(event!=PageControlEvent::Activate)return;
     Serial.printf("WIFI UI: control=%u\n",item);
     if(remoteTouchActive_){
-        if(item==2){wifiEdit_=0;armRequested_=false;drawDashboard();return;}
+        if(item==2){leaveWifiPage(true);armRequested_=false;drawDashboard();return;}
         // A browser must not tear down its own transport. Network changes
         // remain available from the physical LCD, including password rotation.
-        if(item==6||item==7||item==15||(item==13&&wifiEdit_==4)){
+        if(item==1||item==6||item==7||item==15||(item==13&&wifiEdit_==4)){
             remoteTouchRejected_=true;return;
         }
     }
-    if(item==2){wifiPassword_[0]=0;requestConfigurationCut();SetupPortal::stop();drawDesignPage(UiPage::NetworkOptions);return;}
+    if(item==1){
+        if(!ensureWifiSetupSession()){playBuzzer(180);return;}
+        drawWifiPage();return;
+    }
+    if(item==2){
+        if(SetupPortal::firmwareUpdating()){playBuzzer(180);return;}
+        requestConfigurationCut();
+        if(SetupPortal::active())SetupPortal::stop();
+        wifiSetupSessionOwned_=false;leaveWifiPage();drawDesignPage(UiPage::NetworkOptions);return;
+    }
+    const bool configuring=item==3||item==4||item==5||item==6||item==7||
+        item==15||item==16||item==19||(item==13&&(wifiEdit_==4||wifiEdit_==6));
+    if(configuring&&!ensureWifiSetupSession()){playBuzzer(180);return;}
     if(item==80){wifiWebAccess_=true;wifiEdit_=0;drawWifiPage();return;}
     if(item==19){snprintf(wifiHostname_,sizeof(wifiHostname_),"%s",SetupPortal::state().hostname);wifiEdit_=6;wifiKeyMode_=0;wifiSetupPasswordError_=false;}
     if(item==17){wifiEdit_=5;drawWifiPage();return;}
     if(item==18){
-        if(wifiEdit_!=5||armRequested_||!SetupPortal::requestRestart()){playBuzzer(180);return;}
+        if(wifiEdit_!=5||armRequested_||SetupPortal::firmwareUpdating()||!SetupPortal::requestRestart()){playBuzzer(180);return;}
         wifiEdit_=0;drawWifiPage();return;
     }
     if(item==16){if(!SetupPortal::setAutoConnect(!SetupPortal::state().autoConnect))playBuzzer(180);}
-    if(item==3){SetupPortal::scan();wifiEdit_=3;wifiNetworkPage_=0;}
+    if(item==3){
+        wifiScanPending_=!SetupPortal::state().running;
+        if(!wifiScanPending_)SetupPortal::scan();
+        wifiEdit_=3;wifiNetworkPage_=0;
+    }
     if(item==4){wifiEdit_=1;wifiKeyMode_=0;}
     if(item==5){wifiEdit_=2;wifiKeyMode_=0;}
     if(item==6){if(!SetupPortal::connect(wifiSsid_,wifiPassword_)){playBuzzer(180);wifiEdit_=2;}}

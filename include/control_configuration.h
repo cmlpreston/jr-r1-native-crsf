@@ -6,6 +6,7 @@
 #include "channel_mixing.h"
 #include "crsf_channel_output.h"
 #include "proportional_input.h"
+#include "brake_abs.h"
 
 struct ChannelRoleSettings {
     uint8_t steeringChannel = 1;
@@ -15,7 +16,9 @@ struct ChannelRoleSettings {
 };
 
 struct ChannelParameterValues {
+    // Operational offset of the whole response, clipped to output limits.
     int16_t trimPermille = 0;
+    // Centre-only adjustment, rescaling each side to retain its endpoints.
     int16_t subtrimPermille = 0;
 };
 
@@ -37,6 +40,7 @@ struct DriveModeSettings {
 // pointer back into mutable UI state.
 struct ControlConfigurationSnapshot {
     uint32_t revision = 0;
+    BrakeAbsSettings brakeAbs;
     ProportionalInputProfile throttleInput;
     ProportionalInputProfile steeringInput;
     ChannelResponseProfile channelProfiles[CRSF_CHANNEL_COUNT] = {};
@@ -47,6 +51,8 @@ struct ControlConfigurationSnapshot {
     uint8_t throttleChannel = 2;
     bool steeringEnabled = true;
     bool throttleEnabled = true;
+    bool escSelectorReserved = false;
+    bool escProgramming = false, escProgrammerSelected = false;
     bool modelStorageValid = true;
     bool armRequested = false;
     bool calibrationActive = false;
@@ -57,7 +63,8 @@ struct ControlConfigurationSnapshot {
 // Revision is publication metadata, not configuration identity.
 bool equivalentControlConfiguration(const ControlConfigurationSnapshot &left,
                                     const ControlConfigurationSnapshot &right);
-// Live trim is deliberate. Structural response/input/role/mix edits require CUT.
+// Live trim/expo, mechanical steering endpoints and steering parameter subtrim
+// are deliberate. Other structural response/input/role/mix edits require CUT.
 bool controlConfigurationRequiresRearm(const ControlConfigurationSnapshot &before,
                                       const ControlConfigurationSnapshot &after);
 
@@ -71,7 +78,7 @@ int16_t applyConfiguredDriveMode(
     int16_t configuredPermille, int16_t rawInputPermille);
 int16_t applyConfiguredChannelAdjustments(
     const ControlConfigurationSnapshot &configuration, uint8_t channel,
-    int16_t inputPermille);
+    int16_t inputPermille, int16_t switchedRatePermille = 1000);
 int16_t configuredChannelNeutral(
     const ControlConfigurationSnapshot &configuration, uint8_t channel);
 
@@ -121,6 +128,9 @@ CompiledMixPlan compileConfiguredMixing(const ControlConfigurationSnapshot &conf
 struct ConfiguredMixInspection {
     bool inputsValid = false;
     bool throttleNeutral = false;
+    bool throttleValid = false;
+    bool throttleHasMix = false;
+    int16_t throttlePermille = 0;
 };
 ConfiguredMixInspection inspectConfiguredMixInputs(
     const ControlConfigurationSnapshot &configuration, const MixInputSnapshot &inputs,
@@ -156,3 +166,15 @@ void previewChannelMixCurve(const ControlConfigurationSnapshot &configuration,
     uint8_t channel,const ChannelMixSettings &settings,int16_t base,
     const int16_t sources[2],bool switchHigh,bool walk,uint8_t sweep,
     int16_t output[kMixCurvePoints]);
+
+// Read-only draft monitor using the same dependency/source shaping as the
+// control pipeline. Rates are settled; no runtime latches or outputs are changed.
+struct ChannelMixMonitor {
+    bool valid=false;
+    int16_t base=0, sources[2]={};
+    ChannelMixPreview result;
+    int16_t curve[kMixCurvePoints]={};
+};
+ChannelMixMonitor monitorChannelMix(const ControlConfigurationSnapshot &configuration,
+    const MixInputSnapshot &inputs,const CrsfChannelOutputModel &bindings,
+    uint8_t channel,const ChannelMixSettings &draft,int8_t sweep=-1);

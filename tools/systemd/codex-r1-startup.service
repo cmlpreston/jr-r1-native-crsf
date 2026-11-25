@@ -1,0 +1,23 @@
+[Unit]
+Description=Start Codex for the R-1 development project
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/r1-dev/project
+Environment=HOME=/home/pi
+Environment=CODEX_HOME=/home/pi/.codex
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+UMask=0077
+ExecStart=/home/pi/.local/bin/codex app-server daemon start
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=30s
+TimeoutStartSec=120s
+
+[Install]
+WantedBy=multi-user.target

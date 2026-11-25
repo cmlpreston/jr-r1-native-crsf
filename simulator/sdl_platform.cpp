@@ -219,6 +219,13 @@ bool simulatorQuitRequested() { return quitRequested; }
 const SimulatorControls &simulatorControls() { return controls; }
 bool simulatorTouchDown() { return touchDown; }
 
+void simulatorSetTouchForTesting(int16_t x,int16_t y,bool down)
+{
+    touchX = x;
+    touchY = y;
+    touchDown = down;
+}
+
 void simulatorFlush(const lv_area_t *area, const lv_color_t *pixels)
 {
     frameDirty = true;
@@ -261,8 +268,11 @@ void simulatorSetBrightness(uint8_t percent)
     brightnessPercent = constrain<uint8_t>(percent, 0, 100);
 }
 
+static uint32_t beepCount=0;
+uint32_t simulatorBeepCount() { return beepCount; }
 void simulatorBeep(uint16_t pitchHz, uint16_t durationMs)
 {
+    ++beepCount;
     std::printf("SIM: beep %u Hz for %u ms\n", pitchHz, durationMs);
 }
 
@@ -291,6 +301,13 @@ bool simulatorSaveScreenshot(const char *path)
     if (surface) SDL_FreeSurface(surface);
     std::printf("SIM: screenshot %s %s\n", saved ? "saved" : "failed", path);
     return saved;
+}
+
+bool simulatorCopyFramebuffer(uint32_t *pixels, size_t count)
+{
+    if (count != framebuffer.size()) return false;
+    std::copy(framebuffer.begin(), framebuffer.end(), pixels);
+    return true;
 }
 
 bool simulatorConsumeAction(uint16_t &function, int16_t &value)

@@ -80,6 +80,9 @@ class UploadPreflightTest(unittest.TestCase):
         for target in ('esp32-s3-devkitc-1', 'esp32-s3-devkitc-1-portrait', 'esp32-s3-devkitc-1-btt', 'esp32-s3-devkitc-1-display-test'):
             self.assertFalse(self.check_guard(target, 'esp32-s3-devkitc-1-n16r8')[0])
 
+    def test_er4_needs_its_dedicated_project_and_manifest(self):
+        self.assertFalse(self.check_guard("er4-esc-rf-bench-wifi", "esp8285")[0])
+
     def test_portrait_uploads_refused(self):
         for target in ('seeed_xiao_esp32s3-pcb-portrait', 'seeed_xiao_esp32s3-pcb-lcd-test-portrait'):
             self.assertFalse(self.check_guard(target)[0])

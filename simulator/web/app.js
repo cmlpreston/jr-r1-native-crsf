@@ -14,7 +14,7 @@ function send(data){
 }
 document.getElementById('orientation').value=orientation;
 display.classList.toggle('landscape',orientation==='landscape');
-document.getElementById('screen-label').textContent='Drive → Layout edits widgets. Hold CUT to request arming; tap to cut.';
+document.getElementById('screen-label').textContent='Demo PIN: 1234. Tap Drive to navigate; hold for 1.8 s, then release to request output or CUT.';
 async function start(){
  try {
   if(!('WebAssembly' in window))throw new Error('This demo needs a browser that supports WebAssembly.');

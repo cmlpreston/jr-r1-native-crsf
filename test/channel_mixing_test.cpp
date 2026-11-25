@@ -89,7 +89,42 @@ static void testThresholdSwitches() {
     auto changed=c;changed.mixing[2].rules[0].hysteresisPercent=4;
     assert(!equivalentControlConfiguration(c,changed));
 }
+static void testLiveDraftMonitor() {
+    ControlConfigurationSnapshot c;
+    MixInputSnapshot inputs;inputs.valid=(uint64_t{1}<<19)-1;
+    inputs.values[0]=600;inputs.values[1]=-400;inputs.values[3]=1000;inputs.values[9]=-1000;
+    CrsfChannelOutputModel bindings;bindings.configure(3,crsfValueFromPermille(200),CRSF_CHANNEL_MID,true);
+    ChannelMixSettings draft;draft.includeBase=0;
+    draft.rules[0].enabled=1;draft.rules[0].source=0;draft.rules[0].weight=50;
+    draft.rules[0].condition=2;draft.rules[0].control=3;
+    draft.rules[1].enabled=1;draft.rules[1].source=1;draft.rules[1].weight=50;
+    draft.rules[1].condition=2;draft.rules[1].control=9;
+    const auto stored=c.mixing[2];const auto requested=bindings.requested(3);
+    auto live=monitorChannelMix(c,inputs,bindings,3,draft,1);
+    assert(live.valid && live.base>=198 && live.base<=202);
+    near(live.result.output,300);assert(live.sources[0]==600 && live.sources[1]==-400);
+    assert(live.curve[0]==-500 && live.curve[40]==500);
+    inputs.values[9]=1000;live=monitorChannelMix(c,inputs,bindings,3,draft,1);
+    near(live.result.output,100); // Each rule uses its own actual switch.
+    assert(live.curve[0]==-700 && live.curve[40]==300);
+    assert(bindings.requested(3)==requested && !c.mixing[2].rules[0].enabled && !stored.rules[0].enabled);
+    auto applied=c;applied.mixing[2]=draft;
+    auto out=bindings;ChannelMixRuntime runtime;ChannelSlewRuntime slew;
+    processConfiguredMixedOutputs(applied,out,inputs,runtime,slew,1,false);
+    near(permilleFromCrsfValue(out.requested(3)),live.result.output);
+    inputs.valid&=~uint64_t{1};assert(!monitorChannelMix(c,inputs,bindings,3,draft).valid);
+    inputs.valid|=1;draft.rules[0].source=21; // CH3 self-cycle is invalid, never a live zero.
+    assert(!monitorChannelMix(c,inputs,bindings,3,draft).valid);
+    // Logical channel inputs retain shared shaping and follow-trim behaviour.
+    draft.rules[0].source=19;draft.rules[0].condition=0;draft.rules[0].followTrim=1;
+    draft.rules[1].enabled=0;c.channelProfiles[0].positiveRatePercent=50;c.channelParameters[0].trimPermille=100;
+    live=monitorChannelMix(c,inputs,bindings,3,draft);
+    assert(live.valid);near(live.sources[0],300);near(live.result.output,200);
+    assert(!monitorChannelMix(c,inputs,bindings,0,draft).valid);
+}
+
 int main() {
+    testLiveDraftMonitor();
     testThresholdSwitches();
     ChannelMixSettings settings;
     MixInputSnapshot inputs;inputs.valid=(1U<<19)-1;

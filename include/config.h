@@ -3,6 +3,12 @@
 #include <Arduino.h>
 #include "display_profile.h"
 
+// Temporary startup convenience, explicitly requested for the RF bench.
+#ifndef JR_R1_TEMP_BENCH_STARTUP
+#define JR_R1_TEMP_BENCH_STARTUP 0
+#endif
+static_assert(JR_R1_TEMP_BENCH_STARTUP==0 || JR_R1_TEMP_BENCH_STARTUP==1,"Invalid bench startup flag");
+
 // ESP32-S3 DevKitC-1 defaults, with explicit XIAO PCB overrides.
 // GPIO19 and GPIO20 are deliberately not used: they are native USB D-/D+.
 #ifdef JR_R1_XIAO_PCB

@@ -1,0 +1,239 @@
+name: R1 firmware and tests
+
+on:
+  push:
+    branches: [main, 'codex/**']
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'tools/systemd/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r1-firmware-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  landscape:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: 1G
+      CCACHE_COMPILERCHECK: content
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify event commit and set firmware branch identity
+        run: |
+          test "$GITHUB_REF_TYPE" = branch
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git switch --force-create "$GITHUB_REF_NAME" "$GITHUB_SHA"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config libssl-dev ccache
+          python -m pip install 'platformio==6.1.19'
+      - name: Cache PlatformIO downloads
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.platformio/platforms
+            ~/.platformio/packages
+            ~/.platformio/.cache
+          key: pio-${{ runner.os }}-${{ runner.arch }}-6.1.19-${{ hashFiles('platformio.ini') }}
+      - name: Cache compiler results
+        uses: actions/cache@v5
+        with:
+          path: .ccache
+          # Unique save keys let each successful run extend the previous cache.
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('platformio.ini', 'tools/ci_ccache.py') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-v1-${{ hashFiles('platformio.ini', 'tools/ci_ccache.py') }}-
+      - name: Reset compiler cache statistics
+        run: ccache --zero-stats
+      - name: Validate hardware configuration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from tools.flash_via_pi import validate_hardware
+          validate_hardware(Path.cwd(), 'seeed_xiao_esp32s3-pcb')
+          PY
+      - name: Build landscape firmware (one job)
+        env:
+          # PlatformIO appends this to the existing upload/identity preflight.
+          # Local builds and downloaded-artifact uploads use platformio.ini.
+          PLATFORMIO_EXTRA_SCRIPTS: |
+            pre:tools/ci_ccache.py
+        run: |
+          mkdir -p ci-output
+          set -o pipefail
+          python - <<'PY'
+          from platformio.project.config import ProjectConfig
+          scripts = ProjectConfig.get_instance().get('env:seeed_xiao_esp32s3-pcb', 'extra_scripts')
+          assert scripts == ['pre:tools/upload_preflight.py', 'pre:tools/ci_ccache.py'], scripts
+          PY
+          pio run -e seeed_xiao_esp32s3-pcb -j 1 2>&1 | tee ci-output/firmware-build.log
+          ccache --show-stats | tee ci-output/firmware-ccache.log
+      - name: Run complete host suite (one job)
+        run: |
+          set -o pipefail
+          make -C test -j1 CXX=/usr/lib/ccache/c++ CC=/usr/lib/ccache/cc run 2>&1 | tee ci-output/host-tests.log
+      - name: Select simulator checks
+        id: ui-changes
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          python tools/ci_ui_checks.py --before="$BEFORE" --head="$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+      - name: Prepare simulator dependencies
+        if: steps.ui-changes.outputs.simulator == 'true'
+        run: |
+          set -o pipefail
+          if ! command -v sdl2-config >/dev/null; then
+            sudo apt-get install --no-install-recommends -y libsdl2-dev 2>&1 | tee ci-output/simulator-dependencies.log
+          fi
+          make -C simulator -j1 bootstrap 2>&1 | tee -a ci-output/simulator-dependencies.log
+      - name: Build simulator for selected UI checks
+        if: steps.ui-changes.outputs.simulator == 'true'
+        run: |
+          set -o pipefail
+          make -C simulator -j1 CXX=/usr/lib/ccache/c++ CC=/usr/lib/ccache/cc 2>&1 | tee ci-output/simulator-build.log
+      - name: Validate shared UI and layout
+        id: shared-ui
+        if: steps.ui-changes.outputs.shared == 'true'
+        run: |
+          set -o pipefail
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/shared-ui.log
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_CHROME_REUSE_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/chrome-reuse.log
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_GPS_TIME_HEADER_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/handset-header.log
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_DASHBOARD_SPACE_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/dashboard-space.log
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_TOUCH_LOCK_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/touch-lock.log
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_MODEL_BACKUP_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/model-backup.log
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_POWER_CONTROL_WIDGET_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/dashboard-instruments.log
+      - name: Validate saved records UI
+        id: records-ui
+        if: steps.ui-changes.outputs.records == 'true'
+        run: |
+          set -o pipefail
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_RUN_RECORDS_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/run-records-ui.log
+      - name: Validate sensor history UI
+        id: sensor-ui
+        if: steps.ui-changes.outputs.history == 'true'
+        run: |
+          set -o pipefail
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_SENSOR_HISTORY_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/sensor-history-ui.log
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_GRAPH_REDRAW_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/graph-redraw.log
+      - name: Validate ERS discovery UI
+        id: ers-ui
+        if: steps.ui-changes.outputs.ers == 'true'
+        run: |
+          set -o pipefail
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_ERS_NATIVE_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/ers-discovery-ui.log
+      # Colour previews exercise the same picker callbacks and persisted keys
+      # used on the handset, with disposable preferences in both orientations.
+      - name: Validate light colour schemes
+        id: colours-ui
+        if: steps.ui-changes.outputs.colours == 'true'
+        run: |
+          set -o pipefail
+          audit_state=$(mktemp -d)
+          SDL_VIDEODRIVER=dummy JR_R1_SIM_STATE="$audit_state" JR_R1_COLOUR_SCHEMES_AUDIT_ONLY=1 simulator/build/jr-r1-sim --ui-audit 2>&1 | tee ci-output/colour-schemes-ui.log
+      - name: Report compiler cache statistics
+        if: always()
+        run: |
+          mkdir -p ci-output
+          ccache --show-stats | tee ci-output/ccache.log
+          {
+            echo '### Compiler cache'
+            echo '```text'
+            cat ci-output/ccache.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Package tested firmware
+        env:
+          JR_R1_SHARED_UI_CHECK: ${{ steps.shared-ui.outcome }}
+          JR_R1_RUN_RECORDS_UI_CHECK: ${{ steps.records-ui.outcome }}
+          JR_R1_SENSOR_HISTORY_UI_CHECK: ${{ steps.sensor-ui.outcome }}
+          JR_R1_ERS_DISCOVERY_UI_CHECK: ${{ steps.ers-ui.outcome }}
+          JR_R1_COLOUR_SCHEMES_UI_CHECK: ${{ steps.colours-ui.outcome }}
+        run: python tools/package_ci_firmware.py --commit "$GITHUB_SHA" --branch "$GITHUB_REF_NAME"
+      - name: Save tested firmware
+        uses: actions/upload-artifact@v6
+        with:
+          name: r1-landscape-${{ github.sha }}
+          path: |
+            ci-output/r1-upload.tar.gz
+            ci-output/r1-upload-manifest.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+      - name: Save committed source archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: r1-source-${{ github.sha }}
+          path: |
+            ci-output/source.tar.gz
+            ci-output/r1-upload-manifest.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+      - name: Save build and test logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: r1-logs-${{ github.sha }}-${{ github.run_attempt }}
+          path: ci-output/*.log
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Save sensor history UI previews
+        if: always() && steps.ui-changes.outputs.history == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: r1-sensor-history-ui-${{ github.sha }}
+          path: /tmp/r1-sensor-history-*.bmp
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Save ERS UI previews
+        if: always() && steps.ui-changes.outputs.ers == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: r1-ers-ui-${{ github.sha }}
+          path: /tmp/r1-ers-native-*.bmp
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Save light colour scheme previews
+        if: always() && steps.ui-changes.outputs.colours == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: r1-light-schemes-ui-${{ github.sha }}
+          path: /tmp/r1-light-scheme-*.bmp
+          if-no-files-found: ignore
+          retention-days: 3

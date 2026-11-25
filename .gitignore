@@ -13,3 +13,7 @@ tft-screenshot*.png
 
 # Local schematic extracts and investigation scratch files.
 /tmp/
+
+# Hosted build logs and firmware packages.
+/ci-output/
+/.ccache/

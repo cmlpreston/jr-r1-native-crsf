@@ -21,6 +21,14 @@ size_t buildElrsManagementFrame(const ElrsManagementRequest &request,
 {
     if (request.action == ElrsManagementAction::TxParameter)
         return buildTxParameterFrame(request.parameter, frame, capacity);
+    if (request.action == ElrsManagementAction::ErsSensor)
+        return buildErsFrame(request.ers, frame, capacity);
+    if(request.action==ElrsManagementAction::EscProgrammer){
+        if(!request.escReturnProbe)return EscWire::build(request.esc,false,frame,capacity);
+        if(!frame||capacity<6)return 0;
+        const uint8_t probe[]={0xc8,4,0x28,0xec,0xea,0};
+        memcpy(frame,probe,6);frame[5]=crc8DvbS2(frame+2,3);return 6;
+    }
     const bool write = request.action == ElrsManagementAction::SetBindPhrase;
     const size_t phraseLength = write
         ? min<size_t>(request.phraseLength, kElrsMaximumBindPhraseLength) : 0;

@@ -1,5 +1,11 @@
 # pi3 remote firmware bench
 
+For the 16 November move to Codex on this Pi, read
+[MIGRATION-PI-2026-11-16.md](MIGRATION-PI-2026-11-16.md) first. The destination
+development checkout is `/home/pi/r1-dev/project`; the old `firmware` checkout
+and `usb-upload` artifacts below are retained separately. Use one build job.
+The remainder of this document records the earlier remote-bench workflow.
+
 The existing fv-results Pi also hosts the XIAO development tools. Existing
 fv-results files, Pi-hole and Caddy are left in place. At the user's request on
 2026-09-21, the eight fv-results refresh timers were disabled and their services
@@ -127,40 +133,8 @@ On 2026-09-23 the full transmitter firmware was restored with
 The first upload lost USB before verification; after reconnecting, the guarded
 retry verified successfully (`~/r1-dev/upload-full-restore-retry.log`).
 
-## One-command laptop build / copy / flash
+## Current upload workflow
 
-From the project directory on the Mac:
-
-```sh
-./tools/flash_via_pi.py
-```
-
-Defaults to the installed landscape layout, gateway SSH on port
-10022 and the existing Pi upload checkout. It fetches main, refuses stale or
-unrelated branches, validates the XIAO/Waveshare pin allocation, builds locally,
-runs native/browser tests and the matching SDL UI audit, then transfers only
-firmware/bootloader/partitions plus configuration, upload preflight and a manifest.
-The Pi checks all hashes, boot_app0 and Git identity, then runs PlatformIO’s
-`nobuild` / `upload` targets. No new release directory or Pi build is performed.
-An open serial monitor causes a clear stop; it is never killed automatically.
-Running the script authorizes its flash; there is no extra confirmation prompt.
-
-Local checks without an upload:
-
-```sh
-./tools/flash_via_pi.py --check
-```
-
-To specify the approved landscape layout explicitly:
-
-```sh
-./tools/flash_via_pi.py --environment seeed_xiao_esp32s3-pcb
-```
-
-The complete tested source snapshot and binary manifest remain in the printed
-`/tmp/r1-flash-*` directory. The Pi directory contains upload metadata and
-binaries; its application source is not updated by this script and must not
-be rebuilt as current firmware. The Pi commit must match the laptop; the script
-stops instead of changing either checkout. SSH key access and the existing
-local/Pi PlatformIO installations are required. Use `--help` for LAN SSH or
-USB-path overrides.
+The supported R1 workflow runs builds and tests on GitHub and uses
+[the guarded cloud upload command](github-compilation.md#default-r1-upload-path)
+on the Pi. This supersedes the historical Mac build-and-copy workflow above.

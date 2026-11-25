@@ -1,9 +1,55 @@
 #include "dashboard_widgets.h"
+#include "drive_pack_widget.h"
 #include <cassert>
 #include <cstdio>
 #include <initializer_list>
 int main()
 {
+    static_assert(int(DashboardWidgetKind::Course)==9,"Retired layout ID must stay reserved");
+    DashboardWidget course;course.kind=DashboardWidgetKind::Course;course.width=2;
+    assert(sanitizedDashboardWidget(0,course).kind==DashboardWidgetKind::Empty);
+    const uint8_t retired[]={9,2,2,1,0,1};
+    assert(dashboardWidgetFromV2(0,retired).kind==DashboardWidgetKind::Empty);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryCells,1)==DashboardWidgetKind::Controls);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::Empty,-1)==DashboardWidgetKind::SpeedRpm);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::DrivePack,1)==DashboardWidgetKind::PowerEnergy);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::PowerEnergy,1)==DashboardWidgetKind::ControlHistory);
+    static_assert(int(DashboardWidgetKind::Controls)==10,"Append widget IDs without changing saved layouts");
+    static_assert(int(DashboardWidgetKind::RfMargin)==12&&int(DashboardWidgetKind::DrivePack)==13,"Append CU01 widget without renumbering saved IDs");
+    static_assert(int(DashboardWidgetKind::PowerEnergy)==14&&int(DashboardWidgetKind::ControlHistory)==15,"Append metrics widgets without changing saved layouts");
+    static_assert(int(DashboardWidgetKind::TripComputer)==16&&int(DashboardWidgetKind::RunSummary)==17&&int(DashboardWidgetKind::BatteryLoadBalance)==18,"Keep new session widget IDs stable");
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::ControlHistory,1)==DashboardWidgetKind::TripComputer);
+    static_assert(int(DashboardWidgetKind::SpeedRpm)==19,"Append dual-dial kind without changing earlier IDs");
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::BatteryLoadBalance,1)==DashboardWidgetKind::SpeedRpm);
+    assert(nextDashboardWidgetKind(DashboardWidgetKind::SpeedRpm,1)==DashboardWidgetKind::Empty);
+    for(int style=0;style<int(DashboardWidgetStyle::Count);++style){
+        DashboardWidget w;w.kind=DashboardWidgetKind::SpeedRpm;w.style=DashboardWidgetStyle(style);
+        assert(dashboardWidgetKindAvailable(w.kind));
+        const auto fixed=sanitizedDashboardWidget(0,w);
+        assert(fixed.kind==DashboardWidgetKind::SpeedRpm&&fixed.style==DashboardWidgetStyle::Dials);
+    }
+    for(auto kind:{DashboardWidgetKind::Controls,DashboardWidgetKind::Trims,DashboardWidgetKind::RfMargin,DashboardWidgetKind::DrivePack,DashboardWidgetKind::PowerEnergy,DashboardWidgetKind::TripComputer,DashboardWidgetKind::RunSummary,DashboardWidgetKind::BatteryLoadBalance}){
+        DashboardWidget w;w.kind=kind;w.style=DashboardWidgetStyle::Graph;
+        assert(dashboardWidgetKindAvailable(kind));
+        assert(sanitizedDashboardWidget(0,w).kind==kind);
+        assert(sanitizedDashboardWidget(0,w).style==DashboardWidgetStyle::Numbers);
+    }
+    for(int style=0;style<int(DashboardWidgetStyle::Count);++style){
+        DashboardWidget w;w.kind=DashboardWidgetKind::ControlHistory;w.style=DashboardWidgetStyle(style);
+        assert(sanitizedDashboardWidget(0,w).style==DashboardWidgetStyle::Graph);
+    }
+    // Every prior stored kind retains its meaning; the two new types fit the
+    // existing byte schema and every supported size without changing defaults.
+    for(auto kind:{DashboardWidgetKind::PowerEnergy,DashboardWidgetKind::ControlHistory,DashboardWidgetKind::TripComputer,DashboardWidgetKind::RunSummary,DashboardWidgetKind::BatteryLoadBalance,DashboardWidgetKind::SpeedRpm}){
+        for(int width=1;width<=2;++width)for(int height=1;height<=2;++height){
+            DashboardWidget w;w.kind=kind;w.width=width;w.height=height;
+            const auto fixed=sanitizedDashboardWidget(0,w);
+            assert(fixed.kind==kind&&fixed.width==width&&fixed.height==height);
+            const uint8_t bytes[]={uint8_t(kind),uint8_t(fixed.style),uint8_t(width),uint8_t(height),0,1};
+            const auto decoded=dashboardWidgetFromV2(0,bytes);
+            assert(decoded.kind==kind&&decoded.style==fixed.style);
+        }
+    }
     uint8_t monitor[DashboardMonitorMaxEntries]={};
     assert(dashboardMonitorEntries(0xffff,2,monitor)==21);
     assert(monitor[16]==(0x80|3)&&monitor[17]==(0x80|9));
@@ -36,7 +82,7 @@ int main()
     assert(sanitizedDashboardWidget(0,all).style!=DashboardWidgetStyle::VerticalBars);
     DashboardWidget speed;speed.kind=DashboardWidgetKind::Sensor;speed.style=DashboardWidgetStyle::Dials;
     assert(sanitizedDashboardWidget(0,speed).style==DashboardWidgetStyle::Dials);
-    speed.source=1;assert(sanitizedDashboardWidget(0,speed).style==DashboardWidgetStyle::Numbers);
+    speed.source=1;assert(sanitizedDashboardWidget(0,speed).kind==DashboardWidgetKind::Empty);
     // Pack summaries retain IDs; old per-cell widgets migrate to the group.
     for(uint8_t source=0;source<DashboardSensorCount;++source){
         speed.source=source;speed.style=DashboardWidgetStyle::Graph;
@@ -45,9 +91,13 @@ int main()
         assert(dashboardWidgetFromV2(0,stored).source==(source>=8 && source<12?0:source));
     }
     speed.source=DashboardSensorCount;assert(sanitizedDashboardWidget(0,speed).source==0);
-    assert(nextDashboardSensorSource(7,1)==12);
-    assert(nextDashboardSensorSource(12,-1)==7);
-    assert(nextDashboardSensorSource(13,1)==0 && nextDashboardSensorSource(0,-1)==13);
+    assert(nextDashboardSensorSource(7,1)==14);
+    assert(nextDashboardSensorSource(14,-1)==7);
+    assert(displaySensorSource(0)==0 && displaySensorSource(1)==2 && displaySensorSource(10)==11);
+    assert(displaySensorSource(11)==14 && displaySensorSource(14)==17);
+    assert(displaySensorSource(15)==DashboardSensorCount);
+    assert(nextDashboardSensorSource(0,1)==2 && nextDashboardSensorSource(2,-1)==0);
+    assert(nextDashboardSensorSource(17,1)==0 && nextDashboardSensorSource(0,-1)==17);
     auto layout=defaultDashboardLayout();
     assert(dashboardWidgetMask(0,layout.cells[0])==3);
     auto timer=layout.cells[0];
@@ -122,5 +172,39 @@ int main()
         for(uint8_t count=0;count<=12;++count){cells.source=count;assert(sanitizedDashboardWidget(0,cells).source==count);}
         cells.source=13;assert(sanitizedDashboardWidget(0,cells).source==0);
     }
+    // The combined CU01 card keeps the same layout bytes and every supported span.
+    for(uint8_t width:{1,2})for(uint8_t height:{1,2}){
+        DashboardWidget pack;pack.kind=DashboardWidgetKind::DrivePack;pack.width=width;pack.height=height;
+        const auto sanitized=sanitizedDashboardWidget(0,pack);
+        assert(sanitized.kind==pack.kind&&sanitized.width==width&&sanitized.height==height);
+    }
+    const auto unchangedDefault=defaultDashboardLayout();
+    assert(unchangedDefault.cells[0].kind==DashboardWidgetKind::Timer);
+    assert(unchangedDefault.cells[2].kind==DashboardWidgetKind::Power);
+    struct Cu01Sample {
+        bool ersBatteryValid=false,ersRemainingValid=false;
+        uint16_t ersVoltageDeciV=164,ersCurrentDeciA=123;
+        uint32_t ersCapacityMah=1234,ersBatteryUpdatedMs=100;
+        uint8_t ersRemainingPercent=75;
+        bool receiverVoltageValid=true,vehicleCellsValid=true;
+        uint16_t receiverVoltageDecivolts=62,vehiclePackMv=15400;
+    }t;
+    auto reading=drivePackWidgetReading(t,100);
+    assert(!reading.fresh&&!reading.remainingValid); // Other supplies never fill missing CU01 data.
+    t.ersBatteryValid=true;t.ersRemainingValid=true;
+    reading=drivePackWidgetReading(t,3100);
+    assert(reading.fresh&&reading.voltageDeciV==164&&reading.currentDeciA==123&&reading.usedMah==1234);
+    assert(reading.remainingValid&&reading.remainingPercent==75);
+    reading=drivePackWidgetReading(t,3101);assert(!reading.fresh&&!reading.remainingValid);
+    t.ersBatteryUpdatedMs=0xfffffff0U;
+    reading=drivePackWidgetReading(t,0x10);assert(reading.fresh&&reading.remainingValid);
+    assert(drivePackWidgetReading(t,t.ersBatteryUpdatedMs+3000).fresh);
+    assert(!drivePackWidgetReading(t,t.ersBatteryUpdatedMs+3001).fresh);
+    for(uint8_t percent:{0,100,101,255}){
+        t.ersRemainingPercent=percent;
+        assert(drivePackWidgetReading(t,0x10).remainingValid==(percent<=100));
+    }
+    t.ersRemainingValid=false;t.ersRemainingPercent=75;
+    assert(!drivePackWidgetReading(t,0x10).remainingValid);
     puts("dashboard_widgets_test: PASS");
 }

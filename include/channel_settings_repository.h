@@ -9,4 +9,7 @@ public:
     static ChannelSettingsLoad loadResponses(uint8_t slot, ChannelModelController &model);
     static ChannelSettingsLoad loadParameters(uint8_t slot, ChannelModelController &model);
     static ChannelSettingsLoad loadMixing(uint8_t slot, ChannelModelController &model);
+    static bool hasModelBackup(uint8_t slot);
+    static bool readModelBackup(uint8_t slot, uint8_t *data, size_t size);
+    static bool writeModelBackup(uint8_t slot, const uint8_t *data, size_t size);
 };

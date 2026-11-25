@@ -27,6 +27,7 @@ void TransmitterUi::timerAction(unsigned action){
     else if(action==2)t.reset(now);
     else if(action==3){if(!t.setReady(now))snprintf(timerNotice_,sizeof(timerNotice_),"Enable throttle auto-start in Settings first");}
     else if(action==8){if(!t.running())t.resume(now);else if(!t.recordLap(now))snprintf(timerNotice_,sizeof(timerNotice_),"Lap ignored: minimum interval or memory full");}
+    if(action==2)saveRunRecords();
     if(t.lapCount()>lapsBefore)playBuzzer(40);
     else if(timerNotice_[0])playBuzzer(80);
     if(activePage_==UiPage::TimerControl)drawDesignPage(UiPage::TimerControl);
@@ -61,7 +62,7 @@ bool TransmitterUi::portalSetTimerSettings(const TimerSettings &settings){
 }
 bool TransmitterUi::portalTimerAction(unsigned action){
     if(!SetupPortal::canControl()||armRequested_||action>8||action==4||action==6||action==7)return false;
-    if(action==5){const bool ok=timers_[activeModelSlot_].clearLaps();if(ok&&activePage_==UiPage::TimerControl)drawDesignPage(activePage_);return ok;}
+    if(action==5){const bool ok=timers_[activeModelSlot_].clearLaps();if(ok)saveRunRecords();if(ok&&activePage_==UiPage::TimerControl)drawDesignPage(activePage_);return ok;}
     timerAction(action);return true;
 }
 void TransmitterUi::drawTimerPage(){
@@ -97,11 +98,11 @@ void TransmitterUi::drawTimerPage(){
         button(12,246,52,"<",13);button(70,246,52,">",14);button(kScreenWidth-116,246,104,"Clear laps",17);
     }else{
         const int x=kScreenWidth-112;
-        const char *names[3][3]={{"Mode","Race / countdown","Minimum lap"},{"Throttle auto-start","Target lap alarm","Race-end alarm"},{"Accumulated on-time","Reset on-time","Lap history is held in RAM"}};
+        const char *names[3][3]={{"Mode","Race / countdown","Minimum lap"},{"Throttle auto-start","Target lap alarm","Race-end alarm"},{"Accumulated on-time","Reset on-time","Lap records survive reboot"}};
         for(uint8_t n=0;n<3;++n){const int y=119+n*36;char value[64];
             if(timerSettingsPage_==0){if(n==0)snprintf(value,sizeof(value),"%s",timerModeName(t.settings.mode));else snprintf(value,sizeof(value),"%u s",n==1?t.settings.durationSeconds:t.settings.minimumLapSeconds);}
             else if(timerSettingsPage_==1){if(n==1)snprintf(value,sizeof(value),"%u s (0 = off)",t.settings.targetSeconds);else snprintf(value,sizeof(value),"%s",(n==0?t.settings.autoStart:t.settings.raceAlarm)?"On":"Off");}
-            else{if(n==0)snprintf(value,sizeof(value),"%lu:%02lu:%02lu",(unsigned long)(t.settings.onSeconds/3600),(unsigned long)(t.settings.onSeconds/60%60),(unsigned long)(t.settings.onSeconds%60));else snprintf(value,sizeof(value),"%s",n==1?"Confirm":"Per-model, per power session");}
+            else{if(n==0)snprintf(value,sizeof(value),"%lu:%02lu:%02lu",(unsigned long)(t.settings.onSeconds/3600),(unsigned long)(t.settings.onSeconds/60%60),(unsigned long)(t.settings.onSeconds%60));else snprintf(value,sizeof(value),"%s",n==1?"Confirm":"Per-model; checkpoints in CUT");}
             text(names[timerSettingsPage_][n],12,y);text(value,12,y+15);
             if(timerSettingsPage_<2){button(x,y,46,"-",30+n*2);button(x+52,y,46,"+",31+n*2);}
             else if(n==1)button(x,y,98,"Reset",18);
@@ -120,7 +121,7 @@ void TransmitterUi::controlTimer(uint8_t item,PageControlEvent event){
     else if(item==15)timerConfirmation_=0;
     else if(item==16){
         if(t.running()||t.ready()){snprintf(timerNotice_,sizeof(timerNotice_),"Pause before clearing records or on-time");timerBank_=0;}
-        else if(timerConfirmation_==1)t.clearLaps();
+        else if(timerConfirmation_==1){t.clearLaps();saveRunRecords();}
         else if(timerConfirmation_==2){t.settings.onSeconds=0;timerOnRemainder_=0;saveTimerSettings();}
         timerConfirmation_=0;
     }else if(item==17)timerConfirmation_=1;

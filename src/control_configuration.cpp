@@ -54,13 +54,17 @@ bool validChannel(uint8_t channel)
 bool equivalentControlConfiguration(const ControlConfigurationSnapshot &left,
                                     const ControlConfigurationSnapshot &right)
 {
-    if (!equalInputProfile(left.throttleInput, right.throttleInput) ||
+    if (!equalBrakeAbs(left.brakeAbs,right.brakeAbs) ||
+        !equalInputProfile(left.throttleInput, right.throttleInput) ||
         !equalInputProfile(left.steeringInput, right.steeringInput) ||
         left.proportionalOutputMask != right.proportionalOutputMask ||
         left.steeringChannel != right.steeringChannel ||
         left.throttleChannel != right.throttleChannel ||
         left.steeringEnabled != right.steeringEnabled ||
         left.throttleEnabled != right.throttleEnabled ||
+        left.escSelectorReserved != right.escSelectorReserved ||
+        left.escProgramming != right.escProgramming ||
+        left.escProgrammerSelected != right.escProgrammerSelected ||
         left.modelStorageValid != right.modelStorageValid ||
         left.armRequested != right.armRequested ||
         left.calibrationActive != right.calibrationActive ||
@@ -97,8 +101,38 @@ bool controlConfigurationRequiresRearm(const ControlConfigurationSnapshot &befor
 {
     auto candidate = after;
     candidate.armRequested = before.armRequested;
-    for (size_t n = 0; n < CRSF_CHANNEL_COUNT; ++n)
+    for (size_t n = 0; n < CRSF_CHANNEL_COUNT; ++n) {
         candidate.channelParameters[n].trimPermille = before.channelParameters[n].trimPermille;
+        auto validExpo=[](int value){return value>=CHANNEL_RESPONSE_MIN_EXPO_PERCENT&&
+            value<=CHANNEL_RESPONSE_MAX_EXPO_PERCENT;};
+        auto &profile=candidate.channelProfiles[n];
+        const auto &previous=before.channelProfiles[n];
+        if(validExpo(profile.negativeExpoPercent)&&validExpo(previous.negativeExpoPercent))
+            profile.negativeExpoPercent=previous.negativeExpoPercent;
+        if(validExpo(profile.positiveExpoPercent)&&validExpo(previous.positiveExpoPercent))
+            profile.positiveExpoPercent=previous.positiveExpoPercent;
+    }
+    // Mechanical steering travel and centre are deliberately adjustable live.
+    // Logical mixer sources omit endpoints and parameter subtrim, so these
+    // adjustments cannot change throttle or another destination through a mix.
+    // Other profile/role/input edits still require CUT.
+    const uint8_t steering = before.steeringChannel;
+    if (validChannel(steering) && steering == after.steeringChannel &&
+        steering != before.throttleChannel && steering != after.throttleChannel &&
+        before.steeringEnabled && after.steeringEnabled) {
+        auto &p = candidate.channelProfiles[steering - 1];
+        if (p.negativeEndpointPercent >= CHANNEL_RESPONSE_MIN_ENDPOINT_PERCENT &&
+            p.negativeEndpointPercent <= CHANNEL_RESPONSE_MAX_ENDPOINT_PERCENT &&
+            p.positiveEndpointPercent >= CHANNEL_RESPONSE_MIN_ENDPOINT_PERCENT &&
+            p.positiveEndpointPercent <= CHANNEL_RESPONSE_MAX_ENDPOINT_PERCENT) {
+            p.negativeEndpointPercent = before.channelProfiles[steering - 1].negativeEndpointPercent;
+            p.positiveEndpointPercent = before.channelProfiles[steering - 1].positiveEndpointPercent;
+        }
+        auto &subtrim = candidate.channelParameters[steering - 1].subtrimPermille;
+        const auto oldSubtrim = before.channelParameters[steering - 1].subtrimPermille;
+        if (subtrim >= -200 && subtrim <= 200 && oldSubtrim >= -200 && oldSubtrim <= 200)
+            subtrim = oldSubtrim;
+    }
     return !equivalentControlConfiguration(before, candidate);
 }
 
@@ -129,17 +163,43 @@ int16_t applyConfiguredDriveMode(
 
 int16_t applyConfiguredChannelAdjustments(
     const ControlConfigurationSnapshot &configuration, uint8_t channel,
-    int16_t inputPermille)
+    int16_t inputPermille, int16_t switchedRatePermille)
 {
     if (!validChannel(channel)) return inputPermille;
     const ChannelParameterValues &values =
         configuration.channelParameters[channel - 1];
-    const int16_t shifted = static_cast<int16_t>(clampValue<int32_t>(
-        static_cast<int32_t>(inputPermille) + values.subtrimPermille,
-        -CHANNEL_RESPONSE_EXTENDED_LIMIT_PERMILLE,
-        CHANNEL_RESPONSE_EXTENDED_LIMIT_PERMILLE));
+    int32_t shifted = inputPermille;
+    if (values.subtrimPermille != 0) {
+        // Sub-trim re-centres the response between its existing endpoints.
+        // Use the same response, switched rate and drive limits as the caller.
+        const int32_t centre = applyConfiguredResponse(configuration, channel, 0);
+        auto endpoint = [&](int16_t raw) {
+            int16_t value = centre +
+                (int32_t(applyConfiguredResponse(configuration, channel, raw)) - centre) *
+                switchedRatePermille / 1000;
+            if (channel == configuration.throttleChannel)
+                value = applyConfiguredDriveMode(configuration, value, raw);
+            // Preserve internal extended travel too: clipping here would make
+            // an opposing ordinary trim unexpectedly reduce a saturated end.
+            return int32_t(value);
+        };
+        const int32_t a = endpoint(-1000), b = endpoint(1000);
+        const int32_t low = a < b ? a : b, high = a > b ? a : b;
+        const int32_t neutral = clampValue<int32_t>(centre, low, high);
+        const int32_t adjusted = clampValue<int32_t>(
+            neutral + values.subtrimPermille, low, high);
+        // A collapsed side pins neutral to an endpoint: there is no independent
+        // centre adjustment possible without moving that endpoint.
+        if (low < neutral && neutral < high) {
+            const int32_t input = clampValue<int32_t>(inputPermille, low, high);
+            if (input <= neutral)
+                shifted = low + (input - low) * (adjusted - low) / (neutral - low);
+            else
+                shifted = adjusted + (input - neutral) * (high - adjusted) / (high - neutral);
+        }
+    }
     return static_cast<int16_t>(clampValue<int32_t>(
-        static_cast<int32_t>(shifted) + values.trimPermille, -1000, 1000));
+        shifted + values.trimPermille, -1000, 1000));
 }
 
 int16_t configuredChannelNeutral(
@@ -215,8 +275,11 @@ ProcessedProportionalChannel processConfiguredProportionalChannel(
                                         safeInputPermille);
     }
     requested = applyConfiguredChannelAdjustments(configuration, channel,
-                                                  requested);
-    safe = applyConfiguredChannelAdjustments(configuration, channel, safe);
+                                                  requested, switchedRatePermille);
+    // Use the same active endpoint anchors for CUT. If a very low rate limits
+    // subtrim authority, CUT neutral must still match the live neutral.
+    safe = applyConfiguredChannelAdjustments(configuration, channel, safe,
+                                             switchedRatePermille);
     if (advanceSlew)
         requested = slew.apply(configuration, channel, requested, nowMs);
     ProcessedProportionalChannel result;
@@ -353,11 +416,13 @@ ConfiguredMixInspection inspectConfiguredMixInputs(const ControlConfigurationSna
         if ((plan.requiredMask & (1U << n)) && !e.valid[n]) result.inputsValid = false;
     if (c.throttleChannel < 1 || c.throttleChannel > CRSF_CHANNEL_COUNT) return result;
     const auto &m = c.mixing[c.throttleChannel-1];
-    const bool unchanged = !m.constantPercent && m.includeBase &&
-                           !m.rules[0].enabled && !m.rules[1].enabled;
-    const int16_t throttle = e.raw[c.throttleChannel-1];
-    result.throttleNeutral = e.valid[c.throttleChannel-1] &&
-                            (unchanged || (throttle >= -50 && throttle <= 50));
+    const uint8_t throttleIndex = c.throttleChannel-1;
+    result.throttleHasMix = m.constantPercent || !m.includeBase ||
+                           m.rules[0].enabled || m.rules[1].enabled;
+    result.throttlePermille = e.raw[throttleIndex];
+    result.throttleValid = e.valid[throttleIndex];
+    result.throttleNeutral = result.throttleValid &&
+        (!result.throttleHasMix || (result.throttlePermille >= -50 && result.throttlePermille <= 50));
     return result;
 }
 bool configuredMixInputsValid(const ControlConfigurationSnapshot &c, const MixInputSnapshot &inputs,
@@ -444,4 +509,36 @@ void previewChannelMixCurve(const ControlConfigurationSnapshot &c,uint8_t channe
         }
         output[n]=previewChannelMix(c,channel,m,sweep==0?x:base,values,high,walk).output;
     }
+}
+
+ChannelMixMonitor monitorChannelMix(const ControlConfigurationSnapshot &configuration,
+    const MixInputSnapshot &inputs,const CrsfChannelOutputModel &bindings,
+    uint8_t channel,const ChannelMixSettings &draft,int8_t sweep)
+{
+    ChannelMixMonitor monitor;
+    if(channel<1 || channel>16)return monitor;
+    auto c=configuration;c.mixing[channel-1]=draft;
+    const auto plan=compileConfiguredMixing(c);if(!plan.valid)return monitor;
+    ChannelMixRuntime runtime;
+    MixEvaluation e(c,inputs,bindings,runtime,0,false);evaluateMixPlan(e,plan);
+    if(!e.valid[channel-1])return monitor;
+    monitor.valid=true;
+    monitor.base=channel==c.steeringChannel?inputs.values[0]:channel==c.throttleChannel?inputs.values[1]:
+        bindings.enabled(channel)?permilleFromCrsfValue(bindings.requested(channel)):0;
+    for(unsigned n=0;n<2;++n)monitor.sources[n]=e.inputs.values[draft.rules[n].source];
+    auto calculate=[&](const MixInputSnapshot &samples,int16_t base){
+        ChannelMixPreview result;ChannelMixRuntime settled;int16_t rate=1000;
+        result.mixed=settled.apply(channel,draft,samples,c.driveMode==DriveMode::Walk,base,0,false,&rate,result.contributions);
+        ChannelSlewRuntime slew;
+        result.output=limitMixedOutput(draft,processConfiguredProportionalChannel(c,channel,result.mixed,0,slew,0,false,rate).requestedPermille);
+        return result;
+    };
+    monitor.result=calculate(e.inputs,monitor.base);
+    if(sweep>=0 && sweep<=2)for(unsigned n=0;n<kMixCurvePoints;++n){
+        const int16_t value=-1000+n*2000/(kMixCurvePoints-1);
+        auto samples=e.inputs;
+        if(sweep>0)samples.values[draft.rules[sweep-1].source]=value;
+        monitor.curve[n]=calculate(samples,sweep==0?value:monitor.base).output;
+    }
+    return monitor;
 }

@@ -163,7 +163,7 @@ int main()
     }
     const PhysicalControlId switches[]={PhysicalControlId::TimerButton,
         PhysicalControlId::DriveModeSwitch,PhysicalControlId::IdleUpSwitch};
-    const uint8_t switchPins[]={1,4,14};
+    const uint8_t switchPins[]={1,14,4};
     for (unsigned i=0;i<3;++i) {
         Wire.heldLow[0x20]=Wire.heldLow[0x21]=0;
         PhysicalInputRuntime runtime;
@@ -179,6 +179,15 @@ int main()
         runtime.update(samples,2,0,40,events);
         assert(events.size()==1 && events[0].input==switches[i]);
         assert(events[0].event==InputEvent::Pressed);
+        assert(!runtime.state(switches[i]).faulted);
+        events.clear();
+        Wire.heldLow[0x21]=0;
+        assert(pcbControls.read(samples[1].levels));
+        runtime.update(samples,2,0,50,events);
+        runtime.update(samples,2,0,80,events);
+        assert(events.size()>=1 && events[0].input==switches[i]);
+        assert(events[0].event==InputEvent::Released);
+        assert(!runtime.state(switches[i]).faulted);
     }
     // All eleven header signals must be distinct and avoid USB GPIO19/20.
     const int gpios[]={THROTTLE_ADC_PIN,STEERING_ADC_PIN,TX_BATTERY_ADC_PIN,

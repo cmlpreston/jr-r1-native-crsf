@@ -18,6 +18,28 @@ enum class OutputSafetyStatus : uint8_t {
     ConfigurationFault,
 };
 
+// Instantaneous checks from the control owner, including when output is CUT.
+// Link and neutral dwell are reported through OutputSafetyStatus during arming.
+struct OutputReadiness {
+    bool configurationValid = false;
+    bool inputsValid = false;
+    bool physicalInputsHealthy = false;
+    bool startupComplete = false;
+    bool throttleEnabled = false;
+    bool triggerValid = false;
+    bool triggerCentred = false;
+    bool throttleMixValid = false;
+    bool throttleMixActive = false;
+    bool throttleMixNeutral = false;
+    bool linkValid = false;
+    bool linkMeetsMinimum = false;
+    uint8_t throttleChannel = 0;
+    uint8_t linkQuality = 0;
+    uint8_t minimumLinkQuality = 0;
+    int16_t triggerPermille = 0;
+    int16_t throttleMixPermille = 0;
+};
+
 struct OutputSafetyDecision {
     OutputSafetyStatus status = OutputSafetyStatus::ControlStale;
     bool transmitRequested = false;

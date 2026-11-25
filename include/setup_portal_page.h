@@ -5,19 +5,35 @@ static const char setupPortalPage[] PROGMEM = R"HTML(<!doctype html><html lang="
 .control-layout{display:grid;grid-template-columns:1.1fr 1fr;gap:24px}.handset{background:#1b3037;color:#fff;padding:16px;border-radius:16px}.handset h3{font-size:13px;text-transform:uppercase;color:#b8ccce}.control-pair,.keypad{display:grid;grid-template-columns:1fr 1fr;gap:8px}.keypad{grid-template-columns:repeat(3,1fr)}#keycontrols [data-control="11"]{grid-area:1/1}#keycontrols [data-control="12"]{grid-area:1/2}#keycontrols [data-control="13"]{grid-area:1/3}#keycontrols [data-control="15"]{grid-area:2/1}#keycontrols [data-control="14"]{grid-area:2/3}#keycontrols [data-control="16"]{grid-area:3/1}#keycontrols [data-control="17"]{grid-area:3/2}#keycontrols [data-control="18"]{grid-area:3/3}.handset button{margin:0;background:#304950;text-align:left;padding:12px 8px;min-height:64px;border-color:#658089;font-size:12px}.handset button small{display:block;color:#bed0d2;font-size:11px;margin-top:5px}.handset button[aria-pressed=true]{background:#00717c;outline:2px solid #74d9dc}.searchrow{display:flex;gap:8px}.searchrow button{margin:0}#places button{display:block;text-align:left}#slippy{height:360px;position:relative;overflow:hidden;background:#ccd8da;touch-action:none;cursor:grab}#tiles img{position:absolute;width:256px;height:256px;max-width:none}#mapframe{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:3px solid #00717c;box-shadow:0 0 0 120px #192d3625;pointer-events:none}#mapframe span{background:#00717c;color:white;font-size:11px;padding:4px}.maptoolbar{display:flex;gap:8px;align-items:center}.maptoolbar button{min-width:44px}#mapprogress{font-size:14px}summary{cursor:pointer;padding:12px 0}@media(max-width:650px){.control-layout{grid-template-columns:1fr}.searchrow{flex-wrap:wrap}#slippy{height:300px}}
 </style><header><h1><span class="jr">JR</span> R-1 EVO</h1><span class="cut"><span id="webmode">Checking transmitter state…</span></span></header><div id="notice" role="status">Connecting to handset…</div><main><section><h2>Live handset screen</h2><p>View the actual LCD at any time. Interacting with the mirrored UI enters CUT before applying the touch. This stops live outputs or cancels Link wait. Simply viewing the screen does not change output state.</p><button id="livestart">Connect live screen</button><button id="livehome">Browse handset menus</button><button id="livesetup">Wi-Fi setup screen</button><p id="livestatus" role="status">Not connected</p><canvas id="livecanvas" width="320" height="480" hidden aria-label="Live handset touchscreen" style="display:block;max-width:100%;width:320px;height:auto;touch-action:none;image-rendering:pixelated"></canvas><small>Tap controls as on the LCD. Close returns to the dashboard without disconnecting. Network/password changes require the physical LCD. Hold Drive until “Release to enable” appears, then release. Configuration becomes read-only when enabling is requested.</small></section>
 <section><h2>Current model</h2><small id="connection"></small><form id="model"><label>Model name (12 characters)</label><input name="name" maxlength="12" required><button>Save name</button></form><form id="appearance"><label for="modelimage">Model image</label><select id="modelimage" name="image"><option value="0">Hyper 7</option><option value="1">Buggy</option><option value="2">Truggy</option><option value="3">Short-course truck</option><option value="4">Monster truck</option><option value="5">Crawler</option><option value="6">Touring car</option><option value="7">Formula / F1</option><option value="8">None</option></select><label><input id="originalcolour" type="checkbox" style="width:auto" checked> Original primary colour</label><label for="bodycolour">Primary paint</label><input id="bodycolour" type="color" value="#e53935" style="height:48px"><label><input id="originalaccent" type="checkbox" style="width:auto" checked> Original accent colour</label><label for="accentcolour">Accent paint</label><input id="accentcolour" type="color" value="#ffffff" style="height:48px"><label><input id="originalbase" type="checkbox" style="width:auto" checked> Original base colour</label><label for="basecolour">Base paint</label><input id="basecolour" type="color" value="#303030" style="height:48px"><button id="resetpaint" type="button">Original colours</button><p>Primary, accent and base paint include painted wings. The surrounding image stays transparent; tyres and mechanical parts retain their colours. View the result on the live LCD after saving.</p><button>Save appearance</button></form></section>
+<section><h2>Model templates and backups</h2>
+<p>Save the current model’s name, channel tuning, mixing, control assignments and Walk limit as a template or backup.</p>
+<p>The destination slot keeps its appearance, dashboard, alarms, timer settings and saved records. Verify the ESC again before enabling ABS for the imported model.</p>
+<button id="modelbackupdownload" type="button">Download control profile</button>
+<form id="modelbackuppreviewform">
+<label for="modelbackupfile">R-1 model backup file</label>
+<input type="file" id="modelbackupfile" accept=".r1model,application/octet-stream" required>
+<label for="modelbackupslot">Destination model slot</label>
+<select id="modelbackupslot" required></select>
+<button id="modelbackuppreview" disabled>Preview import</button>
+</form>
+<p id="modelbackupstatus" role="status"></p>
+<button id="modelbackupapply" type="button" hidden disabled>Replace control profile</button>
+</section>
 <section id="controlsection"><h2>Handset controls</h2><p>Select a control to assign its channel or function. Assignments belong to the current model.</p><div class="control-layout"><div class="handset"><h3>Wheel &amp; trigger</h3><div id="primarycontrols" class="control-pair"></div><h3>Trims &amp; switches</h3><div id="othercontrols" class="control-pair"></div><h3>R-1 keypad</h3><div id="keycontrols" class="keypad"></div></div><form id="binding"><h3 id="controlname">Select a control</h3><p id="controlhint"></p><label for="target">Assignment</label><select id="target"></select><label for="selection">Channel / function</label><select id="selection"></select><div id="behaviourfield"><label for="behaviour">Behaviour</label><select id="behaviour"></select></div><div id="contextfield"><label for="context">Active on</label><select id="context"><option value="1">Always</option><option value="2">Dashboard</option><option value="4">Menus</option><option value="8">CUT only</option><option value="16">Armed only</option></select></div><div id="bindingvalues"><h4>Control range (not servo endpoints)</h4><div class="grid"><label>Minimum / switch low (%)<input id="bindingminimum" type="number" step="0.1" required></label><label>Maximum / switch high (%)<input id="bindingmaximum" type="number" step="0.1" required></label><label>Step for stepped controls (%)<input id="bindingstep" type="number" step="0.1" required></label><label>Starting value (%)<input id="bindinginitial" type="number" step="0.1" required></label><label>Input fault value (%)<input id="bindingfailsafe" type="number" step="0.1" required></label></div><label><input id="bindinginverted" type="checkbox" style="width:auto"> Reverse control</label><p><small>Start and fault values must fit the range. Channel trims retain their saved value. This fault value does not configure the receiver’s RF-loss failsafe.</small></p></div><label><input id="bindingenabled" type="checkbox" style="width:auto"> Assignment enabled</label><button id="savebinding">Save assignment</button><p><small>Keypad bindings override their usual action in the selected context. Disabled assignments fall back to the normal handset action. Primary inputs disabled here output neutral.</small></p></form></div></section>
 
 <section><h2>Channel parameters</h2><label>Channel</label><select id="channel"></select><form id="settings"><div class="grid" id="fields"></div><label><input name="reversed" type="checkbox" style="width:auto"> Reverse channel</label><button>Save channel</button></form><small>Negative and positive sides are independent. Trim values use ‰ (10‰ = 1%). Changes use the handset’s existing model storage.</small><p><button id="backup">Download parameter snapshot</button></p><h3>Mixing</h3><p>Choose the existing channel input and up to two ordered contributions. Channel sources include their rate/expo and mixes, before servo endpoints, reversal and sub-trim. Configured inputs use steering/throttle rate and expo; raw controls bypass those settings. Add combines; Replace discards earlier contributions. For CH3 = 60% CH1 + 40% CH2, disable the existing input and add those two sources. Save applies to this model only.</p><form id="mixsettings"><div id="mixfields"></div><div id="mixpreview"><h4>Bench preview</h4><p>Test values at each source contribution input, after source rate/expo. No test value is transmitted. Rates are shown settled; ramp timing is not simulated. Replace discards the preceding total.</p><div id="mixtestinputs" class="grid"></div><canvas id="mixcurve" width="600" height="280" aria-label="Mix input versus final channel output"></canvas><small>Horizontal: selected input %. Vertical: final channel output %. Dot: current test position. Other inputs stay fixed.</small><div id="mixbars"></div><p id="mixpreviewstatus"></p></div><button id="resetmixing" type="button">Reset mixing</button><button id="savemixing" disabled>Save mixing and rates</button><p id="mixstatus"></p></form></section>
 <section><h2>Offline driving map</h2><p>Search for a driving location, then drag and zoom the map. Choose Street or Satellite. The outlined area becomes an offline image for the handset. Your browser needs internet access for search and map downloads.</p>
-<small id="wifitiming"></small><br><small id="mapstatus"></small><div><button id="prepare">Prepare map storage</button><button id="download">Download handset map</button></div><form id="placesearch"><label for="address">Address or place</label><div class="searchrow"><input id="address" placeholder="Track, park, suburb or street" required maxlength="160"><button id="searchbutton">Search</button></div></form><div id="places" aria-live="polite"></div>
+<small id="wifitiming"></small><br><small id="mapstatus"></small><div><button id="prepare">Storage recovery…</button><button id="download">Download handset map</button></div><form id="placesearch"><label for="address">Address or place</label><div class="searchrow"><input id="address" placeholder="Track, park, suburb or street" required maxlength="160"><button id="searchbutton">Search</button></div></form><div id="places" aria-live="polite"></div>
 <label for="mapstyle">Map style</label><select id="mapstyle"><option value="street">Street · OpenStreetMap</option><option value="satellite">Satellite · Esri World Imagery</option></select><p><small id="mapstylehint">Street maps include roads, buildings, parks and labels.</small></p><button id="openmap">Open online map</button><div id="mapbrowser" hidden><div id="slippy" tabindex="0" role="application" aria-label="Driving map. Drag to pan, use arrow keys or zoom buttons."><div id="tiles"></div><div id="mapframe"><span>DOWNLOAD AREA</span></div></div><div class="maptoolbar"><button id="zoomout" aria-label="Zoom out">−</button><button id="zoomin" aria-label="Zoom in">+</button><small id="bounds"></small></div><small><span id="mapcredits">© OpenStreetMap contributors</span> · Search by Photon</small><p><button id="fetcharea">Download selected area</button><span id="mapprogress" role="status"></span></p></div>
 <details><summary>Import a map file instead</summary><p>Use GeoJSON lines or polygon outlines, or an exported R-1 map package.</p>
 <label>Map / track file</label><input type="file" id="mapfile" accept=".r1map,.json,.geojson,application/json,application/octet-stream"></details><div class="grid"><div><label>Name</label><input id="mapname" maxlength="40"></div><div><label>Attribution / source</label><input id="attribution" maxlength="80" placeholder="e.g. © OpenStreetMap contributors" required></div></div><p><canvas id="preview" width="600" height="300"></canvas></p><small id="mapdetails">North is up. Full-colour image: up to 512 × 512 pixels.</small><div><button id="savemap" disabled>Save map to handset</button><button id="exportmap" disabled>Export map package</button></div><p id="savestatus" role="status" aria-live="polite"></p></section>
 <p>Home Wi-Fi provides automatic web access. Armed operation is read-only. The setup hotspot can be enabled manually from the LCD.</p></main><footer><span class="jr">JR</span> R-1 · LOCAL SETUP</footer>
+<section><h2>RadioMaster ERS sensors</h2><p>Connect the ERS chain to a receiver UART configured as CRSF (separate TX/RX). Use CUT with the module link enabled. Discover, select a sensor, then read its settings. These settings are stored by the sensor. Motor poles means the total number of magnetic poles, not pole pairs.</p><p><button id="ersdiscover">Discover sensors</button> <button id="ersrefresh">Refresh status</button></p><p id="ersstatus">Discover sensors to begin</p><form id="erssourceform"><label>Standard CRSF battery packet<select id="erssource"><option value="0">Receiver supply (existing S.Port trial)</option><option value="1">Vehicle pack / CU01 (stock ExpressLRS)</option></select></label><button>Save battery source</button><p>Stock battery packets do not identify receiver versus vehicle supply. Select vehicle for a CU01 on stock ExpressLRS; RX voltage will then be unavailable from that packet. Our custom ER6G tags the vehicle pack separately and needs no change here.</p></form><form id="ersform"><label>Sensor<select id="ersdevice"></select></label><p><button id="ersread" type="button">Read sensor settings</button></p><label>Setting<select id="erssetting"></select></label><label>Value<input id="ersvalue" type="number" min="0" max="65535" required></label><p id="ershelp"></p><button>Apply to sensor</button></form><pre id="erssettings"></pre><p>Choose GPS Global mode (2) for mapping, Speed mode (1) for speed only. The current RPM/cell displays use telemetry source 0; automatic multi-sensor ID reassignment is not exposed here. Capacity is in mAh; remaining percentage is only meaningful after capacity is configured. Test readings before driving.</p></section>
 <section id="timersection"><h2>Timers and laps</h2><p>Per-model Up, Down and Lap modes. Lap records last for this power session; settings and accumulated on-time are saved. Saving settings pauses and resets the clock, retaining laps. Timer actions never enable outputs.</p><form id="timerform"><div class="grid"><label>Mode<select id="timermode"><option value="0">Up / stopwatch</option><option value="1">Down / countdown</option><option value="2">Lap</option></select></label><label>Race / countdown duration (seconds)<input id="timerduration" value="300" type="number" min="1" max="5999" required></label><label>Minimum lap (seconds)<input id="timerminimum" value="3" type="number" min="1" max="60" required></label><label>Target lap alarm (seconds; 0 = off)<input id="timertarget" value="0" type="number" min="0" max="5999" required></label></div><label><input id="timerauto" type="checkbox" style="width:auto"> Throttle auto-start (explicit Ready, then neutral before forward)</label><label><input id="timeralarm" type="checkbox" style="width:auto"> Race-end alarm</label><button>Save timer settings</button></form><p><button id="timerrefresh">Refresh timer</button> <button class="timeraction" data-action="0">Start / Lap</button> <button class="timeraction" data-action="1">Pause / Resume</button> <button class="timeraction" data-action="2">Reset clock</button> <button class="timeraction" data-action="3">Ready</button> <button id="timerclear">Clear laps</button> <button id="timerexport">Export lap CSV</button></p><p id="timerstatus"></p><pre id="timerlaps"></pre></section>
-<section id="memorysection"><h2>Memory diagnostics</h2><p>Runtime heap pools, not the build's static RAM figure. DMA memory overlaps internal RAM. LVGL's pool is already reserved in static RAM.</p><button id="memoryrefresh" type="button">Refresh memory</button><label><input id="memoryauto" type="checkbox" style="width:auto"> Refresh every 5 seconds</label><p id="memorystatus" role="status">Not sampled yet.</p><div style="overflow-x:auto"><table id="memorytable" style="width:100%;text-align:left;border-spacing:12px"><thead><tr><th>Heap pool</th><th>Free now</th><th>Lowest free</th><th>Largest block</th><th>Heap total</th></tr></thead><tbody></tbody></table></div><p id="memorylvgl"></p><p id="memorystacks"></p><small>Lowest heap and stack margins are since boot; LVGL peak is the largest sampled usage. Stack values are minimum unused bytes, not current usage. Heap minimums across multiple regions need not occur at the same instant. Snapshots are sampled every 2 seconds; short-lived largest-block changes may be missed. Try navigating pages, opening the live LCD view and uploading a map, then refresh. Serial command: MEMORY.</small></section><section><h2>Handset</h2><h3>PIN</h3><form id="pinform"><label>Current PIN<input name="current" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label><label>New PIN<input name="next" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label><label>Confirm new PIN<input name="confirm" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label><button>Change PIN</button></form><p>Leaving Walk mode requires the PIN again. Forgotten PIN: connect USB, open the serial monitor and send <code>PINRESET 1234</code> while outputs are CUT. This sets PIN 1234 without erasing models, Wi-Fi or Walk mode.</p><form id="hostnameform"><label for="hostname">Local hostname</label><input id="hostname" name="hostname" maxlength="32" pattern="[A-Za-z0-9]([A-Za-z0-9-]{0,30}[A-Za-z0-9])?" required aria-describedby="hostnamehelp"><small id="hostnamehelp">Letters, digits and hyphens; omit .local. Restart to apply.</small><p id="hostnameaddress"></p><button>Save hostname</button></form><p>Restart without erasing saved models, maps or Wi-Fi. Outputs must be CUT.</p><button id="restarthandset">Restart handset</button><h3>Firmware update</h3><p>Upload an R-1 XIAO landscape <code>.r1ota</code> package created with <code>tools/package_ota.py</code>. Outputs must be CUT. Keep power connected until restart; models, maps and Wi-Fi settings are preserved.</p><form id="firmwareform"><input id="firmwarefile" type="file" accept=".r1ota" required><button id="firmwarebutton">Upload firmware and restart</button></form><p id="firmwarestatus" role="status"></p></section><script>
+<section id="displaytestsection"><details><summary>Display comparison</summary><p>Choose a method while CUT. Let the screen redraw, reset the counters, then repeat the same navigation for each method. Restart restores Standard.</p><button id="displaystandard" type="button" disabled>Standard</button><button id="displaytrial" type="button" disabled>Trial</button><button id="displayreset" type="button" disabled>Reset display counters</button><button id="displayrefresh" type="button">Refresh display stats</button><p id="displaystatus" role="status">Not sampled yet.</p><p id="displaytotals"></p><p id="displaygaps"></p><small>Pixel-transfer time excludes drawing and address commands. API calls are not hardware FIFO transfers. Maximum task gaps and dropped events are since boot.</small></details></section>
+<section id="memorysection"><h2>Memory diagnostics</h2><p>Runtime heap pools, not the build's static RAM figure. DMA memory overlaps internal RAM. LVGL's pool is already reserved in static RAM.</p><button id="memoryrefresh" type="button">Refresh memory</button><label><input id="memoryauto" type="checkbox" style="width:auto"> Refresh every 5 seconds</label><p id="memorystatus" role="status">Not sampled yet.</p><div style="overflow-x:auto"><table id="memorytable" style="width:100%;text-align:left;border-spacing:12px"><thead><tr><th>Heap pool</th><th>Free now</th><th>Lowest free</th><th>Largest block</th><th>Heap total</th></tr></thead><tbody></tbody></table></div><p id="memorylvgl"></p><p id="memorystacks"></p><small>Lowest heap and stack margins are since boot; LVGL peak is the allocator high-water mark. Stack values are minimum unused bytes, not current usage. Heap minimums across multiple regions need not occur at the same instant. Snapshots are sampled every 2 seconds; short-lived largest-block changes may be missed. Try navigating pages, opening the live LCD view and uploading a map, then refresh. Serial command: MEMORY.</small></section><section><h2>Handset</h2><h3>PIN</h3><form id="pinform"><label>Current PIN<input name="current" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label><label>New PIN<input name="next" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label><label>Confirm new PIN<input name="confirm" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label><button>Change PIN</button></form><p>Leaving Walk mode requires the PIN again. Forgotten PIN: connect USB, open the serial monitor and send <code>PINRESET 1234</code> while outputs are CUT. This sets PIN 1234 without erasing models, Wi-Fi or Walk mode.</p><form id="hostnameform"><label for="hostname">Local hostname</label><input id="hostname" name="hostname" maxlength="32" pattern="[A-Za-z0-9]([A-Za-z0-9-]{0,30}[A-Za-z0-9])?" required aria-describedby="hostnamehelp"><small id="hostnamehelp">Letters, digits and hyphens; omit .local. Restart to apply.</small><p id="hostnameaddress"></p><button>Save hostname</button></form><p>Restart without erasing saved models, maps or Wi-Fi. Outputs must be CUT.</p><button id="restarthandset">Restart handset</button><h3>Firmware update</h3><p>Upload an R-1 XIAO landscape <code>.r1ota</code> package created with <code>tools/package_ota.py</code>. Outputs must be CUT. Keep power connected until restart; models, maps and Wi-Fi settings are preserved.</p><form id="firmwareform"><input id="firmwarefile" type="file" accept=".r1ota" required><button id="firmwarebutton">Upload firmware and restart</button></form><p id="firmwarestatus" role="status"></p></section><script>
 let state,token='',map,webWritable=false,pinLocked=false,mapBusy=false;const $=id=>document.getElementById(id);const notify=t=>$('notice').textContent=t;
-function setRemoteMode(allowed){webWritable=allowed;$('webmode').textContent=allowed?(pinLocked?'CUT · CONFIGURATION AVAILABLE · HANDSET PIN-LOCKED':'CUT · REMOTE CONTROL AVAILABLE'):'OUTPUTS ENABLED OR PENDING · REMOTE TOUCH ENTERS CUT';for(const id of ['model','appearance','settings','mixsettings','binding','hostnameform','pinform','timerform']){const f=$(id);if(!f)continue;let box=f.querySelector('fieldset');if(!box){box=document.createElement('fieldset');box.style.cssText='border:0;padding:0;margin:0;min-width:0';while(f.firstChild)box.append(f.firstChild);f.append(box)}box.disabled=!allowed}for(const b of document.querySelectorAll('.timeraction'))b.disabled=!allowed;$('timerclear').disabled=!allowed;$('livehome').disabled=$('livesetup').disabled=pinLocked;}
+function setRemoteMode(allowed){webWritable=allowed;$('webmode').textContent=allowed?(pinLocked?'CUT · CONFIGURATION AVAILABLE · HANDSET PIN-LOCKED':'CUT · REMOTE CONTROL AVAILABLE'):'OUTPUTS ENABLED OR PENDING · REMOTE TOUCH ENTERS CUT';for(const id of ['model','appearance','settings','mixsettings','binding','hostnameform','pinform','timerform','ersform','erssourceform']){const f=$(id);if(!f)continue;let box=f.querySelector('fieldset');if(!box){box=document.createElement('fieldset');box.style.cssText='border:0;padding:0;margin:0;min-width:0';while(f.firstChild)box.append(f.firstChild);f.append(box)}box.disabled=!allowed}for(const b of document.querySelectorAll('.timeraction'))b.disabled=!allowed;$('timerclear').disabled=!allowed;$('livehome').disabled=$('livesetup').disabled=pinLocked;if(typeof updateDisplayTestControls==='function')updateDisplayTestControls();updateModelBackupControls();}
 
 const spec=[['negativeEndpoint','Negative endpoint (%)',50,100],['positiveEndpoint','Positive endpoint (%)',50,100],['negativeRate','Negative rate (%)',0,100],['positiveRate','Positive rate (%)',0,100],['negativeExpo','Negative expo (%)',-100,100],['positiveExpo','Positive expo (%)',-100,100],['negativeRamp','Negative ramp (ms)',0,2000],['positiveRamp','Positive ramp (ms)',0,2000],['trim','Trim (‰)',-200,200],['subtrim','Channel sub-trim (‰)',-200,200],['profileSubtrim','Response sub-trim (%)',-20,20]];
 for(const [key,label,min,max] of spec){const d=document.createElement('div'),l=document.createElement('label'),i=document.createElement('input');l.textContent=label;i.name=key;i.type='number';i.min=min;i.max=max;i.step=1;i.required=true;d.append(l,i);$('fields').append(d)}
@@ -151,6 +167,51 @@ $('mixsettings').onsubmit=async e=>{
  try{$('mixstatus').textContent=await(await request('/api/mixing',data)).text();notify($('mixstatus').textContent)}
  catch(e){$('mixstatus').textContent=e.message}finally{$('savemixing').disabled=mixLoadedChannel!==+$('channel').value}
 };
+
+let ersSnapshot=null,ersPoll=null;
+function ersSelection(){return ersSnapshot?.devices.find(d=>`${d.type}:${d.id}`===$('ersdevice').value)}
+function ersFields(){
+ const d=ersSelection(),options=d?.type===3?[[15,'GPS mode',1,2,'1 = Speed, 2 = Global / position']]:d?.type===8?[[10,'Motor poles',1,100,'Total magnetic poles (not pole pairs)']]:d?.type===4?[[17,'Battery capacity (mAh)',1,65535,'Set actual pack capacity; this is not a calibration']]:[];
+ $('erssetting').replaceChildren(...options.map(x=>{let o=document.createElement('option');o.value=x[0];o.textContent=x[1];o.dataset.minimum=x[2];o.dataset.maximum=x[3];o.dataset.help=x[4];return o}));ersValue();
+ const lines=[];if(d){if(d.known&1)lines.push('GPS mode: '+d.gpsMode);if(d.known&2)lines.push('Motor poles: '+d.motorPoles);if(d.known&4)lines.push('Capacity: '+d.capacityMah+' mAh');if(d.known&8)lines.push('Telemetry ID: '+d.telemetryId)}$('erssettings').textContent=lines.join('\n')||'Read settings to see confirmed values';
+}
+function ersValue(){const o=$('erssetting').selectedOptions[0],d=ersSelection();if(!o)return;$('ersvalue').min=o.dataset.minimum;$('ersvalue').max=o.dataset.maximum;$('ershelp').textContent=o.dataset.help;const c=+o.value;$('ersvalue').value=c===15?(d?.gpsMode||2):c===10?(d?.motorPoles||2):c===17?(d?.capacityMah||5000):(d?.telemetryId||0)}
+async function loadErs(){try{const selected=$('ersdevice').value;ersSnapshot=await(await request('/api/ers')).json();$('ersstatus').textContent=ersSnapshot.status;$('erssource').value=ersSnapshot.standardBatteryVehicle?'1':'0';$('ersdevice').replaceChildren(...ersSnapshot.devices.map(d=>{const o=document.createElement('option');o.value=`${d.type}:${d.id}`;o.textContent=(d.name||({2:'CV01 / cells',3:'GPS',4:'CU01 / current',8:'RB01 / RPM'}[d.type]))+' · ID '+d.id;return o}));if([...$('ersdevice').options].some(o=>o.value===selected))$('ersdevice').value=selected;ersFields();if(ersSnapshot.busy)ersPoll=setTimeout(loadErs,500)}catch(e){$('ersstatus').textContent=e.message}}
+async function sendErs(type,id,command,value){clearTimeout(ersPoll);try{await request('/api/ers',new URLSearchParams({type,id,command,value}));await loadErs()}catch(e){$('ersstatus').textContent=e.message}}
+$('erssourceform').onsubmit=async e=>{e.preventDefault();try{await request('/api/ers-source',new URLSearchParams({vehicle:$('erssource').value}));notify('Battery source saved');await loadErs()}catch(e){notify(e.message)}};
+$('ersdiscover').onclick=()=>sendErs(255,1,0,255);$('ersrefresh').onclick=loadErs;$('ersdevice').onchange=ersFields;$('erssetting').onchange=ersValue;
+$('ersread').onclick=()=>{const d=ersSelection();if(d)sendErs(d.type,d.id,12,255)};
+$('ersform').onsubmit=e=>{e.preventDefault();const d=ersSelection();if(d)sendErs(d.type,d.id,+$('erssetting').value,+$('ersvalue').value)};
+
+// Display comparison uses the existing authenticated, CUT-only write channel.
+let displayTestSnapshot=null,displayTestPending=false;
+function updateDisplayTestControls(){
+ const available=!!displayTestSnapshot?.supported&&webWritable&&!pinLocked&&!displayTestPending;
+ for(const id of ['displaystandard','displaytrial','displayreset']){const b=$(id);if(b)b.disabled=!available}
+ const refresh=$('displayrefresh');if(refresh)refresh.disabled=displayTestPending;
+}
+function renderDisplayTest(s){
+ displayTestSnapshot=s;
+ $('displaystatus').textContent=s.supported?`Method: ${s.mode==='trial'?'Trial':'Standard'} · Changes require CUT and released controls.`:'Display comparison is unavailable on this build.';
+ $('displaytotals').textContent=s.supported?`${s.pixels.toLocaleString()} pixels · ${s.bytes.toLocaleString()} bytes · ${(s.elapsedUs/1000).toFixed(2)} ms pixel-transfer time · ${s.pixelCalls.toLocaleString()} writes / ${s.backendCalls.toLocaleString()} API calls · Longest write ${(s.maxWriteUs/1000).toFixed(2)} ms`:'';
+ const t=s.runtime;
+ $('displaygaps').textContent=t?.ready?`Maximum gaps since boot: control ${(t.controlMaximumGapUs/1000).toFixed(2)} ms · radio ${(t.radioMaximumGapUs/1000).toFixed(2)} ms · physical inputs ${(t.inputMaximumGapUs/1000).toFixed(2)} ms. Inputs ${t.inputHealthy?'healthy':'unavailable/stale'}, age ${t.inputAgeMs} ms. Dropped input events ${t.inputDropped}; diagnostic events ${t.diagnosticDropped}.`:'';
+}
+async function displayTestRequest(body){
+ if(displayTestPending)return;
+ if(body&&(!webWritable||pinLocked||!displayTestSnapshot?.supported))return;
+ displayTestPending=true;updateDisplayTestControls();
+ try{renderDisplayTest(await(await request('/api/display-test',body)).json())}
+ catch(e){displayTestSnapshot=null;$('displaystatus').textContent='Display comparison failed: '+e.message+'; refresh before another change.'}
+ finally{displayTestPending=false;updateDisplayTestControls()}
+}
+async function loadDisplayTest(){return displayTestRequest()}
+$('displayrefresh').onclick=loadDisplayTest;
+$('displaystandard').onclick=()=>displayTestRequest(new URLSearchParams({action:'mode',mode:'standard'}));
+$('displaytrial').onclick=()=>displayTestRequest(new URLSearchParams({action:'mode',mode:'trial'}));
+$('displayreset').onclick=()=>displayTestRequest(new URLSearchParams({action:'reset'}));
+// End display comparison.
+
 let memoryPending=false;
 function memorySize(bytes){return Number.isFinite(bytes)&&bytes>=0?(bytes/1024).toFixed(1)+' KiB':'Unavailable'}
 async function loadMemory(){
@@ -164,8 +225,8 @@ async function loadMemory(){
     const cell=document.createElement('td');cell.textContent=value;row.append(cell);
    }rows.append(row);
   }$('memorytable').querySelector('tbody').replaceChildren(rows);
-  $('memorylvgl').textContent=m.lvgl.ready?`LVGL: ${memorySize(m.lvgl.used)} used / ${memorySize(m.lvgl.total)} pool · Sampled peak ${memorySize(m.lvgl.peak)} · Largest free block ${memorySize(m.lvgl.largest)} · Fragmentation ${m.lvgl.fragmentation}%`:'LVGL: not initialized';
-  $('memorystacks').textContent='Minimum unused stack: '+[['ui','UI / web'],['control','Control'],['crsf','CRSF']].map(([key,name])=>name+' '+(m.stacks[key]<0?'not started':m.stacks[key]+' bytes')).join(' · ');
+  $('memorylvgl').textContent=m.lvgl.ready?`LVGL: ${memorySize(m.lvgl.used)} used / ${memorySize(m.lvgl.total)} pool · Allocator peak ${memorySize(m.lvgl.peak)} · Largest free block ${memorySize(m.lvgl.largest)} · Fragmentation ${m.lvgl.fragmentation}%`:'LVGL: not initialized';
+  $('memorystacks').textContent='Minimum unused stack: '+[['ui','UI / web'],['control','Control'],['crsf','CRSF'],['input','Physical inputs'],['diagnostics','Diagnostics']].map(([key,name])=>name+' '+(m.stacks[key]<0?'not started':m.stacks[key]+' bytes')).join(' · ');
   $('memorystatus').textContent=`Snapshot at ${(m.sampledMs/1000).toFixed(1)} seconds after boot. Updated ${new Date().toLocaleTimeString()}.`;
  }catch(e){$('memorystatus').textContent='Memory refresh failed: '+e.message+' (any values shown are from the previous successful sample).'}
  finally{memoryPending=false;$('memoryrefresh').disabled=false;}
@@ -173,7 +234,7 @@ async function loadMemory(){
 $('memoryrefresh').onclick=loadMemory;
 $('memoryauto').onchange=()=>{if($('memoryauto').checked)loadMemory()};
 setInterval(()=>{if($('memoryauto').checked&&!document.hidden)loadMemory()},5000);
-async function load(){state=await(await request('/api/state')).json();token=state.token;$('hostname').value=state.hostname||'r1evo';$('hostnameaddress').textContent=`Current address: http://${state.activeHostname||'r1evo'}.local`+(state.hostname&&state.hostname!==state.activeHostname?` · After restart: http://${state.hostname}.local`:'');$('wifitiming').textContent=Number.isFinite(state.webReadyMs)?`Network diagnostics: IP ready ${(state.ipReadyMs/1000).toFixed(1)}s after boot · Web ready ${(state.webReadyMs/1000).toFixed(1)}s · Attempts ${state.wifiAttempts} · Last disconnect reason ${state.lastDisconnectReason}`:'';setRemoteMode(state.controlAllowed===true);$('model').elements.name.value=state.model;$('modelimage').value=state.modelImage??0;$('originalcolour').checked=(state.modelColour??16777216)===16777216;$('bodycolour').value='#'+((state.modelColour??16777216)&16777215).toString(16).padStart(6,'0');for(const [key,picker,check] of [['modelAccent','accentcolour','originalaccent'],['modelBase','basecolour','originalbase']]){const c=state[key]??16777216;$(check).checked=c===16777216;$(picker).value='#'+(c&16777215).toString(16).padStart(6,'0');}$('connection').textContent=`Model ${state.slot} · ${state.ssid||'Setup access point'} · ${state.ip||'192.168.4.1'}`;$('mapstatus').textContent=state.map?'Installed: '+state.map:'No uploaded map; built-in map remains available';$('prepare').hidden=state.storage;showChannel();loadMemory();loadTimer()}
+async function load(){state=await(await request('/api/state')).json();token=state.token;$('hostname').value=state.hostname||'r1evo';$('hostnameaddress').textContent=`Current address: http://${state.activeHostname||'r1evo'}.local`+(state.hostname&&state.hostname!==state.activeHostname?` · After restart: http://${state.hostname}.local`:'');$('wifitiming').textContent=Number.isFinite(state.webReadyMs)?`Network diagnostics: IP ready ${(state.ipReadyMs/1000).toFixed(1)}s after boot · Web ready ${(state.webReadyMs/1000).toFixed(1)}s · Attempts ${state.wifiAttempts} · Last disconnect reason ${state.lastDisconnectReason}`:'';setRemoteMode(state.controlAllowed===true);$('model').elements.name.value=state.model;$('modelimage').value=state.modelImage??0;$('originalcolour').checked=(state.modelColour??16777216)===16777216;$('bodycolour').value='#'+((state.modelColour??16777216)&16777215).toString(16).padStart(6,'0');for(const [key,picker,check] of [['modelAccent','accentcolour','originalaccent'],['modelBase','basecolour','originalbase']]){const c=state[key]??16777216;$(check).checked=c===16777216;$(picker).value='#'+(c&16777215).toString(16).padStart(6,'0');}$('connection').textContent=`Model ${state.slot} · ${state.ssid||'Setup access point'} · ${state.ip||'192.168.4.1'}`;$('mapstatus').textContent=state.map?'Installed: '+state.map:'No uploaded map; built-in map remains available';$('prepare').hidden=state.storage;loadModelBackupSlots();showChannel();loadMemory();loadDisplayTest();loadTimer()}
 $('hostnameform').onsubmit=async e=>{e.preventDefault();try{const result=await(await request('/api/hostname',new URLSearchParams({hostname:$('hostname').value}))).text();await load();notify(result)}catch(err){notify(err.message)}};
 let timerSnapshot=null;
 async function loadTimer(){try{const t=await(await request('/api/timer')).json();timerSnapshot=t;$('timermode').value=t.mode;$('timerduration').value=t.duration;$('timerminimum').value=t.minimumLap;$('timertarget').value=t.target;$('timerauto').checked=t.autoStart;$('timeralarm').checked=t.raceAlarm;const time=ms=>(ms/1000).toFixed(2)+' s';$('timerstatus').textContent=`${t.ready?'Ready':t.running?'Running':'Paused'} · ${t.laps.length}/100 laps · Best ${time(t.bestMs)} · Average ${time(t.averageMs)} · Total ${time(t.totalMs)} · On-time ${t.onSeconds}s`;$('timerlaps').textContent=t.laps.map((ms,n)=>`${n+1}. ${time(ms)}`).join('\n')||'No laps recorded';}catch(e){$('timerstatus').textContent=e.message}}
@@ -190,9 +251,81 @@ $('accentcolour').oninput=()=>{$('originalaccent').checked=false};$('basecolour'
 $('appearance').onsubmit=async e=>{e.preventDefault();try{notify(await(await request('/api/model-appearance',new URLSearchParams({image:$('modelimage').value,colour:$('originalcolour').checked?'original':$('bodycolour').value,accent:$('originalaccent').checked?'original':$('accentcolour').value,base:$('originalbase').checked?'original':$('basecolour').value}))).text());await load()}catch(e){notify(e.message)}};
 $('model').onsubmit=async e=>{e.preventDefault();try{notify(await(await request('/api/model',new URLSearchParams(new FormData(e.target)))).text());await load()}catch(e){notify(e.message)}};
 $('settings').onsubmit=async e=>{e.preventDefault();let data=new URLSearchParams(new FormData(e.target));data.set('channel',$('channel').value);data.set('reversed',e.target.elements.reversed.checked?'1':'0');try{notify(await(await request('/api/channel',data)).text());await load()}catch(e){notify(e.message)}};
+let modelBackupDraft=null,modelBackupBusy=false;
+function updateModelBackupControls(){
+ const slot=$('modelbackupslot'),file=$('modelbackupfile');
+ slot.disabled=file.disabled=modelBackupBusy||!webWritable;
+ $('modelbackuppreview').disabled=slot.disabled||!slot.value||!file.files.length;
+ $('modelbackupapply').hidden=!modelBackupDraft;
+ $('modelbackupapply').disabled=modelBackupBusy||!webWritable||!modelBackupDraft;
+}
+function clearModelBackupPreview(){
+ modelBackupDraft=null;
+ $('modelbackupstatus').textContent='';
+ updateModelBackupControls();
+}
+function loadModelBackupSlots(){
+ const slot=$('modelbackupslot'),selected=slot.value;
+ slot.replaceChildren();
+ const prompt=document.createElement('option');
+ prompt.value='';prompt.textContent='Choose an inactive slot';prompt.disabled=true;
+ slot.append(prompt);
+ for(const [index,name] of (state.modelSlots||[]).entries()){
+  const number=index+1;
+  if(number===state.slot)continue;
+  const option=document.createElement('option');
+  option.value=number;
+  option.textContent=`Model ${number} · ${name}`;
+  slot.append(option);
+ }
+ slot.value=[...slot.options].some(option=>option.value===selected)?selected:'';
+ if(modelBackupDraft&&modelBackupDraft.slot!==Number(slot.value))clearModelBackupPreview();
+ updateModelBackupControls();
+}
+$('modelbackupslot').onchange=$('modelbackupfile').onchange=clearModelBackupPreview;
+$('modelbackupdownload').onclick=async()=>{
+ try{
+  const name=(state?.model||'model').replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase()||'model';
+  const response=await request('/api/model-backup');
+  downloadBlob(await response.blob(),`r1-${name}.r1model`);
+ }catch(e){notify(e.message)}
+};
+$('modelbackuppreviewform').onsubmit=async e=>{
+ e.preventDefault();
+ if(modelBackupBusy||!webWritable)return;
+ clearModelBackupPreview();
+ const file=$('modelbackupfile').files[0],slot=$('modelbackupslot').value;
+ if(!file||!slot)return;
+ if(file.size>2048){$('modelbackupstatus').textContent='Choose an R-1 model backup file';return}
+ modelBackupBusy=true;updateModelBackupControls();
+ $('modelbackupstatus').textContent='Validating the control profile…';
+ try{
+  const form=new FormData();
+  form.append('slot',slot);form.append('model',file);
+  const draft=await(await request('/api/model-backup/preview',form)).json();
+  const role=channel=>channel?`CH${channel}`:'disabled';
+  const reversed=draft.reversed.length?draft.reversed.map(channel=>`CH${channel}`).join(', '):'none';
+  $('modelbackupstatus').textContent=`Import ${draft.name} into Model ${draft.slot} (${draft.previous}). Steering ${role(draft.steering)} · Throttle ${role(draft.throttle)} · Walk ${draft.walkLimit}% · ${draft.assignments} assignments · Reversed channels ${reversed}.`;
+  $('modelbackupapply').textContent=`Replace Model ${draft.slot} control profile`;
+  modelBackupDraft=draft;
+ }catch(e){$('modelbackupstatus').textContent=e.message}
+ finally{modelBackupBusy=false;updateModelBackupControls()}
+};
+$('modelbackupapply').onclick=async()=>{
+ const draft=modelBackupDraft;
+ if(!draft||!webWritable||modelBackupBusy)return;
+ modelBackupDraft=null;
+ modelBackupBusy=true;updateModelBackupControls();
+ $('modelbackupstatus').textContent='Saving to the inactive slot…';
+ try{
+  $('modelbackupstatus').textContent=await(await request('/api/model-backup/apply',new URLSearchParams({id:draft.id}))).text();
+  await load();
+ }catch(e){$('modelbackupstatus').textContent=e.message}
+ finally{modelBackupBusy=false;updateModelBackupControls()}
+};
 function download(data,name){const a=document.createElement('a'),url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 $('backup').onclick=()=>download({version:1,model:state.model,slot:state.slot,channels:state.channels,controls:catalogue?.controls},'r1-parameters.json');
-$('prepare').onclick=async()=>{if(!confirm('Initialise the asset filesystem? This erases its contents, but not model settings. Only use for uninitialised storage.'))return;try{notify(await(await request('/api/storage',new URLSearchParams({confirm:'prepare'}))).text());await load()}catch(e){notify(e.message)}};
+$('prepare').onclick=async()=>{if(!confirm('Initialize shared storage? If it cannot be opened, this erases the uploaded map and saved GPS tracks, laps and run statistics for every model. Model settings are kept.'))return;try{notify(await(await request('/api/storage',new URLSearchParams({confirm:'erase-shared-storage'}))).text());await load()}catch(e){notify(e.message)}};
 $('download').onclick=async()=>{try{downloadBlob(await(await request('/api/map')).blob(),'r1-map.r1map')}catch(e){notify(e.message)}};
 function collect(g,paths){if(!g)return;if(g.type==='FeatureCollection')g.features.forEach(f=>collect(f,paths));else if(g.type==='Feature')collect(g.geometry,paths);else if(g.type==='LineString')paths.push(g.coordinates);else if(g.type==='MultiLineString'||g.type==='Polygon')paths.push(...g.coordinates);else if(g.type==='MultiPolygon')g.coordinates.forEach(p=>paths.push(...p));else if(g.type==='GeometryCollection')g.geometries.forEach(p=>collect(p,paths))}
 function validate(m){if(m.version!==1||!Array.isArray(m.paths)||!m.paths.length||m.paths.length>32)throw Error('Use 1–32 line paths');let p=m.paths.flat();if(p.length>512||m.paths.some(p=>p.length<2))throw Error('Maximum 512 points; simplify the GeoJSON first');if(p.some(v=>!Array.isArray(v)||v.length!==2||!v.every(Number.isFinite)||Math.abs(v[0])>180||Math.abs(v[1])>85))throw Error('Expected [longitude, latitude] coordinates');const xs=p.map(p=>p[0]),ys=p.map(p=>p[1]);if(Math.max(...xs)-Math.min(...xs)>.25||Math.max(...ys)-Math.min(...ys)>.25)throw Error('Select a local area smaller than 0.25 degrees');return p}
@@ -201,7 +334,7 @@ $('mapfile').onchange=async e=>{try{map=null;$('savemap').disabled=$('exportmap'
 function packageMap(){map.name=$('mapname').value.trim();map.attribution=$('attribution').value.trim();if(map.version!==2)validate(map);if(new TextEncoder().encode(map.name).length>40||new TextEncoder().encode(map.attribution).length>80)throw Error('Name or attribution too long');if(!map.name||!map.attribution)throw Error('Enter map name and attribution');if(map.version!==2&&JSON.stringify(map).length>48000)throw Error('Map package exceeds 48 KB');return map}
 function mapStatus(text){$('savestatus').textContent=text;notify(text)}
 function uploadMap(data){return new Promise((resolve,reject)=>{const xhr=new XMLHttpRequest();xhr.open('POST','/api/map');xhr.timeout=60000;xhr.setRequestHeader('X-R1-Token',token);xhr.upload.onprogress=e=>mapStatus(e.lengthComputable?`Uploading map: ${Math.round(e.loaded/e.total*100)}%`:'Uploading map…');xhr.upload.onload=()=>mapStatus('Upload sent. Waiting for handset to validate and save…');xhr.onload=()=>{const mode=xhr.getResponseHeader('X-R1-Control');if(mode!==null)setRemoteMode(mode==='1');if(xhr.status>=200&&xhr.status<300)resolve(xhr.responseText);else {const error=Error(xhr.responseText||`Map upload failed (${xhr.status})`);error.sessionExpired=xhr.status===403&&xhr.responseText.trim()==='Invalid setup session';reject(error)}};xhr.onerror=()=>reject(Error('Connection lost. Check the handset connection before retrying.'));xhr.ontimeout=()=>reject(Error('No confirmation after 60 seconds. The save result is unknown; reconnect and check the installed map before retrying.'));xhr.send(data)})}
-async function refreshMapSession(){const fresh=await(await request('/api/state')).json();if(typeof fresh.token!=='string'||!fresh.token)throw Error('Could not refresh the handset session; your prepared map is still available to export');token=fresh.token;setRemoteMode(fresh.controlAllowed===true);if(fresh.controlAllowed!==true)throw Error('Keep the transmitter in CUT to save a map');if(!fresh.storage)throw Error('Use Prepare map storage before saving a map');}
+async function refreshMapSession(){const fresh=await(await request('/api/state')).json();if(typeof fresh.token!=='string'||!fresh.token)throw Error('Could not refresh the handset session; your prepared map is still available to export');token=fresh.token;setRemoteMode(fresh.controlAllowed===true);if(fresh.controlAllowed!==true)throw Error('Keep the transmitter in CUT to save a map');if(!fresh.storage)throw Error('Shared storage is unavailable. See Storage recovery.');}
 async function saveMapWithSession(data){await refreshMapSession();try{return await uploadMap(data)}catch(e){if(!e.sessionExpired)throw e;mapStatus('Handset session changed; reconnecting and retrying map once…');await refreshMapSession();return await uploadMap(data)}}
 $('savemap').onclick=async()=>{if(mapBusy)return;try{const data=new FormData(),m=packageMap();data.append('map',m.version===2?imageBlob(m):new Blob([JSON.stringify(m)],{type:'application/json'}),'map.r1map');mapBusy=true;$('savemap').disabled=true;mapStatus('Checking handset session…');mapStatus(await saveMapWithSession(data));try{await load()}catch(e){mapStatus('Map saved, but status refresh failed: '+e.message)}}catch(e){mapStatus(e.message)}finally{mapBusy=false;$('savemap').disabled=!map}};
 $('exportmap').onclick=()=>{try{const m=packageMap();m.version===2?downloadBlob(imageBlob(m),'r1-map.r1map'):download(m,'r1-map.json')}catch(e){notify(e.message)}};
@@ -307,47 +440,89 @@ function readImagePackage(buffer){const bytes=new Uint8Array(buffer),view=new Da
 }
 
 let live=false,liveRevision=0,liveEpoch=0,liveBusy=false,liveTimer,liveGeneration=0,lastLiveAt=0,liveActiveUntil=0,pendingLiveInput=null,liveSending=false,remoteHoldZone=null,remoteWake=false,webHold=null,lcdGesture=null;
+let liveCursor=0,liveScan=0,liveFrame=null,liveReady=false,liveFailures=0;
 const lcd=$('livecanvas');
 function liveStatus(text){$('livestatus').textContent=text}
 function scheduleLive(delay=0){clearTimeout(liveTimer);if(live)liveTimer=setTimeout(pollLive,delay)}
-function stopLive(){cancelWebHold();lcdGesture=null;live=false;pendingLiveInput=null;++liveGeneration;clearTimeout(liveTimer);$('livestart').textContent='Connect live screen';liveStatus('Disconnected');}
+function stopLive(){cancelWebHold();lcdGesture=null;live=false;liveReady=false;liveFrame=null;pendingLiveInput=null;++liveGeneration;clearTimeout(liveTimer);$('livestart').textContent='Connect live screen';liveStatus('Disconnected');}
+function paintLiveStrip(bytes){
+ const v=new DataView(bytes);
+ if(bytes.byteLength<22||v.getUint32(0)!==0x52315352)throw Error('Invalid LCD response; reload this page');
+ const batch=v.getUint32(4,true),epoch=v.getUint32(8,true);
+ const w=v.getUint16(12,true),h=v.getUint16(14,true),y=v.getUint16(16,true),rows=v.getUint16(18,true),next=v.getUint16(20,true);
+ if(!batch||!epoch||w<1||h<1||w>480||h>480||!rows||rows>4||y+rows>h||
+    (next&&(next<y+rows||next>=h))||bytes.byteLength!==22+w*rows*2)throw Error('Invalid LCD strip');
+ const newPage=epoch!==liveEpoch;
+ const ctx=lcd.getContext('2d');
+ let frame=liveFrame;
+ if(newPage){
+  if(y!==0)throw Error('Incomplete LCD page');
+  frame=ctx.createImageData(w,h);
+ }else if((liveCursor&&(batch!==liveScan||y!==liveCursor))||batch<liveRevision||
+          (frame?(w!==frame.width||h!==frame.height):(w!==lcd.width||h!==lcd.height)))throw Error('Invalid LCD cursor');
+ if(frame&&(next?next!==y+rows:y+rows!==h))throw Error('Missing LCD page rows');
+ const image=frame||ctx.createImageData(w,rows),offset=frame?y*w*4:0;
+ for(let i=0;i<w*rows;i++){
+  const c=v.getUint16(22+i*2,true),j=offset+i*4;
+  image.data[j]=(c>>11)*255/31;image.data[j+1]=((c>>5)&63)*255/63;image.data[j+2]=(c&31)*255/31;image.data[j+3]=255;
+ }
+ if(newPage){liveEpoch=epoch;liveRevision=0;liveReady=false}
+ if(!frame)ctx.putImageData(image,0,y);
+ liveFrame=frame;liveCursor=next;liveScan=next?batch:0;
+ if(!next){
+  if(frame){lcd.width=w;lcd.height=h;lcd.style.width=w+'px';ctx.putImageData(frame,0,0)}
+  liveRevision=batch;liveFrame=null;liveReady=true;lcd.hidden=false;
+ }
+}
 async function pollLive(){
  if(mapBusy){if(live)liveTimer=setTimeout(pollLive,500);return;}
  if(!live)return;if(document.hidden||liveBusy||webHold){liveTimer=setTimeout(pollLive,500);return}
  const generation=liveGeneration,started=Date.now();liveBusy=true;
  const abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),20000);
- try{const r=await fetch('/api/screen?since='+liveRevision+'&epoch='+liveEpoch,{signal:abort.signal,cache:'no-store'});
-  if(r.headers.has('X-R1-Unlocked'))pinLocked=r.headers.get('X-R1-Unlocked')!=='1';if(r.headers.has('X-R1-Control'))setRemoteMode(r.headers.get('X-R1-Control')==='1');if(r.headers.has('X-R1-Wake'))remoteWake=r.headers.get('X-R1-Wake')==='1';if(r.headers.has('X-R1-Hold-Zone')){const z=r.headers.get('X-R1-Hold-Zone').split(',').map(Number);remoteHoldZone=z.length===4&&z.every(Number.isFinite)?z:null}if(!r.ok)throw Error(await r.text());if(generation!==liveGeneration)return;
-  if(r.status===202){liveStatus('Preparing LCD view…');return}
-  if(r.status!==204){liveActiveUntil=Date.now()+2000;const bytes=await r.arrayBuffer();if(generation!==liveGeneration)return;const v=new DataView(bytes);
-   if(bytes.byteLength<20||v.getUint32(0)!==0x52315343)throw Error('Invalid screen response');
-   const w=v.getUint16(12,true),h=v.getUint16(14,true),y=v.getUint16(16,true),rows=v.getUint16(18,true);
-   if(w<1||h<1||w>480||h>480||!rows||y+rows>h||bytes.byteLength!==20+w*rows*2)throw Error('Invalid screen dimensions');
-   if(lcd.width!==w||lcd.height!==h){lcd.width=w;lcd.height=h}
-   lcd.style.width=w+"px";
-   const ctx=lcd.getContext('2d'),image=ctx.createImageData(w,rows);
-   for(let i=0;i<w*rows;i++){const c=v.getUint16(20+i*2,true),j=i*4;image.data[j]=(c>>11)*255/31;image.data[j+1]=((c>>5)&63)*255/63;image.data[j+2]=(c&31)*255/31;image.data[j+3]=255}
-   ctx.putImageData(image,0,y);liveRevision=v.getUint32(4,true);liveEpoch=v.getUint32(8,true);lcd.hidden=false;
+ let retryDelay=null;
+ try{
+  const cursor=new URLSearchParams({since:liveRevision,epoch:liveEpoch,scan:liveScan,row:liveCursor});
+  const r=await fetch('/api/screen?'+cursor,{signal:abort.signal,cache:'no-store'});
+  if(generation!==liveGeneration)return;
+  if(!r.ok)throw Error(await r.text());
+  if(r.headers.has('X-R1-Unlocked'))pinLocked=r.headers.get('X-R1-Unlocked')!=='1';if(r.headers.has('X-R1-Control'))setRemoteMode(r.headers.get('X-R1-Control')==='1');if(r.headers.has('X-R1-Wake'))remoteWake=r.headers.get('X-R1-Wake')==='1';if(r.headers.has('X-R1-Hold-Zone')){const z=r.headers.get('X-R1-Hold-Zone').split(',').map(Number);remoteHoldZone=z.length===4&&z.every(Number.isFinite)?z:null}
+  if(r.status===202){liveFailures=0;liveReady=false;retryDelay=60;liveStatus('Preparing LCD view…');return}
+  if(r.status!==204){
+   const bytes=await r.arrayBuffer();if(generation!==liveGeneration)return;
+   paintLiveStrip(bytes);liveActiveUntil=Date.now()+2000;
+  }else if(liveCursor||!liveReady){
+   throw Error('Missing LCD strip');
   }
+  liveFailures=0;
+  if(liveCursor){retryDelay=0;liveStatus('Updating LCD view…');return}
   lastLiveAt=Date.now();liveStatus(pinLocked?'Live · enter PIN on the keypad below to unlock':webWritable?'Live · CUT · tap to operate':'Live · read-only · transmitter is not CUT');
- }catch(e){if(generation===liveGeneration){stopLive();liveStatus(e.name==='AbortError'?'Live screen transfer timed out after 20 seconds. Check the connection, then reconnect.':'Connection lost: '+e.message+'. Reconnect when the handset is available on Wi-Fi.')}}
+ }catch(e){
+  if(generation!==liveGeneration)return;
+  if(e.name==='TypeError'&&++liveFailures<=2){
+   pendingLiveInput=null;lastLiveAt=0;retryDelay=100*liveFailures;
+   liveStatus('Retrying LCD transfer…');
+  }else{stopLive();liveStatus(e.name==='AbortError'?'Live screen transfer timed out after 20 seconds. Check the connection, then reconnect.':'Connection lost: '+e.message+'. Reconnect when the handset is available on Wi-Fi.')}
+ }
  finally{
   clearTimeout(timeout);liveBusy=false;
   if(live&&generation===liveGeneration){
-   if(pendingLiveInput){const tap=pendingLiveInput;pendingLiveInput=null;
+   if(pendingLiveInput&&liveReady&&retryDelay===null){const tap=pendingLiveInput;pendingLiveInput=null;
     if(tap.epoch===liveEpoch&&Date.now()-tap.at<2000&&!document.hidden&&!mapBusy)liveInput(tap.action,tap.x,tap.y);
     else{liveStatus('Screen changed; please tap again');scheduleLive()}
-   }else scheduleLive(Math.max(0,(Date.now()<liveActiveUntil?200:1000)-(Date.now()-started)));
+   }else{
+    if(!liveReady)pendingLiveInput=null;
+    scheduleLive(retryDelay??Math.max(0,(Date.now()<liveActiveUntil?200:1000)-(Date.now()-started)));
+   }
   }
  }
 }
-$('livestart').onclick=()=>{if(live){stopLive();return}live=true;++liveGeneration;liveRevision=liveEpoch=0;lastLiveAt=0;liveActiveUntil=Date.now()+2000;$('livestart').textContent='Disconnect live screen';pollLive()};
+$('livestart').onclick=()=>{if(live){stopLive();return}live=true;++liveGeneration;liveRevision=liveEpoch=liveCursor=liveScan=liveFailures=0;lastLiveAt=0;liveActiveUntil=Date.now()+2000;$('livestart').textContent='Disconnect live screen';pollLive()};
 async function liveInput(action,x=0,y=0,gesture={}){
  if(action===8&&liveBusy)return;
  if(action===0&&remoteWake)action=7;
 
  if(pinLocked&&action!==0&&action!==7){liveStatus("Enter your PIN on the mirrored keypad first.");return}
- if(!live||!liveEpoch||Date.now()-lastLiveAt>2000||mapBusy||document.hidden){liveStatus('Wait for a fresh screen before tapping');return}
+ if(!live||!liveReady||!liveEpoch||Date.now()-lastLiveAt>2000||mapBusy||document.hidden){liveStatus('Wait for a fresh screen before tapping');return}
  if(liveBusy){
   if(liveSending){liveStatus('Applying previous tap…');return}
   if(!pendingLiveInput){pendingLiveInput={action,x,y,epoch:liveEpoch,at:Date.now()};liveStatus('Tap queued…')}
@@ -388,7 +563,7 @@ async function holdPulse(h){
  catch(e){if(webHold===h){cancelWebHold();liveStatus('Hold cancelled: '+e.message)}}
 }
 async function startWebHold(x,y){
- if(!live||!webWritable||pinLocked||liveBusy||mapBusy||document.hidden||Date.now()-lastLiveAt>2000){liveStatus('Wait for a fresh screen, then hold Drive');return}
+ if(!live||!liveReady||!webWritable||pinLocked||liveBusy||mapBusy||document.hidden||Date.now()-lastLiveAt>2000){liveStatus('Wait for a fresh screen, then hold Drive');return}
  const h={x,y,epoch:liveEpoch,generation:liveGeneration,id:0,ready:false,zone:remoteHoldZone};webHold=h;clearTimeout(liveTimer);liveStatus('Starting hold…');
  try{h.id=Number(await sendHold(h,3));if(!Number.isInteger(h.id)||h.id<1)throw Error('Invalid hold acknowledgement');if(webHold!==h){sendHold(h,5).catch(()=>{});return}h.started=Date.now();holdPulse(h)}
  catch(e){if(webHold===h){cancelWebHold();liveStatus('Hold cancelled: '+e.message)}}
@@ -410,9 +585,9 @@ async function releaseDriveGesture(g,x,y){
 }
 lcd.onclick=null;
 function lcdPoint(e){const r=lcd.getBoundingClientRect();return [Math.floor((e.clientX-r.left)*lcd.width/r.width),Math.floor((e.clientY-r.top)*lcd.height/r.height)]}
-lcd.onpointerdown=e=>{if(e.button!==0||lcdGesture)return;e.preventDefault();const [x,y]=lcdPoint(e);lcdGesture={pointer:e.pointerId,x,y,started:Date.now(),epoch:liveEpoch,generation:liveGeneration,zone:remoteHoldZone,arm:webWritable&&!remoteWake&&!!inHoldZone(x,y)};lcd.setPointerCapture(e.pointerId);if(lcdGesture.arm)startWebHold(x,y)};
+lcd.onpointerdown=e=>{if(!liveReady||e.button!==0||lcdGesture)return;e.preventDefault();const [x,y]=lcdPoint(e);lcdGesture={pointer:e.pointerId,x,y,started:Date.now(),epoch:liveEpoch,generation:liveGeneration,zone:remoteHoldZone,arm:webWritable&&!remoteWake&&!!inHoldZone(x,y)};lcd.setPointerCapture(e.pointerId);if(lcdGesture.arm)startWebHold(x,y)};
 lcd.onpointermove=e=>{if(!lcdGesture||lcdGesture.pointer!==e.pointerId)return;const [x,y]=lcdPoint(e);if(lcdGesture.arm&&(!inHoldZone(x,y,webHold?.zone)||Math.abs(x-lcdGesture.x)>24||Math.abs(y-lcdGesture.y)>24)){lcdGesture.cancelled=true;cancelWebHold()}};
-lcd.onpointerup=e=>{if(!lcdGesture||lcdGesture.pointer!==e.pointerId)return;const g=lcdGesture;lcdGesture=null;if(g.cancelled)return;if(g.arm)releaseDriveGesture(g,...lcdPoint(e));else{const [x,y]=lcdPoint(e);if(Math.abs(x-g.x)<24&&Math.abs(y-g.y)<24){if(Date.now()-g.started>=650&&!remoteWake&&!pinLocked){if(g.epoch===liveEpoch&&g.generation===liveGeneration)liveInput(8,g.x,g.y,{endX:x,endY:y,duration:Math.min(1200,Date.now()-g.started)})}else liveInput(0,x,y)}else if(g.epoch===liveEpoch&&g.generation===liveGeneration&&!remoteWake&&Date.now()-g.started<=1200)liveInput(8,g.x,g.y,{endX:x,endY:y,duration:Date.now()-g.started})}};
+lcd.onpointerup=e=>{if(!lcdGesture||lcdGesture.pointer!==e.pointerId)return;const g=lcdGesture;lcdGesture=null;if(g.cancelled||!liveReady||g.epoch!==liveEpoch||g.generation!==liveGeneration){cancelWebHold();return}if(g.arm)releaseDriveGesture(g,...lcdPoint(e));else{const [x,y]=lcdPoint(e);if(Math.abs(x-g.x)<24&&Math.abs(y-g.y)<24){if(Date.now()-g.started>=650&&!remoteWake&&!pinLocked){liveInput(8,g.x,g.y,{endX:x,endY:y,duration:Math.min(1200,Date.now()-g.started)})}else liveInput(0,x,y)}else if(!remoteWake&&Date.now()-g.started<=1200)liveInput(8,g.x,g.y,{endX:x,endY:y,duration:Date.now()-g.started})}};
 lcd.onpointercancel=()=>{lcdGesture=null;cancelWebHold()};
 window.addEventListener('blur',()=>{lcdGesture=null;cancelWebHold()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){lcdGesture=null;cancelWebHold()}});

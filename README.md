@@ -94,14 +94,21 @@ handset does not itself implement a vehicle stabilisation gyro.
 - **Maps:** street/satellite style, address/location, zoom and download area,
   map name/source attribution, import/export/upload and storage preparation;
   map zoom and trail visibility/reset on the handset.
-- **Handset:** display orientation, colour scheme, brightness/night behaviour,
+- **Handset:** colour scheme, brightness/night behaviour,
   screensaver, PIN change/recovery, input calibration, saved Wi-Fi connection,
   automatic connection option, setup hotspot, hostname and software restart.
 
-Some source enums and prototype menus reserve future actions such as macros,
-logging or ESC programming. Their presence in code is not a claim that those
-features are complete. Per-receiver output mapping and failsafe configuration
-also remain distinct from transmitter channel setup.
+Some source enums and prototype menus reserve future actions such as macros
+and logging. Their presence in code is not a claim that those features are
+complete. Per-receiver output mapping and failsafe configuration also remain
+distinct from transmitter channel setup.
+
+**ESC programming** has a bench-tested custom ER6G path: the normal output-5
+ESC lead switches between Drive PWM and serial programming. The paired r14/r8
+receiver firmware supports all 15 reads and individual writes with acknowledgement
+and matching readback, while retaining CUT and replay guards. A drag-brake
+0% → 5% → 0% test passed; other settings and ESC models need their own validation.
+See the [ESC workflow](docs/user-manual.md#esc-programming-custom-er6g).
 
 ## The Drive dashboard: choose what matters for each model
 
@@ -112,12 +119,14 @@ source and **Apply**. The resulting widgets appear on **Drive**. Sizes are 1×1,
 covers neighbouring widgets without deleting their saved configuration; reducing
 it reveals them again. Use **Empty** to leave a position unused.
 
+Tap **Drive** again on the handset to hide or show the dashboard title bar. The
+Drive tab shows the output state when the bar is hidden. Hold **Drive** to arm or
+CUT as usual.
+
 Hold a widget body for about 0.65 seconds, then release to expand it across the
 dashboard. An overlaid **down-chevron**, Back, or another long press returns to
-the saved grid.
-The title bar and bottom navigation stay available; expansion is temporary and
-does not change the stored layout. Short taps retain their usual action, and
-the live web mirror supports the same hold gesture.
+the saved grid. Widget taps still open details or page through entries. The
+live web mirror supports the same widget hold gesture.
 
 | Widget | What it shows and how it can be configured |
 | --- | --- |
@@ -156,14 +165,10 @@ The GPS example has no reported position and does not imply a confirmed fix.
 | --- | --- |
 | ![Simulator: GPS map expanded](assets/ui-captures/widget-focus/gps-expanded.png) | ![Simulator: Timer expanded](assets/ui-captures/widget-focus/timer-expanded.png) |
 
-### Portrait and landscape
+### Handset display
 
-We maintain a complete **320 × 480 portrait UI** alongside the **480 × 320
-landscape UI**, with simulator/build coverage and rotation checks for both.
-Select orientation in **Setup → Handset → Display**. This keeps the software
-ready for physically rotating the handset display. Automatic rotation is a
-future option: an accelerometer has not been added, and orientation detection
-and automatic-rotation behaviour still need implementation.
+The handset uses **480 × 320 landscape**. The simulator also exercises the
+**320 × 480 portrait** layout.
 
 ## CUT, Normal/Walk and PIN protection
 
@@ -532,7 +537,7 @@ records that process and the model generations used during the project.
 Start with the [development guide](DEVELOPMENT.md),
 [prototype build and firmware history](docs/build-history.md),
 [current PCB wiring](docs/xiao-pcb.md), [control inventory](docs/r1-control-map.md),
-[architecture review](docs/architecture-review.md) and [TODO list](TODO.md).
+[architecture review](docs/architecture-review.md), [memory and performance review](docs/CODE-PERFORMANCE-REVIEW-2026-11-14.md) and [TODO list](TODO.md).
 The [receiver project](https://github.com/cmlpreston/ExpressLRS-SPort/tree/codex/sport-telemetry)
 is maintained separately. Build and upload instructions must be matched to the
 actual hardware; the repository's [upload rules](AGENTS.md) apply to firmware work.

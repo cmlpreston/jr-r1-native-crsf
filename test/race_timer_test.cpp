@@ -14,7 +14,8 @@ int main(){
  t.tick(2000);assert(t.takeAlarms()==RaceTimer::Target);assert(t.takeAlarms()==0);
  t.tick(6000);assert(t.takeAlarms()==(RaceTimer::Target|RaceTimer::RaceEnd));t.tick(6100);assert(!t.takeAlarms());
  t.pause(6100);assert(t.clearLaps());t.reset(0);t.settings.minimumLapSeconds=1;t.primary(0);
- for(unsigned i=1;i<=100;++i)assert(t.recordLap(i*1000));assert(!t.recordLap(101000)&&t.full());
+ for(unsigned i=1;i<=100;++i)assert(t.recordLap(i*1000));
+ assert(!t.recordLap(101000)&&t.full());
  RaceTimer other;assert(other.lapCount()==0);t.reset(0);assert(t.lapCount()==100);
  RaceTimer rollover;rollover.resume(0xfffffff0);rollover.tick(0x20);assert(rollover.elapsed()==48);
  RaceTimer down;down.settings.mode=TimerMode::Down;down.settings.durationSeconds=1;down.resume(0);down.tick(1500);

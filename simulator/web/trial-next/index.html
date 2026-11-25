@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>R1 EVO · V2</title><link rel="stylesheet" href="trial.css"><script src="handset.js" defer></script><script src="trial.js" defer></script></head>
+<body>
+<header class="bench-head"><div><p class="eyebrow">R1 EVO / INTERFACE LAB</p><h1>A clearer view of every run.</h1><p>A working design trial for the 480 × 320 handset.</p></div><span class="version">V2 · SIMULATED</span></header>
+<main class="bench">
+ <section class="preview"><div class="preview-heading"><span>LANDSCAPE · 480 × 320</span><label><input type="checkbox" id="enlarge" checked> Enlarged preview</label></div>
+ <div class="screen-frame"><div id="screen"><header id="status"></header><main id="view"></main><nav id="nav"></nav><div id="overlay"></div><div id="toast" role="status" hidden></div></div></div>
+ <div class="caption"><span class="dot"></span> Browser prototype · no connection to the transmitter</div>
+ <div class="notes"><p class="eyebrow">TRY IT</p><h2>Go from a reading to its setting.</h2><p>Tap Speed or Pack on Drive. Pause a graph and scrub its timeline. Use the star to pin a page to Quick. Tune shows how the inputs become the output.</p><div class="feature-list"><span>01 / Glanceable Drive</span><span>02 / Sensor → setup</span><span>03 / Your Quick menu</span><span>04 / Live mix view</span></div></div>
+ </section>
+ <aside><div class="aside-heading"><h2>Test bench</h2><span>DEMO INPUTS</span></div>
+ <label class="field">Active model<select id="model"><option>Hyper 7</option><option>Track buggy</option></select></label>
+ <label class="field">Telemetry scenario<select id="scenario"><option value="run">Driving</option><option value="battery">Low battery</option><option value="link">Weak RF link</option><option value="lost">Telemetry lost</option></select></label>
+ <div class="pair"><button id="stream">Pause stream</button><button id="quick">Quick menu</button></div>
+ <label class="range-label">Steering <output id="steer-value">0%</output><input id="steer" type="range" min="-100" max="100" value="0"></label>
+ <label class="range-label">Throttle / brake <output id="throttle-value">0%</output><input id="throttle" type="range" min="-100" max="100" value="0"></label>
+ <p class="small-title">STEERING TRIM</p><div class="pair"><button data-trim="-1">← Left</button><button data-trim="1">Right →</button></div>
+ <p class="small-title">PHYSICAL CONTROL IDENTIFICATION</p><div class="pair"><button data-identify="Grip A">Grip A</button><button data-identify="Grip B">Grip B</button></div>
+ <label class="check"><input id="drive-strip" type="checkbox" checked> Show Drive adjustment strip</label>
+ <p class="aside-note">All readings are invented. Settings are stored per model in this browser. No RF, ESC or sensor settings are sent.</p>
+ <a href="../">Current firmware simulator ↗</a>
+ </aside>
+</main>
+</body></html>

@@ -1,13 +1,42 @@
 #pragma once
+// CRSF link-statistics RF output-power enumeration; not electrical consumption.
+inline unsigned crsfPowerMilliwatts(unsigned code) {
+    const unsigned values[]={0,10,25,100,500,1000,2000,250,50};
+    return code<sizeof(values)/sizeof(*values)?values[code]:0;
+}
 
 #include <Arduino.h>
+#include <atomic>
+#include "ers_reply_queue.h"
 
 struct CrsfTelemetryState {
     // Last validated TX configuration response. Single-flight client retries
     // reads if an unsolicited response replaces this mailbox before UI polling.
+    uint32_t rxParameterSequence = 0;
+    uint8_t rxParameterType=0,rxParameterLength=0,rxParameterPayload[60]={};
     uint32_t txParameterSequence = 0;
     uint8_t txParameterType = 0, txParameterLength = 0;
     uint8_t txParameterPayload[60] = {};
+    uint32_t configWireFrames=0;
+    uint8_t lastConfigType=0,lastConfigHeader[5]={};
+    uint32_t ersSequence=0;
+    uint32_t ersReplyDrops=0;
+    // External CRSF battery ID 2, tagged by our ER6G serial ingress.
+    bool ersBatteryValid=false, ersRemainingValid=false;
+    uint16_t ersVoltageDeciV=0, ersCurrentDeciA=0;
+    uint32_t ersCapacityMah=0, ersBatteryUpdatedMs=0;
+    uint8_t ersRemainingPercent=0;
+    // CRC-valid GPS packets, including rejected payloads; never reset on expiry.
+    uint32_t gpsWireFrames=0, gpsDecodedFrames=0, gpsRejectedFrames=0, gpsWireUpdatedMs=0;
+    uint8_t gpsLastPayloadLength=0;
+    // GPS UTC arrives independently in CRSF 0x03; no position/fix is required.
+    bool gpsTimeValid=false;
+    uint16_t gpsUtcYear=0, gpsUtcMillisecond=0;
+    uint8_t gpsUtcMonth=0, gpsUtcDay=0, gpsUtcHour=0, gpsUtcMinute=0, gpsUtcSecond=0;
+    uint32_t gpsTimeUpdatedMs=0, gpsTimeFrames=0, gpsTimeRejectedFrames=0;
+    bool gpsSpeedValid=false, gpsSatellitesValid=false;
+    uint32_t gpsSpeedUpdatedMs=0, gpsSatellitesUpdatedMs=0, gpsDecodedUpdatedMs=0, gpsSpeedFrames=0;
+    bool gpsCourseValid = false;
     bool gpsValid = false, temperatureValid = false, rpmValid = false;
     int32_t latitudeE7 = 0, longitudeE7 = 0;
     uint16_t groundSpeedDeciKmh = 0, headingCentiDegrees = 0;
@@ -47,12 +76,30 @@ struct CrsfTelemetryState {
     uint32_t receiverUidUpdatedMs = 0;
 };
 
-// S.Port GPS forwarding has no satellite/fix-quality field. A zero count is
-// unknown, not a confirmed fix: allow fresh non-placeholder reported values,
-// keep known low-satellite reports unavailable and label uncertainty in the UI.
+inline bool gpsTimeAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
+    return t.gpsTimeValid && uint32_t(nowMs-t.gpsTimeUpdatedMs)<=3000;
+}
+
+// Ground speed has its own validity and age, independent of map coordinates.
+inline bool gpsSpeedAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
+    return t.gpsSpeedValid && uint32_t(nowMs-t.gpsSpeedUpdatedMs)<=3000;
+}
+// Legacy S.Port bridges also encode an unavailable satellite count as zero.
+// Keep their fresh non-placeholder positions usable, without confirming a fix.
+// A native reported zero with retained coordinates is intrinsically ambiguous;
+// the dashboard marks that position unconfirmed rather than assuming a fix.
 inline bool gpsPositionAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
     return t.gpsValid && uint32_t(nowMs-t.gpsUpdatedMs)<=3000 &&
         (t.satellites>=4 || (t.satellites==0 && (t.latitudeE7!=0 || t.longitudeE7!=0)));
+}
+// Course over ground is unreliable near rest; this is a display threshold only.
+inline bool gpsCourseAvailable(const CrsfTelemetryState &t, uint32_t nowMs) {
+    return gpsPositionAvailable(t,nowMs) && gpsSpeedAvailable(t,nowMs) && t.gpsCourseValid &&
+        t.headingCentiDegrees < 36000 && t.groundSpeedDeciKmh >= 10;
+}
+inline const char *gpsCourseCardinal(uint16_t centidegrees) {
+    const char *names[]={"N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"};
+    return names[((centidegrees+1125)/2250)%16];
 }
 inline bool gpsFixConfirmed(const CrsfTelemetryState &t, uint32_t nowMs) {
     return gpsPositionAvailable(t,nowMs) && t.satellites>=4;
@@ -61,11 +108,18 @@ inline bool gpsFixConfirmed(const CrsfTelemetryState &t, uint32_t nowMs) {
 class CrsfTelemetryParser {
 public:
     void feed(uint8_t value);
+    void setStandardBatteryVehicle(bool vehicle) { requestedBatteryVehicle_.store(vehicle); }
     void updateFreshness();
     const CrsfTelemetryState &state() const { return state_; }
+    // Only the UI task consumes this stream; status snapshots never drain it.
+    bool popErsReply(ErsReply &reply){return ersReplies_.pop(reply);}
+    uint32_t ersReplyDrops()const{return ersReplies_.dropped();}
 
 private:
     void processFrame();
+    void syncBatteryRole();
+    std::atomic<bool> requestedBatteryVehicle_{false};
+    bool standardBatteryVehicle_=false;
     static uint8_t crc8DvbS2(const uint8_t *data, size_t length);
 
     static constexpr size_t kMaximumFrameBytes = 64;
@@ -73,4 +127,5 @@ private:
     uint8_t index_ = 0;
     uint8_t expectedBytes_ = 0;
     CrsfTelemetryState state_;
+    ErsReplyQueue ersReplies_;
 };

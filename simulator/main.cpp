@@ -36,6 +36,7 @@ void emulateManagementRequest(const ElrsManagementRequest &request,
     if (request.action == ElrsManagementAction::TxParameter) {
         emulateTxConfig(request.parameter, telemetry); return;
     }
+    if(request.action==ElrsManagementAction::EscProgrammer)return; // No invented hardware acknowledgement.
     uint8_t uid[kElrsUidLength] = {};
     if (request.action == ElrsManagementAction::SetBindPhrase)
         calculateElrsBindPhraseUid(request.phrase, uid);
@@ -139,12 +140,8 @@ int main(int argc, char **argv)
     else if (initialPage == "wifi") { SetupPortal::start();ui.showSimulatorPage(UiPage::WifiSetup); }
     else if (initialPage == "setup")
         ui.showSimulatorPage(UiPage::Setup);
-    else if (initialPage == "display")
+    else if (initialPage == "display" || initialPage == "display2")
         ui.showSimulatorPage(UiPage::DisplaySetup);
-    else if (initialPage == "display2") {
-        ui.selectSimulatorDisplayBank(1);
-        ui.showSimulatorPage(UiPage::DisplaySetup);
-    }
     else if (initialPage == "info" || initialPage == "firmware")
         ui.showSimulatorPage(UiPage::FirmwareInfo);
     else if (initialPage == "models")
@@ -184,10 +181,11 @@ int main(int argc, char **argv)
         telemetry.batteryUpdatedMs = now;
         // Optional simulator-only fixture. Never compiled into the ESP32 target.
         const bool sensors = controls.vehicleTelemetry && controls.linkValid;
+        telemetry.gpsCourseValid = telemetry.gpsSpeedValid = telemetry.gpsSatellitesValid = sensors;
         telemetry.gpsValid = telemetry.temperatureValid = telemetry.rpmValid = sensors;
         if (sensors) {
             const double phase = (now / 1000) * 0.12;
-            telemetry.gpsUpdatedMs = telemetry.temperatureUpdatedMs = telemetry.rpmUpdatedMs = (now/1000)*1000;
+            telemetry.gpsSpeedUpdatedMs = telemetry.gpsSatellitesUpdatedMs = telemetry.gpsUpdatedMs = telemetry.temperatureUpdatedMs = telemetry.rpmUpdatedMs = (now/1000)*1000;
             telemetry.latitudeE7 = GpsMap::DemoLat + static_cast<int32_t>(sin(phase)*4500);
             telemetry.longitudeE7 = GpsMap::DemoLon + static_cast<int32_t>(cos(phase)*6000);
             telemetry.groundSpeedDeciKmh = 220 + static_cast<int>(sin(phase)*50);
@@ -258,6 +256,10 @@ int main(int argc, char **argv)
         const uint16_t crsf=live?channelOutputs.requested(ui.throttleChannel()):channelOutputs.safe(ui.throttleChannel());
         const int16_t output=permilleFromCrsfValue(crsf);
         ui.updateModulePower(controls.transmitterVoltageDecivolts>=25,now);
+        mixInputs.values[0]=result.steering.normalisedPermille;mixInputs.values[1]=result.throttle.normalisedPermille;
+        mixInputs.valid=(mixInputs.valid&~uint64_t{3})|(result.steering.valid?1:0)|(result.throttle.valid?2:0);
+        ui.setMixMonitorInputs(mixInputs,input.bindings);
+        ui.setOutputReadiness(result.readiness, now);
         ui.update(rawAdc, steeringAdc, rawPermille, output, crsf, safety, telemetry,
                   controls.transmitterVoltageDecivolts, true,
                   channelOutputs, safety == OutputSafetyStatus::Armed);

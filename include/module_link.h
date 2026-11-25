@@ -5,14 +5,14 @@
 // This gates CRSF traffic, not the Ranger's physical power rail.
 class ModuleLink {
 public:
-    void update(bool detected, uint32_t now) {
+    void update(bool detected, uint32_t now, bool autoEnable=false) {
         if (!detected) {
             qualifying_ = present_ = enabled_ = prompt_ = false;
             return;
         }
         if (!qualifying_) { qualifying_ = true; detectedSince_ = now; }
         if (!present_ && uint32_t(now - detectedSince_) >= 250) {
-            present_ = true; prompt_ = true;
+            present_ = true; enabled_ = autoEnable; prompt_ = !autoEnable;
         }
     }
     bool enable() { if (!present_) return false; enabled_ = true; prompt_ = false; return true; }

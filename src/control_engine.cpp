@@ -1,7 +1,9 @@
 #include "control_engine.h"
+#include "esc_programmer_wire.h"
 
 void ControlEngine::reset(uint32_t nowMs)
 {
+    abs_.reset();
     armed_ = neutralTiming_ = linkTiming_ = false;
     neutralSince_ = linkSince_ = 0;
     slew_.reset(nowMs);
@@ -9,42 +11,40 @@ void ControlEngine::reset(uint32_t nowMs)
 }
 
 OutputSafetyStatus ControlEngine::qualify(const ControlConfigurationSnapshot &c,
-    const ControlCycleInput &in, const ProportionalInputState &throttle,
-    bool inputsValid, bool mixedNeutral)
+    uint32_t nowMs, const OutputReadiness &readiness)
 {
     OutputSafetyStatus veto = OutputSafetyStatus::Armed;
-    if (!c.modelStorageValid || !mixPlan_.valid) veto = OutputSafetyStatus::ConfigurationFault;
+    if (!readiness.configurationValid) veto = OutputSafetyStatus::ConfigurationFault;
+    else if (c.escProgramming || c.escProgrammerSelected) veto = OutputSafetyStatus::Cut;
     else if (c.calibrationActive) veto = OutputSafetyStatus::Calibration;
-    else if (!inputsValid) veto = OutputSafetyStatus::InputFault;
-    else if (!c.throttleEnabled) veto = OutputSafetyStatus::ChannelDisabled;
-    else if (!in.startupComplete) veto = OutputSafetyStatus::StartupWarning;
+    else if (!readiness.inputsValid) veto = OutputSafetyStatus::InputFault;
+    else if (!readiness.throttleEnabled) veto = OutputSafetyStatus::ChannelDisabled;
+    else if (!readiness.startupComplete) veto = OutputSafetyStatus::StartupWarning;
     else if (!c.armRequested || editInhibited_) veto = OutputSafetyStatus::Cut;
     if (veto != OutputSafetyStatus::Armed) {
-        reset(in.nowMs);
+        reset(nowMs);
         return veto;
     }
     // Return-link loss after arming remains advisory; RX owns RF-loss failsafe.
     if (armed_) return OutputSafetyStatus::Armed;
-    if (!in.linkValid || in.linkQuality < policy_.minimumLinkQuality) {
+    if (!readiness.linkMeetsMinimum) {
         linkTiming_ = neutralTiming_ = false;
         neutralSince_ = 0;
         return OutputSafetyStatus::LinkRequired;
     }
-    if (!linkTiming_) { linkTiming_ = true; linkSince_ = in.nowMs; }
-    if (uint32_t(in.nowMs - linkSince_) < policy_.linkDwellMs) {
+    if (!linkTiming_) { linkTiming_ = true; linkSince_ = nowMs; }
+    if (uint32_t(nowMs - linkSince_) < policy_.linkDwellMs) {
         neutralTiming_ = false;
         neutralSince_ = 0;
         return OutputSafetyStatus::LinkRequired;
     }
-    const int delta = int(throttle.filteredAdc) - c.throttleInput.calibration.centre;
-    if (!mixedNeutral || delta < -int(policy_.neutralAdcWindow) ||
-        delta > int(policy_.neutralAdcWindow)) {
+    if (!readiness.throttleMixNeutral || !readiness.triggerCentred) {
         neutralTiming_ = false;
         neutralSince_ = 0;
         return OutputSafetyStatus::NeutralRequired;
     }
-    if (!neutralTiming_) { neutralTiming_ = true; neutralSince_ = in.nowMs; }
-    if (uint32_t(in.nowMs - neutralSince_) < policy_.neutralDwellMs)
+    if (!neutralTiming_) { neutralTiming_ = true; neutralSince_ = nowMs; }
+    if (uint32_t(nowMs - neutralSince_) < policy_.neutralDwellMs)
         return OutputSafetyStatus::NeutralRequired;
     armed_ = true;
     return OutputSafetyStatus::Armed;
@@ -83,11 +83,47 @@ ControlCycleResult ControlEngine::update(const ControlConfigurationSnapshot &c,
     if (result.throttle.valid) inputs.valid |= 2;
     result.outputs = in.bindings;
     const auto inspection = inspectConfiguredMixInputs(c, inputs, result.outputs, mixPlan_);
-    result.inputsValid = c.modelStorageValid && result.throttle.valid && inspection.inputsValid;
-    result.safety = qualify(c, in, result.throttle, result.inputsValid, inspection.throttleNeutral);
+    result.inputsValid = c.modelStorageValid && in.physicalInputsHealthy && result.throttle.valid && inspection.inputsValid;
+    const bool selectorConflict = c.escSelectorReserved &&
+        (c.steeringChannel == EscWire::SelectorChannel || c.throttleChannel == EscWire::SelectorChannel);
+    const int delta = int(result.throttle.filteredAdc) - c.throttleInput.calibration.centre;
+    auto &checks = result.readiness;
+    checks.configurationValid = c.modelStorageValid && mixPlan_.valid &&
+        validBrakeAbs(c.brakeAbs) && !selectorConflict;
+    checks.inputsValid = result.inputsValid;
+    checks.physicalInputsHealthy = in.physicalInputsHealthy;
+    checks.startupComplete = in.startupComplete;
+    checks.throttleEnabled = c.throttleEnabled;
+    checks.triggerValid = result.throttle.valid;
+    checks.triggerCentred = delta >= -int(policy_.neutralAdcWindow) && delta <= int(policy_.neutralAdcWindow);
+    checks.throttleMixValid = inspection.throttleValid;
+    checks.throttleMixActive = inspection.throttleHasMix;
+    checks.throttleMixNeutral = inspection.throttleNeutral;
+    checks.linkValid = in.linkValid;
+    checks.linkMeetsMinimum = in.linkValid && in.linkQuality >= policy_.minimumLinkQuality;
+    checks.throttleChannel = c.throttleChannel;
+    checks.linkQuality = in.linkQuality;
+    checks.minimumLinkQuality = policy_.minimumLinkQuality;
+    checks.triggerPermille = result.throttle.normalisedPermille;
+    checks.throttleMixPermille = inspection.throttlePermille;
+    result.safety = qualify(c, in.nowMs, checks);
     const bool live = result.safety == OutputSafetyStatus::Armed;
-    if (!live) slew_.reset(in.nowMs);
+    if (!live) {slew_.reset(in.nowMs);abs_.reset();}
     processConfiguredMixedOutputs(c, result.outputs, inputs, mix_, slew_, in.nowMs, live, &mixPlan_);
+    if (c.throttleChannel>=1 && c.throttleChannel<=CRSF_CHANNEL_COUNT) {
+        const auto ch=c.throttleChannel;
+        const auto neutral=permilleFromCrsfValue(result.outputs.safe(ch));
+        const auto requested=permilleFromCrsfValue(result.outputs.requested(ch));
+        const auto pulsed=abs_.apply(c.brakeAbs,result.throttle.normalisedPermille,
+            requested,neutral,c.channelProfiles[ch-1].reversed,in.nowMs,live);
+        if (pulsed!=requested) result.outputs.configure(ch,crsfValueFromPermille(pulsed),
+            result.outputs.safe(ch),result.outputs.enabled(ch));
+    }
+    // Selector must survive CUT substitution and override bindings/mixes/trim.
+    if(c.escSelectorReserved) {
+        const uint16_t selector=crsfValueFromPermille(c.escProgramming && c.escProgrammerSelected ? 1000 : -1000);
+        result.outputs.configure(EscWire::SelectorChannel,selector,selector,true);
+    }
     result.neutralSinceMs = neutralSince_;
     return result;
 }

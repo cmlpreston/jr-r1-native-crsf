@@ -1,7 +1,9 @@
 # JR R-1 EVO User Manual
 
-**Prototype edition 1.3 · 1 November 2026**
-For transmitter firmware **06b6928**, installed by verified Wi-Fi OTA on 1 November 2026, XIAO ESP32-S3 / Waveshare LCD (F), landscape.
+**V3 prototype guide · 21 November 2026**
+
+This guide covers the landscape XIAO ESP32-S3 / Waveshare LCD (F) handset.
+The printable PDF reflects an earlier edition.
 
 R-1 EVO retains the original JR wheel, trigger and controls, with a new computer,
 colour touchscreen and an ExpressLRS radio link. This guide describes the current
@@ -64,8 +66,10 @@ the RF module is powered.
 
 Hold Drive to return to CUT and check its state indicator. Secure/power down the
 vehicle before handling it. Switch off module power when RF silence is required.
-Lap records are held in RAM: export any records you want to keep before turning
-off or restarting the handset.
+Before turning off or restarting the handset, open **Data → Run review**, choose
+**Save records** and check the save status. The last successful save keeps this
+model's laps, timer elapsed time, sensor statistics, trip totals and GPS route.
+Use the web timer panel to download a lap CSV if you want a separate copy.
 
 ![Native handset Drive screen](../assets/handset-captures/drive.png)
 
@@ -82,21 +86,37 @@ widget layout. Neither capture method reads back the physical LCD.*
 | --- | --- |
 | Drive | Widgets, operating mode and deliberate CUT/output-enable action. |
 | Tune | Quick steering, throttle and brake response adjustments. |
-| Data | Sensors, GPS map, channels and physical input monitoring. |
+| Data | Sensors, GPS map, channel and input monitors, radio diagnostics and run review. |
 | Setup | Model configuration and handset-wide settings. |
 
-Tap the bottom navigation control to change section. An ordinary navigation tap
-does not enable output. Detail pages provide Back navigation; use their displayed
-controls to return to the parent page. Apply/Save and Cancel matter in editors:
-leaving an editor is not a substitute for applying its draft.
+Tap the bottom navigation control to change section. On Drive, tap **Drive**
+again to hide or show its title bar and give the widgets more space. Hold
+**Drive** for output control. Use **Back** in the title bar of a detail page.
+Back from Radio diagnostics returns to the page where you opened it. In editors,
+use **Apply** or **Save** to keep a draft, or **Cancel** to discard it.
 
 Where page dots are shown, tap a dot or swipe horizontally to change page. Tabs
 select a category within the current section. Paging and tab selection are
 separate operations.
 
-The title bar identifies the current model and link/network status. Tap the model
-area to reach model selection. Tap the Wi-Fi icon for Wi-Fi configuration. Hold
+The title bar identifies the current model and link/network status, with measured
+TX pack voltage immediately left of LQ. Voltage is red at or below the configured
+TX warning threshold. `--V` means unavailable. Fresh GPS date/time telemetry
+shows the time below TX voltage in the zone selected under
+**Setup → Handset → Clock / timezone**. The time hides after three seconds
+without valid updates.
+Tap the model
+area to reach model selection. Tap the Wi-Fi icon for network status and setup. Hold
 the LQ/status area for the module-communication dialog.
+
+### Touch lock
+
+Choose **Touch lock** under **Setup → Handset → Display**, or press the physical
+**MODE** key and choose **Lock touch** in Quick menu. The handset returns to
+Drive with a **Touch locked** strip. The keypad stays available. While locked,
+touch **CUT output** to cut immediately, or press and hold **Hold to unlock**
+and release to restore touch controls. Unlocking restores the controls without
+changing output state. The browser mirror also blocks screen gestures while locked.
 
 ### Original programming keypad
 
@@ -141,14 +161,23 @@ it is not remembered for the next power session. TX voltage sensing must be On.
 
 ### Releasing CUT
 
-Hold Drive, or open **Setup → Model → Drive modes → Output status** and hold
-**Enable output**. The readiness explanation is authoritative. Typical blockers
-are neutral required, Link wait, invalid inputs/configuration, startup recovery,
-a paused module link or an active setup session.
+Hold Drive, or tap the **CUT** status in the title bar to open **Output status**
+and hold **Enable output**. Output status is also under
+**Setup → Model → Drive modes**.
+
+The checklist shows the trigger position, throttle mix, receiver link quality
+and required minimum, model settings, control inputs, startup check and
+assigned throttle channel. A centred trigger can still show a throttle mix
+outside its neutral range. The **Idle Up / Drive** row reports the current
+switch positions. Use **Input monitor** to inspect the original controls.
+Link and neutral must remain stable during the arming attempt, so a passing
+reading can still be followed by a brief wait.
 
 If the message says **Setup session active: close it on the handset to arm**, use
-**Finish Wi-Fi setup** on Output status. Merely closing a browser tab may not end
-the handset's setup session. You do not need to erase Wi-Fi credentials.
+**Finish Wi-Fi setup** on Output status. Leaving the Wi-Fi page also closes a
+setup session started by that visit. An existing browser, recovery or firmware
+update session is preserved; merely closing a browser tab may not end it.
+You do not need to erase Wi-Fi credentials.
 
 Structural changes such as channel/mix edits, model changes and calibration can
 force CUT. Recheck the result and deliberately re-enable at neutral afterward.
@@ -171,12 +200,26 @@ path, not a security boundary against someone with access to the handset.
 
 ## 4. Models
 
-Tap the title-bar model area to open the model list. A row marked Load selects
-that memory; the active row is marked Active. Load a model in CUT with throttle
-centred, then verify the active name. Use the separate **Appearance** control to
-change the active model's image and paint. Rename the active model in the web UI
-(1-12 printable ASCII characters). Do not identify a vehicle by image alone:
-multiple memories can use the same artwork.
+Tap the title-bar model area to open **Models**. A row marked **Load** selects
+that slot. The active slot is marked **Active**. Load a model in CUT with the
+throttle centred, then verify the active name. **Appearance** changes the active
+model's image and paint. Multiple models can use the same artwork.
+
+Open **Manage** in Models to edit slots directly on the handset. Leave the
+outputs in CUT with the throttle centred.
+
+| Action | What it does |
+| --- | --- |
+| New | Names an inactive slot and starts its control setup from defaults. |
+| Rename | Changes the selected slot's name. Use up to 12 characters. |
+| Copy | Copies the active model's control setup to an inactive slot under a new name. |
+| Reset controls | Restores default controls for the selected slot and keeps its name. |
+
+New, Copy and Reset controls ask you to confirm the destination before replacing
+its channel tuning, roles, mixes, control assignments and Walk limit. Its
+appearance, dashboard, alarms, timer settings and saved runs stay with that slot.
+Verify the ESC again before enabling ABS after replacing the controls. Use
+**Load** to select an inactive slot after New or Copy.
 
 Artwork choices include Hyper 7, buggy, truggy, short-course truck, monster truck,
 crawler, touring car and Formula/F1. Primary, accent and base paint affect
@@ -196,12 +239,16 @@ style and source. Apply the change. The grid has two columns and two rows:
 widget covers neighbouring positions without deleting their saved widgets;
 reducing it reveals them again.
 
+On the handset, tap **Drive** briefly while already on the dashboard to hide or
+show the title bar. When hidden, **CUT**, **LIVE** or **FAULT** appears in the
+Drive tab. The title bar returns after a restart. Holding **Drive** still
+controls output.
+
 Hold the widget body for about 0.65 seconds and release to maximise it across the
-dashboard. The title bar and bottom navigation remain available. Use the small down-chevron overlaid at the top centre,
-Back, or another long press to return to the grid. Short taps still open details
-or page through entries. Timer Start/Reset buttons keep their own actions; hold
-the timer body above them to enlarge it. The saved layout is unchanged. The web
-mirror supports the same gesture. The expanded widget omits its own title and extra Restore row to leave more room for data.
+dashboard. Use the small down-chevron at the top centre, Back, or another long
+press to return to the saved grid. Short taps still open details or page through
+entries. Hold the timer body above Start and Reset to enlarge it. The web mirror
+supports the same widget hold gesture.
 
 ![Simulator example: saved dashboard before expansion; simulated inputs, not a physical LCD capture.](../assets/ui-captures/widget-focus/dashboard.png)
 
@@ -213,14 +260,117 @@ mirror supports the same gesture. The expanded widget omits its own title and ex
 | TX / RX power | Local transmitter battery and receiver-supply telemetry. Numeric, bar or dial styles where offered. |
 | Channels | One selected channel, optionally a second. Select a suitable numeric, bar, dial, graph or switch style. |
 | All channels | Configured outputs, physical controls or both. Choose visible entries; horizontal/vertical bars or numbers, with binary indicators for suitable switch states. Tap to page through entries. |
-| Sensor | Speed, temperature, RPM, RX voltage, LQ, satellites, drive-pack total, lowest cell, FAS voltage or current. Styles depend on the sensor. |
+| Sensor | Speed, RPM, RX voltage, LQ, satellites and drive-pack readings. Styles depend on the sensor. |
 | Battery cells | Individual reported cells together, plus total, lowest cell and count. Auto or expected 1S–12S; page when needed. |
-| GPS map / trail | Saved map with north indicator, attribution, GPS position and trail. Tap for the larger GPS view. |
+| GPS map / speed | Automatically shows the saved map/position/trail or the speed display, based on fresh GPS fields. Acquisition and unavailable data have separate status messages. |
+| Drive pack / CU01 | Pack voltage, current, consumed mAh and estimated remaining percentage reported by the CU01. Stale or unavailable readings show `--`. |
+| Power / energy | CU01 electrical input power in watts, observed peak watts, accumulated Wh and estimated Wh/km when enough fresh GPS speed data is available. Reset clears these local measurements. |
+| Control history | Last ten seconds of calibrated steering and throttle inputs, sampled at 100 ms with fixed -100/0/+100% axes. ST and TH use different colours. |
+| Trip computer | GPS distance, moving time, moving average and observed top speed since reset. |
+| Run summary | Elapsed time, GPS distance/top speed, CU01 observed peak watts, capacity used and energy used for the same trip session. |
+| Battery load / balance | CU01 pack voltage/current, observed minimum pack voltage/peak current, CV01 lowest cell and difference between highest and lowest cell. |
+| Speed / motor RPM | Two independent dials for GPS ground speed and sensor-reported motor RPM, with separate units and scales. |
+| Controls | Normal / Walk mode controls. |
+| Trim / rates | Steering trim/rate and throttle trim/brake rate, with shortcuts to adjustment. |
+| RF margin | Current margin above the selected RF mode's sensitivity, with LQ and reported RF output power. |
 | Model image | Active model name and painted vehicle image. Tap to reach model selection. |
 | Empty | Leave the position unused. |
 
 Speed supports a dial and current/max/average readings; it is not calculated from
 throttle position. Tap a sensor for detail/history or power for radio diagnostics.
+Choose **Drive pack** in the widget type selector for the combined CU01 card.
+Its remaining percentage is the sensor's estimate; the R1 does not establish
+the pack's starting charge. A partly charged pack or an incorrect sensor capacity
+setting can make that percentage inaccurate. Used mAh is the sensor's counter.
+
+**Power / energy** derives watts from CU01 voltage and current; it does not
+measure mechanical motor output. Peak means the highest reported sample, so
+short spikes between reports may be missed. Wh is estimated between fresh samples;
+stale or invalid intervals are excluded and indicated as gaps. Wh/km is an estimate from
+matched power/GPS-speed coverage, unavailable until at least 100 m is covered.
+A `~` prefix marks totals that omit telemetry gaps.
+Saved peaks and totals are restored after power-up or model selection. Integration
+resumes with fresh measurements and leaves a gap where telemetry was missing.
+Confirmed Reset clears this widget's observations. Used energy is meaningful
+with a partly charged pack. This widget does not estimate its starting charge.
+
+**Control history** shows input commands before expo, trim, channel reversal and
+mixing. Positive/negative throttle indicates trigger intent, not whether the
+ESC is braking or reversing. Inputs remain visible in CUT; missing, stale or
+invalid input intervals leave gaps. The graph does not prove that a servo or
+motor followed the command. Both new widgets support the normal dashboard sizes
+and hold-to-maximise gesture; a wide Control history card gives more graph space.
+
+**Trip computer** and **Run summary** share one trip. A new trip begins at the
+first fresh GPS-speed or CU01 reading. The last saved trip is restored after a
+restart or model change. Either card's Reset clears both cards and leaves the
+separate Power / energy card and sensor counters unchanged. Elapsed time
+continues while stopped or telemetry is missing. Moving time, distance and
+average use fresh GPS speed, excluding speed below 1 km/h to reduce standstill
+jitter. The moving average appears once movement is recorded.
+
+Run capacity is the increase in the CU01's consumed-mAh counter since the first
+new reading, so it also works for a partly charged pack. It does not estimate
+remaining charge. A counter decrease starts a new baseline and marks the total
+incomplete. Missing GPS/power intervals are excluded from distance/moving time/Wh and
+marked with `~`; the capacity total may also include sensor-counted use during
+a gap. Observed top speed and peak watts remain visible after telemetry is lost.
+Short peaks between sensor reports may be missed.
+
+**Battery load / balance** keeps CU01 and CV01 readings separate. Live pack
+voltage/current expire after three seconds; cells expire after twenty seconds.
+Their missing values show `--`, while observed minimum pack voltage and peak
+current remain until reset. Cell spread is the highest reported cell minus the
+lowest in the same CV01 packet; it does not diagnose battery health or estimate
+internal resistance. Its Reset clears only this card's local observations.
+Battery warning thresholds and sensor settings are unchanged.
+
+**Speed / motor RPM** pairs the GPS speed reading with the RB01's reported motor
+RPM. Each reading has its own freshness check: a missing RPM feed leaves the
+speed dial working, and vice versa. Zero is a valid reading. It displays current
+measurements, without deriving RPM from speed or applying a guessed correction.
+Confirm the motor's total magnetic pole count and the RB01 Motor poles setting
+before treating its RPM as calibrated shaft speed.
+
+With fixed gearing and tyre circumference, motor RPM and road speed are
+proportional while the tyres roll without slipping. Wheelspin or tyre expansion
+can change that relationship; different sensor delays can also temporarily
+separate the readings. The two dials do not calculate a calibrated slip ratio.
+
+![Expanded speed and motor RPM dials with synthetic values; krpm means thousands of RPM.](../assets/ui-captures/speed-rpm/expanded.png)
+
+![Trip computer, Run summary and Battery load/balance: synthetic simulator readings, not a hardware capture.](../assets/ui-captures/trip-run-battery/landscape.png)
+
+![Power/energy and control-history widgets: simulator example with synthetic readings and inputs, not a physical LCD capture.](../assets/ui-captures/power-control/dashboard.png)
+
+The **GPS map / speed** card chooses its display from the returned data. Fresh
+usable coordinates select the map. Fresh speed without position or satellite
+fields selects speed; after a usable position was shown, a three-second grace
+period avoids switching on a brief interruption. A reported low satellite count
+shows **Acquiring**, while position-shaped data without a usable position stays
+on the map with a waiting status. Unknown satellites differ from a reported zero.
+Some older GPS bridges encode unknown as zero too; fresh non-placeholder
+coordinates with zero retain an amber map labelled **Position unconfirmed**.
+When telemetry expires, the last presentation remains with unavailable readings.
+Speed Max/Avg and Reset use the same statistics as the dedicated Speed card.
+
+This is an automatic display selection, not confirmation of the sensor's physical
+mode. The standard CRSF GPS satellite field means satellites in view, not a fix
+flag. Even a nonzero count does not establish a usable position. Sensor mode is
+only confirmed by its explicit settings reply; the widget does not discover or
+configure sensors. The dedicated Speed card stays a speed display, and Data / GPS
+remains the full map page.
+
+A stationary hardware comparison on 15 November reported position/speed/course
+availability in both mapping and freshly confirmed blue modes, at about 4.7
+delivered GPS packets per second. Subsequent firmware inspection found that blue
+mode can send zero position/course placeholders in the same full-length packet.
+The current widget can mistake those for usable position and retain the map;
+the availability counters do not establish useful position or the GPS solution
+rate. A raw check on this sensor remains pending. The speed-only examples below
+use synthetic packets; they do not represent the captured blue-mode feed.
+
+![Automatic speed presentation: simulator-only synthetic packet example, not a verified blue-mode hardware capture.](../assets/ui-captures/gps-auto/speed.png)
 
 ### Monitoring controls while CUT
 
@@ -270,18 +420,37 @@ cancel the intended effect.
 | Setting | Effect |
 | --- | --- |
 | Rate | Scales travel/sensitivity for the selected side. |
-| Expo | Shapes response around centre while retaining the selected travel limits. Inspect the curve rather than assuming another radio's sign convention. |
+| Expo | Live response shaping around centre while retaining zero and the selected travel limits. Inspect the curve rather than assuming another radio's sign convention. |
 | Endpoint | Maximum negative/positive travel; steering shows physical left/right values. |
 | Response speed | Slows changes over the configured time in milliseconds. |
 | Direction | Reverses output direction. |
-| Trim | Small operational centre adjustment. |
-| Subtrim | Centre adjustment used during setup. |
+| Trim | Operational offset: moves neutral and endpoints together, clipped to the output range. |
+| Subtrim | Centre adjustment: moves neutral while preserving the configured endpoints. Travel on each side is rescaled to meet the new centre. |
 | Response offset | Detailed response adjustment where offered. |
 
 Tune provides quick adjustments and **Channel setup** links to fuller settings.
 Detailed response separates Right/Left, Forward/Brake or Positive/Negative. Trim
 control and Subtrim control entries can select the physical adjuster directly.
+In the Expo editor, **+ / −** and Reset take effect live. **Apply** retains the
+change; **Cancel** or leaving the editor restores the committed response. Opening
+the editor alone leaves an asymmetric saved response unchanged. Return to CUT
+before powering off to save. Expo also affects any mixes using that shaped source.
 After moving a centre or reversing a channel, recheck mechanical travel for binding.
+Steering endpoints can be adjusted live while output is enabled. Open the steering
+Endpoint editor, steer left or right (or tap the side), and use the handset
+**+ / −** keys to change that side immediately. Reversal is respected. **Apply**
+keeps both values without forcing CUT; **Cancel** restores the prior travel.
+Return to **CUT after Apply** to save the values to permanent storage before
+powering off. Editing never enables outputs if they were already CUT. Throttle
+endpoints and other structural response edits except expo retain CUT/re-arm.
+
+Subtrim is limited by the available travel: neutral cannot move beyond an endpoint.
+If either side has zero travel, its pinned neutral cannot be adjusted independently.
+Steering subtrim can be adjusted live with its assigned control or applied from
+Tune. It keeps the configured endpoints fixed and does not interrupt driving.
+Return to CUT before powering off to save the adjustment to permanent storage.
+Changing it while already CUT never enables output. Throttle and auxiliary
+subtrim changes still request CUT; ordinary trim remains a live adjustment.
 
 ![Channel configuration](../assets/handset-captures/channel-setup.png)
 
@@ -425,14 +594,15 @@ requires confirmation, and is allowed only when paused and not Ready.
 2. Set Race / countdown duration, Race-end alarm and optional Target lap alarm.
 3. Start from Controls or the timer's assigned physical button.
 4. Press Lap on each crossing. Accepted laps beep; too-short laps are ignored.
-5. Pause after the session, review Laps and export before power-off if needed.
+5. Pause after the session, review Laps, then use **Data → Run review → Save
+   records** in CUT before powering off. Download a lap CSV for a separate copy.
 
-Up to **100 laps per model per power session** are held in RAM. Laps shows records
-and marks the best; summaries include last/best/average/total. At capacity, further
-laps are not stored until you pause and clear. Settings and accumulated on-time
-are saved; lap records and running clock are not restored after reboot. On-time
-is checkpointed about once a minute, so abrupt power loss can lose the latest
-fraction of that accumulated figure.
+Each model holds up to **100 laps**. Laps shows records and marks the best.
+Summaries include last, best, average and total. At capacity, pause and clear
+before recording more laps. The last saved laps and elapsed time return after a
+restart with the timer paused and Ready cleared. Timer settings and accumulated
+handset on-time are saved separately. Abrupt power loss can lose changes made
+since the last save.
 
 ### Ready: throttle auto-start
 
@@ -452,6 +622,26 @@ provides settings/actions and lap CSV download; web writes require CUT access.
 Use **Data → Sensors** for values and histories, **GPS** for location/trail,
 **Channels** for requested/sent outputs and **Inputs** for physical controls.
 No data or stale values mean no usable fresh measurement; they are not zero.
+
+### Saved run records
+
+Open **Data → Run review** to review the selected model's observations and save
+status. Records include sensor peaks and averages, trip and energy totals, battery
+extremes, elapsed timer time, laps and a route of up to 2,048 GPS points. The route
+starts at up to one point per second. As it fills, the handset keeps points spaced
+farther apart to retain an overview of the whole route. The handset saves
+records about every 30 seconds while in CUT with data to save, when leaving LIVE
+and before switching models. A sudden power loss while driving can lose
+observations collected after the last save.
+
+In CUT, use **Save records** to save immediately and check the status. The last
+successful save shows the handset's local GPS time when available or the time
+since boot. After loading a saved checkpoint, its original save time is
+unavailable until a new successful save. To clear the current model's saved and
+current records, pause the timer, keep CUT and use **Delete records...**.
+Check the model named in the confirmation. Model settings and other models'
+records are kept. An unreadable record is protected from automatic and manual
+saves. Read the message before choosing whether to delete it.
 
 Link data can include LQ, RSSI and SNR. Other supported readings include receiver
 voltage, speed, GPS/satellites, RPM, temperature, pack/cell values and FAS
@@ -488,17 +678,31 @@ uploaded to the ER6G on 1 November 2026; live GPS delivery still needs confirmat
 an S.Port sensor; match its protocol and receiver firmware rather than selecting
 by brand. Receiver wiring/output mapping remains separate from transmitter mixing.
 
-A map can be viewed without GPS; a live position/trail requires valid position
-telemetry. The GPS page keeps its title bar, navigation and controls visible
-while idle; automatic fullscreen is disabled for this trial.
+A map and its last saved trail can be viewed without a new GPS fix. New trail
+points and a live position require valid position telemetry. The GPS page keeps
+its title bar, navigation and controls visible while idle. Automatic fullscreen
+is disabled for this trial.
 Use Zoom -/+, Trail and Reset trail as needed. Attribution remains part of the map.
+Dashboard GPS widgets crop saved satellite imagery to fill their area, including
+when maximized. While the location is inside the saved map, following stops at
+the image edges so it does not expose blank margins. The position and trail keep
+their true geographic placement. The separate GPS page retains its zoom controls;
+an outside-coverage position still needs a map covering that location.
+Dashboard widgets omit the source-credit strip; open Data / GPS for map credits.
 
 ## 12. Wi-Fi and the web interface
 
 ### Connect to home Wi-Fi
 
 Open **Setup → Handset → Network / web → Home Wi-Fi**, or tap the Wi-Fi icon.
-Select/enter the network and password and connect. Password characters are visible
+Viewing status or checking the IP address does not start a setup session or
+request CUT. Choose **Start setup**, or a network/configuration action, when you
+want to make changes; that starts setup and requests CUT. Leaving the Wi-Fi page
+ends the session started by that visit. A session already active for browser
+configuration, recovery or a firmware update stays active until finished safely.
+
+Select/enter the network and password and connect. Cancel discards an editor's
+unapplied draft. Password characters are visible
 in the current setup editor. Saved credentials and optional automatic connection
 are retained; with auto-connect On, attempts begin after boot without opening setup.
 The icon is a shortcut/status indication, not proof that every web request works.
@@ -539,6 +743,21 @@ Use each section's Save/Apply action and read its response; changing a field
 alone is not proof it was saved. Finish an explicit setup session on the handset
 before attempting to enable live output.
 
+### Model templates and backups
+
+In the browser portal, open **Model templates and backups** and choose
+**Download control profile** to save the current model’s name, channel tuning,
+mixes, assignments and Walk limit as an `.r1model` file.
+
+In CUT, select the file and an inactive model slot, then choose **Preview import**.
+Check the destination and the steering, throttle and reversal summary before
+applying. The current model stays selected. Load the imported model on the
+handset when ready.
+
+Appearance, dashboard, alarms, timer settings and saved records stay with the
+destination slot. Handset calibration stays with the handset. An imported
+profile requires fresh ESC verification before ABS can be enabled.
+
 ## 13. Offline maps
 
 The browser prepares a map package and transfers it to the handset. It is not a
@@ -550,8 +769,9 @@ continuous map-streaming service to the LCD.
    preview; it has not yet saved to the handset.
 4. Review the preview, name and attribution. Current image packages are limited
    to 512×512 pixels.
-5. If storage is unavailable, use **Prepare map storage** and its confirmation;
-   wait for an explicit result. Storage preparation is not map upload.
+5. If storage is unavailable, use **Storage recovery…** and read the confirmation.
+   The handset retries opening storage first. If formatting is required, it
+   erases the uploaded map and saved run records for every model.
 6. Choose **Save map to handset**. Wait for a success message, not just upload
    progress or “waiting for handset to validate and save”.
 7. Open the handset GPS page/widget to check the installed map.
@@ -573,18 +793,19 @@ the package's actual source attribution when exporting/sharing.
 ## 14. Handset settings
 
 Open **Setup → Handset** and page for additional entries.
+Settings marked **Model** apply to the named model. Settings marked **Handset**
+apply across model memories.
 
 | Area | Main settings |
 | --- | --- |
-| Display | Screen timeout, idle action (logo saver/display off), brightness, colour scheme, activate now and orientation. |
+| Display | Screen timeout, idle action (logo saver/display off), brightness, colour scheme and activate now. |
 | Sounds / alerts | Available sound and alarm options. |
 | TX battery | Chemistry, cell count, low alarm and voltage sensing. The installed pack is 3S LiFe. |
+| Clock / timezone | Time zone for the GPS-derived clock. Presets for Australian regions that observe daylight saving adjust automatically. |
 | Network / web | Home Wi-Fi, auto-connect, setup access, web address/credentials and hostname. |
 | System | Input diagnostics, firmware information, PIN and restart. |
 
-Orientation changes reflow the UI between portrait and landscape; they are a
-manual test/control, not accelerometer-driven rotation. Perform changes while
-CUT and finish any active editor/hold first. The installed default is landscape.
+The handset display uses 480 × 320 landscape.
 The logo saver alternates JR PROPO and R-1 EVO. Touch or a navigation key wakes it;
 the wake action need not also operate the underlying control.
 
@@ -593,8 +814,10 @@ itself runs from USB or a separate 5V regulator. If that feed is absent, no TX
 battery reading can be inferred from the power source. Choose appropriate alarm
 settings for the actual chemistry rather than copying LiPo values into LiFe.
 
-Restart reboots in CUT and clears RAM session data such as lap records. It does
-not deliberately erase saved models, maps or Wi-Fi. Export lap records first.
+Restart reboots in CUT. Saved models, maps, Wi-Fi settings and run records are
+retained. Laps and elapsed time return from the last successful save with the
+timer paused. Use **Data → Run review → Save records** in CUT before restarting
+to keep recent observations. Live sensor graph history starts afresh.
 
 ## 15. ExpressLRS module settings
 
@@ -615,8 +838,76 @@ string parameter types that the current editor does not support are read-only.
 The receiver needs compatible settings to reconnect after RF changes. See the
 [RF configuration notes](elrs-tx-configuration.md) for protocol details.
 
-ESC settings currently include preview/prototype functionality. Do not treat a
-visible menu entry as evidence of working ESC programming for a particular ESC.
+### ABS pulsed braking
+
+Open **Tune → Brake → second page → ABS braking**. This is timed pulsed braking,
+not wheel-lock sensing. It is **Off by default** and is supported only with the
+ESC set to **Forward/Brake**, with reverse disabled.
+
+First use the ESC programmer to read its settings, set **Run mode → Fwd/brake**,
+and wait for verified write/readback. Alternatively read an ESC already set to
+that mode. Return through Drive and its required power cycle. The ABS page then
+shows the last verified **Forward / Brake** setting and allows ABS to be enabled.
+No ESC setting is changed automatically by this page. Verification is saved per
+model; if the ESC is changed using a card or another transmitter, re-read its run
+mode before relying on ABS. It is a record of configuration, not live ESC-state
+feedback. Beginning another programming session clears verification and turns
+ABS off; re-enable it explicitly after verifying the mode again.
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| Activation | Physical brake-trigger travel required to start the delay | 30% |
+| Brake release | Reduction from requested braking during the weaker half of each pulse | 30% |
+| Pulse frequency | Complete strong/weak cycles per second; 2–10 Hz | 5 Hz |
+| Delay | Initial continuous braking before pulsing; 0–1000 ms | 200 ms |
+
+The pattern has 50% strong and 50% reduced braking. A 30% release means a 100%
+brake request alternates with approximately 70%, subject to response settings.
+ABS follows response/mixing/trim/ramp processing, affects only the throttle
+output on the physical brake side, and never creates forward drive during its
+release half. CUT, invalid inputs, configuration errors and stale-control safety
+still override it. Changing ABS settings requests CUT and normal re-arming.
+An **ABS** marker in the header indicates it is enabled, not necessarily pulsing.
+
+The initial implementation has host/simulator coverage; actual ESC braking and
+receiver PWM must be bench-validated before driving with ABS. Keep ABS off in
+Forward/Reverse/Brake mode: a brake-side trigger alone cannot distinguish braking
+from reverse. Steering-dependent ABS and switch activation are not included yet.
+
+### ESC programming (custom ER6G)
+
+The current bench-tested implementation uses custom ER6G r14/r8 firmware and
+the normal ESC lead on receiver output 5. It does not require an ER4 or CH12
+selection. Stock receiver firmware does not provide this interface. Program,
+Read ESC and Drive stay visible across the ESC tabs; unavailable actions are dim.
+
+Keep CUT active throughout configuration. For bench commissioning, disconnect
+the motor leads and remove the programming card before using the R1:
+
+1. Open **Setup → Model → ESC settings**. Select **Program** and wait for
+   **“Cycle ESC power for programming; stay CUT.”**
+2. Switch the ESC off with one continuous long press of its power button,
+   holding until the receiver LED goes completely dark. Wait five seconds,
+   switch the ESC on **once**, and leave it on. If the ESC button
+   does not remove BEC power, disconnect the drive pack; after reconnecting it,
+   press the ESC power button once if needed to enable its BEC. A second restart
+   consumes the one-shot request and returns the receiver to normal Drive.
+3. Wait for **“Programming ready; Read ESC,”** then select **Read ESC**. After all
+   15 settings arrive, choose a setting on Drive, Brake, Motor or Limits. Adjust
+   its draft and select **Apply one**. Success means an ESC acknowledgement and a
+   matching readback; the handset displays **“Setting saved; readback verified.”**
+4. Select the **Drive session button** above the bottom navigation bar, then
+   restart ESC/receiver power using the same off/five-second/on procedure. Wait
+   for **“Drive confirmed; outputs remain CUT.”** Returning to Drive never arms
+   the transmitter automatically.
+
+The paired startup stage is required for the measured ESC entry window. A
+single-application trial started too late. Writes are individual transactions
+with no automatic retries; loss of the link or an uncertain reply retains the
+CUT interlock. The drag-brake 0% → 5% → 0% bench test passed; the 5% value was
+also confirmed after a power cycle with the programming card. This does not
+claim validation of every setting or every ESC model. Earlier ER4 experiments
+are retained in the [commissioning history](esc-programmer-er4.md).
 
 ## 16. Firmware, simulator and service tools
 
@@ -657,10 +948,8 @@ Its model/state and sensor fixtures are separate from the handset and are not
 transferred automatically. Font rendering and display appearance may differ from
 the physical LCD. See [Development guide](../DEVELOPMENT.md) for launch commands.
 
-Both portrait (320 × 480) and landscape (480 × 320) layouts are maintained and
-checked in the simulator. **Setup → Handset → Display → Orientation** changes
-the display orientation. Automatic rotation is not implemented; it would require
-an accelerometer and orientation-detection firmware in a future revision.
+The simulator checks the handset's 480 × 320 landscape layout and also
+exercises a 320 × 480 portrait layout.
 
 ### Serial diagnostics
 
@@ -669,6 +958,17 @@ results, `MEMORY` reports internal RAM/PSRAM and task stack margins, and `INPUTM
 opens the input monitor. `WIFISTATUS` reports network access details and may expose
 credentials; do not publish its unredacted output. Close a serial monitor before
 flashing if it holds the USB port.
+
+### Display comparison
+
+The authenticated web page includes a **Display comparison** section for bench
+testing Standard and Trial screen-transfer methods. Keep the handset unlocked,
+awake and CUT, with holds released, before changing the method. Restart always
+restores Standard. This setting does not change the LCD clock or driving setup.
+Let the first redraw finish, reset the display counters, then repeat the same
+navigation with each method. Initial full-redraw testing showed no clear Trial
+speed gain; Standard remains the default. Broader performance/stability still
+need validation; see [UI responsiveness](ui-responsiveness.md).
 
 A native screenshot export is available over USB/web rendering. It does not read
 back display glass, so a good capture cannot rule out LCD wiring or panel faults.
@@ -690,7 +990,7 @@ back display glass, so a good capture cannot rule out LCD wiring or panel faults
 | Battery cells missing | Check actual sensor protocol/receiver forwarding and freshness. Expected cell count does not synthesise cells. |
 | No GPS trail | Confirm receiver GPS forwarding, valid location/fix and fresh telemetry; a saved map alone provides none of these. |
 | Timer press ignored | Check assignment/context, mode, minimum-lap interval and 100-lap capacity. |
-| Laps disappeared after restart | Expected: lap history is session RAM. Export CSV before restarting. |
+| Recent laps missing after restart | Check the selected model and the Run review status. Only the last successful save is restored. Use Save records in CUT before powering off or restarting. |
 | Blank LCD but web/serial works | Separate backlight from graphics. Check LCD power, CS, reset, DC, clock and MOSI connections; touch uses I2C separately. Use the installed pinout guide. |
 | Cannot exit Walk | Enter the correct PIN within the prompt; otherwise it times out back to Drive. Use USB recovery if the PIN is forgotten. |
 

@@ -1,4 +1,5 @@
 #include "mcp23017_input.h"
+#include "input_bus_guard.h"
 
 #include <Wire.h>
 
@@ -43,6 +44,7 @@ bool Mcp23017Input::readRegisters(uint8_t reg, uint8_t *values, size_t count)
 
 bool Mcp23017Input::begin()
 {
+    InputBus::Guard bus;if(!bus)return false;
     // Restore the last configuration after reconnect. Never turn display reset
     // outputs into inputs or overwrite their latches during input polling.
     online_ = writeRegister(0x14, outputLatch_ & 0xff) &&
@@ -56,6 +58,7 @@ bool Mcp23017Input::begin()
 
 bool Mcp23017Input::configure(uint16_t inputs, uint16_t pullups, uint16_t latch)
 {
+    InputBus::Guard bus;if(!bus)return false;
     inputMask_ = inputs;
     pullupMask_ = pullups & inputs;
     outputLatch_ = latch;
@@ -64,6 +67,7 @@ bool Mcp23017Input::configure(uint16_t inputs, uint16_t pullups, uint16_t latch)
 
 bool Mcp23017Input::writeOutput(uint8_t pin, bool high)
 {
+    InputBus::Guard bus;if(!bus)return false;
     if (pin >= 16) return false;
     const uint16_t bit = uint16_t{1} << pin;
     outputLatch_ = high ? outputLatch_ | bit : outputLatch_ & ~bit;
@@ -75,6 +79,7 @@ bool Mcp23017Input::writeOutput(uint8_t pin, bool high)
 
 bool Mcp23017Input::setOutput(uint8_t pin, bool high)
 {
+    InputBus::Guard bus;if(!bus)return false;
     if (pin >= 16 || !writeOutput(pin, high)) return false;
     inputMask_ &= ~(uint16_t{1} << pin);
     const bool ok = writeRegister(pin < 8 ? IODIRA : IODIRB,
@@ -85,6 +90,7 @@ bool Mcp23017Input::setOutput(uint8_t pin, bool high)
 
 bool Mcp23017Input::setInput(uint8_t pin, bool pullup)
 {
+    InputBus::Guard bus;if(!bus)return false;
     if (pin >= 16) return false;
     const uint16_t bit = uint16_t{1} << pin;
     inputMask_ |= bit;
@@ -99,6 +105,7 @@ bool Mcp23017Input::setInput(uint8_t pin, bool pullup)
 
 bool Mcp23017Input::read(uint16_t &ports)
 {
+    InputBus::Guard bus;if(!bus)return false;
     uint8_t values[2];
     if (!readRegisters(GPIOA, values, sizeof(values))) {
         online_ = false;
@@ -108,4 +115,14 @@ bool Mcp23017Input::read(uint16_t &ports)
             static_cast<uint16_t>(values[1]) << 8U;
     online_ = true;
     return true;
+}
+
+bool Mcp23017Input::online() const
+{
+    InputBus::Guard bus;return bus&&online_;
+}
+
+uint32_t Mcp23017Input::readErrors() const
+{
+    InputBus::Guard bus;return bus?readErrors_:UINT32_MAX;
 }

@@ -165,3 +165,156 @@ and a coalesced save after safe output/painting. Full audits retain interaction,
 rotation, display equivalence and memory checks in both orientations. Hardware
 touch-to-visible timing and safe bench validation of the new firmware remain
 pending; this change has not been flashed.
+
+## Ordinary-editor reuse and LCD trial — 2026-11-14
+
+Ordinary value-editor +/-/Fine/Reset now update existing labels and curve points.
+Their header, controls, focus targets and screen epoch remain alive through the
+edit; true navigation still rebuilds and advances the epoch. Apply/Cancel, live
+expo/endpoints, deferred saving and CUT/fault protections are unchanged. This is
+editor reuse, not a cache of every page or shared chrome across different pages.
+
+Before/after measurements use the same 320 actual touch actions across 80
+field/role/orientation cases:
+
+| Quantity | Before | Candidate |
+| --- | ---: | ---: |
+| Rendered pixels | 48,144,963 | 4,706,282 |
+| New LVGL objects during adjustment | 7,764 | 0 |
+| Aggregate host controller-call time | 200,826 µs | 27,002 µs |
+
+Rendered work falls by 90.2% in this fixture. This is not a measured hardware
+latency or frame-rate improvement. Allocation blocks/bytes remain stable through
+each four-action sequence; ten unchanged Resets produce zero rendered pixels
+and new objects. Sixteen before/after editor screenshots are byte-identical,
+including with the new fallback font subsets. The preferred fonts are unchanged;
+the [dated performance review](CODE-PERFORMANCE-REVIEW-2026-11-14.md) records exact
+font and firmware size savings.
+
+The approved XIAO display backend also offers an opt-in **Trial** pixel path.
+It retains the verified commands, pins, mode 3 and 80 MHz clock. Standard is used
+on every boot. For ideal aligned full-frame writes, outer SPI API calls change
+from 4,800 to 20 landscape/30 portrait; the approximately 4,800 FIFO loads remain.
+This is synchronous transfer, not DMA. Host checks cover exact RGB565 byte order,
+odd counts, alignment, bounded scratch handling and guarded mode changes.
+
+### Hardware comparison procedure
+
+Use the authenticated web **Display comparison** panel. Changing the method or
+resetting its counters requires an unlocked, awake handset in acknowledged CUT,
+with holds released and no firmware update or ESC programming interlock.
+
+1. Select **Standard**, allow its initial full redraw, then choose **Reset display
+   counters**. Keep the row-cache setting and sensor state consistent.
+2. Repeat a fixed navigation/editor/map sequence. Record pixels/bytes, API calls,
+   pixel-transfer time, longest write and the control/radio/input gap counters.
+3. Select **Trial**, allow its initial redraw and reset counters, then repeat the
+   identical sequence. Return to Standard and repeat as a consistency check.
+4. Compare like-for-like transfer totals. Check colours, partial/odd rectangles,
+   wake/rotation and extended panel/control stability before considering a new
+   default. Initial full-redraw results are recorded below; broader tests remain.
+
+Pixel-transfer time excludes drawing and address-window commands; preemption can
+be included. Task maximum gaps and dropped-event counts are since boot and are
+not reset by **Reset display counters**. Row-cache fragmentation and alignment
+can raise API-call counts above the ideal full-frame figures.
+
+The same authenticated diagnostics use `GET /api/display-test`; guarded writes
+use `POST` with `action=mode&mode=standard|trial` or `action=reset` through the
+existing session/token mechanism. This avoids opening USB for routine comparison.
+Host tests, both simulator builds, focused checks and full portrait/landscape
+audits passed. Guarded upload installed `fff44ca` on the approved XIAO landscape
+target, with device hash verification. Broader hardware qualification remains
+pending; no Trial transport speed improvement is claimed.
+
+### Initial hardware comparison — 14 November
+
+Source `fff44ca` was tested through the authenticated web panel, staying CUT with
+the module link off. Remote live-screen requests were intermittent, so the
+navigation experiment was discarded. Instead, each method selection invalidated
+the row cache and forced the same unchanged menu screen to redraw. Live viewing
+was disconnected before these six alternating samples. Every sample transferred
+exactly 153,600 pixels / 307,200 bytes in 20 pixel writes. Stats were read after
+the redraw; no serial connection was opened.
+
+| Method | Pixel-transfer times (ms) | Median (ms) | API calls per redraw | Longest writes (ms) |
+| --- | --- | ---: | ---: | --- |
+| Standard | 74.98, 72.97, 67.11 | 72.97 | 4,800 | 4.17, 4.24, 4.66 |
+| Trial | 73.15, 75.27, 74.30 | 74.30 | 20 | 4.88, 4.42, 4.77 |
+
+There is no clear transfer-time gain. These small samples include preemption,
+exclude drawing/address commands and do not measure touch latency. The user
+confirmed normal physical LCD colours/text without broken lines or flicker in
+Trial. Standard was restored, not promoted or changed persistently. A final
+Standard redraw measured 71.06 ms. Partial/odd rectangles, wake/rotation and long
+stability still need hardware qualification before considering a new default.
+
+New timing counters also exposed material gaps during web/live-screen activity.
+Before using the live mirror, since-boot maxima were control 5.97 ms, radio
+82.91 ms and physical inputs 25.61 ms. Standard/mirror activity raised control to
+85.36 ms and inputs to 96.26 ms; by the first Trial selection, radio was 83.55 ms
+and inputs 97.87 ms. No later maximum arose during the remaining warmed redraws.
+All final inputs were healthy and dropped input/diagnostic counters stayed zero.
+Those facts do not establish timely control: the sampler gap is close to its
+100 ms heartbeat limit, and scan gaps are not identical to checked sample age.
+The maxima are cumulative, so neither the cause nor a per-method attribution is
+established. Isolate mirror allocation, network activity, persistence and warmed
+rendering before qualifying live driving under this workload. Keep this as an
+unresolved measured concern, not a diagnosed SPI regression or a passed safety
+benchmark.
+
+After this light test: internal free 84.3 KiB, minimum 60.1 KiB, largest 72.0 KiB;
+PSRAM free 7,045.5 KiB, minimum 7,034.2 KiB. Minimum unused stacks were UI/web
+1,432 B, control 2,420 B, radio 2,928 B, physical inputs 2,052 B and diagnostics
+2,256 B. These are observations, not worst-case margin qualification. Evidence:
+`/tmp/r1-medium-display-comparison-2026-11-14.png` and ignored
+`tmp/medium-performance-2026-11-14/hardware-comparison.json`.
+
+## Live web screen transfer
+
+The browser now requests up to four contiguous changed rows at a time. A
+landscape reply carries at most 3,840 bytes of pixels. If two nonadjacent rows
+change, the viewer requests each in its own strip. A fixed revision per scan
+lets the next scan collect changes that arrived behind the cursor. The browser
+paints a new page only after it has received all its rows and keeps coordinates
+and holds tied to the current page epoch.
+
+Live screen GET responses use the socket's nonblocking send operation once per
+response piece. A short write closes that response and the browser retries the
+same cursor. This removes the WiFiClient write retry waits from screen GETs.
+HTTP request parsing and other portal endpoints still run on the UI loop. After
+25 seconds without an authenticated screen poll, the device frees the 300 KiB
+capture buffer unless it is in use for a USB screenshot.
+
+Host tests cover the strip size cap, distant dirty rows, changes during a scan,
+lease timeout, page changes and retry after a truncated response. The original
+timings above predate this change. The next handset test should measure the
+effect on touch response and input, control and radio timing with live viewing,
+including slow Wi-Fi, full page changes, reconnect and USB capture.
+
+## Shared navigation and ERS draft reuse — 19 November 2026
+
+Compatible pages retain their header and bottom navigation while replacing the
+page body. Each transition still advances the mirrored screen epoch and registers
+fresh focus targets. Changes in orientation, theme, model, header layout or
+navigation selection rebuild the shared objects. Tune uses a full rebuild to
+keep its chevron edges identical across display flush boundaries.
+
+The Pi's native SDL simulator compared 49 transitions per orientation through
+Display, TX Battery, Clock, Data and Channel Monitor. The two paths produced
+identical framebuffer pixels at every step. Times are totals for that sequence
+with forced full rebuild first and retained objects second.
+
+| Orientation | Objects rebuilt | Pixels drawn | Construction (ms) | Layout (ms) | Flush (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Landscape | 2,674 → 1,953 | 7,526,400 → 7,119,651 | 459 → 361 | 450 → 361 | 8,747 → 8,666 |
+| Portrait | 2,919 → 2,198 | 7,526,400 → 7,250,628 | 486 → 385 | 494 → 402 | 13,211 → 12,840 |
+
+Changing a local ERS draft now updates the existing value, state and capacity
+step labels. An equivalent forced redraw test across 26 GPS, RPM and capacity
+actions created 1,099 objects and drew 3,993,600 pixels. In-place edits created
+zero objects and drew 263,804 pixels, a 93.4% reduction. Both routes produced
+identical frames. The in-place edits retain focus and epoch for the current page.
+
+These measurements compare simulator rendering and SDL flushes. Handset touch
+latency and SPI transfer times need separate measurements on hardware.

@@ -8,17 +8,26 @@ SHARED_APP_CPP := \
   $(ROOT)/src/control_engine.cpp \
   $(ROOT)/src/channel_model.cpp \
   $(ROOT)/src/channel_settings_repository.cpp \
+  $(ROOT)/src/model_backup.cpp \
   $(ROOT)/src/proportional_input.cpp \
   $(ROOT)/src/control_assignment.cpp \
   $(ROOT)/src/binding_resolver.cpp \
   $(ROOT)/src/physical_input.cpp \
   $(ROOT)/src/physical_input_runtime.cpp \
   $(ROOT)/src/r1_input_map.cpp \
+  $(ROOT)/src/run_record_store.cpp \
   $(ROOT)/src/crsf_channel_output.cpp \
   $(ROOT)/src/crsf_telemetry.cpp \
   $(ROOT)/src/output_safety.cpp \
   $(ROOT)/src/jr_propo_boot_logo.cpp \
   $(ROOT)/src/r1_evo_wordmark.cpp \
+  $(ROOT)/src/r1_dm_12.cpp \
+  $(ROOT)/src/r1_dm_14.cpp \
+  $(ROOT)/src/r1_dm_16.cpp \
+  $(ROOT)/src/r1_manrope_22.cpp \
+  $(ROOT)/src/r1_manrope_32.cpp \
+  $(ROOT)/src/r1_manrope_48.cpp \
+  $(ROOT)/src/r1_symbol_fonts.cpp \
   $(ROOT)/src/setup_portal.cpp \
   $(ROOT)/src/offline_map.cpp \
   $(ROOT)/src/gps_basemap.cpp \

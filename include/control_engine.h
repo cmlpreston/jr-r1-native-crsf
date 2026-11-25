@@ -17,6 +17,7 @@ struct ControlCycleInput {
     uint32_t nowMs = 0, resetSequence = 0;
     uint16_t throttleAdc = 0, steeringAdc = 0;
     bool startupComplete = false, linkValid = false;
+    bool physicalInputsHealthy = true;
     uint8_t linkQuality = 0;
     MixInputSnapshot digitalInputs;
     CrsfChannelOutputModel bindings;
@@ -28,6 +29,7 @@ struct ControlCycleResult {
     OutputSafetyStatus safety = OutputSafetyStatus::Cut;
     bool inputsValid = false;
     uint32_t neutralSinceMs = 0;
+    OutputReadiness readiness;
 };
 
 // No Arduino, LVGL, locks, allocation, persistence or logging in the engine.
@@ -42,11 +44,11 @@ public:
 private:
     void reset(uint32_t nowMs);
     OutputSafetyStatus qualify(const ControlConfigurationSnapshot &configuration,
-        const ControlCycleInput &input, const ProportionalInputState &throttle,
-        bool inputsValid, bool mixedNeutral);
+        uint32_t nowMs, const OutputReadiness &readiness);
     ControlSafetyPolicy policy_;
     ProportionalInputRuntime throttle_, steering_;
     ChannelSlewRuntime slew_;
+    BrakeAbsRuntime abs_;
     ChannelMixRuntime mix_;
     CompiledMixPlan mixPlan_;
     ControlConfigurationSnapshot previous_;

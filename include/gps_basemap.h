@@ -6,11 +6,18 @@ struct GpsMapViewport {
     int32_t latitude = GpsMap::OriginLat, longitude = GpsMap::OriginLon;
     double pixelsPerMetre = 0.5;
     uint32_t mapRevision = 0;
+    bool following = false;
+    // Dashboard maps crop the saved raster to cover their panel. The full GPS
+    // page keeps its independently selected zoom and unrestricted viewport.
+    bool fillSavedRaster = false;
+    bool showAttribution = true;
 };
 // The viewport must live as long as the LVGL object (owned by TransmitterUi).
 lv_obj_t *createGpsBasemap(lv_obj_t *parent, int x, int y, int width, int height,
                           GpsMapViewport &viewport);
 void updateGpsBasemap(lv_obj_t *object, GpsMapViewport &viewport,
+                      int32_t lat, int32_t lon, double pixelsPerMetre);
+void followGpsBasemap(lv_obj_t *object, GpsMapViewport &viewport,
                       int32_t lat, int32_t lon, double pixelsPerMetre);
 
 // Preview the saved area without inventing a GPS fix.

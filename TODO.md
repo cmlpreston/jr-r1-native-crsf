@@ -11,6 +11,42 @@ The authoritative architecture-refactor execution order is recorded under
 [`docs/architecture-review.md`](docs/architecture-review.md). Follow that order
 before beginning later driving-control features.
 
+## Memory and responsiveness review — 2026-11-14
+
+The [dated code review](docs/CODE-PERFORMANCE-REVIEW-2026-11-14.md) records measured
+memory/layout evidence and a proposed optimisation order. First address blocking
+critical-task logging, then graph/map redraws and UI-owned memory placement.
+The first/high-priority implementation is recorded in that review: deferred
+critical-task logs, independent physical sampling/CUT, cold UI storage, guarded
+graphs and cached map sampling. UI-owned edit latency is still serialized.
+Hardware timing, stack margins and runtime heap qualification remain required;
+the current medium-priority implementation adds ordinary-editor reuse, smaller
+font fallbacks and a guarded LCD transfer trial. See the review's follow-up
+measurements and [UI responsiveness](docs/ui-responsiveness.md).
+
+- [x] Refresh value-editor drafts without rebuilding their objects/header;
+  verify unchanged focus/epochs, pixels, Apply/Cancel and safety behaviour.
+- [x] Subset fallback fonts while preserving the preferred fonts, required
+  glyphs/default font and exact rendered output.
+- [x] Add an opt-in Standard/Trial pixel-transfer path with authenticated CUT-only
+  controls and transfer/task-gap diagnostics; boot always restores Standard.
+- [ ] Compare Standard/Trial on the installed panel, including colour order,
+  partial/odd writes, wake/rotation, stability and control/radio/input gaps.
+  Initial alternating full-redraw test completed: Standard median 72.97 ms,
+  Trial 74.30 ms, identical pixels and user-confirmed normal Trial appearance.
+  No clear gain; Standard restored. Broader qualification remains outstanding.
+- [ ] Investigate measured web/live-screen task gaps: control 85.36 ms, radio
+  83.55 ms and physical sampling 97.87 ms, close to the 100 ms input watchdog.
+  Similar stalls occurred under Standard before Trial. Isolate network/mirror
+  allocation/persistence from warmed rendering; healthy final inputs and zero
+  drops do not prove timely control. See the hardware comparison evidence.
+- [ ] Measure real editor touch-to-visible improvement; host/controller timing
+  and rendered-pixel savings are not handset latency measurements.
+- [ ] Consider shared chrome across different pages after its ownership/theme/
+  focus/epoch lifetimes are designed. Only editor chrome is retained currently.
+
+Other medium/lower-priority review recommendations remain outstanding.
+
 ## Status reconciliation — 2026-09-19
 
 Checked against current source, host tests, simulator notes and user-reported
@@ -124,7 +160,8 @@ See the detailed roadmap for individual binding features.
 - [ ] Add restore-default-control-profile.
 - [x] Select among ten model memories with CUT/neutral guards and isolated
   bindings, response settings and widget layouts.
-- [ ] Add model rename, copy and reset editors.
+- [x] Add handset actions to name a new control profile, rename a model,
+  copy controls and reset controls, with a separate confirmation for replacement.
 - [x] Persist bindings and response settings per model.
 - [ ] Finish explicit versioned model serialisation and migration beyond the
   current per-model namespaces/blobs.
@@ -147,8 +184,11 @@ Complete these after steering shares the generic proportional pipeline:
   editing on the existing live response graph.
 - [ ] Add assignable throttle hold, commanding configured neutral and requiring
   neutral before release resumes drive.
-- [ ] Add brake-side ABS with configurable activation point, depth and
-  frequency; CUT, failsafe and hold always take priority.
+- [x] Add brake-side ABS with activation, release depth, frequency and delay,
+  restricted to verified Forward/Brake ESC mode. Off by default; CUT/failsafe
+  remain authoritative. Future throttle hold must take priority.
+- [ ] Bench-validate ABS receiver PWM, actual braking and return to neutral;
+  steering-dependent modulation and switch activation remain future work.
 - [ ] Allow a physical dial or digital trim to adjust the Walk-mode forward
   limit while retaining full brake authority.
 - [ ] Later: race-start countdown with an optional randomised start delay and
@@ -224,8 +264,86 @@ per-model RAM histories for the current power session. Hardware validation remai
 
 ## Telemetry and vehicle peripherals
 
+- [ ] Complete ERS discovery diagnosis for GPS/CV01/CU01. On 15 November,
+  the user authorized disabling ER6G Team Race Position (was 1/Low on CH12);
+  receiver readback confirmed Disabled and the user power-cycled it. Discovery
+  then found RPM only. Single-ER6G r14/r8 still has a Team Race gate in
+  SerialCRSF::forwardMessage; latest-only reply storage may also lose simultaneous
+  replies. Neither explains the remaining absent sensors conclusively.
+- [x] Add optional Speed / motor RPM dual dials with independent freshness,
+  explicit scales and stable saved widget IDs; no inferred RPM correction.
+- [x] Confirm the RB01 total motor-pole setting. User checked the listing and
+  applied 4 poles on 15 November; the sensor acknowledgement confirmed 4.
+- [ ] Validate RPM against shaft speed. The previous setting behind the historical
+  ~50,000 RPM reading was not verified, so no exact correction factor is established.
+  The paired dial was installed in source 4fa0968 on 15 November.
+- [x] Implement automatic map/speed presentation for existing GPS widget kind5,
+  with acquisition/stale/unconfirmed status, grace, stable objects and safe tap
+  transitions. Synthetic UI/decoder tests and target build pass (2026-11-15).
+- [x] Passively compare mapping and freshly confirmed blue GPS modes. Stationary
+  20-second samples on 15 November delivered 15-byte GPS packets at 4.667 and
+  4.641 Hz respectively, both with position/speed/course availability and six
+  satellites. No setting or RF-rate changes were made during these captures.
+- [x] Verify actual blue/red fields over direct UART. Fixed blue and red samples
+  each had 197 valid GPS packets in 20 seconds (about9.85 Hz), four satellites
+  and no CRC errors. Blue always had zero coordinates/course and encoded
+  altitude1000; red had nonzero coordinates and non-placeholder altitude.
+- [ ] Handle the verified blue position placeholders in the automatic GPS widget
+  without declaring all geographical 0,0 positions invalid. Current 4fa0968
+  inference can accept them as a fix and select Map. Fresh coordinate updates
+  while moving and handset behaviour still need validation; packet frequency is
+  distinct from GNSS solution rate. Synthetic FF-field fixtures remain distinct
+  from this hardware evidence. See docs/ers-gps-firmware-analysis-2026-11-15.md.
+- [x] Decode GPS UTC/date CRSF 0x03, show fresh HH:MMZ in the title bar and add
+  passive GPSTIME diagnostics. Calendar/CRC/freshness and UI tests cover it.
+- [x] Check pre-update GPS UTC/date emission directly: no0x03 frames in either
+  fixed 20-second blue/red sample, while clean0x02 continued. This does not
+  establish the installed firmware version. Heartbeat identification also
+  received no reply; no settings or runtime ID were changed.
+- [x] Complete the user-authorized GPS v1.9 update and direct UART verification.
+  Replaced jumper wires restored the IN bootloader handshake at460800. All79
+  blocks/79,980 bytes were acknowledged; OUT settings readback reports v1.9.
+  Red/Global sample received199 GPS and189 valid UTC packets in20 seconds,
+  seven satellites; two CRC candidate failures/23 discarded bytes recorded.
+- [x] Verify blue mode after v1.9:198 GPS and186 valid UTC packets in20 seconds,
+  five to six satellites; all coordinates/course zero and encoded altitude1000.
+  UTC is present in both modes; five CRC candidate failures were recorded.
+- [x] Flash the R1 UTC build and verify time reaches the physical header through
+  the ER6G/RF path. Guarded upload43db14f succeeded and the user observed time.
+- [x] Install the Sydney/Melbourne local-time header, ordered TX voltage / LQ /
+  time / Wi-Fi. Guarded upload2b4f7e2 passed. Current-rule DST/date rollover,
+  independent timezone comparison and focused layout/touch tests pass.
+- [x] Confirm the corrected local time/header appearance on the physical R1.
+  User confirmed "Correct order and local time" on15 November after restoring
+  the receiver/GPS. Underlying UTC telemetry remains unchanged.
+- [x] Add a handset-wide timezone selector, default Sydney/Melbourne, at
+  Setup → Handset → second page → Clock / timezone. Common Australian presets,
+  UTC and custom15-minute offsets persist across models/restarts; focused
+  calendar, persistence, navigation and output-safety tests pass. Guarded
+  uploadc405738 completed with image hash verified.
+- [ ] Confirm timezone selection/persistence on the physical handset after upload.
+- [x] Reclaim the dashboard title bar's unused second-row space for widgets.
+  Compact header32/widget top36 adds12 pixels to full-height panels. Focused
+  size/maximize, maps, header/child touch routing and output/layout checks pass.
+- [ ] Confirm the taller dashboard/widgets on the physical R1 after upload.
+- [ ] Investigate ER6G Wi-Fi-to-UART GPS firmware updating. This needs new raw
+  exclusive-UART/YMODEM support and verified GPS bootloader entry; installed
+  r14/r8 has no sensor flasher. Its existing `/update` endpoint updates the
+  receiver itself and must never receive a GPS image.
 - [x] Decode CRSF GPS, source-zero temperature and RPM with freshness checks.
-- [ ] Extend battery telemetry beyond voltage to current and consumed capacity.
+- [x] Decode CU01 vehicle-pack voltage/current, consumed mAh and reported
+  estimated remaining percentage; provide the combined Drive pack widget.
+- [x] Implement optional Power/energy and Control history widgets: local
+  sampled Wh/peak watts/Wh per km, bounded raw-input traces and no output or
+  sensor-setting actions. Host/build/focused render checks pass (2026-11-15).
+- [ ] Bench-validate Power/energy CU01 units/reset/telemetry gaps and raw-input
+  history on the handset; source `dfd57c4` installed 2026-11-15.
+- [x] Implement optional Trip computer, Run summary and Battery load / balance
+  widgets with shared Trip/Run reset, independent battery extrema and explicit
+  missing/incomplete data. Retain saved widget IDs and existing layouts.
+- [ ] Bench-validate the Trip/Run GPS distance/moving-time estimates, CU01
+  capacity deltas/Wh and load/cell freshness with the real sensors. Candidate
+  added 2026-11-15; not yet flashed.
 - [x] Move receiver-integrated S.Port firmware, ER4/ER6G adapters, shared
   decoders, tests and upload workflow into the separate
   [ExpressLRS-SPort fork](https://github.com/cmlpreston/ExpressLRS-SPort).
@@ -238,7 +356,9 @@ per-model RAM histories for the current power session. Hardware validation remai
 - [x] Present FAS300 ADV voltage and current separately from receiver supply.
 - [ ] Validate FAS current scaling against hardware and add consumed mAh.
 - [x] Implement a run timer and speed-statistics accumulation.
-- [ ] Add trip distance, odometer and consumed-capacity accumulation.
+- [x] Add resettable trip distance and consumed-capacity accumulation.
+- [ ] Add a persistent lifetime odometer if needed; current trip totals reset
+  on power-up, model selection or confirmed Reset.
 - [x] Implement GPS trail/map views and the built-in Highfield Park offline
   OSM vector basemap, with synthetic GPS in the simulator.
 - [ ] Add user-selectable/uploadable geographically referenced map packages;

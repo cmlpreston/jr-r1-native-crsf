@@ -20,6 +20,19 @@ constexpr uint32_t kBatteryFreshMs = 30000;
 constexpr uint32_t kVehicleCellsFreshMs = 20000;
 constexpr uint16_t kMaximumPlausibleReceiverDecivolts = 600; // 60 V
 
+bool validGpsUtc(uint16_t year,uint8_t month,uint8_t day,uint8_t hour,
+                 uint8_t minute,uint8_t second,uint16_t millisecond)
+{
+    // Use modern, four-digit GPS dates; reject unset/sentinel fields rather
+    // than inventing a clock from an uninitialised navigation solution.
+    if(year<2000 || year>9999 || month<1 || month>12 || hour>23 ||
+       minute>59 || second>59 || millisecond>999)return false;
+    constexpr uint8_t days[]={31,28,31,30,31,30,31,31,30,31,30,31};
+    const bool leap=year%4==0 && (year%100!=0 || year%400==0);
+    const unsigned maximum=days[month-1]+unsigned(month==2 && leap);
+    return day>=1 && day<=maximum;
+}
+
 int16_t decodeRssiDbm(uint8_t raw)
 {
     // Current ELRS stores the negative dBm value in the uint8_t CRSF field
@@ -84,12 +97,27 @@ void CrsfTelemetryParser::feed(uint8_t value)
     expectedBytes_ = 0;
 }
 
+void CrsfTelemetryParser::syncBatteryRole()
+{
+    const bool requested=requestedBatteryVehicle_.load();
+    if(requested!=standardBatteryVehicle_){
+        standardBatteryVehicle_=requested;
+        state_.receiverVoltageValid=false;state_.batteryUpdatedMs=0;
+        state_.ersBatteryValid=state_.ersRemainingValid=false;state_.ersBatteryUpdatedMs=0;
+    }
+}
+
 void CrsfTelemetryParser::processFrame()
 {
+    syncBatteryRole();
     const uint8_t frameType = frame_[2];
     const uint8_t payloadLength = frame_[1] - 2;
     const uint8_t *payload = &frame_[3];
 
+    if((frameType==0x29||frameType==0x2b)&&payloadLength>=2&&payload[0]==0xea&&payload[1]==0xec){
+        state_.rxParameterType=frameType;state_.rxParameterLength=payloadLength;
+        memcpy(state_.rxParameterPayload,payload,payloadLength);++state_.rxParameterSequence;
+    }
     if ((frameType == 0x29 || frameType == 0x2b) && payloadLength >= 2 &&
         payload[0] == kRadioTransmitterAddress && payload[1] == kCrsfTransmitterAddress) {
         state_.txParameterType = frameType;
@@ -98,23 +126,84 @@ void CrsfTelemetryParser::processFrame()
         ++state_.txParameterSequence;
     }
 
+    if((frameType==0x7a || frameType==0x7b || frameType==0x7c) && payloadLength>=2){
+        ++state_.configWireFrames;state_.lastConfigType=frameType;
+        memset(state_.lastConfigHeader,0,sizeof(state_.lastConfigHeader));
+        memcpy(state_.lastConfigHeader,payload,payloadLength<5?payloadLength:5);
+    }
+    // TBS CRSF 0x03: big-endian year, month/day/hour/minute/second and
+    // big-endian milliseconds. Ignore future trailing extensions.
+    if(frameType==0x03){
+        ++state_.gpsTimeFrames;
+        if(payloadLength<9){++state_.gpsTimeRejectedFrames;return;}
+        const uint16_t year=(uint16_t(payload[0])<<8)|payload[1];
+        const uint16_t millisecond=(uint16_t(payload[7])<<8)|payload[8];
+        if(!validGpsUtc(year,payload[2],payload[3],payload[4],payload[5],payload[6],millisecond)){
+            ++state_.gpsTimeRejectedFrames;return;
+        }
+        state_.gpsUtcYear=year;state_.gpsUtcMonth=payload[2];state_.gpsUtcDay=payload[3];
+        state_.gpsUtcHour=payload[4];state_.gpsUtcMinute=payload[5];state_.gpsUtcSecond=payload[6];
+        state_.gpsUtcMillisecond=millisecond;state_.gpsTimeUpdatedMs=millis();state_.gpsTimeValid=true;
+        return;
+    }
     // GPS uses the deployed ELRS/Betaflight 0.1 km/h scale. See the
     // protocol notes in docs/ui-firmware-port.md (TBS prose differs).
-    if (frameType == 0x02 && payloadLength >= 15) {
+    if (frameType == 0x02) {
+        ++state_.gpsWireFrames;state_.gpsWireUpdatedMs=millis();
+        state_.gpsLastPayloadLength=payloadLength;
+        if(payloadLength<15){++state_.gpsRejectedFrames;return;}
+        const uint32_t now=millis();
+        auto present=[&](unsigned offset,unsigned size){
+            for(unsigned i=0;i<size;++i)if(payload[offset+i]!=0xff)return true;
+            return false;
+        };
         auto u32 = [](const uint8_t *p) { return (uint32_t(p[0]) << 24) |
             (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | p[3]; };
-        const int32_t lat = static_cast<int32_t>(u32(payload));
-        const int32_t lon = static_cast<int32_t>(u32(payload + 4));
-        const uint16_t heading = (uint16_t(payload[10]) << 8) | payload[11];
-        if (lat < -900000000 || lat > 900000000 || lon < -1800000000 ||
-            lon > 1800000000 || heading > 36000) return;
-        state_.latitudeE7 = lat; state_.longitudeE7 = lon;
-        state_.groundSpeedDeciKmh = (uint16_t(payload[8]) << 8) | payload[9];
-        state_.headingCentiDegrees = heading;
-        state_.altitudeMetres = ((uint16_t(payload[12]) << 8) | payload[13]) - 1000;
-        state_.satellites = payload[14];
-        state_.gpsValid = true; state_.gpsUpdatedMs = millis();
+        const int32_t lat=static_cast<int32_t>(u32(payload));
+        const int32_t lon=static_cast<int32_t>(u32(payload+4));
+        // CRSF fields filled with FF are unavailable (as handled by EdgeTX).
+        // Decode each independently: speed-only packets must not move the map.
+        const bool position=present(0,4) && present(4,4) && lat>=-900000000 &&
+            lat<=900000000 && lon>=-1800000000 && lon<=1800000000;
+        state_.gpsValid=position;
+        if(position){state_.latitudeE7=lat;state_.longitudeE7=lon;state_.gpsUpdatedMs=now;}
+        state_.gpsSpeedValid=present(8,2);
+        if(state_.gpsSpeedValid){
+            state_.groundSpeedDeciKmh=(uint16_t(payload[8])<<8)|payload[9];
+            state_.gpsSpeedUpdatedMs=now;++state_.gpsSpeedFrames;
+        }
+        const uint16_t heading=(uint16_t(payload[10])<<8)|payload[11];
+        const bool r1Validity=payloadLength>=18 && payload[15]=='R' && payload[16]=='1';
+        state_.gpsCourseValid=present(10,2) && heading<=36000 && (!r1Validity || (payload[17]&1));
+        if(state_.gpsCourseValid)state_.headingCentiDegrees=heading==36000?0:heading;
+        if(present(12,2))state_.altitudeMetres=((uint16_t(payload[12])<<8)|payload[13])-1000;
+        state_.gpsSatellitesValid=present(14,1);
+        state_.satellites=state_.gpsSatellitesValid?payload[14]:0;
+        if(state_.gpsSatellitesValid)state_.gpsSatellitesUpdatedMs=now;
+        if(position || state_.gpsSpeedValid || state_.gpsCourseValid || state_.gpsSatellitesValid){
+            ++state_.gpsDecodedFrames;state_.gpsDecodedUpdatedMs=now;
+        }else ++state_.gpsRejectedFrames;
         return;
+    }
+    // RadioMaster replies are opaque to the binding/MSP parser. Preserve a
+    // bounded FIFO for the UI-owned discovery/configuration state machine.
+    if ((frameType==0x7a || frameType==0x7b || frameType==0x7c) &&
+        payloadLength>=6 && payloadLength<=60 && payload[0]==0xea && payload[1]==0xc8) {
+        ++state_.ersSequence;
+        ersReplies_.push(frameType,payload,payloadLength,millis());
+        state_.ersReplyDrops=ersReplies_.dropped();
+        return;
+    }
+    if(frameType==kFrameTypeBatterySensor &&
+       ((payloadLength==9 && payload[8]==2) ||
+        (standardBatteryVehicle_ && (payloadLength==8 || (payloadLength==9 && payload[8]==0))))) {
+        const uint16_t voltage=(uint16_t(payload[0])<<8)|payload[1];
+        const uint16_t current=(uint16_t(payload[2])<<8)|payload[3];
+        if(voltage>700 || current>1500 || payload[7]>100)return;
+        state_.ersVoltageDeciV=voltage;state_.ersCurrentDeciA=current;
+        state_.ersCapacityMah=(uint32_t(payload[4])<<16)|(uint32_t(payload[5])<<8)|payload[6];
+        state_.ersRemainingPercent=payload[7];state_.ersRemainingValid=true;
+        state_.ersBatteryValid=true;state_.ersBatteryUpdatedMs=millis();return;
     }
     // First value of vehicle source 0. Never conflate TX/RX device temperatures
     // or later sources with the selected vehicle sensor.
@@ -129,6 +218,19 @@ void CrsfTelemetryParser::processFrame()
         state_.temperatureValid = true; state_.temperatureUpdatedMs = millis(); return;
     }
 
+    // Stock ELRS still emits its local ADC voltage group (source 128) after
+    // external CU01 battery packets suppress its ordinary 0x08 RX report.
+    // The explicit vehicle-battery profile distinguishes this stock source
+    // from our legacy S.Port FAS source-128 convention. Never infer from volts.
+    if (standardBatteryVehicle_ && frameType==0x0e && payloadLength>=3 &&
+        payloadLength<=9 && (payloadLength-1)%2==0 && payload[0]==128) {
+        const uint16_t millivolts=(uint16_t(payload[1])<<8)|payload[2];
+        if(millivolts>60000)return;
+        state_.receiverVoltageDecivolts=(millivolts+50U)/100U;
+        state_.receiverVoltageValid=millivolts!=0;
+        state_.batteryUpdatedMs=millis();
+        return;
+    }
     // FAS general-voltage group, kept separate from both drive cells and RX supply.
     if (frameType == 0x0e && payloadLength == 3 && payload[0] == 128) {
         const uint16_t voltage = (uint16_t(payload[1]) << 8) | payload[2];
@@ -151,7 +253,9 @@ void CrsfTelemetryParser::processFrame()
     // Derive count from individual readings, never from ambiguous pack voltage.
     if (frameType == 0x0e && payloadLength >= 3 && payloadLength <= 1 + 2 * CrsfTelemetryState::MaxVehicleCells && (payloadLength - 1) % 2 == 0 && payload[0] == 0) {
         uint16_t cells[CrsfTelemetryState::MaxVehicleCells] = {}, total = 0, minimum = 65535;
-        const uint8_t count = (payloadLength - 1) / 2;
+        uint8_t count = (payloadLength - 1) / 2;
+        while(count && payload[1+(count-1)*2]==0 && payload[2+(count-1)*2]==0)--count;
+        if(!count)return;
         for (unsigned i = 0; i < count; ++i) {
             cells[i] = (uint16_t(payload[1 + i * 2]) << 8) | payload[2 + i * 2];
             if (cells[i] < 500 || cells[i] > 5000) return;
@@ -213,11 +317,17 @@ void CrsfTelemetryParser::processFrame()
 
 void CrsfTelemetryParser::updateFreshness()
 {
+    syncBatteryRole();
     const uint32_t now = millis();
+    if(state_.ersBatteryValid && now-state_.ersBatteryUpdatedMs>3000){state_.ersBatteryValid=false;state_.ersRemainingValid=false;}
     if (state_.fasVoltageValid && now - state_.fasVoltageUpdatedMs > 3000) state_.fasVoltageValid = false;
     if (state_.fasCurrentValid && now - state_.fasCurrentUpdatedMs > 3000) state_.fasCurrentValid = false;
     if (state_.vehicleCellsValid && now - state_.vehicleCellsUpdatedMs > kVehicleCellsFreshMs) state_.vehicleCellsValid = false;
-    if (state_.gpsValid && now - state_.gpsUpdatedMs > 3000) state_.gpsValid = false;
+    if(state_.gpsTimeValid && now-state_.gpsTimeUpdatedMs>3000)state_.gpsTimeValid=false;
+    if(state_.gpsCourseValid && now-state_.gpsDecodedUpdatedMs>3000)state_.gpsCourseValid=false;
+    if(state_.gpsSpeedValid && now-state_.gpsSpeedUpdatedMs>3000)state_.gpsSpeedValid=false;
+    if(state_.gpsSatellitesValid && now-state_.gpsSatellitesUpdatedMs>3000)state_.gpsSatellitesValid=false;
+    if (state_.gpsValid && now - state_.gpsUpdatedMs > 3000) { state_.gpsValid = false; state_.gpsCourseValid = false; }
     if (state_.rpmValid && now - state_.rpmUpdatedMs > 3000) state_.rpmValid = false;
     if (state_.temperatureValid && now - state_.temperatureUpdatedMs > 10000) state_.temperatureValid = false;
     if (state_.linkValid && now - state_.linkUpdatedMs > kLinkFreshMs) {

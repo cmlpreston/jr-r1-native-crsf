@@ -1,0 +1,58 @@
+"""Verify tested XIAO landscape artifacts on the Pi USB flash host."""
+import hashlib
+import json
+from pathlib import Path
+import re
+
+
+SOURCE_FILES = ('platformio.ini', 'include/display_profile.h',
+                'tools/upload_preflight.py', 'tools/artifact_preflight.py', 'tools/flash_via_pi.py')
+
+
+def upload_files(environment):
+    build = f'.pio/build/{environment}'
+    return tuple(f'{build}/{name}' for name in ('firmware.bin', 'bootloader.bin', 'partitions.bin')) + SOURCE_FILES
+
+
+def verify(root, environment, board, targets, manifest_name):
+    root = Path(root)
+    if set(targets) != {'nobuild', 'upload'}:
+        raise ValueError('Artifact uploads must use nobuild + upload; building on the Pi is forbidden')
+    if environment != 'seeed_xiao_esp32s3-pcb' or board != 'seeed_xiao_esp32s3':
+        raise ValueError('Artifacts are only approved for the installed XIAO landscape profile')
+    manifest = json.loads((root / manifest_name).read_text())
+    if manifest.get('environment') != environment or manifest.get('source_checks_passed') is not True:
+        raise ValueError('Missing matching source/build/test attestation')
+    if not manifest.get('branch') or not re.fullmatch('[0-9a-f]{40}', manifest.get('commit', '')):
+        raise ValueError('Missing build source identity')
+    for key in ('source_snapshot_sha256', 'boot_app0_sha256'):
+        if not re.fullmatch('[0-9a-f]{64}', manifest.get(key, '')):
+            raise ValueError('Missing source snapshot or bootloader checksum')
+    required = set(upload_files(environment))
+    if set(manifest.get('sha256', {})) != required:
+        raise ValueError('Unexpected or missing artifact files')
+    for name, expected in manifest['sha256'].items():
+        if hashlib.sha256((root / name).read_bytes()).hexdigest() != expected:
+            raise ValueError('Artifact checksum mismatch: ' + name)
+    # Reuse the same board/profile/pin/config validation as on the Mac.
+    import runpy
+    runpy.run_path(str(root / 'tools/flash_via_pi.py'))['validate_hardware'](root, environment)
+    boot = Path.home()/'.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin'
+    if hashlib.sha256(boot.read_bytes()).hexdigest() != manifest['boot_app0_sha256']:
+        raise ValueError('Pi framework boot_app0 differs from the tested build')
+    return manifest
+
+
+def upload_images(root, environment):
+    """Match a normal S3 Arduino upload, including OTA slot-0 selection.
+
+    PlatformIO's nobuild path skips framework setup, so FLASH_EXTRA_IMAGES
+    would otherwise be empty. NVS and the map filesystem are not written.
+    """
+    if environment != 'seeed_xiao_esp32s3-pcb':
+        raise ValueError('Unsupported artifact boot layout')
+    root=Path(root)
+    build=root/'.pio/build'/environment
+    return [('0x0000',str(build/'bootloader.bin')),
+            ('0x8000',str(build/'partitions.bin')),
+            ('0xe000',str(Path.home()/'.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin'))]

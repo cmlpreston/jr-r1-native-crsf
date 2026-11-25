@@ -14,6 +14,15 @@ int main() {
     const double landmark=east(OriginLat,DemoLon,OriginLon);
     const double centre=east(OriginLat,OriginLon+3000,OriginLon);
     assert(std::abs((landmark-centre)-east(OriginLat,DemoLon,OriginLon+3000))<1e-8);
+    // Five pixels of movement stays inside the stationary viewport. Recenter
+    // only beyond 30% of its width/height from the middle, in either direction.
+    assert(!needsRecenter(OriginLat,OriginLon,OriginLat+400,OriginLon+400,1,200,100));
+    for(int sign=-1;sign<=1;sign+=2){
+        assert(!needsRecenter(OriginLat,OriginLon,OriginLat+sign*2600,OriginLon,1,200,100));
+        assert(needsRecenter(OriginLat,OriginLon,OriginLat+sign*2800,OriginLon,1,200,100));
+        assert(!needsRecenter(OriginLat,OriginLon,OriginLat,OriginLon+sign*6700,1,200,100));
+        assert(needsRecenter(OriginLat,OriginLon,OriginLat,OriginLon+sign*7000,1,200,100));
+    }
     // The complete synthetic orbit stays inside the downloaded map and north pitch bounds.
     for(int i=0;i<360;++i){
         const double p=i*3.141592653589793/180;

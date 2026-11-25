@@ -30,6 +30,9 @@ bool TransmitterUi::handleKeypadEvent(PhysicalControlId key,InputEvent event,uin
 
 void TransmitterUi::updateKeypad(uint32_t now)
 {
+    // Captured releases may still be behind UI work. Never infer a hold/repeat
+    // from wall time until all earlier physical events have been delivered.
+    if(physicalEventsPending_)return;
     for(int i=0;i<8;++i){auto &p=keypadPresses_[i];
         if(!p.down||p.consumed||p.page!=activePage_)continue;
         const auto key=static_cast<PhysicalControlId>(int(PhysicalControlId::KeyMode)+i);
@@ -49,7 +52,8 @@ void TransmitterUi::focusEditorExit()
     pageFocusVisible_=true;
     for(uint8_t i=0;i<pageFocusCount_;++i){const auto &t=pageFocusTargets_[i];
         if((activePage_==UiPage::ValueEditor&&t.handler==&TransmitterUi::controlDesign&&t.argument==34)||
-           (activePage_==UiPage::BindingEditor&&t.handler==&TransmitterUi::controlBindingEditor&&t.argument==5)){
+           (activePage_==UiPage::BindingEditor&&t.handler==&TransmitterUi::controlBindingEditor&&t.argument==5)||
+           (activePage_==UiPage::ModelManagement&&t.handler==&TransmitterUi::controlNavigation&&t.argument==0)){
             pageFocusIndex_=i;break;
         }
     }
@@ -60,13 +64,16 @@ void TransmitterUi::keypadPage(int direction)
 {
     int page=0,count=0;
     switch(activePage_){
+        case UiPage::ThrottleResponse:controlResponseTab(constrain((responseCurveView_?0:portraitResponseBank_+1)+direction,0,2),PageControlEvent::Activate);return;
+        case UiPage::EscProgramming:controlEscProgramming(constrain(int(escProgrammingTab_)+direction,0,4),PageControlEvent::Activate);return;
+        case UiPage::RxBatterySetup:case UiPage::DriveBatterySetup:controlVehicleBatteryTab(constrain(int(vehicleBatteryTab_)+direction,0,1),PageControlEvent::Activate);return;
         case UiPage::TimerControl:
             if(timerBank_==2)controlTimer(direction<0?20:21,PageControlEvent::Activate);
             else if(timerBank_==1)controlTimer(direction<0?13:14,PageControlEvent::Activate);
             else controlTimer(11,PageControlEvent::Activate);
             return;
         case UiPage::Tune:page=tuneBank_;count=2;break;
-        case UiPage::Telemetry:page=sensorBank_;count=(DashboardSensorCount+5)/6;break;
+        case UiPage::Telemetry:page=sensorBank_;count=(DisplaySensorCount+5)/6;break;
         case UiPage::ChannelMonitor:page=designBank_;count=4;break;
         case UiPage::MainMenu:page=setupPage_;count=2;break;
         case UiPage::InputMonitor:page=inputMonitorBank_;count=(kPhysicalControlCount+4)/5;break;
@@ -74,7 +81,6 @@ void TransmitterUi::keypadPage(int direction)
         case UiPage::ModelSelect:
             if(!modelAppearanceEditing_){modelSelectBank_=constrain(int(modelSelectBank_)+direction,0,int((kModelMemoryCount+4)/5)-1);drawModelSelectPage();}return;
         case UiPage::ControlAssignments:controlAssignments(direction<0?5:8,PageControlEvent::Activate);return;
-        case UiPage::DisplaySetup:displaySetupBank_=constrain(int(displaySetupBank_)+direction,0,1);drawDisplayPage();return;
         case UiPage::ResponseProfile:responseDetailBank_=constrain(int(responseDetailBank_)+direction,0,1);drawDesignPage(activePage_);return;
         case UiPage::BindingEditor:controlBindingEditor(constrain(int(bindingEditorBank_)+direction,0,3)+8,PageControlEvent::Activate);return;
         default:playBuzzer(35);return;
@@ -85,7 +91,8 @@ void TransmitterUi::keypadPage(int direction)
 
 void TransmitterUi::keypadTab(int direction)
 {
-    if(activePage_==UiPage::TimerControl){controlTimer(10+(timerBank_+direction+3)%3,PageControlEvent::Activate);}
+    if(activePage_==UiPage::ThrottleResponse||activePage_==UiPage::EscProgramming||activePage_==UiPage::RxBatterySetup||activePage_==UiPage::DriveBatterySetup)keypadPage(direction);
+    else if(activePage_==UiPage::TimerControl){controlTimer(10+(timerBank_+direction+3)%3,PageControlEvent::Activate);}
     else if(activePage_==UiPage::Tune){tuneRole_=constrain(int(tuneRole_)+direction,tuneRole_<3?0:3,tuneRole_<3?2:4);drawDesignPage(UiPage::Tune);}
     else if(activePage_==UiPage::MainMenu)controlDesign(direction<0?140:141,PageControlEvent::Activate);
     else if(activePage_==UiPage::Telemetry||activePage_==UiPage::Gps||activePage_==UiPage::ChannelMonitor||
@@ -131,7 +138,8 @@ void TransmitterUi::keypadAction(PhysicalControlId key,bool held,bool repeat)
     else if(key==PhysicalControlId::KeyPlus||key==PhysicalControlId::KeyMinus){
         const int direction=key==PhysicalControlId::KeyPlus?1:-1;
         if(activePage_==UiPage::ValueEditor)controlDesign(direction<0?30:31,activate);
-        else if(navigationIsModal()||activePage_==UiPage::Channel2||activePage_==UiPage::ThrottleResponse||activePage_==UiPage::ChannelSpeed)
+        else if(navigationIsModal()||activePage_==UiPage::Channel2||activePage_==UiPage::ThrottleResponse||activePage_==UiPage::ChannelSpeed||
+                (pageFocusVisible_&&pageFocusIndex_<pageFocusCount_&&pageFocusTargets_[pageFocusIndex_].increase.width>0))
             adjustPageFocus(direction);
         else if(!repeat)keypadTab(direction);
     }
@@ -150,11 +158,8 @@ void TransmitterUi::drawKeypadPage()
         makePageActionButton(kScreenWidth/2+6,portraitUi?220:164,kScreenWidth/2-18,42,"Reset draft",UiText::Menu,cPanel2,cWhite,cLine,&TransmitterUi::controlKeypadMenu,1);
         return;
     }
-    makePageActionButton(8,5,76,34,"Back",UiText::Menu,cPanel,cWhite,cLine,&TransmitterUi::controlKeypadMenu,8);
-    makeLabel(lv_scr_act(),"Quick menu",12,48,UiText::Heading,cWhite);
-    const char *labels[]={"UP: Steering expo","PAGE: Endpoints","SEL: Throttle","DOWN: Trims","+: Models","-: Timer","CLR: Drive","MODE: Setup"};
-    const int w=(kScreenWidth-30)/2,h=portraitUi?58:36,step=portraitUi?72:42;
-    for(uint8_t i=0;i<8;++i)makePageActionButton(10+(i%2)*(w+10),86+(i/2)*step,w,h,labels[i],UiText::Secondary,cPanel,cWhite,cLine,&TransmitterUi::controlKeypadMenu,i);
+    if(activePage_==UiPage::QuickNavigation){drawV2Quick();return;}
+
 }
 
 void TransmitterUi::controlKeypadMenu(uint8_t item,PageControlEvent event)
@@ -168,15 +173,21 @@ void TransmitterUi::controlKeypadMenu(uint8_t item,PageControlEvent event)
     if(activePage_==UiPage::FieldResetConfirmation){
         if(item==1){editorDraft_=(editorField_==0||editorField_==2)?100:0;
             if(editorField_==2&&tuneRole_==0)steeringEndpointDrafts_[steeringEndpointSide_]=editorDraft_;
+            if(editorField_==1)expoPreviewActive_=true;
         }
         drawDesignPage(UiPage::ValueEditor);return;
     }
     if(item==8){drawDesignPage(keypadReturnPage_);return;}
-    if(item==0||item==1){tuneRole_=0;tuneBank_=0;selectedChannel_=steeringChannel();openDesignEditor(item==0?1:2,UiPage::Tune);}
-    else if(item==2){tuneRole_=1;tuneBank_=0;selectedChannel_=throttleChannel();drawDesignPage(UiPage::Tune);}
-    else if(item==3){tuneRole_=0;tuneBank_=1;drawDesignPage(UiPage::Tune);}
-    else if(item==4)drawModelSelectPage();
-    else if(item==5)drawDesignPage(UiPage::TimerControl);
-    else if(item==6)drawDashboard();
-    else if(item==7)drawMainMenu();
+    if(activePage_==UiPage::QuickNavigation&&item<8){
+        loadV2Quick();
+        if(v2QuickEditing_){
+            v2QuickSlots_[item]=(v2QuickSlots_[item]+1)%v2ShortcutCount;
+            saveV2Quick();drawDesignPage(UiPage::QuickNavigation);
+        }else{
+            if(keypadReturnPage_==UiPage::WifiSetup&&v2QuickSlots_[item]>0&&v2QuickSlots_[item]<v2ShortcutCount)leaveWifiPage();
+            openV2Shortcut(v2QuickSlots_[item]);
+        }
+        return;
+    }
+
 }

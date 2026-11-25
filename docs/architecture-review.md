@@ -17,11 +17,16 @@ Three safety gaps are addressed:
   one lock. An in-flight cycle cannot overwrite a newer CUT, publish while an
   edited configuration is pending, or publish an outdated configuration revision.
   CUT does not refresh the sample timestamp.
-- Response, sub-trim, role, calibration, binding and mix edits require CUT and
+- Response edits other than expo/mechanical steering endpoints, plus non-steering sub-trim, role,
+  calibration, binding and mix edits require CUT and
   explicit neutral re-arm. The UI requests CUT before potentially blocking page
   construction or persistence. The engine independently detects structural edits
   and inhibits arming until the arm request is released. Ordinary live trim keeps
-  its existing behaviour.
+  its existing behaviour. Mechanical steering endpoint adjustment is deliberately
+  live from 14 November, as is bounded steering parameter subtrim. Logical mixer
+  sources exclude those mechanical limits and subtrim, retaining throttle output.
+  Bounded per-side expo is also live, with intentional propagation through shaped
+  logical/configured mixer sources. Draft preview never mutates saved settings.
 
 `ControlEngine` now owns input conditioning, slew/mix runtime and link/neutral
 qualification. Hardware and SDL provide samples and time to the same engine.
@@ -100,8 +105,11 @@ flowchart TD
     SAFETY --> CRSF["CRSF packed channels at 250 Hz"]
 ```
 
-The control task runs independently of LVGL. The Arduino `loop()` polls and
-dispatches physical inputs, updates the UI and performs settings edits. The
+The control task runs independently of LVGL. A dedicated physical-input task polls/debounces the controls and updates direct
+channel bindings. The Arduino `loop()` delivers queued UI/model actions, updates
+the UI and performs settings edits. Shared touch/expander I²C transactions use
+a static recursive mutex. Physical CUT is independently latched across UI
+publication; the control task vetoes missing/stale sampler health. The
 CRSF link task transmits a snapshot of the complete channel model.
 
 ## Required target flow
@@ -164,10 +172,11 @@ not perform response calculations used by the live control path.
 2. **Two sub-trim stages**
 
    `ChannelResponseProfile::subtrimPercent` and
-   `ChannelParameterValues::subtrimPermille` are both applied. This can be
-   useful only if they have deliberately different names and semantics; at
-   present it is an accidental-looking double offset. Preserve behaviour until
-   a migration decision is made, then expose one canonical sub-trim to users.
+   `ChannelParameterValues::subtrimPermille` are both applied. They are
+   deliberately distinct as of 2026-11-05: the profile field is labelled
+   Response offset and remains additive. Channel subtrim moves centre while
+   preserving endpoints, explicitly requested by the user; ordinary trim
+   follows as the live additive offset. Stored fields have not been migrated.
 
 3. **Internal extended travel is lost at transport conversion**
 

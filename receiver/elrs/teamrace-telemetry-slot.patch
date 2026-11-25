@@ -1,0 +1,44 @@
+From e0f3ad1ce621420bde5dc8f5a40672f9599f4465 Mon Sep 17 00:00:00 2001
+From: benjinne <benjinne@gmail.com>
+Date: Mon, 5 Oct 2026 15:31:36 -0700
+Subject: [PATCH] fix(rx): ignore packets heard in our own telemetry slot
+
+An inhibited teamrace receiver does not send telemetry, so it keeps
+listening through its telemetry slot and can hear the selected
+receiver's downlink. Downlink LINKSTATS shares RCDATA's type bits (0b00)
+and the CRC is seeded with UID ^ OtaNonce in both directions, so the
+packet passes validation and is unpacked as RC. Its payload byte lands
+in the round-robin switch, and once it decodes to this receiver's
+teamrace position the inhibit state machine passes a burst of real RC
+frames to the FC. Observed as RC bursts every ~6.4 s (20 telemetry
+slots) on an inhibited receiver with a second drone selected.
+
+The TX never transmits in a telemetry slot, so drop anything received
+there while connected. 3.x was immune because downlink used its own TLM
+type.
+---
+ src/src/rx_main.cpp | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/src/rx_main.cpp b/src/src/rx_main.cpp
+index 6f634e40e0..8cfb555961 100644
+--- a/src/src/rx_main.cpp
++++ b/src/src/rx_main.cpp
+@@ -1215,6 +1215,17 @@ bool ICACHE_RAM_ATTR RXdoneISR(SX12xxDriverCommon::rx_status const status)
+         return false; // Already received a packet, do not run ProcessRFPacket() again.
+     }
+ 
++    // The TX never transmits in a telemetry slot, so anything heard there is another
++    // receiver's downlink, e.g. the selected RX of a teamrace pair while this one is
++    // inhibited and not sending its own telemetry. Downlink LINKSTATS shares RCDATA's
++    // type bits and the CRC is seeded with UID ^ OtaNonce in both directions, so it
++    // would decode as RC data and briefly un-inhibit this receiver.
++    if (connectionState == connected && ExpressLRS_currTlmDenom != 1 &&
++        (OtaNonce % ExpressLRS_currTlmDenom) == 0)
++    {
++        return false;
++    }
++
+     if (ProcessRFPacket(status))
+     {
+         if (doStartTimer)

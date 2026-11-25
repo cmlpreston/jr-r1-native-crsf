@@ -1,5 +1,12 @@
 #pragma once
 #include <lvgl.h>
+#include "ui_symbol_fonts.h"
+LV_FONT_DECLARE(r1_dm_12);
+LV_FONT_DECLARE(r1_dm_14);
+LV_FONT_DECLARE(r1_dm_16);
+LV_FONT_DECLARE(r1_manrope_22);
+LV_FONT_DECLARE(r1_manrope_32);
+LV_FONT_DECLARE(r1_manrope_48);
 
 // Semantic roles, not arbitrary pixel requests. Keep this scale shared by
 // menus, editors, widgets and custom drawing. Bitmap/vector logos are separate.
@@ -15,13 +22,13 @@ enum Style : uint8_t {
 inline const lv_font_t *font(Style style)
 {
     switch(style) {
-        case Caption: return &lv_font_montserrat_12;
-        case Secondary: return &lv_font_montserrat_14;
-        case Menu: return &lv_font_montserrat_16;
-        case Heading: return &lv_font_montserrat_22;
-        case Reading: return &lv_font_montserrat_32;
-        case Hero: return &lv_font_montserrat_48;
+        case Caption: return &r1_dm_12;
+        case Secondary: return &r1_dm_14;
+        case Menu: return &r1_dm_16;
+        case Heading: return &r1_manrope_22;
+        case Reading: return &r1_manrope_32;
+        case Hero: return &r1_manrope_48;
     }
-    return &lv_font_montserrat_14;
+    return &r1_dm_14;
 }
 }

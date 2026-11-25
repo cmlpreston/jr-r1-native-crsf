@@ -38,8 +38,8 @@ constexpr InputEndpoint none()
 
 #ifdef JR_R1_XIAO_PCB
 constexpr const char *kEndpointLabels[] = {
-    "ADC GPIO7", "ADC GPIO8", "K2 PA1", "K2 PA4", "K2 PA0/2",
-    "K2 PA3/PB5", "K1 PA2/0", "K1 PA4/PB6", "K2 PB1/2", "K2 PB6",
+    "ADC GPIO7", "ADC GPIO8", "K2 PA1", "K2 PB6", "K2 PA0/2",
+    "K2 PA3/PB5", "K1 PA2/0", "K1 PA4/PB6", "K2 PB1/2", "K2 PA4",
     "UNMAPPED", "K1 PA1", "K1 PB5", "K1 PB3", "K1 PB4", "K1 PA3",
     "K1 PB0", "K1 PB2", "K1 PB1",
 };
@@ -61,16 +61,17 @@ static_assert(sizeof(kEndpointLabels) / sizeof(kEndpointLabels[0]) ==
 const PhysicalInputHardwareBinding kR1InputMap[] = {
 #ifdef JR_R1_XIAO_PCB
     // Schematic PDF_[No Variations] (5), 2026-09-13. Trim primary is MINUS.
+    // Drive/Idle labels corrected from installed-handset observation 2026-11-16.
     {PhysicalControlId::SteeringWheel, adc(STEERING_ADC_PIN), none()},
     {PhysicalControlId::ThrottleTrigger, adc(THROTTLE_ADC_PIN), none()},
     {PhysicalControlId::TimerButton, k2(1), none()},
-    {PhysicalControlId::DriveModeSwitch, k2(4), none()},
+    {PhysicalControlId::DriveModeSwitch, k2(14), none()},
     {PhysicalControlId::GripTrimA, k2(0), k2(2)},
     {PhysicalControlId::GripTrimB, k2(3), k2(13)},
     {PhysicalControlId::ThrottleTrim, k1(2), k1(0)},
     {PhysicalControlId::SteeringTrim, k1(4), k1(14)},
     {PhysicalControlId::Aux3Trim, k2(9), k2(10)},
-    {PhysicalControlId::IdleUpSwitch, k2(14), none()},
+    {PhysicalControlId::IdleUpSwitch, k2(4), none()},
     {PhysicalControlId::DisplaySwitch, none(), none()},
     {PhysicalControlId::KeyMode, k1(1), none()},
     {PhysicalControlId::KeyUp, k1(13), none()},

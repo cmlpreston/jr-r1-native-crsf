@@ -1,5 +1,13 @@
 # Shareable R1 simulator
 
+## Design 05 trial — 3 November 2026
+
+A separate interactive UI proposal is in [`trial-next/`](trial-next/README.md).
+Serve `simulator/web` and open `/trial-next/` for the 480×320 Drive strip,
+sensor-setting shortcuts, graph inspection, editable Quick menu and live mix
+feedback. Telemetry is simulated and settings remain in this browser; this is
+not the compiled firmware UI. The web build packages it for future deployment.
+
 Public demo: https://jr-r1-demo.vercel.app/
 
 Interactive design trial: https://jr-r1-demo.vercel.app/trial/

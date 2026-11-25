@@ -36,15 +36,46 @@ int main(){
   assert(wifiConnectionAllowed(false,status)==(status!=OutputSafetyStatus::Armed));
   assert(remoteControlAllowed(false,status)==(status==OutputSafetyStatus::Cut||status==OutputSafetyStatus::Calibration));
  }
- RemoteScreen s;int y=0,n=0;uint16_t data[12],row[4]={1,2,3,4};
- assert(!s.region(0,y,n));s.attach(data,4,3);assert(!s.region(0,y,n));
- s.capture(0,1,4,1,row);assert(s.region(0,y,n)&&y==0&&n==3);
- auto version=s.revision();assert(!s.region(version,y,n));
- s.capture(0,1,4,1,row);assert(s.revision()==version);
- row[1]=99;s.capture(0,1,4,1,row);assert(s.region(version,y,n)&&y==1&&n==1&&data[5]==99);
- auto next=s.revision();s.capture(-1,0,4,1,row);assert(s.revision()==next);
- s.capture(0,3,4,1,row);assert(s.revision()==next);
- assert(s.region(next+10,y,n)&&y==0&&n==3);
- s.attach(nullptr,0,0);assert(!s.region(0,y,n));
- puts("Remote screen dirty rows, bounds, resync and release PASS");
+ RemoteScreenLease lease;
+ assert(!lease.active(0));
+ lease.renew(UINT32_MAX-999);
+ assert(lease.active(0)); // millis() wraps during the lease.
+ assert(lease.active(RemoteScreenLease::TimeoutMs-1001));
+ assert(!lease.active(RemoteScreenLease::TimeoutMs-1000));
+ lease.renew(25000);assert(lease.active(25000));
+ lease.clear();assert(!lease.active(25000));
+
+ RemoteScreen screen;
+ uint16_t data[32],frame[32]={};
+ assert(!screen.strip(0,0).count);
+ screen.attach(data,4,8);
+ assert(!screen.strip(0,0).count);
+ screen.capture(0,0,4,8,frame);
+ auto strip=screen.strip(0,0);
+ assert(strip.first==0&&strip.count==RemoteScreen::MaxRowsPerReply&&strip.next==strip.count);
+ strip=screen.strip(0,strip.next);
+ assert(strip.first==4&&strip.count==4&&strip.next==0);
+ const auto baseline=screen.revision();
+ assert(!screen.strip(baseline,0).count);
+ screen.capture(0,0,4,8,frame);assert(screen.revision()==baseline);
+
+ uint16_t pixel=99;
+ screen.capture(1,0,1,1,&pixel);
+ screen.capture(1,7,1,1,&pixel);
+ const auto batchRevision=screen.revision();
+ strip=screen.strip(baseline,0);
+ assert(strip.first==0&&strip.count==1&&strip.next==7&&data[1]==99);
+ // A row redrawn behind the cursor stays dirty for the following batch.
+ pixel=100;screen.capture(1,0,1,1,&pixel);
+ strip=screen.strip(baseline,strip.next);
+ assert(strip.first==7&&strip.count==1&&strip.next==0&&data[29]==99);
+ strip=screen.strip(batchRevision,0);
+ assert(strip.first==0&&strip.count==1&&strip.next==0&&data[1]==100);
+
+ const auto current=screen.revision();
+ screen.capture(-1,0,1,1,&pixel);screen.capture(0,8,1,1,&pixel);
+ assert(screen.revision()==current);
+ assert(!screen.strip(0,-1).count&&!screen.strip(0,8).count);
+ screen.attach(nullptr,0,0);assert(!screen.strip(0,0).count);
+ puts("Remote screen bounded row strips, sparse updates, re-dirtied rows and viewer lease PASS");
 }
